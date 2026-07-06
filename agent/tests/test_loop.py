@@ -18,7 +18,9 @@ class ScriptedProvider(VisionProvider):
 
 def _patch_screen_and_actions(monkeypatch, executed):
     monkeypatch.setattr(screen, "capture_screenshot", lambda: (b"fake-png", (1920, 1080)))
-    monkeypatch.setattr(actions, "execute", lambda action: executed.append(action.kind) or "ok")
+    # Bypass real image handling; pass the capture through with scale 1.0.
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+    monkeypatch.setattr(actions, "execute", lambda action, **kw: executed.append(action.kind) or "ok")
 
 
 def test_loop_stops_on_done(monkeypatch):
@@ -84,6 +86,22 @@ def test_loop_reports_no_display_cleanly(monkeypatch):
     rc = loop.run(provider, config)
     assert rc == 4
     assert provider.calls == 0  # never even reached the model
+
+
+def test_loop_scales_model_coordinates_to_screen(monkeypatch):
+    executed = []
+    monkeypatch.setattr(screen, "capture_screenshot", lambda: (b"fake-png", (1920, 1080)))
+    # Model saw a half-size image, so real coords are 2x what it returned.
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, (960, 540), 2.0))
+    monkeypatch.setattr(actions, "execute", lambda action, **kw: executed.append(action) or "ok")
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 100, "y": 50},
+        {"action": "done", "text": "done"},
+    ])
+    rc = loop.run(provider, loop.AgentConfig(task="click", auto=True, max_steps=5))
+    assert rc == 0
+    assert (executed[0].x, executed[0].y) == (200, 100)  # scaled 2x
+    assert executed[0].raw["x"] == 200  # raw updated too, for logs/confirmation
 
 
 def test_loop_confirmation_required_without_auto(monkeypatch):

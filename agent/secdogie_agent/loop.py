@@ -17,6 +17,10 @@ class AgentConfig:
     auto: bool = False  # if False (default), every action needs a y/N confirmation
     dry_run: bool = False  # still calls the model each step, but never touches mouse/keyboard
     log_path: str | None = None
+    max_image_edge: int = screen.DEFAULT_MAX_EDGE  # long-edge cap for the image sent to the model
+    grid: bool = False  # overlay a labeled coordinate grid to help the model aim
+    move_duration: float = actions.DEFAULT_MOVE_DURATION  # cursor glide time (seconds)
+    settle: float = actions.DEFAULT_SETTLE  # hover pause before a click (seconds)
 
 
 def run(provider: VisionProvider, config: AgentConfig) -> int:
@@ -43,15 +47,22 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
 
     for step in range(1, config.max_steps + 1):
         try:
-            png, size = screen.capture_screenshot()
+            raw_png, real_size = screen.capture_screenshot()
         except screen.NoDisplayError as e:
             logger.error("%s", e)
             return 4
+        # Downscale to a known size and remember the factor to map the model's
+        # coordinates back to real screen pixels -- this is what keeps clicks
+        # landing on target.
+        model_png, model_size, scale = screen.prepare_for_model(
+            raw_png, real_size, max_edge=config.max_image_edge, grid=config.grid
+        )
         try:
-            action = provider.next_action(config.task, png, size, history)
+            action = provider.next_action(config.task, model_png, model_size, history)
         except Exception as e:
             logger.error("provider failed to produce an action: %s", e)
             return 1
+        action = action.scaled(scale)
 
         reasoning = action.reasoning or action.raw.get("reasoning", "")
         logger.info("step %d/%d: %s %s", step, config.max_steps, action.kind, f"({reasoning})" if reasoning else "")
@@ -81,7 +92,9 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             continue
 
         try:
-            result = actions.execute(action)
+            result = actions.execute(
+                action, move_duration=config.move_duration, settle=config.settle
+            )
         except Exception as e:
             result = f"error: {e}"
             logger.error("action failed: %s", e)
