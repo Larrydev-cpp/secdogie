@@ -21,7 +21,8 @@ class AgentConfig:
 
 def run(provider: VisionProvider, config: AgentConfig) -> int:
     """Returns a process-style exit code: 0 done, 1 provider error,
-    2 user declined to continue past an ask_user, 3 max_steps exhausted."""
+    2 user declined to continue past an ask_user, 3 max_steps exhausted,
+    4 no graphical display available to screenshot."""
     logger = safety.setup_logging(config.log_path)
     logger.info("task: %s", config.task)
     if config.auto:
@@ -41,7 +42,11 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
     history: list[HistoryStep] = []
 
     for step in range(1, config.max_steps + 1):
-        png, size = screen.capture_screenshot()
+        try:
+            png, size = screen.capture_screenshot()
+        except screen.NoDisplayError as e:
+            logger.error("%s", e)
+            return 4
         try:
             action = provider.next_action(config.task, png, size, history)
         except Exception as e:

@@ -74,6 +74,18 @@ def test_loop_ask_user_declined_stops_run(monkeypatch):
     assert provider.calls == 1
 
 
+def test_loop_reports_no_display_cleanly(monkeypatch):
+    def raise_no_display():
+        raise screen.NoDisplayError("no display")
+
+    monkeypatch.setattr(screen, "capture_screenshot", raise_no_display)
+    provider = ScriptedProvider([{"action": "done", "text": "unreached"}])
+    config = loop.AgentConfig(task="anything", auto=True, max_steps=5)
+    rc = loop.run(provider, config)
+    assert rc == 4
+    assert provider.calls == 0  # never even reached the model
+
+
 def test_loop_confirmation_required_without_auto(monkeypatch):
     executed = []
     _patch_screen_and_actions(monkeypatch, executed)

@@ -1,0 +1,66 @@
+# Building a single-file `secdogie-agent` executable
+
+This packages the agent into one standalone executable that bundles Python
+and every dependency, so an end user can run it **without installing Python
+or `pip install`-ing anything** — they download one file and run it.
+
+## Build
+
+From this directory (or run the script from anywhere):
+
+```sh
+./build.sh
+```
+
+or manually:
+
+```sh
+cd agent
+python3 -m venv .build-venv && source .build-venv/bin/activate
+pip install -e . pyinstaller
+cd packaging
+pyinstaller secdogie-agent.spec
+```
+
+Output:
+
+| Platform | File |
+|----------|------|
+| Linux    | `packaging/dist/secdogie-agent` |
+| macOS    | `packaging/dist/secdogie-agent` |
+| Windows  | `packaging/dist/secdogie-agent.exe` |
+
+## Important: binaries are platform-specific
+
+PyInstaller does **not** cross-compile. The binary is tied to the OS and CPU
+architecture it was built on (a Linux x86_64 build runs only on Linux
+x86_64, etc.). To ship binaries for multiple platforms, run the build once
+on each — a Linux box, a Mac, a Windows machine (or CI runners for each, see
+the repo's CI if configured).
+
+## Running the built binary
+
+```sh
+export ANTHROPIC_API_KEY=sk-...
+./dist/secdogie-agent "open a text editor and type hello" --dry-run
+```
+
+It must run in a **graphical desktop session** — it screenshots and drives
+the mouse/keyboard, so it can't do anything useful over plain SSH to a
+headless server. If there's no display it exits with a clear message
+(exit code 4) rather than a stack trace.
+
+## What's in here
+
+- `entry.py` — thin launcher PyInstaller freezes (forwards to `secdogie_agent.cli:main`).
+- `secdogie-agent.spec` — the PyInstaller build recipe (bundles `anthropic`,
+  `pyautogui`, `mss` and their hidden imports; produces a one-file console exe).
+- `build.sh` — convenience wrapper that sets up an isolated build venv and runs PyInstaller.
+
+## Notes on size and startup
+
+A one-file build is ~25–30 MB (it embeds the Python runtime) and unpacks to
+a temp dir on first launch, so it starts a beat slower than a normal
+program. If that matters, drop `--onefile` behavior by switching the spec to
+a `COLLECT` (one-folder) build — faster startup, but it ships as a folder
+instead of a single file.

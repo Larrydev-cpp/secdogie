@@ -34,6 +34,17 @@ pip install -e .
 export ANTHROPIC_API_KEY=sk-...   # the only thing you need to "plug in an API"
 ```
 
+### Or: a single-file executable (no Python needed)
+
+To hand someone a program they can run without installing Python at all,
+build a standalone binary with PyInstaller — see
+[`packaging/README.md`](packaging/README.md):
+
+```sh
+./packaging/build.sh          # produces packaging/dist/secdogie-agent
+./packaging/dist/secdogie-agent --help
+```
+
 ## Run
 
 ```sh
