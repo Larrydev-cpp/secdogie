@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 
@@ -23,7 +23,9 @@ VALID_ACTIONS = {
     "drag",
     "type",
     "key",
+    "hold_key",
     "scroll",
+    "open",
     "wait",
     "screenshot",
     "done",
@@ -43,6 +45,7 @@ class Action:
     dx: int | None = None
     dy: int | None = None
     seconds: float | None = None
+    path: str | None = None
     reasoning: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -62,8 +65,39 @@ class Action:
             dx=d.get("dx"),
             dy=d.get("dy"),
             seconds=d.get("seconds"),
+            path=d.get("path"),
             reasoning=d.get("reasoning"),
             raw=d,
+        )
+
+    def scaled(self, factor: float) -> "Action":
+        """Return a copy with all pixel coordinates multiplied by `factor`.
+
+        The model reasons in the (possibly downscaled) image's coordinate
+        space; this maps its coordinates back to real screen pixels. Only true
+        pixel positions (x/y/to_x/to_y) are scaled -- scroll amounts (dx/dy)
+        are not screen coordinates and are left alone. `raw` is updated too so
+        logs and confirmation prompts show the coordinates that will actually
+        be clicked, not the model-space ones.
+        """
+        if factor == 1.0:
+            return self
+
+        def s(v: int | None) -> int | None:
+            return int(round(v * factor)) if v is not None else None
+
+        new_raw = dict(self.raw)
+        for k in ("x", "y", "to_x", "to_y"):
+            if isinstance(new_raw.get(k), (int, float)):
+                new_raw[k] = int(round(new_raw[k] * factor))
+
+        return replace(
+            self,
+            x=s(self.x),
+            y=s(self.y),
+            to_x=s(self.to_x),
+            to_y=s(self.to_y),
+            raw=new_raw,
         )
 
 
@@ -111,3 +145,15 @@ class VisionProvider:
         history: list[HistoryStep],
     ) -> Action:
         raise NotImplementedError
+
+    def explain_task(
+        self,
+        task: str,
+        screenshot_png: bytes,
+        screen_size: tuple[int, int],
+    ) -> str | None:
+        """Return a short, plain-language restatement of the task plus a rough
+        plan, shown to the user for confirmation before the agent acts. A
+        provider that doesn't support briefings returns None (the agent then
+        skips the briefing step)."""
+        return None

@@ -1,4 +1,11 @@
 .venv/
+.build-venv/
 __pycache__/
 *.pyc
 *.egg-info/
+
+# packaging build artifacts (large, platform-specific, rebuildable)
+dist/
+build/
+packaging/dist/
+packaging/build/
