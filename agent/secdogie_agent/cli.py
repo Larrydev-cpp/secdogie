@@ -19,7 +19,24 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("task", nargs="?", help="natural-language description of what to accomplish")
     parser.add_argument("--model", default=None, help=f"vision model to use (default: {DEFAULT_MODEL})")
-    parser.add_argument("--max-steps", type=int, default=50)
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=None,
+        help="max frames/actions before stopping (default 50; 100000 in --watch mode)",
+    )
+    parser.add_argument(
+        "--watch",
+        action="store_true",
+        help="monitor mode: keep watching the screen frame by frame and only act when the "
+        "situation described in the task occurs (e.g. 'when X appears, open Y')",
+    )
+    parser.add_argument(
+        "--watch-interval",
+        type=float,
+        default=2.0,
+        help="minimum seconds between frames in --watch mode (default 2.0)",
+    )
     parser.add_argument(
         "--auto",
         action="store_true",
@@ -107,15 +124,20 @@ def main(argv: list[str] | None = None) -> int:
 
     provider = AnthropicProvider(model=resolved.model or DEFAULT_MODEL, api_key=resolved.api_key)
 
+    # Watch mode runs long by default; a one-shot task caps at 50 unless overridden.
+    max_steps = args.max_steps if args.max_steps is not None else (100000 if args.watch else 50)
+
     # Build AgentConfig, letting unset CLI options fall back to AgentConfig's defaults.
     cfg_kwargs: dict = dict(
         task=args.task,
-        max_steps=args.max_steps,
+        max_steps=max_steps,
         auto=args.auto,
         dry_run=args.dry_run,
         log_path=args.log_file,
         grid=args.grid,
         gui=gui,
+        watch=args.watch,
+        watch_interval=args.watch_interval,
     )
     if args.max_image_edge is not None:
         cfg_kwargs["max_image_edge"] = args.max_image_edge

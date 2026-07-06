@@ -122,6 +122,35 @@ Cursor movement is intentionally not instantaneous — teleport-and-click can
 miss hover/focus handlers in some apps, so the agent glides to the target
 and pauses briefly before pressing.
 
+## Actions it can take
+
+Each step the model picks one action: `left_click` / `right_click` /
+`double_click` / `move` / `drag`, `type` (types text — **Chinese/emoji/other
+Unicode is handled automatically via the clipboard**), `key` (a press or
+hotkey; arrow keys are `up`/`down`/`left`/`right`), `hold_key` (**hold key(s)
+down for N seconds** — use for continuous movement like walking in a game or
+panning a map), `scroll`, `open` (**open a file/folder/URL with the OS default
+program**, no mouse needed), `wait`, plus `done` and `ask_user`.
+
+## Watch mode (monitor a screen, act on a trigger)
+
+`--watch` turns the agent into a monitor: it polls the screen frame by frame
+and does **nothing** until the situation you described occurs, then acts.
+
+```sh
+# keep watching; when the condition appears, it opens a file
+secdogie-agent --watch "when a red 'BUILD FAILED' banner shows, open /home/me/build.log"
+secdogie-agent --watch --watch-interval 5 --auto "when the download finishes, double-click setup.exe"
+```
+
+- `--watch-interval N` sets the minimum seconds between frames (default 2).
+- While the trigger hasn't occurred, the model returns `wait` and the loop
+  logs "watching…" — no confirmation prompts for these idle frames.
+- When it triggers, the action runs (still confirmed unless `--auto`; use
+  `--watch --auto` for fully unattended monitoring).
+- Watch mode runs long by default (up to 100000 frames); cap it with
+  `--max-steps`.
+
 ## How it decides what to do
 
 Each step, the model sees the current screenshot, the task, and a short

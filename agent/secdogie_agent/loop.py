@@ -4,10 +4,28 @@ user stops it, or `max_steps` is hit.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 from . import actions, dialog, safety, screen
 from .providers.base import HistoryStep, VisionProvider
+
+# Benign actions that never need a confirmation prompt -- they don't touch the
+# mouse/keyboard in a way that can do harm.
+_BENIGN = {"wait", "screenshot"}
+
+# Injected into the task when --watch is on, turning the loop into a monitor:
+# most frames the model just reports "keep watching"; it only acts on a trigger.
+_WATCH_DIRECTIVE = """\
+
+MONITORING MODE: You are watching the screen continuously, frame by frame.
+On each frame, decide whether the situation described in the task has occurred:
+- If it has NOT occurred yet, reply with {"action": "wait", "reasoning": "..."} \
+and nothing else -- do not act.
+- Only when it HAS occurred, perform the appropriate action (e.g. "open" a file, \
+click, type).
+Use "done" only if the task is a one-shot that is now fully complete and no more \
+watching is needed."""
 
 
 @dataclass
@@ -22,6 +40,8 @@ class AgentConfig:
     move_duration: float = actions.DEFAULT_MOVE_DURATION  # cursor glide time (seconds)
     settle: float = actions.DEFAULT_SETTLE  # hover pause before a click (seconds)
     gui: bool = False  # use tkinter dialogs for the task briefing and ask_user prompts
+    watch: bool = False  # monitor mode: poll frames, act only when a condition triggers
+    watch_interval: float = 2.0  # minimum seconds between frames in watch mode
 
 
 def run(provider: VisionProvider, config: AgentConfig) -> int:
@@ -49,9 +69,17 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
         if briefing_rc is not None:
             return briefing_rc
 
+    effective_task = config.task + _WATCH_DIRECTIVE if config.watch else config.task
+    if config.watch:
+        logger.info("watch mode: polling every %.1fs until the trigger condition occurs", config.watch_interval)
+
     history: list[HistoryStep] = []
 
     for step in range(1, config.max_steps + 1):
+        # In watch mode, pace the polling so we don't hammer the API.
+        if config.watch and step > 1:
+            time.sleep(config.watch_interval)
+
         try:
             raw_png, real_size = screen.capture_screenshot()
         except screen.NoDisplayError as e:
@@ -64,13 +92,21 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             raw_png, real_size, max_edge=config.max_image_edge, grid=config.grid
         )
         try:
-            action = provider.next_action(config.task, model_png, model_size, history)
+            action = provider.next_action(effective_task, model_png, model_size, history)
         except Exception as e:
             logger.error("provider failed to produce an action: %s", e)
             return 1
         action = action.scaled(scale)
 
         reasoning = action.reasoning or action.raw.get("reasoning", "")
+
+        # In watch mode a "wait" means "trigger not seen yet" -- log quietly and
+        # keep watching without a confirmation prompt.
+        if config.watch and action.kind == "wait":
+            logger.info("watching (step %d): no trigger yet%s", step, f" -- {reasoning}" if reasoning else "")
+            history.append(HistoryStep(action=action, result="watching, condition not met"))
+            continue
+
         logger.info("step %d/%d: %s %s", step, config.max_steps, action.kind, f"({reasoning})" if reasoning else "")
 
         if action.kind == "done":
@@ -97,7 +133,8 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             history.append(HistoryStep(action=action, result="skipped (dry-run)"))
             continue
 
-        if not config.auto and not safety.confirm(f"Execute {action.kind}({action.raw})?"):
+        needs_confirm = not config.auto and action.kind not in _BENIGN
+        if needs_confirm and not safety.confirm(f"Execute {action.kind}({action.raw})?"):
             logger.info("user declined action: %s", action.kind)
             history.append(HistoryStep(action=action, result="skipped (user declined)"))
             continue

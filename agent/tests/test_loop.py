@@ -104,6 +104,53 @@ def test_loop_scales_model_coordinates_to_screen(monkeypatch):
     assert executed[0].raw["x"] == 200  # raw updated too, for logs/confirmation
 
 
+def test_benign_wait_needs_no_confirmation(monkeypatch):
+    # Even without --auto, a benign `wait` should execute without prompting.
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    provider = ScriptedProvider([
+        {"action": "wait", "seconds": 0},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(task="idle", auto=False, max_steps=10)
+    rc = loop.run(provider, config)  # no input() mock -> would hang if it prompted
+    assert rc == 0
+    assert executed == ["wait"]
+
+
+def test_watch_mode_waits_until_trigger_then_acts(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    provider = ScriptedProvider([
+        {"action": "wait", "reasoning": "trigger not seen"},
+        {"action": "wait", "reasoning": "still not seen"},
+        {"action": "open", "path": "/tmp/log.txt", "reasoning": "condition met"},
+        {"action": "done", "text": "handled"},
+    ])
+    config = loop.AgentConfig(task="when X appears open the log", watch=True,
+                              watch_interval=0, auto=True, max_steps=20)
+    rc = loop.run(provider, config)
+    assert rc == 0
+    # waits are the "keep watching" signal and are not executed; only the
+    # triggered open runs.
+    assert executed == ["open"]
+    assert provider.calls == 4
+
+
+def test_watch_wait_not_confirmed_even_without_auto(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    provider = ScriptedProvider([
+        {"action": "wait", "reasoning": "watching"},
+        {"action": "done", "text": "stop"},
+    ])
+    config = loop.AgentConfig(task="watch something", watch=True, watch_interval=0,
+                              auto=False, max_steps=5)
+    rc = loop.run(provider, config)  # no input() mock; must not prompt on the wait
+    assert rc == 0
+    assert executed == []
+
+
 def test_loop_confirmation_required_without_auto(monkeypatch):
     executed = []
     _patch_screen_and_actions(monkeypatch, executed)

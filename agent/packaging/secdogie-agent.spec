@@ -28,6 +28,7 @@ hidden = (
     + collect_submodules("anthropic")
     + collect_submodules("pyautogui")
     + collect_submodules("mss")
+    + collect_submodules("pyperclip")
 )
 
 a = Analysis(

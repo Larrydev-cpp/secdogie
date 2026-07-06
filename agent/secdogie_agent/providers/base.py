@@ -23,7 +23,9 @@ VALID_ACTIONS = {
     "drag",
     "type",
     "key",
+    "hold_key",
     "scroll",
+    "open",
     "wait",
     "screenshot",
     "done",
@@ -43,6 +45,7 @@ class Action:
     dx: int | None = None
     dy: int | None = None
     seconds: float | None = None
+    path: str | None = None
     reasoning: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -62,6 +65,7 @@ class Action:
             dx=d.get("dx"),
             dy=d.get("dy"),
             seconds=d.get("seconds"),
+            path=d.get("path"),
             reasoning=d.get("reasoning"),
             raw=d,
         )

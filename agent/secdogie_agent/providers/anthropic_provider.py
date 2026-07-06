@@ -24,9 +24,14 @@ Action schema (choose exactly one "action"):
   {{"action": "double_click", "x": int, "y": int, "reasoning": str}}
   {{"action": "move", "x": int, "y": int, "reasoning": str}}
   {{"action": "drag", "x": int, "y": int, "to_x": int, "to_y": int, "reasoning": str}}
-  {{"action": "type", "text": str, "reasoning": str}}
-  {{"action": "key", "keys": [str, ...], "reasoning": str}}   e.g. ["ctrl","c"] or ["Return"]
+  {{"action": "type", "text": str, "reasoning": str}}   -- types text; non-ASCII (e.g. Chinese) is handled automatically
+  {{"action": "key", "keys": [str, ...], "reasoning": str}}   -- one press or a hotkey combo.
+        Arrow keys are "up"/"down"/"left"/"right"; others e.g. ["ctrl","c"], ["Return"], ["esc"]
+  {{"action": "hold_key", "keys": [str, ...], "seconds": number, "reasoning": str}}
+        -- hold key(s) down for `seconds` then release; use for continuous movement,
+           e.g. holding an arrow key to keep moving. ["right"] held 1.5s, etc.
   {{"action": "scroll", "x": int, "y": int, "dx": int, "dy": int, "reasoning": str}}
+  {{"action": "open", "path": str, "reasoning": str}}   -- open a file/folder/URL with the OS default program
   {{"action": "wait", "seconds": number, "reasoning": str}}
   {{"action": "done", "text": str}}        -- task is complete, text = summary for the user
   {{"action": "ask_user", "text": str}}    -- you need clarification or explicit permission before continuing
