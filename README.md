@@ -14,6 +14,15 @@ control.**
   what to do next, and executes one action at a time (click, type, scroll,
   ...) until the task is done. See [`agent/README.md`](agent/README.md).
 
+## Downloads
+
+Pre-built binaries (a single-file `secdogie-agent` executable for Linux,
+Windows, and macOS, plus the `secdogie-tunnel` binary for Linux) are
+published on the [Releases](../../releases) page. They're built and attached
+automatically when a `v*` tag is pushed — see
+[`docs/RELEASING.md`](docs/RELEASING.md). Prefer to build from source?
+Each subdirectory's README has instructions.
+
 ## How they fit together
 
 `agent/` only needs *some* screen and input device to drive — normally the

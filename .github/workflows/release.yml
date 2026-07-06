@@ -1,0 +1,148 @@
+name: release
+
+# Builds downloadable binaries and attaches them to a GitHub Release.
+# Triggers when you push a version tag (e.g. `git tag v0.1.0 && git push --tags`),
+# or manually from the Actions tab (workflow_dispatch) for a dry run that only
+# builds artifacts without publishing a release.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  # --- Python agent: one single-file executable per OS -----------------------
+  build-agent:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: agent-linux-x86_64
+          - os: windows-latest
+            asset: agent-windows-x86_64
+          - os: macos-latest
+            asset: agent-macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build single-file executable
+        shell: bash
+        working-directory: agent
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e . pyinstaller
+          cd packaging
+          pyinstaller secdogie-agent.spec --distpath ./dist --workpath ./build --noconfirm
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          mkdir -p staging
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp agent/packaging/dist/secdogie-agent.exe "staging/${{ matrix.asset }}.exe"
+          else
+            cp agent/packaging/dist/secdogie-agent "staging/${{ matrix.asset }}"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: staging/*
+
+  # --- C tunnel: Linux-only (uses the Linux TUN device / ioctl API) ----------
+  build-tunnel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake libsodium-dev pkg-config
+
+      - name: Build
+        working-directory: tunnel
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake --build build -j
+
+      - name: Run unit tests
+        working-directory: tunnel
+        run: ./build/test_protocol
+
+      - name: Stage artifact
+        run: |
+          mkdir -p staging
+          cp tunnel/build/secdogie-tunnel staging/secdogie-tunnel-linux-x86_64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tunnel-linux-x86_64
+          path: staging/*
+
+  # --- Publish: gather everything, zip with docs, attach to the Release ------
+  release:
+    needs: [build-agent, build-tunnel]
+    runs-on: ubuntu-latest
+    # Only publish an actual Release for tag pushes; a manual run just builds.
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: downloaded
+
+      - name: Package each binary with its docs into a zip
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          version="${GITHUB_REF_NAME}"
+
+          # package <zip-base-name> <source-binary> <inner-binary-name> <doc-file...>
+          package() {
+            local name="$1"; local binary="$2"; local inner="$3"; shift 3
+            local dir="pkg/${name}"
+            rm -rf "$dir" && mkdir -p "$dir"
+            cp "$binary" "$dir/${inner}"
+            [ -f "$dir/${inner}" ] && [ -x "$binary" ] && chmod +x "$dir/${inner}" || true
+            for d in "$@"; do cp "$d" "$dir/"; done
+            (cd pkg && zip -r "../release/${name}.zip" "${name}")
+          }
+
+          # Agent binaries (one per platform). Keep .exe on Windows so it runs;
+          # give it a clean inner name regardless of the artifact's own name.
+          for f in downloaded/agent-*/*; do
+            base="$(basename "$f")"                    # agent-linux-x86_64 | agent-windows-x86_64.exe | agent-macos-arm64
+            platform="${base#agent-}"; platform="${platform%.exe}"
+            case "$base" in
+              *.exe) inner="secdogie-agent.exe" ;;
+              *)     inner="secdogie-agent" ;;
+            esac
+            package "secdogie-agent-${platform}-${version}" "$f" "$inner" \
+              agent/README.md agent/packaging/README.md LICENSE
+          done
+
+          # Tunnel binary (Linux only).
+          for f in downloaded/tunnel-*/*; do
+            package "secdogie-tunnel-linux-x86_64-${version}" "$f" "secdogie-tunnel" \
+              tunnel/README.md tunnel/PROTOCOL.md LICENSE
+          done
+
+          ls -la release
+
+      - name: Create GitHub Release and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            release/*.zip \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes
