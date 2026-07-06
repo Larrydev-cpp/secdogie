@@ -44,6 +44,15 @@ Rules:
 - One action per reply. You will be shown the result and a fresh screenshot before the next one.
 """
 
+BRIEFING_PROMPT = """You are about to operate a real computer to accomplish a task for a user.
+Look at the current screenshot, then reply in plain language (NOT JSON):
+
+1. Restate the task in one sentence, as you understand it.
+2. Give a short numbered plan (2-6 steps) of how you'll do it from what's on screen now.
+3. Call out anything risky or that you'd need to confirm (logins, payments, deleting data).
+
+Keep it under ~150 words. This is shown to the user to approve before you start."""
+
 
 class AnthropicProvider(VisionProvider):
     def __init__(self, model: str = "claude-sonnet-5", api_key: str | None = None, max_tokens: int = 1024):
@@ -98,3 +107,29 @@ class AnthropicProvider(VisionProvider):
         if data.get("action") not in VALID_ACTIONS:
             raise ValueError(f"model returned an unrecognized action: {data!r}")
         return Action.from_dict(data)
+
+    def explain_task(
+        self,
+        task: str,
+        screenshot_png: bytes,
+        screen_size: tuple[int, int],
+    ) -> str | None:
+        b64 = base64.b64encode(screenshot_png).decode("ascii")
+        response = self._client.messages.create(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            system=BRIEFING_PROMPT,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {"type": "base64", "media_type": "image/png", "data": b64},
+                        },
+                        {"type": "text", "text": f"Task: {task}"},
+                    ],
+                }
+            ],
+        )
+        return "".join(block.text for block in response.content if block.type == "text").strip() or None

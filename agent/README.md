@@ -78,6 +78,23 @@ secdogie-agent "open a text editor and type 'hello world'"             # confirm
 secdogie-agent "..." --auto                                             # no confirmations -- see warning above
 ```
 
+### GUI mode: task dialog + plan briefing
+
+`--gui` opens graphical dialogs instead of using the terminal:
+
+```sh
+secdogie-agent --gui                 # a window prompts for the task
+secdogie-agent --gui "book a table"  # task given, still shows the plan dialog
+```
+
+The flow is: (1) if you didn't pass a task, a window asks for it; (2) the
+model looks at your current screen and, **before touching anything**, shows a
+popup restating the task as it understood it plus a short numbered plan — you
+click **Proceed** or **Cancel**; (3) any `ask_user` question during the run
+appears as a Yes/No popup. GUI mode needs tkinter (bundled with standard
+Python; on Linux `sudo apt install python3-tk`). If it isn't available, the
+agent prints a notice and falls back to the terminal automatically.
+
 Requires a GUI session (X11/most desktop environments; Wayland support
 depends on your compositor's support in `mss`/`pyautogui`). It will not do
 anything useful over SSH to a headless box with no display.
@@ -121,6 +138,7 @@ guarantee; you are still the backstop via the per-step confirmation.
 secdogie_agent/
   cli.py                 argument parsing, wires a provider into the loop
   config.py              API-key/model resolution (CLI > env > config file)
+  dialog.py              optional tkinter dialogs (task entry, plan briefing, ask_user)
   loop.py                the screenshot -> action -> execute -> repeat loop
   screen.py               screenshot capture + resize/coordinate scaling (mss + Pillow)
   actions.py              executes an Action via pyautogui (smooth move + settle)

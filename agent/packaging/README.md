@@ -50,6 +50,14 @@ the mouse/keyboard, so it can't do anything useful over plain SSH to a
 headless server. If there's no display it exits with a clear message
 (exit code 4) rather than a stack trace.
 
+## GUI mode (--gui) and tkinter
+
+The agent's `--gui` dialogs use tkinter. PyInstaller bundles tkinter
+automatically **only if it's importable on the build machine**. Standard
+python.org builds for Windows and macOS include it; on Linux install it first
+(`sudo apt install python3-tk`) before building, or the resulting binary will
+just fall back to terminal mode. GUI mode also needs a display at run time.
+
 ## What's in here
 
 - `entry.py` — thin launcher PyInstaller freezes (forwards to `secdogie_agent.cli:main`).

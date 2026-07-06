@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from . import actions, safety, screen
+from . import actions, dialog, safety, screen
 from .providers.base import HistoryStep, VisionProvider
 
 
@@ -21,6 +21,7 @@ class AgentConfig:
     grid: bool = False  # overlay a labeled coordinate grid to help the model aim
     move_duration: float = actions.DEFAULT_MOVE_DURATION  # cursor glide time (seconds)
     settle: float = actions.DEFAULT_SETTLE  # hover pause before a click (seconds)
+    gui: bool = False  # use tkinter dialogs for the task briefing and ask_user prompts
 
 
 def run(provider: VisionProvider, config: AgentConfig) -> int:
@@ -42,6 +43,11 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
         # Not just ImportError: pyautogui's own import chain (mouseinfo) raises other
         # exceptions (e.g. KeyError on DISPLAY) when there's no GUI session at all.
         logger.warning("pyautogui unavailable (%s); only --dry-run will work", e)
+
+    if config.gui:
+        briefing_rc = _run_briefing(provider, config, logger)
+        if briefing_rc is not None:
+            return briefing_rc
 
     history: list[HistoryStep] = []
 
@@ -74,8 +80,13 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
 
         if action.kind == "ask_user":
             question = action.text or action.raw.get("text", "")
-            print(f"\n[secdogie-agent] the model is asking: {question}")
-            if not safety.confirm("Allow the agent to continue?"):
+            logger.info("model is asking: %s", question)
+            if config.gui:
+                allowed = dialog.ask_user(question)
+            else:
+                print(f"\n[secdogie-agent] the model is asking: {question}")
+                allowed = safety.confirm("Allow the agent to continue?")
+            if not allowed:
                 logger.info("user declined to continue after ask_user")
                 return 2
             history.append(HistoryStep(action=action, result="user confirmed, continuing"))
@@ -102,3 +113,33 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
 
     logger.warning("reached max_steps (%d) without the model signaling done", config.max_steps)
     return 3
+
+
+def _run_briefing(provider: VisionProvider, config: AgentConfig, logger) -> int | None:
+    """Before acting, have the model restate the task and its plan, and show it
+    in a GUI dialog for approval. Returns None to proceed, or an exit code to
+    stop (2 = user cancelled, 4 = no display)."""
+    try:
+        raw_png, real_size = screen.capture_screenshot()
+    except screen.NoDisplayError as e:
+        logger.error("%s", e)
+        return 4
+
+    model_png, _size, _scale = screen.prepare_for_model(
+        raw_png, real_size, max_edge=config.max_image_edge
+    )
+    try:
+        plan = provider.explain_task(config.task, model_png, real_size)
+    except Exception as e:
+        # A briefing failure shouldn't block the run; just note it and continue.
+        logger.warning("could not get a task briefing from the model: %s", e)
+        return None
+
+    if not plan:
+        return None  # provider doesn't do briefings
+
+    logger.info("task briefing:\n%s", plan)
+    if not dialog.confirm_plan(config.task, plan):
+        logger.info("user cancelled at the task briefing")
+        return 2
+    return None

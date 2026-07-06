@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 from . import config as config_mod
+from . import dialog
 from .loop import AgentConfig, run
 from .providers.anthropic_provider import AnthropicProvider
 
@@ -54,6 +55,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--move-duration", type=float, default=None, help="seconds to glide the cursor to a target")
     parser.add_argument("--settle", type=float, default=None, help="seconds to hover before clicking")
+    parser.add_argument(
+        "--gui",
+        action="store_true",
+        help="use GUI dialogs: enter the task in a window, review the model's plan before it acts, "
+        "and answer its questions in a popup (needs tkinter; falls back to the terminal if unavailable)",
+    )
     args = parser.parse_args(argv)
 
     if args.init_config:
@@ -66,8 +73,25 @@ def main(argv: list[str] | None = None) -> int:
         print('edit it and set ANTHROPIC_API_KEY, then run: secdogie-agent "your task"')
         return 0
 
+    # GUI mode: verify we can actually show a window, else fall back gracefully.
+    gui = args.gui
+    if gui and not dialog.gui_available():
+        print(
+            "warning: --gui requested but no GUI is available (tkinter missing or no "
+            "display); falling back to the terminal.",
+            file=sys.stderr,
+        )
+        gui = False
+
+    # If no task was given, prompt for it in a window (GUI) -- otherwise it's required.
     if not args.task:
-        parser.error("the following arguments are required: task")
+        if gui:
+            args.task = dialog.ask_task()
+            if not args.task:
+                print("cancelled: no task entered.")
+                return 0
+        else:
+            parser.error("the following arguments are required: task")
 
     resolved = config_mod.resolve(
         cli_api_key=args.api_key, cli_model=args.model, config_path=args.config
@@ -91,6 +115,7 @@ def main(argv: list[str] | None = None) -> int:
         dry_run=args.dry_run,
         log_path=args.log_file,
         grid=args.grid,
+        gui=gui,
     )
     if args.max_image_edge is not None:
         cfg_kwargs["max_image_edge"] = args.max_image_edge

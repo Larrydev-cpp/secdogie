@@ -141,3 +141,15 @@ class VisionProvider:
         history: list[HistoryStep],
     ) -> Action:
         raise NotImplementedError
+
+    def explain_task(
+        self,
+        task: str,
+        screenshot_png: bytes,
+        screen_size: tuple[int, int],
+    ) -> str | None:
+        """Return a short, plain-language restatement of the task plus a rough
+        plan, shown to the user for confirmation before the agent acts. A
+        provider that doesn't support briefings returns None (the agent then
+        skips the briefing step)."""
+        return None
