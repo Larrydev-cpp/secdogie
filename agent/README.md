@@ -70,11 +70,30 @@ build a standalone binary with PyInstaller — see
 ./packaging/dist/secdogie-agent --help
 ```
 
-## Run
+## Opening it (downloaded binary — no command line needed)
+
+If you downloaded a release zip (from the
+[Releases](../../releases) page), it already contains a **double-click
+launcher** next to the program — you don't need to touch a terminal:
+
+| Your OS | Double-click this |
+|---------|-------------------|
+| Windows | `open.bat` |
+| macOS   | `open.command` (first time: right-click → **Open** to get past Gatekeeper) |
+| Linux   | `run.sh` (from a terminal: `./run.sh`) |
+
+On the **first run** the launcher creates a config file and tells you where
+it is; open that file, paste your Anthropic API key after
+`ANTHROPIC_API_KEY=`, save, and launch again. After that it opens a **window
+asking what you want it to do** (that's `--gui` mode), shows you the model's
+plan, and asks you to approve before it acts.
+
+## Run (from a terminal)
 
 ```sh
 secdogie-agent "open a text editor and type 'hello world'" --dry-run   # see what it would do first
 secdogie-agent "open a text editor and type 'hello world'"             # confirms every action (default)
+secdogie-agent --gui                                                    # pops up a task window instead
 secdogie-agent "..." --auto                                             # no confirmations -- see warning above
 ```
 
@@ -150,6 +169,25 @@ secdogie-agent --watch --watch-interval 5 --auto "when the download finishes, do
   `--watch --auto` for fully unattended monitoring).
 - Watch mode runs long by default (up to 100000 frames); cap it with
   `--max-steps`.
+
+## Can it play games?
+
+Only **slow, turn-based ones** — and that's a hard limit, not a tuning issue.
+Every action costs one screenshot → API round-trip → one move, so the agent
+makes roughly one decision every **1–3 seconds**. That's fine for games where
+nothing happens until you move, and hopeless for anything real-time.
+
+- **Works:** Minesweeper, Solitaire and other card games, 2048, Sudoku,
+  chess/checkers/Go, turn-based strategy, point-and-click and text adventures,
+  simple board/puzzle games.
+- **Doesn't work:** platformers, shooters, racing, fighting, rhythm, or any
+  action game needing reactions faster than a second. `hold_key` lets it hold
+  a direction to move, but the *next* decision still waits on the model, so it
+  can't dodge or aim in real time.
+
+Think "a patient assistant taking one considered move at a time", not "a reflex
+bot". For reactive setups, `--watch` fits better (wait for a condition, then
+make one move) than trying to play frame-by-frame.
 
 ## How it decides what to do
 

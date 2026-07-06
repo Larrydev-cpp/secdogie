@@ -114,20 +114,25 @@ jobs:
             cp "$binary" "$dir/${inner}"
             [ -f "$dir/${inner}" ] && [ -x "$binary" ] && chmod +x "$dir/${inner}" || true
             for d in "$@"; do cp "$d" "$dir/"; done
+            # keep shell launchers executable inside the zip
+            chmod +x "$dir"/*.command "$dir"/*.sh 2>/dev/null || true
             (cd pkg && zip -r "../release/${name}.zip" "${name}")
           }
 
           # Agent binaries (one per platform). Keep .exe on Windows so it runs;
           # give it a clean inner name regardless of the artifact's own name.
+          # Bundle the matching double-click launcher so non-technical users can
+          # just run open.bat / open.command / run.sh.
           for f in downloaded/agent-*/*; do
             base="$(basename "$f")"                    # agent-linux-x86_64 | agent-windows-x86_64.exe | agent-macos-arm64
             platform="${base#agent-}"; platform="${platform%.exe}"
             case "$base" in
-              *.exe) inner="secdogie-agent.exe" ;;
-              *)     inner="secdogie-agent" ;;
+              *windows*) inner="secdogie-agent.exe"; launcher="agent/packaging/launchers/open.bat" ;;
+              *macos*)   inner="secdogie-agent";     launcher="agent/packaging/launchers/open.command" ;;
+              *)         inner="secdogie-agent";     launcher="agent/packaging/launchers/run.sh" ;;
             esac
             package "secdogie-agent-${platform}-${version}" "$f" "$inner" \
-              agent/README.md agent/packaging/README.md LICENSE
+              "$launcher" agent/README.md agent/packaging/README.md LICENSE
           done
 
           # Tunnel binary (Linux only).
