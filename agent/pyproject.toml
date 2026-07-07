@@ -17,6 +17,11 @@ dependencies = [
     "pyperclip>=1.8.2",
 ]
 
+[project.optional-dependencies]
+# The OpenAI provider is opt-in so the default install stays lean; the CLI
+# prints an install hint if you point it at a gpt-* model without it.
+openai = ["openai>=1.0.0"]
+
 [project.scripts]
 secdogie-agent = "secdogie_agent.cli:main"
 

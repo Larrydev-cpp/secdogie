@@ -7,7 +7,7 @@ from pathlib import Path
 from . import config as config_mod
 from . import dialog
 from .loop import AgentConfig, run
-from .providers.anthropic_provider import AnthropicProvider
+from .providers import make_provider
 
 DEFAULT_MODEL = "claude-sonnet-5"
 
@@ -18,7 +18,18 @@ def main(argv: list[str] | None = None) -> int:
         description="Vision-LLM computer-control agent: point it at a task, it drives your mouse/keyboard.",
     )
     parser.add_argument("task", nargs="?", help="natural-language description of what to accomplish")
-    parser.add_argument("--model", default=None, help=f"vision model to use (default: {DEFAULT_MODEL})")
+    parser.add_argument(
+        "--model",
+        default=None,
+        help=f"vision model to use (default: {DEFAULT_MODEL}); the prefix picks the provider "
+        "(claude-* -> Anthropic, gpt-*/o-series -> OpenAI), or use a provider/model ref like openai/gpt-5.5",
+    )
+    parser.add_argument(
+        "--provider",
+        choices=["anthropic", "openai"],
+        default=None,
+        help="force the provider instead of inferring it from the model id",
+    )
     parser.add_argument(
         "--max-steps",
         type=int,
@@ -50,7 +61,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--log-file", default=None, help="also append the run log to this file")
 
     # API key / config file
-    parser.add_argument("--api-key", default=None, help="Anthropic API key (overrides env var and config file)")
+    parser.add_argument(
+        "--api-key",
+        default=None,
+        help="API key for the chosen provider (overrides env var and config file)",
+    )
     parser.add_argument("--config", default=None, help="path to a config file to read the API key/model from")
     parser.add_argument(
         "--init-config",
@@ -87,7 +102,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {e}", file=sys.stderr)
             return 1
         print(f"wrote config template to {path}")
-        print('edit it and set ANTHROPIC_API_KEY, then run: secdogie-agent "your task"')
+        print('edit it and set your provider\'s API key, then run: secdogie-agent "your task"')
         return 0
 
     # GUI mode: verify we can actually show a window, else fall back gracefully.
@@ -111,18 +126,25 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("the following arguments are required: task")
 
     resolved = config_mod.resolve(
-        cli_api_key=args.api_key, cli_model=args.model, config_path=args.config
+        cli_api_key=args.api_key,
+        cli_model=args.model,
+        config_path=args.config,
+        cli_provider=args.provider,
     )
     if not resolved.api_key:
         print(
-            "error: no API key found. Provide one via --api-key, the ANTHROPIC_API_KEY "
-            "environment variable, or a config file (run `secdogie-agent --init-config` "
-            "to create one).",
+            f"error: no API key found for the {resolved.provider} provider. Provide one via "
+            f"--api-key, the {resolved.env_var} environment variable, or a config file (run "
+            "`secdogie-agent --init-config` to create one).",
             file=sys.stderr,
         )
         return 1
 
-    provider = AnthropicProvider(model=resolved.model or DEFAULT_MODEL, api_key=resolved.api_key)
+    try:
+        provider = make_provider(resolved.provider, resolved.model, resolved.api_key)
+    except RuntimeError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
 
     # Watch mode runs long by default; a one-shot task caps at 50 unless overridden.
     max_steps = args.max_steps if args.max_steps is not None else (100000 if args.watch else 50)

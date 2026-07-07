@@ -21,9 +21,31 @@ their APIs. This project deliberately uses the *plain* vision message API
 instead — send a screenshot, ask for one JSON action back in a schema this
 project owns (see `secdogie_agent/providers/base.py`) — so the same agent
 loop works with any vision-capable chat model behind a `VisionProvider`
-subclass, not just one vendor's beta feature. `AnthropicProvider` is the
-reference implementation; swapping in another provider means implementing
-`VisionProvider.next_action()`.
+subclass, not just one vendor's beta feature. Two providers ship today —
+`AnthropicProvider` (Claude, the default) and `OpenAIProvider` (GPT / o-series)
+— and both ask their model for the *same* action schema (kept in
+`secdogie_agent/providers/prompts.py`). Adding another vendor is one more
+`VisionProvider` subclass implementing `next_action()`.
+
+### Picking a provider and model
+
+The model id selects the provider: `claude-*` routes to Anthropic, `gpt-*` and
+the `o1`/`o3`/`o4` reasoning models route to OpenAI. You can also name the
+provider explicitly, either with a `provider/model` ref or the `--provider`
+flag:
+
+```sh
+secdogie-agent "..."                                 # claude-sonnet-5 (default)
+secdogie-agent "..." --model gpt-5.5                 # routes to OpenAI
+secdogie-agent "..." --model openai/gpt-5.5          # same, explicit ref
+secdogie-agent "..." --provider openai               # OpenAI's default model
+```
+
+The OpenAI provider needs the `openai` package, installed as an extra:
+
+```sh
+pip install -e '.[openai]'      # or: pip install openai
+```
 
 ## Install
 
@@ -35,11 +57,12 @@ pip install -e .
 
 ### Plugging in your API key
 
-You need an Anthropic API key. The agent looks for it in this order — the
-first one found wins:
+You need an API key for whichever provider your model uses — an Anthropic key
+for `claude-*` models, an OpenAI key for `gpt-*` / o-series models. The agent
+looks for it in this order — the first one found wins:
 
 1. `--api-key sk-...` on the command line
-2. the `ANTHROPIC_API_KEY` environment variable
+2. the provider's environment variable (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`)
 3. a **config file** you fill in once
 
 The config file is the easiest if you don't want to set an env var every
@@ -52,6 +75,7 @@ secdogie-agent --init-config      # writes ~/.config/secdogie/config (chmod 600)
 ```ini
 # ~/.config/secdogie/config
 ANTHROPIC_API_KEY=sk-...
+# OPENAI_API_KEY=sk-...            # only if you use gpt-* / o-series models
 # SECDOGIE_MODEL=claude-sonnet-5   # optional default model
 ```
 

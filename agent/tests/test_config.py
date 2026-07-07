@@ -43,6 +43,46 @@ def test_model_precedence_cli_over_env(monkeypatch):
     assert r.model == "cli-model"
 
 
+def test_openai_model_selects_openai_key(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "oai-key")
+    r = config_mod.resolve(cli_model="gpt-5.5")
+    assert r.provider == "openai"
+    assert r.env_var == "OPENAI_API_KEY"
+    assert r.api_key == "oai-key"
+    assert "OPENAI_API_KEY" in r.api_key_source
+
+
+def test_wrong_providers_key_is_not_reused(monkeypatch):
+    # An Anthropic key must not satisfy an OpenAI model, and vice versa.
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "ak")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    r = config_mod.resolve(cli_model="gpt-5.5")
+    assert r.provider == "openai"
+    assert r.api_key is None
+
+
+def test_provider_slash_model_ref_strips_prefix_and_picks_key(monkeypatch, tmp_path):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("SECDOGIE_MODEL", raising=False)
+    cfg = tmp_path / "secdogie.env"
+    cfg.write_text("OPENAI_API_KEY=file-oai\n")
+    r = config_mod.resolve(cli_model="openai/gpt-5.5", config_path=str(cfg))
+    assert r.provider == "openai"
+    assert r.model == "gpt-5.5"  # provider/ prefix stripped for the SDK
+    assert r.api_key == "file-oai"
+
+
+def test_explicit_provider_flag_overrides_inference(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "oai")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("SECDOGIE_MODEL", raising=False)
+    r = config_mod.resolve(cli_provider="openai")
+    assert r.provider == "openai"
+    assert r.api_key == "oai"
+
+
 def test_parse_ignores_blanks_and_comments(tmp_path):
     p = tmp_path / "c"
     p.write_text("\n# a comment\n\nANTHROPIC_API_KEY=abc\nGARBAGE LINE NO EQUALS\n")
