@@ -50,6 +50,20 @@ def test_hold_multiple_keys_releases_in_reverse(monkeypatch):
     assert ups == ["right", "shift"]  # released in reverse order
 
 
+def test_key_names_are_lowercased(monkeypatch):
+    # The model sometimes capitalizes special keys ('Return'), which pyautogui
+    # silently ignores; they must be normalized to lowercase before pressing.
+    calls = _fake_pyautogui(monkeypatch)
+    _run({"action": "key", "keys": ["Return"]})
+    assert ("press", ("return",), {}) in calls
+
+
+def test_hotkey_combo_is_lowercased(monkeypatch):
+    calls = _fake_pyautogui(monkeypatch)
+    _run({"action": "key", "keys": ["Ctrl", "C"]})
+    assert ("hotkey", ("ctrl", "c"), {}) in calls
+
+
 def test_type_ascii_uses_typewrite(monkeypatch):
     calls = _fake_pyautogui(monkeypatch)
     _run({"action": "type", "text": "hello"})

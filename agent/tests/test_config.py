@@ -30,6 +30,20 @@ def test_config_file_used_when_no_cli_or_env(monkeypatch, tmp_path):
     assert str(cfg) in r.api_key_source
 
 
+def test_config_model_honored_when_key_from_env(monkeypatch, tmp_path):
+    # Regression: a model set in the config file must be used even when the API
+    # key comes from the environment (previously the file was never read in
+    # that case, silently ignoring SECDOGIE_MODEL).
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "env-key")
+    monkeypatch.delenv("SECDOGIE_MODEL", raising=False)
+    cfg = tmp_path / "secdogie.env"
+    cfg.write_text("SECDOGIE_MODEL=claude-haiku-4-5\n")
+    r = config_mod.resolve(config_path=str(cfg))
+    assert r.api_key == "env-key"
+    assert "environment" in r.api_key_source
+    assert r.model == "claude-haiku-4-5"  # honored despite key coming from env
+
+
 def test_no_key_anywhere(monkeypatch, tmp_path):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     # Point default search at an empty dir by using an explicit missing path.
