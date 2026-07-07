@@ -11,16 +11,16 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
     "anthropic>=0.40.0",
+    # openai ships as a regular dependency (not an extra) so a single install --
+    # and, crucially, the single-file prebuilt binary -- supports both the
+    # Anthropic and OpenAI providers out of the box. Its footprint over
+    # anthropic is small: both are built on httpx + pydantic + anyio.
+    "openai>=1.0.0",
     "pyautogui>=0.9.54",
     "mss>=9.0.1",
     "pillow>=10.0.0",
     "pyperclip>=1.8.2",
 ]
-
-[project.optional-dependencies]
-# The OpenAI provider is opt-in so the default install stays lean; the CLI
-# prints an install hint if you point it at a gpt-* model without it.
-openai = ["openai>=1.0.0"]
 
 [project.scripts]
 secdogie-agent = "secdogie_agent.cli:main"

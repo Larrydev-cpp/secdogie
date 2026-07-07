@@ -30,8 +30,7 @@ class OpenAIProvider(VisionProvider):
                 import openai
             except ImportError as e:
                 raise RuntimeError(
-                    "the 'openai' package is required for OpenAIProvider: "
-                    "pip install 'secdogie-agent[openai]' (or: pip install openai)"
+                    "the 'openai' package is required for OpenAIProvider: pip install openai"
                 ) from e
             self._client = openai.OpenAI(api_key=api_key) if api_key else openai.OpenAI()
         self.model = model

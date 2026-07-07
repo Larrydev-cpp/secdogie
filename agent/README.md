@@ -41,11 +41,10 @@ secdogie-agent "..." --model openai/gpt-5.5          # same, explicit ref
 secdogie-agent "..." --provider openai               # OpenAI's default model
 ```
 
-The OpenAI provider needs the `openai` package, installed as an extra:
-
-```sh
-pip install -e '.[openai]'      # or: pip install openai
-```
+Both providers ship by default — a plain `pip install` and the prebuilt
+single-file binary each include the Anthropic *and* OpenAI SDKs, so one
+install (or one downloaded executable) drives either provider. You just need
+the API key for whichever one your model uses (see below).
 
 ## Install
 

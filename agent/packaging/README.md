@@ -40,9 +40,16 @@ the repo's CI if configured).
 
 ## Running the built binary
 
+The binary bundles both provider SDKs, so one executable drives either
+Anthropic (`claude-*`, the default) or OpenAI (`gpt-*` / o-series) models —
+set the API key for whichever you use:
+
 ```sh
 export ANTHROPIC_API_KEY=sk-...
 ./dist/secdogie-agent "open a text editor and type hello" --dry-run
+
+export OPENAI_API_KEY=sk-...
+./dist/secdogie-agent "open a text editor and type hello" --model gpt-5.5 --dry-run
 ```
 
 It must run in a **graphical desktop session** — it screenshots and drives
@@ -61,8 +68,9 @@ just fall back to terminal mode. GUI mode also needs a display at run time.
 ## What's in here
 
 - `entry.py` — thin launcher PyInstaller freezes (forwards to `secdogie_agent.cli:main`).
-- `secdogie-agent.spec` — the PyInstaller build recipe (bundles `anthropic`,
-  `pyautogui`, `mss` and their hidden imports; produces a one-file console exe).
+- `secdogie-agent.spec` — the PyInstaller build recipe (bundles both provider
+  SDKs, `anthropic` and `openai`, plus `pyautogui`, `mss` and their hidden
+  imports; produces a one-file console exe).
 - `build.sh` — convenience wrapper that sets up an isolated build venv and runs PyInstaller.
 
 ## Notes on size and startup

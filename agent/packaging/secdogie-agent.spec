@@ -21,11 +21,14 @@ from PyInstaller.utils.hooks import collect_submodules
 # relying on how it happens to be installed in the build environment.
 PACKAGE_ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 
-# anthropic and pyautogui both do dynamic/lazy imports that PyInstaller's
-# static analysis can miss; pull their whole package trees in explicitly.
+# anthropic, openai, and pyautogui all do dynamic/lazy imports that
+# PyInstaller's static analysis can miss; pull their whole package trees in
+# explicitly. Both provider SDKs are bundled so a single binary can drive
+# either provider (see the agent's --provider / --model routing).
 hidden = (
     collect_submodules("secdogie_agent")
     + collect_submodules("anthropic")
+    + collect_submodules("openai")
     + collect_submodules("pyautogui")
     + collect_submodules("mss")
     + collect_submodules("pyperclip")
