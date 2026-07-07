@@ -7,8 +7,11 @@ name: release
 
 on:
   push:
+    # Semantic version tags only (v1.2.3, v1.2.3-rc1, ...). Deliberately NOT
+    # "v*" -- that also matches non-version tags/branches merged as tags
+    # (e.g. a tag literally named "version"), triggering an accidental release.
     tags:
-      - "v*"
+      - "v[0-9]+.[0-9]+.[0-9]+*"
   workflow_dispatch:
 
 jobs:
@@ -147,7 +150,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          # Idempotent: a re-run (retry, or re-pushing the same tag after
+          # deleting/recreating it) must not fail just because a release for
+          # this tag already exists -- replace it rather than erroring out.
+          # --cleanup-tag is deliberately omitted: it would delete the tag
+          # that triggered this very run.
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "release $tag already exists -- deleting it before recreating"
+            gh release delete "$tag" --yes
+          fi
+          gh release create "$tag" \
             release/*.zip \
-            --title "${GITHUB_REF_NAME}" \
+            --title "$tag" \
             --generate-notes
