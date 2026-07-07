@@ -81,8 +81,13 @@ def resolve(
     config_path: str | None = None,
 ) -> ResolvedConfig:
     """Resolves the API key and model from CLI args, env, and config file."""
-    file_values: dict[str, str] = {}
-    source = "none"
+    # Load the config file up front so its values (notably SECDOGIE_MODEL) are
+    # honored no matter where the API key comes from. Previously the file was
+    # only read when the key itself fell through to it, so a model set in the
+    # file was silently ignored whenever the key came from --api-key or the
+    # environment.
+    chosen = Path(config_path) if config_path else _first_existing(DEFAULT_CONFIG_PATHS)
+    file_values = parse_config_file(chosen) if chosen is not None else {}
 
     if cli_api_key:
         api_key: str | None = cli_api_key
@@ -90,17 +95,12 @@ def resolve(
     elif os.environ.get("ANTHROPIC_API_KEY"):
         api_key = os.environ["ANTHROPIC_API_KEY"]
         source = "ANTHROPIC_API_KEY environment variable"
+    elif file_values.get("ANTHROPIC_API_KEY"):
+        api_key = file_values["ANTHROPIC_API_KEY"]
+        source = f"config file {chosen}"
     else:
-        chosen = Path(config_path) if config_path else _first_existing(DEFAULT_CONFIG_PATHS)
-        if chosen is not None:
-            file_values = parse_config_file(chosen)
-            api_key = file_values.get("ANTHROPIC_API_KEY") or None
-            if api_key:
-                source = f"config file {chosen}"
-            else:
-                api_key = None
-        else:
-            api_key = None
+        api_key = None
+        source = "none"
 
     # Model: CLI wins, then env, then config file, else leave None (caller
     # applies its own default).

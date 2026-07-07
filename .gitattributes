@@ -1,0 +1,2 @@
+# Batch files must be CRLF for cmd.exe; everything else follows git defaults.
+*.bat text eol=crlf

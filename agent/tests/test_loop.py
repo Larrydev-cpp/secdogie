@@ -20,6 +20,9 @@ def _patch_screen_and_actions(monkeypatch, executed):
     monkeypatch.setattr(screen, "capture_screenshot", lambda: (b"fake-png", (1920, 1080)))
     # Bypass real image handling; pass the capture through with scale 1.0.
     monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+    # Default to no logical-size override (headless): exercises the physical
+    # fallback. HiDPI is covered explicitly in its own test.
+    monkeypatch.setattr(screen, "logical_screen_size", lambda: None)
     monkeypatch.setattr(actions, "execute", lambda action, **kw: executed.append(action.kind) or "ok")
 
 
@@ -93,6 +96,8 @@ def test_loop_scales_model_coordinates_to_screen(monkeypatch):
     monkeypatch.setattr(screen, "capture_screenshot", lambda: (b"fake-png", (1920, 1080)))
     # Model saw a half-size image, so real coords are 2x what it returned.
     monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, (960, 540), 2.0))
+    # No logical override -> use the physical-pixel scale from prepare_for_model.
+    monkeypatch.setattr(screen, "logical_screen_size", lambda: None)
     monkeypatch.setattr(actions, "execute", lambda action, **kw: executed.append(action) or "ok")
     provider = ScriptedProvider([
         {"action": "left_click", "x": 100, "y": 50},
@@ -102,6 +107,25 @@ def test_loop_scales_model_coordinates_to_screen(monkeypatch):
     assert rc == 0
     assert (executed[0].x, executed[0].y) == (200, 100)  # scaled 2x
     assert executed[0].raw["x"] == 200  # raw updated too, for logs/confirmation
+
+
+def test_loop_maps_model_coords_to_logical_screen_on_hidpi(monkeypatch):
+    executed = []
+    monkeypatch.setattr(screen, "capture_screenshot", lambda: (b"fake-png", (2000, 1000)))
+    # Model saw a 500-wide image; prepare_for_model reports the physical-pixel
+    # scale (4.0). On a 2x display pyautogui clicks in 1000-wide logical space,
+    # so coords must map to logical (x2), not physical (x4) -- else clicks land
+    # at double the intended position.
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, (500, 250), 4.0))
+    monkeypatch.setattr(screen, "logical_screen_size", lambda: (1000, 500))
+    monkeypatch.setattr(actions, "execute", lambda action, **kw: executed.append(action) or "ok")
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 100, "y": 50},
+        {"action": "done", "text": "done"},
+    ])
+    rc = loop.run(provider, loop.AgentConfig(task="click", auto=True, max_steps=5))
+    assert rc == 0
+    assert (executed[0].x, executed[0].y) == (200, 100)  # logical (x2), not physical (x4)
 
 
 def test_benign_wait_needs_no_confirmation(monkeypatch):

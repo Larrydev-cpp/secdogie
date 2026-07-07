@@ -96,7 +96,14 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
         except Exception as e:
             logger.error("provider failed to produce an action: %s", e)
             return 1
-        action = action.scaled(scale)
+        # Map the model's coordinates (in downscaled-image space) to the OS
+        # coordinate space pyautogui actually clicks in. On HiDPI/Retina the
+        # capture is in physical pixels but pyautogui uses logical points, so
+        # scale to the logical screen size when we can read it; otherwise fall
+        # back to the physical-pixel scale from prepare_for_model.
+        logical = screen.logical_screen_size()
+        click_scale = (logical[0] / model_size[0]) if logical else scale
+        action = action.scaled(click_scale)
 
         reasoning = action.reasoning or action.raw.get("reasoning", "")
 

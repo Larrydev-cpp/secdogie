@@ -43,6 +43,27 @@ def capture_screenshot() -> tuple[bytes, tuple[int, int]]:
         ) from e
 
 
+def logical_screen_size() -> tuple[int, int] | None:
+    """The OS *logical* screen size pyautogui uses for its coordinates.
+
+    On HiDPI / Retina displays this differs from the captured pixel size: the
+    screenshot comes back in physical pixels (e.g. 2880x1800) while pyautogui
+    moves/clicks in logical points (e.g. 1440x900). Mapping the model's
+    coordinates to *this* size, rather than the physical capture size, is what
+    keeps clicks landing on target on scaled displays. Returns None when
+    pyautogui can't be imported or can't read the display (headless / dry-run),
+    in which case the caller falls back to the physical-pixel scale."""
+    try:
+        import pyautogui
+
+        w, h = pyautogui.size()
+        if w > 0 and h > 0:
+            return (int(w), int(h))
+    except Exception:
+        pass
+    return None
+
+
 def prepare_for_model(
     png_bytes: bytes,
     real_size: tuple[int, int],

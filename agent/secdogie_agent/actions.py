@@ -64,14 +64,17 @@ def execute(
         _paste_text(text)
         return f"typed {len(text)} character(s) via clipboard (non-ASCII)"
     elif action.kind == "key":
-        keys = action.keys or []
+        # pyautogui's key table is all lowercase ('return', 'esc', 'ctrl', ...);
+        # the model sometimes capitalizes ('Return', 'Esc'), which pyautogui
+        # silently ignores. Normalize so those presses actually fire.
+        keys = [k.lower() for k in (action.keys or [])]
         if len(keys) == 1:
             pyautogui.press(keys[0])
         elif len(keys) > 1:
             pyautogui.hotkey(*keys)
         return f"pressed key(s): {keys}"
     elif action.kind == "hold_key":
-        keys = action.keys or []
+        keys = [k.lower() for k in (action.keys or [])]  # see note in the "key" branch
         seconds = action.seconds if action.seconds is not None else 1.0
         for k in keys:
             pyautogui.keyDown(k)

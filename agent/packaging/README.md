@@ -9,7 +9,11 @@ or `pip install`-ing anything** — they download one file and run it.
 From this directory (or run the script from anywhere):
 
 ```sh
-./build.sh
+./build.sh     # Linux / macOS
+```
+
+```bat
+build.bat      # Windows (cmd or PowerShell; needs Python 3.10+ installed)
 ```
 
 or manually:
@@ -21,6 +25,9 @@ pip install -e . pyinstaller
 cd packaging
 pyinstaller secdogie-agent.spec
 ```
+
+(Windows manual equivalent: `py -3 -m venv .build-venv`, then
+`.build-venv\Scripts\activate` and the same `pip` / `pyinstaller` steps.)
 
 Output:
 
@@ -64,6 +71,7 @@ just fall back to terminal mode. GUI mode also needs a display at run time.
 - `secdogie-agent.spec` — the PyInstaller build recipe (bundles `anthropic`,
   `pyautogui`, `mss` and their hidden imports; produces a one-file console exe).
 - `build.sh` — convenience wrapper that sets up an isolated build venv and runs PyInstaller.
+- `build.bat` — the same wrapper for Windows (produces `dist\secdogie-agent.exe`).
 
 ## Notes on size and startup
 
