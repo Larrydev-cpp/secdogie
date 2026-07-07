@@ -1,14 +1,20 @@
 /* Direct unit tests for the SDTP crypto/handshake/data-channel logic,
  * independent of TUN/UDP/OS networking (which is exercised separately via a
- * real client/server run -- see tunnel/README.md). */
+ * real client/server run -- see tunnel/README.md). The one exception is the
+ * UDP socket tuning below, which binds a real ephemeral port (no privilege
+ * needed) to assert the loss-reducing socket options are applied. */
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/socket.h>
 
 #include "sdtp.h"
 #include "crypto.h"
 #include "handshake.h"
 #include "data.h"
+#include "net.h"
 
 static int failures = 0;
 #define CHECK(cond, msg) do { \
@@ -113,6 +119,39 @@ static void test_replayed_handshake_rejected(void) {
     CHECK(n2b == 0, "replaying the same handshake_init is rejected (timestamp not advancing)");
 }
 
+/* The event loop drains each fd until EAGAIN to avoid dropping bursts, which
+ * requires a non-blocking socket; enlarged buffers further cut drops. Assert
+ * sdtp_udp_bind() applies both. */
+static void test_udp_socket_tuning(void) {
+    int fd = sdtp_udp_bind(0); /* port 0: kernel-chosen ephemeral port, no privilege */
+    CHECK(fd >= 0, "sdtp_udp_bind succeeds on an ephemeral port");
+    if (fd < 0) return;
+
+    int flags = fcntl(fd, F_GETFL, 0);
+    CHECK(flags != -1 && (flags & O_NONBLOCK), "bound udp socket is non-blocking (enables burst draining)");
+
+    int tuned_rcv = 0, tuned_snd = 0;
+    socklen_t len = sizeof(int);
+    getsockopt(fd, SOL_SOCKET, SO_RCVBUF, &tuned_rcv, &len);
+    len = sizeof(int);
+    getsockopt(fd, SOL_SOCKET, SO_SNDBUF, &tuned_snd, &len);
+
+    /* The kernel clamps our request to rmem_max/wmem_max, so we can't assert an
+     * exact size; compare against an untuned socket's default to prove we only
+     * ever grow the buffers (never shrink them). */
+    int plain = socket(AF_INET, SOCK_DGRAM, 0);
+    int base_rcv = 0, base_snd = 0;
+    len = sizeof(int);
+    getsockopt(plain, SOL_SOCKET, SO_RCVBUF, &base_rcv, &len);
+    len = sizeof(int);
+    getsockopt(plain, SOL_SOCKET, SO_SNDBUF, &base_snd, &len);
+    close(plain);
+
+    CHECK(tuned_rcv >= base_rcv, "udp receive buffer is at least the kernel default");
+    CHECK(tuned_snd >= base_snd, "udp send buffer is at least the kernel default");
+    close(fd);
+}
+
 int main(void) {
     if (sdtp_crypto_init() != 0) {
         fprintf(stderr, "crypto init failed\n");
@@ -121,6 +160,7 @@ int main(void) {
     test_happy_path();
     test_wrong_peer_rejected();
     test_replayed_handshake_rejected();
+    test_udp_socket_tuning();
 
     if (failures) {
         fprintf(stderr, "\n%d check(s) FAILED\n", failures);

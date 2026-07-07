@@ -73,6 +73,27 @@ static ssize_t read_tun_packet(int tun_fd, uint8_t *buf, size_t cap) {
     return n;
 }
 
+/* Deliver a decrypted packet to the TUN device. The fd is non-blocking (so the
+ * read side can drain bursts), so a momentarily full device queue surfaces as
+ * EAGAIN here; wait briefly for it to drain instead of silently dropping a
+ * packet we already received and authenticated. Bounded so a wedged interface
+ * can't stall the whole event loop. */
+static void write_tun_packet(int tun_fd, const uint8_t *pkt, size_t len) {
+    for (int attempt = 0; attempt < 16; attempt++) {
+        ssize_t w = write(tun_fd, pkt, len);
+        if (w >= 0) return;
+        if (errno == EINTR) continue;
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            struct pollfd p = {.fd = tun_fd, .events = POLLOUT};
+            poll(&p, 1, 10);
+            continue;
+        }
+        sdtp_log("tun write error: %s", strerror(errno));
+        return;
+    }
+    sdtp_log("tun write dropped: device queue full");
+}
+
 static void run_loop(int tun_fd, int udp_fd, sdtp_config *cfg, int is_server) {
     sdtp_session session;
     memset(&session, 0, sizeof(session));
@@ -152,9 +173,17 @@ static void run_loop(int tun_fd, int udp_fd, sdtp_config *cfg, int is_server) {
             last_send = now;
         }
 
+        /* Drain everything the TUN queued this wake-up. Reading a single
+         * packet per poll() lets a burst pile up until the device queue
+         * overflows and the kernel drops packets; the fd is non-blocking, so
+         * we loop until EAGAIN. Packets that arrive before the session is
+         * established are still read (and discarded) so POLLIN clears and
+         * poll() doesn't spin. */
         if (pfds[0].revents & POLLIN) {
-            ssize_t n = read_tun_packet(tun_fd, buf, SDTP_MTU);
-            if (n > 0 && established && have_peer_addr) {
+            for (;;) {
+                ssize_t n = read_tun_packet(tun_fd, buf, SDTP_MTU);
+                if (n <= 0) break;
+                if (!established || !have_peer_addr) continue;
                 size_t len = sdtp_data_encrypt(&session, SDTP_MSG_DATA, out_buf, buf, (size_t)n);
                 if (len > 0) {
                     sendto(udp_fd, out_buf, len, 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
@@ -163,11 +192,15 @@ static void run_loop(int tun_fd, int udp_fd, sdtp_config *cfg, int is_server) {
             }
         }
 
+        /* Same rationale on the socket side: pull every datagram that is ready
+         * so a burst doesn't overflow the receive buffer before we read it. */
         if (pfds[1].revents & POLLIN) {
-            struct sockaddr_in src_addr;
-            socklen_t src_len = sizeof(src_addr);
-            ssize_t n = recvfrom(udp_fd, buf, sizeof(buf), 0, (struct sockaddr *)&src_addr, &src_len);
-            if (n > 0) {
+            for (;;) {
+                struct sockaddr_in src_addr;
+                socklen_t src_len = sizeof(src_addr);
+                ssize_t n = recvfrom(udp_fd, buf, sizeof(buf), 0, (struct sockaddr *)&src_addr, &src_len);
+                if (n < 0) break;      /* EAGAIN/EWOULDBLOCK: socket drained */
+                if (n == 0) continue;  /* ignore stray empty datagram */
                 uint8_t type = buf[0];
                 if (type == SDTP_MSG_HANDSHAKE_INIT && is_server) {
                     uint8_t msg2[SDTP_MSG2_LEN];
@@ -203,7 +236,7 @@ static void run_loop(int tun_fd, int udp_fd, sdtp_config *cfg, int is_server) {
                         peer_addr = src_addr;
                         have_peer_addr = 1;
                         if (type == SDTP_MSG_DATA && pt_len > 0) {
-                            write(tun_fd, pt_buf, pt_len);
+                            write_tun_packet(tun_fd, pt_buf, pt_len);
                         }
                     }
                 }

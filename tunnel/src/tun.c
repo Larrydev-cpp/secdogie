@@ -29,6 +29,14 @@ int sdtp_tun_create(char ifname[IFNAMSIZ]) {
         return -1;
     }
 
+    /* Non-blocking so the event loop can drain every queued packet each
+     * poll() wake-up (read until EAGAIN) rather than one per wake-up, which
+     * lets a burst back up in the device queue and get dropped. */
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags != -1) {
+        fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    }
+
     strncpy(ifname, ifr.ifr_name, IFNAMSIZ - 1);
     ifname[IFNAMSIZ - 1] = '\0';
     return fd;

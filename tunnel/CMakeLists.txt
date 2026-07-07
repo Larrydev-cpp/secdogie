@@ -34,6 +34,7 @@ add_executable(test_protocol
     src/crypto.c
     src/handshake.c
     src/data.c
+    src/net.c
     src/util.c
 )
 target_include_directories(test_protocol PRIVATE include ${SODIUM_INCLUDE_DIRS})
