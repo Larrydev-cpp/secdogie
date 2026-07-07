@@ -15,6 +15,9 @@ typedef struct {
     uint16_t endpoint_port;  /* client only: server UDP port */
     int mtu;
     char ifname[IFNAMSIZ];
+    int dscp;                /* DSCP class 0..63 for the outer UDP packets,
+                                or -1 (default) = legacy IPTOS_LOWDELAY */
+    int busy_poll_us;        /* SO_BUSY_POLL microseconds, 0 = off */
 } sdtp_config;
 
 /* Parses a simple `key = value` config file (# comments, blank lines

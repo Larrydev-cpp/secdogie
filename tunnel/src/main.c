@@ -20,10 +20,21 @@
 #include "config.h"
 #include "util.h"
 
+/* Upper bound on packets drained from one fd per poll() wakeup. Draining a
+ * burst in a single wakeup (instead of one packet then re-poll) removes a
+ * poll() round-trip from the 2nd..Nth packet's latency; the cap keeps a
+ * saturating flood from starving the keepalive / handshake timers below. */
+#define SDTP_DRAIN_BURST 64
+
 static volatile sig_atomic_t g_should_exit = 0;
 static void on_signal(int sig) {
     (void)sig;
     g_should_exit = 1;
+}
+
+static void set_nonblocking(int fd) {
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags >= 0) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
 static void print_usage(const char *argv0) {
@@ -74,6 +85,12 @@ static ssize_t read_tun_packet(int tun_fd, uint8_t *buf, size_t cap) {
 }
 
 static void run_loop(int tun_fd, int udp_fd, sdtp_config *cfg, int is_server) {
+    /* Non-blocking so we can drain each fd to EAGAIN per wakeup without the
+     * final read blocking the loop, and so a momentarily full send buffer
+     * drops one datagram instead of stalling every other flow. */
+    set_nonblocking(tun_fd);
+    set_nonblocking(udp_fd);
+
     sdtp_session session;
     memset(&session, 0, sizeof(session));
     int established = 0;
@@ -153,21 +170,26 @@ static void run_loop(int tun_fd, int udp_fd, sdtp_config *cfg, int is_server) {
         }
 
         if (pfds[0].revents & POLLIN) {
-            ssize_t n = read_tun_packet(tun_fd, buf, SDTP_MTU);
-            if (n > 0 && established && have_peer_addr) {
-                size_t len = sdtp_data_encrypt(&session, SDTP_MSG_DATA, out_buf, buf, (size_t)n);
-                if (len > 0) {
-                    sendto(udp_fd, out_buf, len, 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
-                    last_send = now;
+            for (int i = 0; i < SDTP_DRAIN_BURST; i++) {
+                ssize_t n = read_tun_packet(tun_fd, buf, SDTP_MTU);
+                if (n <= 0) break;  /* EAGAIN (drained) or error */
+                if (established && have_peer_addr) {
+                    size_t len = sdtp_data_encrypt(&session, SDTP_MSG_DATA, out_buf, buf, (size_t)n);
+                    if (len > 0) {
+                        sendto(udp_fd, out_buf, len, 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
+                        last_send = now;
+                    }
                 }
             }
         }
 
         if (pfds[1].revents & POLLIN) {
+          for (int i = 0; i < SDTP_DRAIN_BURST; i++) {
             struct sockaddr_in src_addr;
             socklen_t src_len = sizeof(src_addr);
             ssize_t n = recvfrom(udp_fd, buf, sizeof(buf), 0, (struct sockaddr *)&src_addr, &src_len);
-            if (n > 0) {
+            if (n <= 0) break;  /* EAGAIN (drained) or error */
+            {
                 uint8_t type = buf[0];
                 if (type == SDTP_MSG_HANDSHAKE_INIT && is_server) {
                     uint8_t msg2[SDTP_MSG2_LEN];
@@ -208,6 +230,7 @@ static void run_loop(int tun_fd, int udp_fd, sdtp_config *cfg, int is_server) {
                     }
                 }
             }
+          }
         }
     }
 
@@ -238,6 +261,7 @@ static int cmd_server(int argc, char **argv) {
 
     int udp_fd = sdtp_udp_bind(cfg.listen_port);
     if (udp_fd < 0) sdtp_die("udp bind failed: %s", strerror(errno));
+    sdtp_udp_tune(udp_fd, cfg.dscp, cfg.busy_poll_us);
 
     sdtp_log("server: tun=%s address=%s udp_port=%u", ifname, cfg.address, cfg.listen_port);
     run_loop(tun_fd, udp_fd, &cfg, 1);
@@ -271,6 +295,7 @@ static int cmd_client(int argc, char **argv) {
 
     int udp_fd = sdtp_udp_bind(cfg.listen_port);
     if (udp_fd < 0) sdtp_die("udp bind failed: %s", strerror(errno));
+    sdtp_udp_tune(udp_fd, cfg.dscp, cfg.busy_poll_us);
 
     sdtp_log("client: tun=%s address=%s -> %s:%u", ifname, cfg.address, cfg.endpoint_host, cfg.endpoint_port);
     run_loop(tun_fd, udp_fd, &cfg, 0);

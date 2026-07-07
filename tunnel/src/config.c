@@ -27,6 +27,8 @@ static int decode_key(const char *b64, uint8_t out[SDTP_KEY_LEN]) {
 int sdtp_config_load(const char *path, sdtp_config *cfg) {
     memset(cfg, 0, sizeof(*cfg));
     cfg->mtu = SDTP_MTU;
+    cfg->dscp = -1;          /* default to legacy "minimize-delay" ToS */
+    cfg->busy_poll_us = 0;   /* busy polling off unless requested */
 
     FILE *f = fopen(path, "r");
     if (!f) {
@@ -89,6 +91,22 @@ int sdtp_config_load(const char *path, sdtp_config *cfg) {
             cfg->mtu = atoi(val);
         } else if (strcmp(key, "ifname") == 0) {
             strncpy(cfg->ifname, val, sizeof(cfg->ifname) - 1);
+        } else if (strcmp(key, "dscp") == 0) {
+            int d = atoi(val);
+            if (d < 0 || d > 63) {
+                fprintf(stderr, "%s:%d: dscp must be 0..63\n", path, lineno);
+                fclose(f);
+                return -1;
+            }
+            cfg->dscp = d;
+        } else if (strcmp(key, "busy_poll") == 0) {
+            int b = atoi(val);
+            if (b < 0) {
+                fprintf(stderr, "%s:%d: busy_poll must be >= 0 (microseconds)\n", path, lineno);
+                fclose(f);
+                return -1;
+            }
+            cfg->busy_poll_us = b;
         } else {
             fprintf(stderr, "%s:%d: unknown key '%s'\n", path, lineno, key);
             fclose(f);
