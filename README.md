@@ -27,6 +27,32 @@ control.**
   Xcode): screenshots and taps/typing go over WDA's HTTP API. See
   [`ios/README.md`](ios/README.md).
 
+## Tutorial
+
+New here? **[`TUTORIAL.md`](TUTORIAL.md) is a full, follow-along walkthrough** —
+from a fresh clone to a model driving your desktop, a phone, several windows,
+and a machine across the network, with the exact commands and the output you
+should see at each step, plus a troubleshooting table.
+
+The 60-second version (control your own desktop):
+
+```sh
+# 1. install
+cd agent && python3 -m venv .venv && source .venv/bin/activate && pip install -e .
+
+# 2. add your API key (Anthropic for claude-* models, OpenAI for gpt-*)
+secdogie-agent --init-config        # then edit ~/.config/secdogie/config
+
+# 3. see what it WOULD do — touches nothing
+secdogie-agent "open a text editor and type 'hello world'" --dry-run
+
+# 4. do it for real — approves each action with a y/N prompt
+secdogie-agent "open a text editor and type 'hello world'"
+```
+
+Then follow [`TUTORIAL.md`](TUTORIAL.md) for phones (`android`/`ios`), several
+windows at once (`open`), and reaching a remote machine (`tunnel`).
+
 ## Downloads
 
 Pre-built binaries (a single-file `secdogie-agent` executable for Linux,
