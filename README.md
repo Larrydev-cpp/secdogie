@@ -17,6 +17,10 @@ control.**
   window and drives one `agent` instance per selected window at once,
   instead of one agent owning the whole screen. See
   [`open/README.md`](open/README.md).
+- [`android/`](android/) — points the same `agent/` loop at an Android phone
+  instead of the desktop: screenshots come from `adb screencap`, taps/typing
+  go out through `adb shell input`, so nothing is installed on the phone. See
+  [`android/README.md`](android/README.md).
 
 ## Downloads
 
@@ -43,8 +47,9 @@ pieces on purpose — neither hard-depends on the other.
 ## Before you run any of this
 
 These pieces execute real, consequential actions: the tunnel moves real
-network traffic, `agent` moves a real mouse and types on a real keyboard, and
-`open` does that across several windows at once.
+network traffic, `agent` moves a real mouse and types on a real keyboard,
+`open` does that across several windows at once, and `android` taps and types
+on a real phone.
 
 - **Only point the agent(s) at a computer you own or are explicitly
   authorized to control.** They are meant to automate your own machine, the
@@ -65,6 +70,7 @@ network traffic, `agent` moves a real mouse and types on a real keyboard, and
 tunnel/   C, libsodium-based VPN tunnel (PROTOCOL.md has the design + limitations)
 agent/    Python vision-LLM computer-control agent (provider-agnostic action schema)
 open/     Python GUI: split the screen by window, drive several agent instances at once
+android/  Python: drive an Android phone over adb, reusing the agent loop + action schema
 ```
 
 Each subdirectory has its own README with build/install/run instructions

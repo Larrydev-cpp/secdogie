@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secdogie-android"
+version = "0.1.0"
+description = "Vision-LLM Android-control agent: drives a phone over adb using the secdogie-agent loop and action schema."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# secdogie-agent brings the loop, providers, config, and Pillow (used to read
+# the screencap PNG's dimensions). Install it from the sibling directory:
+#   pip install -e ../agent
+dependencies = [
+    "pillow>=10.0.0",
+]
+
+[project.scripts]
+secdogie-android = "secdogie_android.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["secdogie_android*"]

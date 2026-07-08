@@ -203,6 +203,37 @@ def test_loop_logger_name_isolates_concurrent_runs(monkeypatch):
     assert logging.getLogger("test.b").handlers
 
 
+def test_loop_uses_injected_backend_instead_of_desktop(monkeypatch):
+    # A custom backend fully replaces mss/pyautogui: the loop must route
+    # capture/execute through it and never touch the desktop screen module.
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+
+    class FakeBackend:
+        def __init__(self):
+            self.setup_called = False
+            self.executed = []
+
+        def setup(self, logger):
+            self.setup_called = True
+
+        def capture(self, region):
+            return b"device-png", (720, 1600)
+
+        def execute(self, action):
+            self.executed.append(action.kind)
+            return "tapped"
+
+    backend = FakeBackend()
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 10, "y": 20},
+        {"action": "done", "text": "done"},
+    ])
+    rc = loop.run(provider, loop.AgentConfig(task="tap", auto=True, max_steps=5, backend=backend))
+    assert rc == 0
+    assert backend.setup_called
+    assert backend.executed == ["left_click"]
+
+
 def test_loop_should_stop_halts_before_next_step(monkeypatch):
     executed = []
     _patch_screen_and_actions(monkeypatch, executed)
