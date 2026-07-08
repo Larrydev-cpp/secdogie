@@ -137,15 +137,40 @@ the replay check are dropped without effect.
 traffic to keep NAT/firewall UDP mappings alive. Ignored on receipt beyond
 updating the "last seen" timestamp used for peer liveness.
 
+## Hub mode (one node terminating many tunnels)
+
+The wire protocol is point-to-point, but a single node can terminate many of
+these tunnels at once and route between them — see `hub` in the README. This
+needs **no protocol change**; it reuses fields already on the wire:
+
+- **Handshake demux.** Message 1 authenticates the initiator's static key. A
+  hub configured with several client keys simply tries `handshake_respond` with
+  each until one authenticates; that identifies the client. (A wrong key fails
+  cleanly, leaving no state — same check `test_wrong_peer_rejected` covers.)
+- **Data demux.** Every data/keepalive datagram already carries the 8-byte
+  `session_id`. The hub keeps one session per client and looks up the right one
+  by that id, so each client's counter/replay window stays independent.
+- **Routing.** The hub decrypts an inner IP packet, reads its destination
+  address, and either writes it to its own TUN (destined for the hub or beyond)
+  or re-encrypts it to the client that owns that tunnel IP (client-to-client).
+
+Because the hub decrypts in order to route, **it can see inter-client traffic**
+— a hub-and-spoke topology, not end-to-end encryption between clients. Each
+client↔hub hop still has the full confidentiality/authenticity/replay
+guarantees above.
+
 ## Known limitations (read before relying on this for anything sensitive)
 
 - No session rekeying — a session's keys live as long as the process does.
   Restart both sides periodically for fresh forward secrecy.
 - No peer roaming: a session is bound to the source `(ip, port)` of message
   1; if the client's address changes mid-session the tunnel must
-  re-handshake.
-- Single peer per process in v1 — this is a point-to-point tunnel, not a
-  multi-peer mesh.
+  re-handshake. (A hub does adopt a client's latest source address on each
+  authenticated data packet, so a client's NAT rebind is tolerated once it
+  sends again.)
+- Point-to-point per session — `server`/`client` carry one peer each. A `hub`
+  terminates many client tunnels, but it is a decrypting hub-and-spoke node,
+  not a mesh and not end-to-end between clients.
 - Not constant-time-audited beyond what libsodium itself guarantees for its
   primitives; the surrounding C glue has not been reviewed by a third
   party. Use for personal / educational purposes, not as a compliance

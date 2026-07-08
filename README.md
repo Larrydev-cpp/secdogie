@@ -4,11 +4,12 @@ Small, from-scratch pieces that combine into one idea: **let a
 cloud vision-LLM control a computer you own, reached over a tunnel you
 control.**
 
-- [`tunnel/`](tunnel/) — a minimal point-to-point encrypted VPN tunnel,
-  written from scratch in C on libsodium primitives (X25519 + BLAKE2b +
-  XChaCha20-Poly1305). See [`tunnel/PROTOCOL.md`](tunnel/PROTOCOL.md) for
-  the handshake design and [`tunnel/README.md`](tunnel/README.md) to build
-  and run it.
+- [`tunnel/`](tunnel/) — a minimal encrypted VPN tunnel, written from scratch
+  in C on libsodium primitives (X25519 + BLAKE2b + XChaCha20-Poly1305).
+  Point-to-point by default, with an optional **hub mode** that terminates
+  many client tunnels on one public node and routes between them. See
+  [`tunnel/PROTOCOL.md`](tunnel/PROTOCOL.md) for the handshake design and
+  [`tunnel/README.md`](tunnel/README.md) to build and run it.
 - [`agent/`](agent/) — a vision-LLM computer-control agent: point it at a
   task in plain language, it screenshots your screen, asks a vision model
   what to do next, and executes one action at a time (click, type, scroll,

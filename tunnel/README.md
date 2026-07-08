@@ -71,6 +71,39 @@ commit history / CI for the test harness.
 Optional config keys: `mtu` (default 1400), `ifname` (default: let the
 kernel pick `tunN`).
 
+## Hub mode (one node, many clients)
+
+The `server`/`client` pair above is strictly point-to-point. To reach several
+machines through one public node — e.g. a controller that drives many agent
+boxes — run that node as a **hub** instead: it terminates one tunnel per client
+and routes packets between them (and to itself) by inner destination IP.
+
+Clients are unchanged: each is an ordinary `client` whose `endpoint` points at
+the hub and whose `peer_public_key` is the hub's. Only the hub gets a new
+config shape — no `peer_public_key`, but one `peer` line per client giving that
+client's public key and the tunnel IP it will use:
+
+```
+# hub.conf
+private_key = <hub private key>
+address     = 10.66.0.1/24
+listen_port = 51820
+peer = <client 1 public key> 10.66.0.2
+peer = <client 2 public key> 10.66.0.3
+```
+
+```sh
+sudo ./build/secdogie-tunnel hub hub.conf
+```
+
+Each client dials in with its own handshake; the hub identifies which client a
+handshake is from by trying each configured `peer` key, and demultiplexes data
+packets by the session id every datagram carries — no protocol change. A packet
+a client sends to `10.66.0.3` is decrypted at the hub, matched to that client's
+slot, and re-encrypted to it, so clients reach each other through the hub.
+Because the hub decrypts to route, it can see inter-client traffic — see
+[`PROTOCOL.md`](PROTOCOL.md).
+
 ## Layout
 
 ```
@@ -82,7 +115,9 @@ src/        implementation
   tun.c         Linux TUN device creation/configuration (ioctl-based)
   net.c         UDP socket helpers
   config.c      config file parsing
-  main.c        CLI (genkey/server/client) + the poll() event loop
-tests/      standalone unit tests for crypto/handshake/data (no networking)
+  hub.c         hub config loader + multi-client routing event loop
+  hub_route.c   pure hub routing helpers (inner-IP parse, peer lookup)
+  main.c        CLI (genkey/server/client/hub) + the poll() event loop
+tests/      standalone unit tests for crypto/handshake/data/hub (no networking)
 PROTOCOL.md wire format + cryptographic design + limitations
 ```
