@@ -13,15 +13,22 @@ from secdogie_android.backend import AdbBackend
 class FakeAdb:
     """Records calls instead of shelling out to adb."""
 
-    def __init__(self, serial=None, png=None, screencap_error=None, devices=None):
+    def __init__(self, serial=None, png=None, screencap_error=None, devices=None, ui_xml=None, ui_error=None):
         self.serial = serial
         self._png = png
         self._screencap_error = screencap_error
         self._devices = devices if devices is not None else ["DEV1"]
+        self._ui_xml = ui_xml
+        self._ui_error = ui_error
         self.calls = []
 
     def list_devices(self):
         return self._devices
+
+    def ui_dump(self):
+        if self._ui_error is not None:
+            raise self._ui_error
+        return self._ui_xml
 
     def screencap_png(self):
         if self._screencap_error is not None:
@@ -86,6 +93,74 @@ def test_double_click_taps_twice():
 
 def test_right_click_long_presses():
     assert _do("right_click", x=7, y=8) == [("long_press", 7, 8)]
+
+
+# -- RPA-style element snapping ---------------------------------------------------------
+
+# A full-screen clickable backdrop plus a small Submit button inside it.
+_SNAP_XML = """<?xml version='1.0' encoding='UTF-8'?>
+<hierarchy rotation="0">
+  <node class="root" clickable="true" text="" resource-id="app:id/root" content-desc=""
+        bounds="[0,0][1080,2400]"/>
+  <node class="a" clickable="true" text="Submit" resource-id="app:id/submit" content-desc=""
+        bounds="[400,300][680,420]"/>
+</hierarchy>"""
+
+
+def _captured_backend(**kw):
+    """A snapping backend that has captured once, so its screen-size area guard
+    is active (1080x2400)."""
+    adb = FakeAdb(png=_png(1080, 2400), ui_xml=_SNAP_XML, **kw)
+    b = AdbBackend(adb, snap_to_elements=True)
+    b.capture(region=None)
+    return b, adb
+
+
+def test_snap_off_by_default_uses_raw_coordinate():
+    adb = FakeAdb(png=_png(1080, 2400), ui_xml=_SNAP_XML)
+    b = AdbBackend(adb)  # snapping not enabled
+    b.capture(region=None)
+    b.execute(Action.from_dict({"action": "left_click", "x": 410, "y": 305}))
+    assert adb.calls == [("tap", 410, 305)]
+
+
+def test_snap_moves_tap_to_widget_center():
+    # A corner click inside the Submit button snaps to its center; the button is
+    # control-sized so the area guard allows it.
+    b, adb = _captured_backend()
+    result = b.execute(Action.from_dict({"action": "left_click", "x": 410, "y": 305}))
+    assert adb.calls == [("tap", 540, 360)]  # Submit button center
+    assert "snapped to 'Submit'" in result
+
+
+def test_snap_declines_for_large_container():
+    # A point that only the full-screen backdrop contains -> don't snap onto it.
+    b, adb = _captured_backend()
+    b.execute(Action.from_dict({"action": "left_click", "x": 50, "y": 1500}))
+    assert adb.calls == [("tap", 50, 1500)]
+
+
+def test_snap_applies_to_double_and_long_press():
+    b, adb = _captured_backend()
+    b.execute(Action.from_dict({"action": "double_click", "x": 410, "y": 305}))
+    b.execute(Action.from_dict({"action": "right_click", "x": 410, "y": 305}))
+    assert adb.calls == [("tap", 540, 360), ("tap", 540, 360), ("long_press", 540, 360)]
+
+
+def test_snap_falls_back_to_raw_on_dump_error():
+    adb = FakeAdb(png=_png(1080, 2400), ui_error=AdbError("secure view blocks dump"))
+    b = AdbBackend(adb, snap_to_elements=True)
+    b.capture(region=None)
+    b.execute(Action.from_dict({"action": "left_click", "x": 410, "y": 305}))
+    assert adb.calls == [("tap", 410, 305)]
+
+
+def test_find_element_returns_match():
+    adb = FakeAdb(ui_xml=_SNAP_XML)
+    b = AdbBackend(adb, snap_to_elements=True)
+    el = b.find_element(text="Submit")
+    assert el is not None and el.resource_id == "app:id/submit"
+    assert b.find_element(text="nope") is None
 
 
 def test_move_is_a_noop_with_message():

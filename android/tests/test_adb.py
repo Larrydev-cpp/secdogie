@@ -122,3 +122,19 @@ def test_timeout_is_wrapped(monkeypatch):
 def test_resolve_keycode_passthrough_for_existing_keycode():
     assert adb._resolve_keycode("KEYCODE_CAMERA") == "KEYCODE_CAMERA"
     assert adb._resolve_keycode("7") == "KEYCODE_7"
+
+
+def test_ui_dump_slices_xml_out_of_trailing_status_line(monkeypatch):
+    # `uiautomator dump /dev/tty` prints the XML then a status line; ui_dump()
+    # must return only the <hierarchy>...</hierarchy> span.
+    payload = b"<?xml version='1.0'?><hierarchy rotation=\"0\"><node bounds=\"[0,0][1,1]\"/></hierarchy>UI hierchary dumped to: /dev/tty"
+    calls = _capture_calls(monkeypatch, _FakeProc(stdout=payload))
+    xml = Adb().ui_dump()
+    assert xml == "<hierarchy rotation=\"0\"><node bounds=\"[0,0][1,1]\"/></hierarchy>"
+    assert calls[0][0][1:] == ["exec-out", "uiautomator", "dump", "/dev/tty"]
+
+
+def test_ui_dump_raises_when_no_hierarchy(monkeypatch):
+    _capture_calls(monkeypatch, _FakeProc(stdout=b"ERROR: could not get idle state"))
+    with pytest.raises(AdbError):
+        Adb().ui_dump()

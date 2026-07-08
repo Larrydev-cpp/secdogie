@@ -112,6 +112,19 @@ class Adb:
             raise AdbError("screencap returned no data (is the device screen on and unlocked?)")
         return png
 
+    def ui_dump(self) -> str:
+        """The current window's UI-automator view hierarchy as XML: the widget
+        tree (bounds, text, resource-id, clickable, ...) that lets us target
+        real elements instead of guessing pixels. `uiautomator dump /dev/tty`
+        prints the XML to stdout followed by a status line, so slice to the
+        `<hierarchy>...</hierarchy>` span."""
+        raw = self._run(["exec-out", "uiautomator", "dump", "/dev/tty"]).decode("utf-8", "replace")
+        start = raw.find("<hierarchy")
+        end = raw.rfind("</hierarchy>")
+        if start < 0 or end < 0:
+            raise AdbError("uiautomator dump returned no hierarchy (some screens block dumping, e.g. secure views)")
+        return raw[start : end + len("</hierarchy>")]
+
     # -- input ---------------------------------------------------------
     def tap(self, x: int, y: int) -> None:
         self._shell(["input", "tap", str(x), str(y)])

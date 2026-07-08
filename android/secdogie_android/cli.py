@@ -49,6 +49,12 @@ def main(argv: list[str] | None = None) -> int:
         help="adb serial of the device to drive (needed when more than one is attached; see `adb devices`)",
     )
     parser.add_argument("--adb-path", default="adb", help="path to the adb binary (default: adb on PATH)")
+    parser.add_argument(
+        "--snap-to-elements",
+        action="store_true",
+        help="RPA-style targeting: snap each tap onto the real UI widget under it (read from the "
+        "uiautomator hierarchy) instead of the raw pixel, for more reliable hits on buttons/controls",
+    )
 
     # Loop behavior -- same semantics as secdogie-agent.
     parser.add_argument("--max-steps", type=int, default=None, help="max frames/actions before stopping (default 50; 100000 in --watch)")
@@ -108,7 +114,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 1
 
-    backend = AdbBackend(Adb(serial=args.device, adb_path=args.adb_path))
+    backend = AdbBackend(
+        Adb(serial=args.device, adb_path=args.adb_path), snap_to_elements=args.snap_to_elements
+    )
 
     max_steps = args.max_steps if args.max_steps is not None else (100000 if args.watch else 50)
 

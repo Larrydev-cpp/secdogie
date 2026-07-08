@@ -72,6 +72,29 @@ secdogie-android "..." --watch               # act only when a condition on scre
 Flags mirror `secdogie-agent` (`--model`, `--provider`, `--auto`, `--grid`,
 `--max-steps`, `--watch`, …), plus `--device`/`--adb-path` for adb targeting.
 
+## Element targeting (`--snap-to-elements`)
+
+By default the agent taps the raw pixel the model picked from the screenshot.
+With `--snap-to-elements` it also reads the on-screen **UI hierarchy**
+(`uiautomator dump`) and snaps each tap onto the real widget under that point —
+the RPA way of hitting things by identity instead of by pixel guess:
+
+```sh
+secdogie-android "open the overflow menu and tap Settings" --snap-to-elements
+```
+
+Each tap resolves to the tightest *clickable* widget whose box contains the
+model's point, and the tap is moved to that widget's center. To avoid grabbing
+a full-screen backdrop the point merely falls inside, snapping is skipped when
+the widget covers more than a quarter of the screen (tunable). If a screen
+can't be dumped (some secure views block it), it silently falls back to the raw
+coordinate, so turning this on never makes a tap worse — only more precise.
+
+This reads the widget tree the same way real RPA tools and screen readers do,
+so buttons/menu items get hit reliably even when the model's aim is a few pixels
+off. (The tree also drives `AdbBackend.find_element(...)`, a seam for future
+select-by-name actions.)
+
 ## Known limitations
 
 - **ASCII typing only.** `adb shell input text` can't emit Unicode (Chinese,
