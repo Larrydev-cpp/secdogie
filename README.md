@@ -1,6 +1,6 @@
 # secdogie
 
-Two small, from-scratch pieces that combine into one idea: **let a
+Small, from-scratch pieces that combine into one idea: **let a
 cloud vision-LLM control a computer you own, reached over a tunnel you
 control.**
 
@@ -13,6 +13,10 @@ control.**
   task in plain language, it screenshots your screen, asks a vision model
   what to do next, and executes one action at a time (click, type, scroll,
   ...) until the task is done. See [`agent/README.md`](agent/README.md).
+- [`open/`](open/) — a GUI on top of `agent/` that splits the screen by open
+  window and drives one `agent` instance per selected window at once,
+  instead of one agent owning the whole screen. See
+  [`open/README.md`](open/README.md).
 
 ## Downloads
 
@@ -38,16 +42,20 @@ pieces on purpose — neither hard-depends on the other.
 
 ## Before you run any of this
 
-Both pieces execute real, consequential actions: the tunnel moves real
-network traffic, the agent moves a real mouse and types on a real keyboard.
+These pieces execute real, consequential actions: the tunnel moves real
+network traffic, `agent` moves a real mouse and types on a real keyboard, and
+`open` does that across several windows at once.
 
-- **Only point the agent at a computer you own or are explicitly authorized
-  to control.** It is meant to automate your own machine, the same way you
-  would use TeamViewer/VNC on yourself — not to be installed on someone
-  else's computer without their knowledge or consent.
-- Start with `agent`'s `--dry-run` flag and keep per-step confirmation on
-  until you trust a given task.
-- Neither component has been independently security-audited. Read the
+- **Only point the agent(s) at a computer you own or are explicitly
+  authorized to control.** They are meant to automate your own machine, the
+  same way you would use TeamViewer/VNC on yourself — not to be installed on
+  someone else's computer without their knowledge or consent.
+- Start with `agent`'s `--dry-run` flag (in `open`, leave **Enable real
+  actions** off) and keep per-step confirmation on until you trust a given
+  task; `open` runs unattended across every selected window once real
+  actions are on, since a per-step prompt doesn't make sense across several
+  windows sharing one terminal.
+- None of these components has been independently security-audited. Read the
   "Known limitations" sections in each subproject's docs before relying on
   them for anything sensitive.
 
@@ -56,6 +64,7 @@ network traffic, the agent moves a real mouse and types on a real keyboard.
 ```
 tunnel/   C, libsodium-based VPN tunnel (PROTOCOL.md has the design + limitations)
 agent/    Python vision-LLM computer-control agent (provider-agnostic action schema)
+open/     Python GUI: split the screen by window, drive several agent instances at once
 ```
 
 Each subdirectory has its own README with build/install/run instructions
