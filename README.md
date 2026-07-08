@@ -26,6 +26,10 @@ control.**
   [WebDriverAgent](https://github.com/appium/WebDriverAgent) (built once with
   Xcode): screenshots and taps/typing go over WDA's HTTP API. See
   [`ios/README.md`](ios/README.md).
+- [`scene3d/`](scene3d/) — multi-model 3D scene analysis: several workers each
+  analyze a different **view** of one 3D scene (concurrently, spread over a
+  pool of API keys), then an aggregator fuses their observations into a single
+  consolidated 3D understanding. See [`scene3d/README.md`](scene3d/README.md).
 
 ## Tutorial
 
@@ -103,6 +107,7 @@ agent/    Python vision-LLM computer-control agent (provider-agnostic action sch
 open/     Python GUI: split the screen by window, drive several agent instances at once
 android/  Python: drive an Android phone over adb, reusing the agent loop + action schema
 ios/      Python: drive an iPhone/iPad over WebDriverAgent, reusing the agent loop + action schema
+scene3d/  Python: multi-model 3D scene analysis (per-view workers + an aggregator)
 ```
 
 Each subdirectory has its own README with build/install/run instructions
