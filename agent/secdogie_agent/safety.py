@@ -9,8 +9,12 @@ import logging
 import sys
 
 
-def setup_logging(log_path: str | None) -> logging.Logger:
-    logger = logging.getLogger("secdogie_agent")
+def setup_logging(log_path: str | None, name: str = "secdogie_agent") -> logging.Logger:
+    """`name` defaults to the single shared CLI logger. Pass a distinct name
+    per run when driving several agent loops concurrently (e.g. one thread
+    per window) -- each call clears and rebuilds its logger's handlers, which
+    would race and interleave if two concurrent runs shared one logger."""
+    logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
     logger.handlers.clear()
 

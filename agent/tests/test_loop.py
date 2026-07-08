@@ -17,7 +17,7 @@ class ScriptedProvider(VisionProvider):
 
 
 def _patch_screen_and_actions(monkeypatch, executed):
-    monkeypatch.setattr(screen, "capture_screenshot", lambda: (b"fake-png", (1920, 1080)))
+    monkeypatch.setattr(screen, "capture_screenshot", lambda region=None: (b"fake-png", (1920, 1080)))
     # Bypass real image handling; pass the capture through with scale 1.0.
     monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
     monkeypatch.setattr(actions, "execute", lambda action, **kw: executed.append(action.kind) or "ok")
@@ -77,7 +77,7 @@ def test_loop_ask_user_declined_stops_run(monkeypatch):
 
 
 def test_loop_reports_no_display_cleanly(monkeypatch):
-    def raise_no_display():
+    def raise_no_display(region=None):
         raise screen.NoDisplayError("no display")
 
     monkeypatch.setattr(screen, "capture_screenshot", raise_no_display)
@@ -90,7 +90,7 @@ def test_loop_reports_no_display_cleanly(monkeypatch):
 
 def test_loop_scales_model_coordinates_to_screen(monkeypatch):
     executed = []
-    monkeypatch.setattr(screen, "capture_screenshot", lambda: (b"fake-png", (1920, 1080)))
+    monkeypatch.setattr(screen, "capture_screenshot", lambda region=None: (b"fake-png", (1920, 1080)))
     # Model saw a half-size image, so real coords are 2x what it returned.
     monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, (960, 540), 2.0))
     monkeypatch.setattr(actions, "execute", lambda action, **kw: executed.append(action) or "ok")
@@ -163,3 +163,53 @@ def test_loop_confirmation_required_without_auto(monkeypatch):
     rc = loop.run(provider, config)
     assert rc == 0
     assert executed == []  # declined every confirmation
+
+
+def test_loop_region_is_passed_to_capture_and_offsets_actions(monkeypatch):
+    executed = []
+    captured_regions = []
+
+    def fake_capture(region=None):
+        captured_regions.append(region)
+        return b"fake-png", (400, 300)
+
+    monkeypatch.setattr(screen, "capture_screenshot", fake_capture)
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+    monkeypatch.setattr(actions, "execute", lambda action, **kw: executed.append(action) or "ok")
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 10, "y": 20},
+        {"action": "done", "text": "done"},
+    ])
+    region = (100, 200, 400, 300)
+    config = loop.AgentConfig(task="click in a window", auto=True, max_steps=5, region=region)
+    rc = loop.run(provider, config)
+    assert rc == 0
+    assert captured_regions == [region, region]  # one capture per step (left_click, then done)
+    # model coordinates are region-relative; the region's (left, top) must be
+    # added back before the click is executed against the real, full screen.
+    assert (executed[0].x, executed[0].y) == (110, 220)
+
+
+def test_loop_logger_name_isolates_concurrent_runs(monkeypatch):
+    _patch_screen_and_actions(monkeypatch, [])
+    provider_a = ScriptedProvider([{"action": "done", "text": "a"}])
+    provider_b = ScriptedProvider([{"action": "done", "text": "b"}])
+    loop.run(provider_a, loop.AgentConfig(task="a", auto=True, max_steps=1, logger_name="test.a"))
+    loop.run(provider_b, loop.AgentConfig(task="b", auto=True, max_steps=1, logger_name="test.b"))
+    import logging
+
+    assert logging.getLogger("test.a") is not logging.getLogger("test.b")
+    assert logging.getLogger("test.a").handlers
+    assert logging.getLogger("test.b").handlers
+
+
+def test_loop_should_stop_halts_before_next_step(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    provider = ScriptedProvider([{"action": "wait", "seconds": 0}] * 10)
+    config = loop.AgentConfig(
+        task="wait forever", auto=True, max_steps=10, should_stop=lambda: provider.calls >= 2
+    )
+    rc = loop.run(provider, config)
+    assert rc == 5
+    assert provider.calls == 2  # stopped before a 3rd step was requested

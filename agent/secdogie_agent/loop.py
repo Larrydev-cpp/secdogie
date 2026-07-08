@@ -5,6 +5,7 @@ user stops it, or `max_steps` is hit.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from . import actions, dialog, safety, screen
@@ -42,13 +43,16 @@ class AgentConfig:
     gui: bool = False  # use tkinter dialogs for the task briefing and ask_user prompts
     watch: bool = False  # monitor mode: poll frames, act only when a condition triggers
     watch_interval: float = 2.0  # minimum seconds between frames in watch mode
+    region: tuple[int, int, int, int] | None = None  # (left, top, width, height); None = full primary monitor
+    logger_name: str = "secdogie_agent"  # distinct per concurrent run so loggers don't share/race on handlers
+    should_stop: Callable[[], bool] | None = None  # checked each step; lets a caller cancel a running loop
 
 
 def run(provider: VisionProvider, config: AgentConfig) -> int:
     """Returns a process-style exit code: 0 done, 1 provider error,
     2 user declined to continue past an ask_user, 3 max_steps exhausted,
-    4 no graphical display available to screenshot."""
-    logger = safety.setup_logging(config.log_path)
+    4 no graphical display available to screenshot, 5 stopped via should_stop."""
+    logger = safety.setup_logging(config.log_path, name=config.logger_name)
     logger.info("task: %s", config.task)
     if config.auto:
         logger.warning("running with --auto: actions execute without per-step confirmation")
@@ -76,12 +80,16 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
     history: list[HistoryStep] = []
 
     for step in range(1, config.max_steps + 1):
+        if config.should_stop is not None and config.should_stop():
+            logger.info("stopped externally after %d step(s)", step - 1)
+            return 5
+
         # In watch mode, pace the polling so we don't hammer the API.
         if config.watch and step > 1:
             time.sleep(config.watch_interval)
 
         try:
-            raw_png, real_size = screen.capture_screenshot()
+            raw_png, real_size = screen.capture_screenshot(region=config.region)
         except screen.NoDisplayError as e:
             logger.error("%s", e)
             return 4
@@ -97,6 +105,11 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             logger.error("provider failed to produce an action: %s", e)
             return 1
         action = action.scaled(scale)
+        if config.region is not None:
+            # Model coordinates are relative to the captured region; shift
+            # back to absolute screen coordinates before anything downstream
+            # (confirmation prompts, execution) sees them.
+            action = action.translated(config.region[0], config.region[1])
 
         reasoning = action.reasoning or action.raw.get("reasoning", "")
 
@@ -157,7 +170,7 @@ def _run_briefing(provider: VisionProvider, config: AgentConfig, logger) -> int 
     in a GUI dialog for approval. Returns None to proceed, or an exit code to
     stop (2 = user cancelled, 4 = no display)."""
     try:
-        raw_png, real_size = screen.capture_screenshot()
+        raw_png, real_size = screen.capture_screenshot(region=config.region)
     except screen.NoDisplayError as e:
         logger.error("%s", e)
         return 4
