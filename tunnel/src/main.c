@@ -18,6 +18,7 @@
 #include "tun.h"
 #include "net.h"
 #include "config.h"
+#include "hub.h"
 #include "util.h"
 
 static volatile sig_atomic_t g_should_exit = 0;
@@ -31,8 +32,9 @@ static void print_usage(const char *argv0) {
         "usage:\n"
         "  %s genkey [private_key_outfile]\n"
         "  %s server <config_file>\n"
-        "  %s client <config_file>\n",
-        argv0, argv0, argv0);
+        "  %s client <config_file>\n"
+        "  %s hub    <config_file>\n",
+        argv0, argv0, argv0, argv0);
 }
 
 static int cmd_genkey(int argc, char **argv) {
@@ -280,6 +282,36 @@ static int cmd_client(int argc, char **argv) {
     return 0;
 }
 
+static int cmd_hub(int argc, char **argv) {
+    if (argc < 1) {
+        fprintf(stderr, "hub requires a config file\n");
+        return 1;
+    }
+    sdtp_hub_config cfg;
+    if (sdtp_hub_config_load(argv[0], &cfg) != 0) return 1;
+
+    char ifname[IFNAMSIZ];
+    memset(ifname, 0, sizeof(ifname));
+    if (cfg.ifname[0]) strncpy(ifname, cfg.ifname, IFNAMSIZ - 1);
+
+    int tun_fd = sdtp_tun_create(ifname);
+    if (tun_fd < 0) sdtp_die("tun create failed: %s (are you root / CAP_NET_ADMIN?)", strerror(errno));
+    if (sdtp_tun_configure(ifname, cfg.address, cfg.mtu) < 0) {
+        sdtp_die("tun configure failed: %s", strerror(errno));
+    }
+
+    int udp_fd = sdtp_udp_bind(cfg.listen_port);
+    if (udp_fd < 0) sdtp_die("udp bind failed: %s", strerror(errno));
+
+    sdtp_log("hub: tun=%s address=%s udp_port=%u peers=%zu", ifname, cfg.address, cfg.listen_port,
+             cfg.peer_count);
+    sdtp_hub_run(tun_fd, udp_fd, &cfg);
+
+    close(tun_fd);
+    close(udp_fd);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     if (sdtp_crypto_init() != 0) {
         fprintf(stderr, "libsodium init failed\n");
@@ -297,6 +329,8 @@ int main(int argc, char **argv) {
         return cmd_server(argc - 2, argv + 2);
     } else if (strcmp(cmd, "client") == 0) {
         return cmd_client(argc - 2, argv + 2);
+    } else if (strcmp(cmd, "hub") == 0) {
+        return cmd_hub(argc - 2, argv + 2);
     }
 
     print_usage(argv[0]);

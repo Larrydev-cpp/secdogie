@@ -4,11 +4,12 @@ Small, from-scratch pieces that combine into one idea: **let a
 cloud vision-LLM control a computer you own, reached over a tunnel you
 control.**
 
-- [`tunnel/`](tunnel/) — a minimal point-to-point encrypted VPN tunnel,
-  written from scratch in C on libsodium primitives (X25519 + BLAKE2b +
-  XChaCha20-Poly1305). See [`tunnel/PROTOCOL.md`](tunnel/PROTOCOL.md) for
-  the handshake design and [`tunnel/README.md`](tunnel/README.md) to build
-  and run it.
+- [`tunnel/`](tunnel/) — a minimal encrypted VPN tunnel, written from scratch
+  in C on libsodium primitives (X25519 + BLAKE2b + XChaCha20-Poly1305).
+  Point-to-point by default, with an optional **hub mode** that terminates
+  many client tunnels on one public node and routes between them. See
+  [`tunnel/PROTOCOL.md`](tunnel/PROTOCOL.md) for the handshake design and
+  [`tunnel/README.md`](tunnel/README.md) to build and run it.
 - [`agent/`](agent/) — a vision-LLM computer-control agent: point it at a
   task in plain language, it screenshots your screen, asks a vision model
   what to do next, and executes one action at a time (click, type, scroll,
@@ -17,6 +18,44 @@ control.**
   window and drives one `agent` instance per selected window at once,
   instead of one agent owning the whole screen. See
   [`open/README.md`](open/README.md).
+- [`android/`](android/) — points the same `agent/` loop at an Android phone
+  instead of the desktop: screenshots come from `adb screencap`, taps/typing
+  go out through `adb shell input`, so nothing is installed on the phone. See
+  [`android/README.md`](android/README.md).
+- [`ios/`](ios/) — points the same `agent/` loop at an iPhone/iPad through
+  [WebDriverAgent](https://github.com/appium/WebDriverAgent) (built once with
+  Xcode): screenshots and taps/typing go over WDA's HTTP API. See
+  [`ios/README.md`](ios/README.md).
+- [`scene3d/`](scene3d/) — multi-model 3D scene analysis: several workers each
+  analyze a different **view** of one 3D scene (concurrently, spread over a
+  pool of API keys), then an aggregator fuses their observations into a single
+  consolidated 3D understanding. See [`scene3d/README.md`](scene3d/README.md).
+
+## Tutorial
+
+New here? **[`TUTORIAL.md`](TUTORIAL.md) is a full, follow-along walkthrough** —
+from a fresh clone to a model driving your desktop, a phone, several windows,
+and a machine across the network, with the exact commands and the output you
+should see at each step, plus a troubleshooting table.
+
+The 60-second version (control your own desktop):
+
+```sh
+# 1. install
+cd agent && python3 -m venv .venv && source .venv/bin/activate && pip install -e .
+
+# 2. add your API key (Anthropic for claude-* models, OpenAI for gpt-*)
+secdogie-agent --init-config        # then edit ~/.config/secdogie/config
+
+# 3. see what it WOULD do — touches nothing
+secdogie-agent "open a text editor and type 'hello world'" --dry-run
+
+# 4. do it for real — approves each action with a y/N prompt
+secdogie-agent "open a text editor and type 'hello world'"
+```
+
+Then follow [`TUTORIAL.md`](TUTORIAL.md) for phones (`android`/`ios`), several
+windows at once (`open`), and reaching a remote machine (`tunnel`).
 
 ## Downloads
 
@@ -43,8 +82,9 @@ pieces on purpose — neither hard-depends on the other.
 ## Before you run any of this
 
 These pieces execute real, consequential actions: the tunnel moves real
-network traffic, `agent` moves a real mouse and types on a real keyboard, and
-`open` does that across several windows at once.
+network traffic, `agent` moves a real mouse and types on a real keyboard,
+`open` does that across several windows at once, and `android`/`ios` tap and
+type on a real phone.
 
 - **Only point the agent(s) at a computer you own or are explicitly
   authorized to control.** They are meant to automate your own machine, the
@@ -65,6 +105,9 @@ network traffic, `agent` moves a real mouse and types on a real keyboard, and
 tunnel/   C, libsodium-based VPN tunnel (PROTOCOL.md has the design + limitations)
 agent/    Python vision-LLM computer-control agent (provider-agnostic action schema)
 open/     Python GUI: split the screen by window, drive several agent instances at once
+android/  Python: drive an Android phone over adb, reusing the agent loop + action schema
+ios/      Python: drive an iPhone/iPad over WebDriverAgent, reusing the agent loop + action schema
+scene3d/  Python: multi-model 3D scene analysis (per-view workers + an aggregator)
 ```
 
 Each subdirectory has its own README with build/install/run instructions

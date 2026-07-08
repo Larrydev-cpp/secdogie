@@ -15,7 +15,13 @@ import io
 DEFAULT_MAX_EDGE = 1568
 
 
-class NoDisplayError(RuntimeError):
+class CaptureError(RuntimeError):
+    """A screenshot could not be taken. Backends raise this (or a subclass)
+    so the agent loop can end cleanly on any capture failure -- a headless
+    desktop, or a phone that isn't reachable over adb -- instead of crashing."""
+
+
+class NoDisplayError(CaptureError):
     """Raised when there is no graphical session to screenshot -- e.g. running
     over SSH to a headless box, or inside a container with no X display."""
 

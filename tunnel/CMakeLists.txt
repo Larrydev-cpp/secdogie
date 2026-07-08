@@ -21,6 +21,8 @@ add_executable(secdogie-tunnel
     src/tun.c
     src/net.c
     src/config.c
+    src/hub.c
+    src/hub_route.c
     src/util.c
 )
 
@@ -34,6 +36,7 @@ add_executable(test_protocol
     src/crypto.c
     src/handshake.c
     src/data.c
+    src/hub_route.c
     src/util.c
 )
 target_include_directories(test_protocol PRIVATE include ${SODIUM_INCLUDE_DIRS})

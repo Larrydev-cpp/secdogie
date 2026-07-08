@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from . import actions, dialog, safety, screen
+from .backend import Backend, DesktopBackend
 from .providers.base import HistoryStep, VisionProvider
 
 # Benign actions that never need a confirmation prompt -- they don't touch the
@@ -46,6 +47,7 @@ class AgentConfig:
     region: tuple[int, int, int, int] | None = None  # (left, top, width, height); None = full primary monitor
     logger_name: str = "secdogie_agent"  # distinct per concurrent run so loggers don't share/race on handlers
     should_stop: Callable[[], bool] | None = None  # checked each step; lets a caller cancel a running loop
+    backend: Backend | None = None  # what to drive; None = the local desktop (mss + pyautogui)
 
 
 def run(provider: VisionProvider, config: AgentConfig) -> int:
@@ -59,17 +61,13 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
     if config.dry_run:
         logger.info("running with --dry-run: actions will be logged but not executed")
 
-    try:
-        import pyautogui
-
-        pyautogui.FAILSAFE = True  # slamming the cursor into a screen corner aborts pyautogui calls
-    except Exception as e:
-        # Not just ImportError: pyautogui's own import chain (mouseinfo) raises other
-        # exceptions (e.g. KeyError on DISPLAY) when there's no GUI session at all.
-        logger.warning("pyautogui unavailable (%s); only --dry-run will work", e)
+    backend = config.backend or DesktopBackend(
+        move_duration=config.move_duration, settle=config.settle
+    )
+    backend.setup(logger)
 
     if config.gui:
-        briefing_rc = _run_briefing(provider, config, logger)
+        briefing_rc = _run_briefing(provider, config, logger, backend)
         if briefing_rc is not None:
             return briefing_rc
 
@@ -89,8 +87,8 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             time.sleep(config.watch_interval)
 
         try:
-            raw_png, real_size = screen.capture_screenshot(region=config.region)
-        except screen.NoDisplayError as e:
+            raw_png, real_size = backend.capture(config.region)
+        except screen.CaptureError as e:
             logger.error("%s", e)
             return 4
         # Downscale to a known size and remember the factor to map the model's
@@ -153,9 +151,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             continue
 
         try:
-            result = actions.execute(
-                action, move_duration=config.move_duration, settle=config.settle
-            )
+            result = backend.execute(action)
         except Exception as e:
             result = f"error: {e}"
             logger.error("action failed: %s", e)
@@ -165,13 +161,13 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
     return 3
 
 
-def _run_briefing(provider: VisionProvider, config: AgentConfig, logger) -> int | None:
+def _run_briefing(provider: VisionProvider, config: AgentConfig, logger, backend: Backend) -> int | None:
     """Before acting, have the model restate the task and its plan, and show it
     in a GUI dialog for approval. Returns None to proceed, or an exit code to
-    stop (2 = user cancelled, 4 = no display)."""
+    stop (2 = user cancelled, 4 = capture failed)."""
     try:
-        raw_png, real_size = screen.capture_screenshot(region=config.region)
-    except screen.NoDisplayError as e:
+        raw_png, real_size = backend.capture(config.region)
+    except screen.CaptureError as e:
         logger.error("%s", e)
         return 4
 
