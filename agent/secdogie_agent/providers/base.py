@@ -100,6 +100,36 @@ class Action:
             raw=new_raw,
         )
 
+    def translated(self, dx: int, dy: int) -> "Action":
+        """Return a copy with all pixel coordinates shifted by (dx, dy).
+
+        Used when the screenshot the model reasoned about was cropped to a
+        sub-region of the real screen (e.g. one window out of several being
+        driven in parallel): model coordinates are region-relative, so this
+        adds the region's (left, top) origin back to get real, absolute
+        screen coordinates pyautogui can act on. Like `scaled`, scroll
+        amounts (dx/dy fields) are not positions and are left alone.
+        """
+        if dx == 0 and dy == 0:
+            return self
+
+        def t(v: int | None, delta: int) -> int | None:
+            return v + delta if v is not None else None
+
+        new_raw = dict(self.raw)
+        for k, delta in (("x", dx), ("y", dy), ("to_x", dx), ("to_y", dy)):
+            if isinstance(new_raw.get(k), (int, float)):
+                new_raw[k] = new_raw[k] + delta
+
+        return replace(
+            self,
+            x=t(self.x, dx),
+            y=t(self.y, dy),
+            to_x=t(self.to_x, dx),
+            to_y=t(self.to_y, dy),
+            raw=new_raw,
+        )
+
 
 @dataclass
 class HistoryStep:

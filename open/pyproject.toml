@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secdogie-open"
+version = "0.1.0"
+description = "GUI that splits the screen by open window and drives one secdogie-agent instance per selected window at once."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "pywinctl>=0.4",
+    "pillow>=10.0.0",
+]
+
+[project.scripts]
+secdogie-open = "secdogie_open.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["secdogie_open*"]

@@ -15,19 +15,39 @@ import io
 DEFAULT_MAX_EDGE = 1568
 
 
-class NoDisplayError(RuntimeError):
+class CaptureError(RuntimeError):
+    """A screenshot could not be taken. Backends raise this (or a subclass)
+    so the agent loop can end cleanly on any capture failure -- a headless
+    desktop, or a phone that isn't reachable over adb -- instead of crashing."""
+
+
+class NoDisplayError(CaptureError):
     """Raised when there is no graphical session to screenshot -- e.g. running
     over SSH to a headless box, or inside a container with no X display."""
 
 
-def capture_screenshot() -> tuple[bytes, tuple[int, int]]:
-    """Returns (png_bytes, (width, height)) for the primary monitor."""
+def capture_screenshot(
+    region: tuple[int, int, int, int] | None = None,
+) -> tuple[bytes, tuple[int, int]]:
+    """Returns (png_bytes, (width, height)).
+
+    With no `region`, captures the primary monitor. With `region` given as
+    (left, top, width, height) in absolute screen pixels, captures only that
+    box -- e.g. one window out of several, when several are being driven in
+    parallel. The returned size is the box's own size; loop.py adds the
+    region's (left, top) back onto any resulting action coordinates before
+    execution, since pyautogui always acts in absolute screen coordinates.
+    """
     import mss
     import mss.tools
 
     try:
         with mss.mss() as sct:
-            monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+            if region is not None:
+                left, top, width, height = region
+                monitor = {"left": left, "top": top, "width": width, "height": height}
+            else:
+                monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
             shot = sct.grab(monitor)
             png_bytes = mss.tools.to_png(shot.rgb, shot.size)
             return png_bytes, (shot.size[0], shot.size[1])

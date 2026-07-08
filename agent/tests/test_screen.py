@@ -58,3 +58,85 @@ def test_action_scaled_leaves_scroll_amounts_alone():
 def test_action_scaled_identity_returns_self():
     a = Action.from_dict({"action": "left_click", "x": 5, "y": 5})
     assert a.scaled(1.0) is a
+
+
+def test_action_translated_shifts_positions_only():
+    a = Action.from_dict({"action": "drag", "x": 10, "y": 20, "to_x": 30, "to_y": 40})
+    b = a.translated(100, 200)
+    assert (b.x, b.y) == (110, 220)
+    assert (b.to_x, b.to_y) == (130, 240)
+    assert b.raw["x"] == 110 and b.raw["to_x"] == 130
+    assert (a.x, a.y) == (10, 20)  # original unchanged
+
+
+def test_action_translated_leaves_scroll_amounts_alone():
+    a = Action.from_dict({"action": "scroll", "x": 10, "y": 20, "dx": 3, "dy": -3})
+    b = a.translated(5, 5)
+    assert (b.x, b.y) == (15, 25)
+    assert (b.dx, b.dy) == (3, -3)
+
+
+def test_action_translated_identity_returns_self():
+    a = Action.from_dict({"action": "left_click", "x": 5, "y": 5})
+    assert a.translated(0, 0) is a
+
+
+def test_capture_screenshot_region_grabs_only_that_box(monkeypatch):
+    import mss
+
+    grabbed = {}
+
+    class FakeShot:
+        rgb = b"\x00" * (50 * 40 * 3)
+        size = (50, 40)
+
+    class FakeSct:
+        monitors = [{"left": 0, "top": 0, "width": 1920, "height": 1080}]
+
+        def grab(self, monitor):
+            grabbed["monitor"] = monitor
+            return FakeShot()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(mss, "mss", lambda: FakeSct())
+
+    png, size = screen.capture_screenshot(region=(100, 200, 50, 40))
+    assert grabbed["monitor"] == {"left": 100, "top": 200, "width": 50, "height": 40}
+    assert size == (50, 40)
+    assert png  # real mss.tools.to_png ran against the fake capture and produced bytes
+
+
+def test_capture_screenshot_no_region_uses_primary_monitor(monkeypatch):
+    import mss
+
+    grabbed = {}
+
+    class FakeShot:
+        rgb = b"\x00" * (10 * 10 * 3)
+        size = (10, 10)
+
+    class FakeSct:
+        monitors = [
+            {"left": 0, "top": 0, "width": 3000, "height": 1000},  # index 0: "all monitors" combined
+            {"left": 0, "top": 0, "width": 10, "height": 10},  # index 1: primary
+        ]
+
+        def grab(self, monitor):
+            grabbed["monitor"] = monitor
+            return FakeShot()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(mss, "mss", lambda: FakeSct())
+
+    screen.capture_screenshot()
+    assert grabbed["monitor"] == FakeSct.monitors[1]  # picks the primary monitor, not the combined one

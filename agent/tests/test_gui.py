@@ -22,7 +22,7 @@ class ScriptedProvider(VisionProvider):
 
 
 def _patch_io(monkeypatch, executed):
-    monkeypatch.setattr(screen, "capture_screenshot", lambda: (b"png", (1920, 1080)))
+    monkeypatch.setattr(screen, "capture_screenshot", lambda region=None: (b"png", (1920, 1080)))
     monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
     monkeypatch.setattr(actions, "execute", lambda action, **kw: executed.append(action.kind) or "ok")
 

@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secdogie-scene3d"
+version = "0.1.0"
+description = "Multi-model 3D scene analysis: N workers each analyze one view, an aggregator fuses them into one 3D understanding."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# Depends on secdogie-agent for the shared config resolution and the tolerant
+# JSON parser. The model adapters import anthropic/openai lazily, so neither is
+# a hard dependency of the pipeline itself. Install the sibling agent:
+#   pip install -e ../agent
+dependencies = []
+
+[project.optional-dependencies]
+openai = ["openai>=1.0.0"]
+
+[project.scripts]
+secdogie-scene3d = "secdogie_scene3d.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["secdogie_scene3d*"]

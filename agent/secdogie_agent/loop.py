@@ -5,9 +5,11 @@ user stops it, or `max_steps` is hit.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from . import actions, dialog, safety, screen
+from .backend import Backend, DesktopBackend
 from .providers.base import HistoryStep, VisionProvider
 
 # Benign actions that never need a confirmation prompt -- they don't touch the
@@ -42,30 +44,30 @@ class AgentConfig:
     gui: bool = False  # use tkinter dialogs for the task briefing and ask_user prompts
     watch: bool = False  # monitor mode: poll frames, act only when a condition triggers
     watch_interval: float = 2.0  # minimum seconds between frames in watch mode
+    region: tuple[int, int, int, int] | None = None  # (left, top, width, height); None = full primary monitor
+    logger_name: str = "secdogie_agent"  # distinct per concurrent run so loggers don't share/race on handlers
+    should_stop: Callable[[], bool] | None = None  # checked each step; lets a caller cancel a running loop
+    backend: Backend | None = None  # what to drive; None = the local desktop (mss + pyautogui)
 
 
 def run(provider: VisionProvider, config: AgentConfig) -> int:
     """Returns a process-style exit code: 0 done, 1 provider error,
     2 user declined to continue past an ask_user, 3 max_steps exhausted,
-    4 no graphical display available to screenshot."""
-    logger = safety.setup_logging(config.log_path)
+    4 no graphical display available to screenshot, 5 stopped via should_stop."""
+    logger = safety.setup_logging(config.log_path, name=config.logger_name)
     logger.info("task: %s", config.task)
     if config.auto:
         logger.warning("running with --auto: actions execute without per-step confirmation")
     if config.dry_run:
         logger.info("running with --dry-run: actions will be logged but not executed")
 
-    try:
-        import pyautogui
-
-        pyautogui.FAILSAFE = True  # slamming the cursor into a screen corner aborts pyautogui calls
-    except Exception as e:
-        # Not just ImportError: pyautogui's own import chain (mouseinfo) raises other
-        # exceptions (e.g. KeyError on DISPLAY) when there's no GUI session at all.
-        logger.warning("pyautogui unavailable (%s); only --dry-run will work", e)
+    backend = config.backend or DesktopBackend(
+        move_duration=config.move_duration, settle=config.settle
+    )
+    backend.setup(logger)
 
     if config.gui:
-        briefing_rc = _run_briefing(provider, config, logger)
+        briefing_rc = _run_briefing(provider, config, logger, backend)
         if briefing_rc is not None:
             return briefing_rc
 
@@ -76,13 +78,17 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
     history: list[HistoryStep] = []
 
     for step in range(1, config.max_steps + 1):
+        if config.should_stop is not None and config.should_stop():
+            logger.info("stopped externally after %d step(s)", step - 1)
+            return 5
+
         # In watch mode, pace the polling so we don't hammer the API.
         if config.watch and step > 1:
             time.sleep(config.watch_interval)
 
         try:
-            raw_png, real_size = screen.capture_screenshot()
-        except screen.NoDisplayError as e:
+            raw_png, real_size = backend.capture(config.region)
+        except screen.CaptureError as e:
             logger.error("%s", e)
             return 4
         # Downscale to a known size and remember the factor to map the model's
@@ -97,6 +103,11 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             logger.error("provider failed to produce an action: %s", e)
             return 1
         action = action.scaled(scale)
+        if config.region is not None:
+            # Model coordinates are relative to the captured region; shift
+            # back to absolute screen coordinates before anything downstream
+            # (confirmation prompts, execution) sees them.
+            action = action.translated(config.region[0], config.region[1])
 
         reasoning = action.reasoning or action.raw.get("reasoning", "")
 
@@ -140,9 +151,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             continue
 
         try:
-            result = actions.execute(
-                action, move_duration=config.move_duration, settle=config.settle
-            )
+            result = backend.execute(action)
         except Exception as e:
             result = f"error: {e}"
             logger.error("action failed: %s", e)
@@ -152,13 +161,13 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
     return 3
 
 
-def _run_briefing(provider: VisionProvider, config: AgentConfig, logger) -> int | None:
+def _run_briefing(provider: VisionProvider, config: AgentConfig, logger, backend: Backend) -> int | None:
     """Before acting, have the model restate the task and its plan, and show it
     in a GUI dialog for approval. Returns None to proceed, or an exit code to
-    stop (2 = user cancelled, 4 = no display)."""
+    stop (2 = user cancelled, 4 = capture failed)."""
     try:
-        raw_png, real_size = screen.capture_screenshot()
-    except screen.NoDisplayError as e:
+        raw_png, real_size = backend.capture(config.region)
+    except screen.CaptureError as e:
         logger.error("%s", e)
         return 4
 

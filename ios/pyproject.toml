@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secdogie-ios"
+version = "0.1.0"
+description = "Vision-LLM iOS-control agent: drives an iPhone/iPad through WebDriverAgent, reusing the secdogie-agent loop and action schema."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# secdogie-agent brings the loop, providers, config, and Pillow (used to read
+# the screenshot's pixel dimensions). The WDA client uses only the stdlib
+# (urllib), so there's no HTTP dependency to add. Install the sibling agent:
+#   pip install -e ../agent
+dependencies = [
+    "pillow>=10.0.0",
+]
+
+[project.scripts]
+secdogie-ios = "secdogie_ios.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["secdogie_ios*"]
