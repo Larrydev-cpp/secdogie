@@ -21,6 +21,10 @@ control.**
   instead of the desktop: screenshots come from `adb screencap`, taps/typing
   go out through `adb shell input`, so nothing is installed on the phone. See
   [`android/README.md`](android/README.md).
+- [`ios/`](ios/) — points the same `agent/` loop at an iPhone/iPad through
+  [WebDriverAgent](https://github.com/appium/WebDriverAgent) (built once with
+  Xcode): screenshots and taps/typing go over WDA's HTTP API. See
+  [`ios/README.md`](ios/README.md).
 
 ## Downloads
 
@@ -48,8 +52,8 @@ pieces on purpose — neither hard-depends on the other.
 
 These pieces execute real, consequential actions: the tunnel moves real
 network traffic, `agent` moves a real mouse and types on a real keyboard,
-`open` does that across several windows at once, and `android` taps and types
-on a real phone.
+`open` does that across several windows at once, and `android`/`ios` tap and
+type on a real phone.
 
 - **Only point the agent(s) at a computer you own or are explicitly
   authorized to control.** They are meant to automate your own machine, the
@@ -71,6 +75,7 @@ tunnel/   C, libsodium-based VPN tunnel (PROTOCOL.md has the design + limitation
 agent/    Python vision-LLM computer-control agent (provider-agnostic action schema)
 open/     Python GUI: split the screen by window, drive several agent instances at once
 android/  Python: drive an Android phone over adb, reusing the agent loop + action schema
+ios/      Python: drive an iPhone/iPad over WebDriverAgent, reusing the agent loop + action schema
 ```
 
 Each subdirectory has its own README with build/install/run instructions
