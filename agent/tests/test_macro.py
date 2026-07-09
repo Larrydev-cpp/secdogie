@@ -1,7 +1,6 @@
 import json
 
 import pytest
-
 from secdogie_agent.backend import ElementSelector
 from secdogie_agent.macro import Macro, MacroRecorder, MacroStep, resolve_replay_step
 from secdogie_agent.providers.base import Action

@@ -11,7 +11,6 @@ import re
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-
 # The full set of actions the agent loop knows how to execute. A provider's
 # job is to emit a dict that validates against this shape; see
 # Action.from_dict for the exact fields expected per action kind.
@@ -50,7 +49,7 @@ class Action:
     raw: dict[str, Any] = field(default_factory=dict)
 
     @staticmethod
-    def from_dict(d: dict[str, Any]) -> "Action":
+    def from_dict(d: dict[str, Any]) -> Action:
         kind = d.get("action")
         if kind not in VALID_ACTIONS:
             raise ValueError(f"unknown action {kind!r}; must be one of {sorted(VALID_ACTIONS)}")
@@ -70,7 +69,7 @@ class Action:
             raw=d,
         )
 
-    def scaled(self, factor: float) -> "Action":
+    def scaled(self, factor: float) -> Action:
         """Return a copy with all pixel coordinates multiplied by `factor`.
 
         The model reasons in the (possibly downscaled) image's coordinate
@@ -100,7 +99,7 @@ class Action:
             raw=new_raw,
         )
 
-    def translated(self, dx: int, dy: int) -> "Action":
+    def translated(self, dx: int, dy: int) -> Action:
         """Return a copy with all pixel coordinates shifted by (dx, dy).
 
         Used when the screenshot the model reasoned about was cropped to a

@@ -13,6 +13,19 @@ on:
   pull_request:
 
 jobs:
+  # --- Lint: one ruff pass over every Python component (rules in ruff.toml) --
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install ruff
+        run: python -m pip install --upgrade pip ruff
+      - name: Lint
+        run: ruff check .
+
   # --- Python components: one job per package, same shape for each ----------
   python-tests:
     strategy:

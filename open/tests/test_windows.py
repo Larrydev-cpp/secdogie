@@ -2,7 +2,6 @@ import sys
 import types
 
 import pytest
-
 from secdogie_open import windows
 
 

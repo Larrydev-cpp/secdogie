@@ -1,6 +1,5 @@
 import secdogie_scene3d.cli as cli_mod
 from conftest import FakeModel
-
 from secdogie_scene3d.aggregate import SceneAnalysis
 
 

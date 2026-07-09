@@ -66,7 +66,7 @@ class MacroStep:
         }
 
     @staticmethod
-    def from_json(d: dict[str, Any]) -> "MacroStep":
+    def from_json(d: dict[str, Any]) -> MacroStep:
         sel = d.get("selector")
         return MacroStep(
             kind=d["kind"],
@@ -94,7 +94,7 @@ class Macro:
         Path(path).write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
     @classmethod
-    def load(cls, path: str | Path) -> "Macro":
+    def load(cls, path: str | Path) -> Macro:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         version = data.get("format_version")
         if version != MACRO_FORMAT_VERSION:

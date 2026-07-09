@@ -4,7 +4,6 @@ import sys
 import types
 
 import pytest
-
 from secdogie_agent import actions
 from secdogie_agent.providers.base import Action
 

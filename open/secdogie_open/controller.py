@@ -36,7 +36,7 @@ class Controller:
         self._windows: dict[str, windows.WindowInfo] = {}
         self._runs: dict[str, runner.WindowRun] = {}
         self._status: dict[str, tuple[str, str]] = {}
-        self._status_queue: "queue.Queue[tuple[str, str, str]]" = queue.Queue()
+        self._status_queue: queue.Queue[tuple[str, str, str]] = queue.Queue()
         self._lock = threading.Lock()
         # Moves status_queue entries (posted by runner threads) into
         # self._status so status_snapshot() can return a point-in-time view

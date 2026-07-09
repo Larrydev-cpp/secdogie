@@ -1,7 +1,6 @@
 import base64
 
 import pytest
-
 from secdogie_agent.providers.openai_provider import OpenAIProvider
 
 

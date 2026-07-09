@@ -58,7 +58,7 @@ def launch(
     auto: bool,
     dry_run: bool,
     max_steps: int,
-    status_queue: "queue.Queue[tuple[str, RunStatus, str]]",
+    status_queue: queue.Queue[tuple[str, RunStatus, str]],
 ) -> WindowRun:
     """Starts a daemon thread running one agent loop scoped to `window`.
 

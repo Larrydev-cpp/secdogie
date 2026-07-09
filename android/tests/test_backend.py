@@ -2,11 +2,9 @@ import io
 
 import pytest
 from PIL import Image
-
 from secdogie_agent import screen
 from secdogie_agent.backend import ElementSelector, Locatable
 from secdogie_agent.providers.base import Action
-
 from secdogie_android.adb import AdbError
 from secdogie_android.backend import AdbBackend
 

@@ -1,0 +1,26 @@
+# Shared lint/format config for every secdogie Python component (agent,
+# android, ios, open, scene3d). One file at the repo root so all five packages
+# are checked with the same rules -- run `ruff check` / `ruff format` here.
+target-version = "py310"  # matches requires-python = ">=3.10" in every pyproject
+line-length = 110
+
+# Generated / vendored trees that aren't ours to lint.
+extend-exclude = [
+    "**/.venv",
+    "**/.build-venv",
+    "**/build",
+    "**/dist",
+    "**/*.egg-info",
+]
+
+[lint]
+# Correctness and modernization, not cosmetics: pyflakes (F), import order (I),
+# pyupgrade (UP), and bugbear (B) catch real issues; E/W stay on but line-length
+# (E501) is off -- the CLI help and model-prompt string literals are
+# intentionally long and wrapping them would hurt readability.
+select = ["E", "F", "I", "W", "UP", "B"]
+ignore = ["E501"]
+
+[lint.per-file-ignores]
+# Tests lean on fixtures/imports that read as "unused" but wire pytest together.
+"**/tests/**" = ["B011"]

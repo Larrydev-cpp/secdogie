@@ -1,7 +1,5 @@
-from pathlib import Path
 
 import pytest
-
 from secdogie_agent import config as config_mod
 
 

@@ -2,10 +2,8 @@ import io
 
 import pytest
 from PIL import Image
-
 from secdogie_agent import screen
 from secdogie_agent.providers.base import Action
-
 from secdogie_ios.backend import IosBackend
 from secdogie_ios.wda import WdaError
 

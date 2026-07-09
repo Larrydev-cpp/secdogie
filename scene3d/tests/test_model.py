@@ -1,5 +1,4 @@
 import pytest
-
 from secdogie_scene3d.model import (
     AnthropicSceneModel,
     OpenAISceneModel,

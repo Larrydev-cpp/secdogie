@@ -1,5 +1,4 @@
 from conftest import FakeModel
-
 from secdogie_scene3d.aggregate import AGGREGATOR_SYSTEM, aggregate
 from secdogie_scene3d.analyze import WorkerObservation
 

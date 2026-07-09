@@ -2,7 +2,6 @@ import threading
 import time
 
 import pytest
-
 from secdogie_open import controller as controller_mod
 from secdogie_open import runner, windows
 from secdogie_open.controller import Controller, StartResult
@@ -59,8 +58,9 @@ def test_thumbnail_png_returns_valid_png(monkeypatch):
 
     def fake_capture(region):
         assert region == win.region
-        from PIL import Image
         import io
+
+        from PIL import Image
 
         buf = io.BytesIO()
         Image.new("RGB", (400, 300), (10, 20, 30)).save(buf, format="PNG")

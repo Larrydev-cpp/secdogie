@@ -8,7 +8,6 @@ import urllib.error
 import urllib.request
 
 import pytest
-
 from secdogie_open import controller as controller_mod
 from secdogie_open import runner, windows
 from secdogie_open.controller import Controller
@@ -117,8 +116,9 @@ def test_api_thumbnail_returns_png(monkeypatch, live_server):
     monkeypatch.setattr(controller_mod.windows, "list_windows", lambda: [win])
 
     def fake_capture(region):
-        from PIL import Image
         import io
+
+        from PIL import Image
 
         buf = io.BytesIO()
         Image.new("RGB", (200, 100)).save(buf, format="PNG")

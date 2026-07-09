@@ -6,10 +6,8 @@ the downscaled screenshot get scaled back to real device pixels before the tap.
 import io
 
 from PIL import Image
-
 from secdogie_agent.loop import AgentConfig, run
 from secdogie_agent.providers.base import Action, VisionProvider
-
 from secdogie_android.backend import AdbBackend
 from tests.test_backend import FakeAdb
 

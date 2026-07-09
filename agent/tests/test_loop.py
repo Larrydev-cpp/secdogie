@@ -1,9 +1,8 @@
 import pytest
-
 from secdogie_agent import actions, loop, screen
 from secdogie_agent.backend import ElementSelector
 from secdogie_agent.macro import Macro, MacroStep
-from secdogie_agent.providers.base import Action, HistoryStep, VisionProvider
+from secdogie_agent.providers.base import Action, VisionProvider
 
 
 class ScriptedProvider(VisionProvider):

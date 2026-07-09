@@ -1,7 +1,6 @@
 import io
 
 from PIL import Image
-
 from secdogie_agent import screen
 from secdogie_agent.providers.base import Action
 
