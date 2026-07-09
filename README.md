@@ -106,6 +106,10 @@ type on a real phone.
   "Known limitations" sections in each subproject's docs before relying on
   them for anything sensitive.
 
+See [`SECURITY.md`](SECURITY.md) for the full trust model (what secdogie
+assumes about the operator and the machines it drives) and how to report a
+vulnerability privately.
+
 ## Layout
 
 ```
@@ -119,3 +123,21 @@ scene3d/  Python: multi-model 3D scene analysis (per-view workers + an aggregato
 
 Each subdirectory has its own README with build/install/run instructions
 and its own test suite.
+
+## Development
+
+Every push and pull request runs [`.github/workflows/test.yml`](.github/workflows/test.yml):
+each Python component's `pytest` suite (headless), the C tunnel's `ctest`, and a
+single `ruff` lint pass over all the Python code. To run the same checks locally:
+
+```sh
+pip install ruff
+ruff check .            # lint config lives in ruff.toml at the repo root
+# then each component's own tests, e.g.:
+cd agent && pip install -e . pytest && pytest tests/ -q
+```
+
+The `agent/` package owns the shared pieces — the loop, providers, config, and
+the CLI front door (`secdogie_agent/cli_common.py`) that `android`, `ios`, and
+the desktop `agent` all reuse for their `--model`/`--api-key`/loop flags — so a
+change there is picked up by every tool.
