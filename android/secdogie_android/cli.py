@@ -31,6 +31,13 @@ def main(argv: list[str] | None = None) -> int:
         help="RPA-style targeting: snap each tap onto the real UI widget under it (read from the "
         "uiautomator hierarchy) instead of the raw pixel, for more reliable hits on buttons/controls",
     )
+    parser.add_argument(
+        "--humanize-taps",
+        action="store_true",
+        help="issue each tap as a short randomized-duration, slightly jittered swipe instead of "
+        "`input tap` (which is always an instant, exact-pixel synthetic event). Changes tap timing/"
+        "coordinate signature only -- see android/README.md for what this does and does not defeat",
+    )
 
     cli_common.add_loop_args(parser)
     parser.add_argument(
@@ -56,7 +63,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     backend = AdbBackend(
-        Adb(serial=args.device, adb_path=args.adb_path), snap_to_elements=args.snap_to_elements
+        Adb(serial=args.device, adb_path=args.adb_path),
+        snap_to_elements=args.snap_to_elements,
+        humanize_taps=args.humanize_taps,
     )
     cfg_kwargs = cli_common.loop_config_kwargs(args, task=args.task, backend=backend)
     cfg_kwargs["macro_path"] = args.macro

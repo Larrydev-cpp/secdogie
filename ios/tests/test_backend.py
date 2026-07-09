@@ -106,6 +106,52 @@ def test_double_click_double_taps():
     assert _do("double_click", x=300, y=300) == [("double_tap", 100, 100)]
 
 
+# -- humanize_taps ---------------------------------------------------------
+
+def test_humanize_off_by_default_uses_plain_tap():
+    calls = _do("left_click", x=300, y=600)
+    assert calls == [("tap", 100, 200)]
+
+
+def test_humanize_on_uses_touch_and_hold_with_randomized_duration():
+    import random
+
+    wda = FakeWda()
+    b = IosBackend(wda, humanize_taps=True, rng=random.Random(0))
+    b.capture(region=None)
+    b.execute(Action.from_dict({"action": "left_click", "x": 300, "y": 600}))
+    assert len(wda.calls) == 1
+    name, x, y, duration = wda.calls[0]
+    assert name == "touch_and_hold" and (x, y) == (100, 200)
+    from secdogie_ios.backend import _HUMANIZE_DURATION_S
+
+    assert _HUMANIZE_DURATION_S[0] <= duration <= _HUMANIZE_DURATION_S[1]
+
+
+def test_humanize_gives_different_durations_across_taps():
+    import random
+
+    wda = FakeWda()
+    b = IosBackend(wda, humanize_taps=True, rng=random.Random(0))
+    b.capture(region=None)
+    for _ in range(5):
+        b.execute(Action.from_dict({"action": "left_click", "x": 300, "y": 600}))
+    durations = [c[3] for c in wda.calls]
+    assert len(set(durations)) > 1  # not the same fixed duration every time
+
+
+def test_humanize_does_not_affect_double_click():
+    # doubleTap is WDA's own gesture; humanizing must not substitute two
+    # touchAndHolds for it (that could fail to register as a double-tap).
+    import random
+
+    wda = FakeWda()
+    b = IosBackend(wda, humanize_taps=True, rng=random.Random(0))
+    b.capture(region=None)
+    b.execute(Action.from_dict({"action": "double_click", "x": 300, "y": 300}))
+    assert wda.calls == [("double_tap", 100, 100)]
+
+
 def test_right_click_touch_and_holds():
     calls = _do("right_click", x=300, y=300)
     assert calls[0][0] == "touch_and_hold" and calls[0][1:3] == (100, 100)
