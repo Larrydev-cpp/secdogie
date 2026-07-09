@@ -104,6 +104,39 @@ slot, and re-encrypted to it, so clients reach each other through the hub.
 Because the hub decrypts to route, it can see inter-client traffic — see
 [`PROTOCOL.md`](PROTOCOL.md).
 
+## Memory safety
+
+This is C parsing bytes straight off a public UDP socket, so memory safety is
+treated as a first-class concern, and two structural choices remove whole
+classes of bug up front:
+
+- **No dynamic allocation.** There is no `malloc`/`free` anywhere in the runtime
+  — the hub's peer table is a fixed `peers[SDTP_HUB_MAX_PEERS]` array, sessions
+  live in caller-owned structs, and every `memcpy` uses a compile-time constant
+  length (a key/session-id size), never an attacker-supplied one. So there are
+  no leaks, use-after-frees, or double-frees to have.
+- **Single-threaded.** The server and hub are one `poll()` loop with one
+  `recvfrom`; there are no threads and no locks, so there are no data races or
+  lock ordering to get wrong.
+
+What remains is the real risk: a malformed datagram driving an out-of-bounds
+read in a parser. That surface is covered by `tests/fuzz_packets.c`, which
+blasts random, valid-then-corrupted, and oversized datagrams through every
+function that touches network bytes (`sdtp_data_decrypt`,
+`sdtp_handshake_respond`, `sdtp_hub_parse_ipv4_dst`, the peer lookups). It runs
+as part of `ctest`; for the real proof, build with sanitizers so any overread,
+overflow, UB, or leak becomes a hard failure:
+
+```sh
+cmake -S . -B build-asan -DSDTP_SANITIZE=ON
+cmake --build build-asan
+ctest --test-dir build-asan --output-on-failure   # protocol + fuzz, clean under ASan+UBSan+LSan
+./build-asan/fuzz_packets 5000000                  # or a longer soak run
+```
+
+None of this makes the *cryptography* audited (see [`PROTOCOL.md`](PROTOCOL.md)
+and `SECURITY.md`); it's about not crashing on hostile input.
+
 ## Layout
 
 ```
