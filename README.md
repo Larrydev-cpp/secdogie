@@ -119,6 +119,7 @@ open/     Python, local web page: split the screen by window, drive several agen
 android/  Python: drive an Android phone over adb, reusing the agent loop + action schema
 ios/      Python: drive an iPhone/iPad over WebDriverAgent, reusing the agent loop + action schema
 scene3d/  Python: multi-model 3D scene analysis (per-view workers + an aggregator)
+handoff/  Python: cross-process input-ownership baton (one node drives the mouse/keyboard at a time)
 ```
 
 Each subdirectory has its own README with build/install/run instructions
