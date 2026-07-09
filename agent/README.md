@@ -173,6 +173,8 @@ Extra knobs:
 | `--max-image-edge N` | trade detail vs. speed/cost; higher keeps small text legible, lower is faster/cheaper |
 | `--move-duration S` | seconds to glide the cursor to a target (default 0.15; smoother, triggers hover events) |
 | `--settle S` | seconds to hover before clicking (default 0.05; lets the UI react) |
+| `--action-pause S` | seconds to wait *after* each action before the next screenshot (default 0.4). This is the timing safeguard: without it a fast model takes the next screenshot before a slow-animating app has updated, sees a stale frame, and repeats itself. Lower is faster but riskier; `0` disables. |
+| `--stall-limit N` | stop if the model picks the same action against an unchanged screen `N` times in a row (default 4) — the action isn't landing (a dead control, a frozen render), so bail with exit code 6 instead of spinning to `--max-steps`. `0` disables. |
 
 Cursor movement is intentionally not instantaneous — teleport-and-click can
 miss hover/focus handlers in some apps, so the agent glides to the target

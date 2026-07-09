@@ -4,6 +4,7 @@ user stops it, or `max_steps` is hit.
 """
 from __future__ import annotations
 
+import hashlib
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -45,6 +46,14 @@ class AgentConfig:
     gui: bool = False  # use tkinter dialogs for the task briefing and ask_user prompts
     watch: bool = False  # monitor mode: poll frames, act only when a condition triggers
     watch_interval: float = 2.0  # minimum seconds between frames in watch mode
+    # After executing a real action, wait this long before the next screenshot so the
+    # UI can react -- otherwise a fast model outruns a slow-animating app and acts on a
+    # stale frame ("last action hasn't landed, next screenshot already sent"). 0 disables.
+    action_pause: float = 0.4
+    # If the model picks the same action against an unchanged screen this many times in a
+    # row, the action isn't landing (dead control / frozen render) -- stop instead of
+    # spinning to max_steps. 0 disables. Benign/terminal actions (wait/done/...) are exempt.
+    stall_limit: int = 4
     region: tuple[int, int, int, int] | None = None  # (left, top, width, height); None = full primary monitor
     logger_name: str = "secdogie_agent"  # distinct per concurrent run so loggers don't share/race on handlers
     should_stop: Callable[[], bool] | None = None  # checked each step; lets a caller cancel a running loop
@@ -57,7 +66,8 @@ class AgentConfig:
 def run(provider: VisionProvider, config: AgentConfig) -> int:
     """Returns a process-style exit code: 0 done, 1 provider error,
     2 user declined to continue past an ask_user, 3 max_steps exhausted,
-    4 no graphical display available to screenshot, 5 stopped via should_stop."""
+    4 no graphical display available to screenshot, 5 stopped via should_stop,
+    6 stalled (same action, unchanged screen, stall_limit times)."""
     logger = safety.setup_logging(config.log_path, name=config.logger_name)
     logger.info("task: %s", config.task)
     if config.auto:
@@ -101,6 +111,11 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             logger.warning("could not load macro %s (%s); running live instead", config.macro_path, e)
 
     history: list[HistoryStep] = []
+    # Stall detection: the signature + captured-frame hash of the last executed
+    # action, and how many times in a row the same action met an unchanged screen.
+    prev_exec_sig: tuple | None = None
+    prev_exec_frame: bytes | None = None
+    stall_count = 0
 
     for step in range(1, config.max_steps + 1):
         if config.should_stop is not None and config.should_stop():
@@ -116,6 +131,8 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
         except screen.CaptureError as e:
             logger.error("%s", e)
             return 4
+
+        frame_hash = hashlib.blake2b(raw_png, digest_size=16).digest()
 
         # RPA: try the next macro step before ever asking the model -- that's
         # the whole point (fast, free, deterministic). A step that resolves
@@ -200,6 +217,23 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             history.append(HistoryStep(action=action, result="skipped (dry-run)"))
             continue
 
+        # Stall guard: the same real action about to run against a screen that
+        # hasn't changed since the last one means that last action didn't land.
+        if config.stall_limit and action.kind not in _BENIGN:
+            sig = (action.kind, action.x, action.y, action.to_x, action.to_y,
+                   action.text, tuple(action.keys or ()))
+            if sig == prev_exec_sig and frame_hash == prev_exec_frame:
+                stall_count += 1
+                if stall_count >= config.stall_limit:
+                    logger.warning(
+                        "stalled: '%s' repeated %d times with no screen change; stopping",
+                        action.kind, stall_count,
+                    )
+                    return 6
+            else:
+                stall_count = 0
+            prev_exec_sig, prev_exec_frame = sig, frame_hash
+
         needs_confirm = not config.auto and action.kind not in _BENIGN
         if needs_confirm and not safety.confirm(f"Execute {action.kind}({action.raw})?"):
             logger.info("user declined action: %s", action.kind)
@@ -218,6 +252,11 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 else:
                     macro_recorder.record(action, result, backend, real_size)
         history.append(HistoryStep(action=action, result=result))
+
+        # Let the UI react before the next screenshot; benign actions (wait)
+        # already pace themselves, so they're exempt.
+        if config.action_pause > 0 and action.kind not in _BENIGN:
+            time.sleep(config.action_pause)
 
     logger.warning("reached max_steps (%d) without the model signaling done", config.max_steps)
     return 3

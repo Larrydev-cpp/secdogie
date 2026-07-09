@@ -17,7 +17,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import windows
-from .controller import Controller
+from .controller import Controller, model_catalog
 
 _STATIC_FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
@@ -95,6 +95,9 @@ def make_handler(controller: Controller) -> type[BaseHTTPRequestHandler]:
             if parsed.path == "/api/status":
                 self._send_json(controller.status_snapshot())
                 return
+            if parsed.path == "/api/models":
+                self._send_json(model_catalog())
+                return
             self.send_error(404)
 
         def do_POST(self) -> None:  # noqa: N802
@@ -136,6 +139,7 @@ def make_handler(controller: Controller) -> type[BaseHTTPRequestHandler]:
                 model=body.get("model") or "",
                 max_steps=int(body.get("max_steps") or 50),
                 auto=bool(body.get("auto")),
+                api_key=body.get("api_key") or "",
             )
             self._send_json(dataclasses.asdict(result))
 

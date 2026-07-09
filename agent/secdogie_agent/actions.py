@@ -10,9 +10,11 @@ reliable and closer to human input.
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 import sys
+import threading
 import time
 
 from .providers.base import Action
@@ -21,12 +23,33 @@ from .providers.base import Action
 DEFAULT_MOVE_DURATION = 0.15
 DEFAULT_SETTLE = 0.05
 
+# There is exactly one physical cursor/keyboard, and a click is a non-atomic
+# move -> settle -> press sequence. When several desktop actors run at once in
+# one process (open/ drives one agent per window), two concurrent clicks would
+# interleave -- one actor's move lands the shared cursor, another's move steals
+# it, and the first actor's press fires at the wrong place. This lock serializes
+# input-emitting actions so each move+press completes as a unit. Actions that
+# touch no input (wait/screenshot/open) skip it, so a long wait in one actor
+# doesn't stall another.
+_INPUT_LOCK = threading.Lock()
+_NON_INPUT_KINDS = frozenset({"wait", "screenshot", "open"})
+_NULL_CTX = contextlib.nullcontext()
+
 
 def execute(
     action: Action,
     move_duration: float = DEFAULT_MOVE_DURATION,
     settle: float = DEFAULT_SETTLE,
 ) -> str:
+    """Execute one action, holding the shared input lock for anything that
+    drives the real mouse/keyboard so concurrent desktop actors don't corrupt
+    each other's cursor position."""
+    guard = _NULL_CTX if action.kind in _NON_INPUT_KINDS else _INPUT_LOCK
+    with guard:
+        return _dispatch(action, move_duration, settle)
+
+
+def _dispatch(action: Action, move_duration: float, settle: float) -> str:
     import pyautogui
 
     def _approach(x: int, y: int) -> None:

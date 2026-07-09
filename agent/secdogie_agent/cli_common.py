@@ -87,6 +87,20 @@ def add_loop_args(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="overlay a labeled coordinate grid on the screenshot to help the model aim",
     )
+    parser.add_argument(
+        "--action-pause",
+        type=float,
+        default=None,
+        help="seconds to wait after each action before the next screenshot, so the UI can react "
+        "(default 0.4; lower is faster but risks acting on a stale frame; 0 disables)",
+    )
+    parser.add_argument(
+        "--stall-limit",
+        type=int,
+        default=None,
+        help="stop if the model repeats the same action against an unchanged screen this many times "
+        "in a row -- the action isn't landing (default 4; 0 disables)",
+    )
 
 
 def handle_init_config(args: argparse.Namespace, prog: str) -> int:
@@ -147,4 +161,8 @@ def loop_config_kwargs(args: argparse.Namespace, *, task: str, backend=None) -> 
         kwargs["backend"] = backend
     if args.max_image_edge is not None:
         kwargs["max_image_edge"] = args.max_image_edge
+    if args.action_pause is not None:
+        kwargs["action_pause"] = args.action_pause
+    if args.stall_limit is not None:
+        kwargs["stall_limit"] = args.stall_limit
     return kwargs

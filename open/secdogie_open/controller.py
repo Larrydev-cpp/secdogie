@@ -14,14 +14,41 @@ from dataclasses import dataclass, field
 
 from secdogie_agent import config as config_mod
 from secdogie_agent import screen
-from secdogie_agent.providers import make_provider
+from secdogie_agent.providers import (
+    ANTHROPIC_PROVIDER_ID,
+    DEFAULT_MODELS,
+    OPENAI_PROVIDER_ID,
+    SUGGESTED_MODELS,
+    make_provider,
+)
 from secdogie_agent.providers.base import VisionProvider
 
 from . import runner, windows
 
-DEFAULT_MODEL = "claude-sonnet-5"
+DEFAULT_MODEL = DEFAULT_MODELS[ANTHROPIC_PROVIDER_ID]
 DEFAULT_MAX_STEPS = 50
 THUMB_EDGE = 160
+
+# Provider labels for the web UI's model dropdown. The model ids themselves come
+# from the shared SUGGESTED_MODELS catalog so there's one place to update.
+_PROVIDER_LABELS = {
+    ANTHROPIC_PROVIDER_ID: "Anthropic (Claude)",
+    OPENAI_PROVIDER_ID: "OpenAI (GPT)",
+}
+
+
+def model_catalog() -> dict:
+    """Data for the web UI's model picker: the suggested models grouped by
+    provider, plus the overall default. The UI still lets the user type any
+    model string (a "Custom" option), so this is a convenience list, not a
+    whitelist."""
+    return {
+        "default": DEFAULT_MODEL,
+        "providers": [
+            {"id": pid, "label": _PROVIDER_LABELS[pid], "models": SUGGESTED_MODELS[pid]}
+            for pid in (ANTHROPIC_PROVIDER_ID, OPENAI_PROVIDER_ID)
+        ],
+    }
 
 
 @dataclass(frozen=True)
@@ -89,6 +116,7 @@ class Controller:
         model: str,
         max_steps: int,
         auto: bool,
+        api_key: str = "",
     ) -> StartResult:
         task = task.strip()
         if not task:
@@ -96,11 +124,13 @@ class Controller:
         if not window_ids:
             return StartResult(error="Select at least one window.")
 
-        resolved = config_mod.resolve(cli_model=model or None)
+        # A key typed into the web UI wins; blank falls back to the env var /
+        # config file, so existing setups keep working.
+        resolved = config_mod.resolve(cli_api_key=api_key.strip() or None, cli_model=model or None)
         if not resolved.api_key:
             return StartResult(
-                error=f"No API key found for the {resolved.provider} provider. Set "
-                f"{resolved.env_var} or fill in a secdogie-agent config file, then retry."
+                error=f"No API key found for the {resolved.provider} provider. Paste one in the "
+                f"API key field above, or set {resolved.env_var} / a secdogie-agent config file, then retry."
             )
 
         def provider_factory() -> VisionProvider:

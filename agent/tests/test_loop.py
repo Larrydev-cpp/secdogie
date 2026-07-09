@@ -19,6 +19,13 @@ class ScriptedProvider(VisionProvider):
         return Action.from_dict(d)
 
 
+@pytest.fixture(autouse=True)
+def _no_real_sleep(monkeypatch):
+    # The loop's action_pause defaults to 0.4s; never actually sleep in tests.
+    # Tests that assert on the pause re-patch this to record the durations.
+    monkeypatch.setattr(loop.time, "sleep", lambda s: None)
+
+
 def _patch_screen_and_actions(monkeypatch, executed):
     monkeypatch.setattr(screen, "capture_screenshot", lambda region=None: (b"fake-png", (1920, 1080)))
     # Bypass real image handling; pass the capture through with scale 1.0.
@@ -344,6 +351,69 @@ def test_loop_records_and_saves_macro_on_success(monkeypatch, tmp_path):
     assert len(saved.steps) == 1
     assert saved.steps[0].kind == "left_click"
     assert saved.steps[0].point == pytest.approx((0.1, 0.1))
+
+
+# -- action pause + stall guard (latency / stuck-loop hardening) --------------
+
+def test_action_pause_waits_after_a_real_action(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    slept = []
+    monkeypatch.setattr(loop.time, "sleep", lambda s: slept.append(s))
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "done", "text": "done"},
+    ])
+    rc = loop.run(provider, loop.AgentConfig(task="t", auto=True, max_steps=5, action_pause=0.5, stall_limit=0))
+    assert rc == 0
+    assert slept == [0.5]  # paused once, after the click; not after done
+
+
+def test_action_pause_skipped_for_benign_wait(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    slept = []
+    monkeypatch.setattr(loop.time, "sleep", lambda s: slept.append(s))
+    provider = ScriptedProvider([
+        {"action": "wait", "seconds": 0},
+        {"action": "done", "text": "done"},
+    ])
+    rc = loop.run(provider, loop.AgentConfig(task="t", auto=True, max_steps=5, action_pause=0.5, stall_limit=0))
+    assert rc == 0
+    assert slept == []  # a benign wait doesn't get the post-action pause
+
+
+def test_stall_guard_stops_when_action_repeats_on_unchanged_screen(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)  # capture returns constant bytes -> screen never changes
+    provider = ScriptedProvider([{"action": "left_click", "x": 5, "y": 5}] * 20)
+    rc = loop.run(provider, loop.AgentConfig(task="t", auto=True, max_steps=20, stall_limit=3, action_pause=0))
+    assert rc == 6  # stalled
+    assert provider.calls == 4  # one baseline + three no-change repeats
+
+
+def test_stall_guard_does_not_fire_when_screen_changes(monkeypatch):
+    # A repeated action that DOES change the screen each step is progress, not a
+    # stall (e.g. pressing Down to move a selection).
+    frames = iter(range(1000))
+    monkeypatch.setattr(screen, "capture_screenshot",
+                        lambda region=None: (f"frame-{next(frames)}".encode(), (1920, 1080)))
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+    monkeypatch.setattr(actions, "execute", lambda action, **kw: "ok")
+    monkeypatch.setattr(loop.time, "sleep", lambda s: None)
+    provider = ScriptedProvider([{"action": "key", "keys": ["down"]}] * 10)
+    rc = loop.run(provider, loop.AgentConfig(task="t", auto=True, max_steps=5, stall_limit=3, action_pause=0))
+    assert rc == 3  # ran to max_steps, never tripped the stall guard
+    assert provider.calls == 5
+
+
+def test_stall_guard_disabled_when_limit_zero(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    provider = ScriptedProvider([{"action": "left_click", "x": 5, "y": 5}] * 10)
+    rc = loop.run(provider, loop.AgentConfig(task="t", auto=True, max_steps=4, stall_limit=0, action_pause=0))
+    assert rc == 3  # no stall detection; runs out its steps instead
+    assert provider.calls == 4
 
 
 def test_loop_watch_mode_ignores_macro_path(monkeypatch, tmp_path):

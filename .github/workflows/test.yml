@@ -81,3 +81,11 @@ jobs:
       - name: Test
         working-directory: tunnel
         run: ctest --test-dir build --output-on-failure
+
+      - name: Sanitizer build + fuzz (ASan/UBSan/LSan)
+        working-directory: tunnel
+        run: |
+          cmake -S . -B build-asan -DSDTP_SANITIZE=ON
+          cmake --build build-asan -j
+          ctest --test-dir build-asan --output-on-failure
+          ./build-asan/fuzz_packets 1000000

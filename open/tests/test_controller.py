@@ -87,6 +87,20 @@ def test_thumbnail_png_capture_failure_returns_none(monkeypatch):
     assert c.thumbnail_png(win.id) is None
 
 
+# -- model_catalog ---------------------------------------------------------
+
+def test_model_catalog_lists_providers_and_default():
+    cat = controller_mod.model_catalog()
+    assert cat["default"] == "claude-sonnet-5"
+    ids = [p["id"] for p in cat["providers"]]
+    assert ids == ["anthropic", "openai"]
+    anthropic = next(p for p in cat["providers"] if p["id"] == "anthropic")
+    assert cat["default"] in anthropic["models"]  # the default is offered as a pick
+    assert anthropic["label"]  # every provider carries a human-readable label
+    openai = next(p for p in cat["providers"] if p["id"] == "openai")
+    assert any(m.startswith("gpt-") for m in openai["models"])
+
+
 # -- start ---------------------------------------------------------
 
 def test_start_rejects_empty_task():
@@ -132,6 +146,50 @@ def test_start_launches_selected_windows_and_reports_done(monkeypatch):
 
     c._runs[win.id].thread.join(timeout=2)
     assert _wait_until(lambda: c.status_snapshot().get(win.id) == ("done", "done"))
+
+
+def test_start_forwards_typed_api_key_and_model_to_resolve(monkeypatch):
+    # A key typed into the web UI must reach config resolution as cli_api_key
+    # (trimmed); the model flows through as cli_model.
+    win = _window("w1")
+    monkeypatch.setattr(controller_mod.windows, "list_windows", lambda: [win])
+    seen = {}
+
+    def fake_resolve(**kw):
+        seen.update(kw)
+        return _resolved()
+
+    monkeypatch.setattr(controller_mod.config_mod, "resolve", fake_resolve)
+    monkeypatch.setattr(controller_mod, "make_provider", lambda provider, model, key: "the-provider")
+    monkeypatch.setattr(runner, "run", lambda provider, config: 0)
+
+    c = Controller()
+    c.refresh_windows()
+    c.start(window_ids=[win.id], task="t", model="gpt-5.5", max_steps=5, auto=True, api_key="  sk-web  ")
+    assert seen["cli_api_key"] == "sk-web"
+    assert seen["cli_model"] == "gpt-5.5"
+    c._runs[win.id].thread.join(timeout=2)
+
+
+def test_start_blank_api_key_falls_back_to_env(monkeypatch):
+    # A blank field must resolve to None so env var / config file still win.
+    win = _window("w1")
+    monkeypatch.setattr(controller_mod.windows, "list_windows", lambda: [win])
+    seen = {}
+
+    def fake_resolve(**kw):
+        seen.update(kw)
+        return _resolved()
+
+    monkeypatch.setattr(controller_mod.config_mod, "resolve", fake_resolve)
+    monkeypatch.setattr(controller_mod, "make_provider", lambda provider, model, key: "the-provider")
+    monkeypatch.setattr(runner, "run", lambda provider, config: 0)
+
+    c = Controller()
+    c.refresh_windows()
+    c.start(window_ids=[win.id], task="t", model="", max_steps=5, auto=True, api_key="")
+    assert seen["cli_api_key"] is None
+    c._runs[win.id].thread.join(timeout=2)
 
 
 def test_start_skips_a_window_that_is_still_running(monkeypatch):
