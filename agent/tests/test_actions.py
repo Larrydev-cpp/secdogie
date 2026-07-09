@@ -1,6 +1,8 @@
 """Action executor tests. pyautogui/pyperclip are replaced with fakes so these
 run headless with no display and no real input."""
 import sys
+import threading
+import time
 import types
 
 import pytest
@@ -97,3 +99,71 @@ def test_new_actions_are_valid_schema():
     assert a.kind == "hold_key" and a.seconds == 2
     b = Action.from_dict({"action": "open", "path": "/x"})
     assert b.kind == "open" and b.path == "/x"
+
+
+# -- concurrent input serialization (the multi-actor / distributed case) ------
+
+def test_concurrent_clicks_do_not_interleave_move_and_press(monkeypatch):
+    # Two actors click at once (as open/ does with several windows). Each
+    # move->press must complete as a unit: no thread's press may land between
+    # another thread's move and its own press, or clicks hit the wrong place.
+    events: list[tuple[str, int]] = []
+    lock = threading.Lock()
+    fake = types.SimpleNamespace()
+
+    def moveTo(*a, **k):  # noqa: N802 -- mirrors pyautogui's name
+        with lock:
+            events.append(("move", threading.get_ident()))
+        time.sleep(0.02)  # widen the race window a mid-move steal would exploit
+
+    def click(*a, **k):
+        with lock:
+            events.append(("click", threading.get_ident()))
+
+    fake.moveTo, fake.click = moveTo, click
+    monkeypatch.setitem(sys.modules, "pyautogui", fake)
+
+    def worker():
+        actions.execute(Action.from_dict({"action": "left_click", "x": 1, "y": 1}), move_duration=0, settle=0)
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=2)
+
+    # each "move" must be immediately followed by a "press" from the SAME thread
+    assert len(events) == 4
+    for i in range(0, len(events), 2):
+        assert events[i][0] == "move" and events[i + 1][0] == "click"
+        assert events[i][1] == events[i + 1][1]  # same actor's move + press, not interleaved
+
+
+def test_click_waits_for_the_input_lock(monkeypatch):
+    _fake_pyautogui(monkeypatch)
+    done = threading.Event()
+
+    def worker():
+        actions.execute(Action.from_dict({"action": "left_click", "x": 1, "y": 1}), move_duration=0, settle=0)
+        done.set()
+
+    with actions._INPUT_LOCK:  # hold input; a click must block until we release
+        threading.Thread(target=worker, daemon=True).start()
+        assert not done.wait(timeout=0.2)
+    assert done.wait(timeout=2)  # proceeds once the lock is free
+
+
+def test_wait_does_not_take_the_input_lock(monkeypatch):
+    # A non-input action must not hold input hostage: a long wait in one actor
+    # can't stall another actor's click.
+    _fake_pyautogui(monkeypatch)
+    done = threading.Event()
+
+    def worker():
+        # small positive wait (0 would fall back to 1.0s via `seconds or 1.0`)
+        actions.execute(Action.from_dict({"action": "wait", "seconds": 0.01}), move_duration=0, settle=0)
+        done.set()
+
+    with actions._INPUT_LOCK:  # input is held, but wait doesn't need it -> finishes anyway
+        threading.Thread(target=worker, daemon=True).start()
+        assert done.wait(timeout=1)
