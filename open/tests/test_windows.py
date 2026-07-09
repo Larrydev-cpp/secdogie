@@ -78,3 +78,26 @@ def test_list_windows_backend_failure_raises_clear_error(monkeypatch):
     _install_fake_pywinctl(monkeypatch, raises=raise_enum)
     with pytest.raises(windows.NoWindowBackendError):
         windows.list_windows()
+
+
+def test_list_windows_import_time_display_failure_raises_clear_error(monkeypatch):
+    # On Linux, pywinctl's own import chain (pymonctl -> ewmhlib -> Xlib)
+    # eagerly opens an X11 connection, so a headless/Wayland-only session can
+    # raise a non-ImportError exception (e.g. Xlib.error.DisplayNameError)
+    # from the `import pywinctl` line itself, before getAllWindows() is ever
+    # reached. `sys.modules["pywinctl"] = None` only simulates a plain
+    # ImportError (a missing package), so this needs a real failing import.
+    import builtins
+
+    real_import = builtins.__import__
+    monkeypatch.delitem(sys.modules, "pywinctl", raising=False)
+
+    def fake_import(name, *args, **kwargs):
+        if name == "pywinctl":
+            raise RuntimeError('Xlib.error.DisplayNameError: Bad display name ""')
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    with pytest.raises(windows.NoWindowBackendError) as ei:
+        windows.list_windows()
+    assert "could not initialize window enumeration" in str(ei.value)

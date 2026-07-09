@@ -50,6 +50,18 @@ def list_windows() -> list[WindowInfo]:
             "`pip install pywinctl` (it's a listed dependency of secdogie-open, "
             "so a plain `pip install -e .` should already have pulled it in)."
         ) from e
+    except Exception as e:
+        # On Linux, pywinctl's own import chain (pymonctl -> ewmhlib -> Xlib)
+        # eagerly opens an X11 connection at import time, not just when you
+        # call into it -- so a headless/Wayland-only session can raise here
+        # (e.g. Xlib.error.DisplayNameError), before getAllWindows() is even
+        # reached. Route it through the same NoWindowBackendError as a failed
+        # getAllWindows() call below, since it's the same underlying cause.
+        raise NoWindowBackendError(
+            "could not initialize window enumeration on this display. On Linux this needs an "
+            "X11 session (Wayland blocks window enumeration for isolation "
+            f"reasons). underlying error: {e}"
+        ) from e
 
     try:
         raw_windows = pywinctl.getAllWindows()

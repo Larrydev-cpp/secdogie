@@ -375,9 +375,10 @@ secdogie-ios "open Settings and turn on Airplane Mode"
 
 ## Part 6 — Drive several windows at once
 
-`secdogie-open` is a GUI that lists your open windows, lets you select
+`secdogie-open` lists your open windows on a local web page, lets you select
 several, and runs one agent per selected window — each scoped to just that
-window, so they don't collide.
+window, so they don't collide. It starts a server on `127.0.0.1` only and
+opens the page in your normal browser; no GUI toolkit to install.
 
 Install the same way as Part 1.1 (`open/` instead of `agent/`; see
 [`open/README.md`](open/README.md#install) for the PowerShell/cmd blocks):
@@ -393,8 +394,10 @@ secdogie-open
 2. Type one task applied to each selected window.
 3. It **defaults to dry-run** — leave "Enable real actions" off for your first
    try. Because several windows run unattended together, there's no per-step
-   prompt once real actions are on, so trust the task in dry-run first.
-4. "Stop all" halts every running window.
+   prompt once real actions are on (the page shows a confirm dialog restating
+   that before it lets you proceed), so trust the task in dry-run first.
+4. "Stop all" halts every running window. Close the tab and Ctrl+C the
+   terminal to stop the server.
 
 More: [`open/README.md`](open/README.md).
 

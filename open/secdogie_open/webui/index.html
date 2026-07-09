@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>secdogie-open</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <a id="skip-to-main" href="#main-content" class="skip-link">Skip to main content</a>
+
+  <header class="topbar">
+    <h1>secdogie-open</h1>
+    <p>Split the screen by window, drive one secdogie-agent instance per selection.</p>
+    <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle light/dark theme">
+      🌙
+    </button>
+  </header>
+
+  <main id="main-content" tabindex="-1">
+    <div id="banner" class="banner" role="alert" aria-live="assertive"></div>
+
+    <section class="card" aria-labelledby="task-heading">
+      <h2 id="task-heading" style="margin:0 0 0.8rem;font-size:14px;color:var(--text-strong)">Task</h2>
+      <div class="field">
+        <label for="task">Applied to every selected window</label>
+        <textarea id="task" placeholder="e.g. open the file menu and save the document"></textarea>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="model">Model</label>
+          <input type="text" id="model" value="claude-sonnet-5" />
+        </div>
+        <div class="field">
+          <label for="max-steps">Max steps</label>
+          <input type="number" id="max-steps" value="50" min="1" max="100000" />
+        </div>
+      </div>
+      <div class="field">
+        <div class="checkbox-row">
+          <input type="checkbox" id="auto" />
+          <div>
+            <label for="auto" style="margin-bottom:0.2rem">Enable real actions (auto-execute)</label>
+            <p class="help" id="auto-help">
+              Off = dry run: the agent reasons about every selected window and logs what it would
+              do, but never touches the mouse/keyboard. On = real clicks/typing against every
+              selected window at once, with no per-step confirmation (confirmation prompts only
+              make sense for one window at a time). Only turn this on against windows/machines you
+              fully control and can reach immediately to stop.
+            </p>
+          </div>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="refresh" type="button">Refresh windows</button>
+        <button id="start" class="primary" type="button">Start selected</button>
+        <button id="stop" class="danger" type="button">Stop all</button>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="windows-heading">
+      <h2 id="windows-heading" style="margin:0 0 0.8rem;font-size:14px;color:var(--text-strong)">
+        Windows
+      </h2>
+      <ul id="window-list" class="window-list"></ul>
+      <p id="empty-state" class="empty-state" hidden>No windows found. Try Refresh.</p>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

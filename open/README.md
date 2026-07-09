@@ -1,9 +1,17 @@
 # secdogie-open
 
-A GUI on top of [`secdogie-agent`](../agent): it lists every open window on
-your desktop, lets you pick several, and runs one agent instance per
-selected window at once -- each scoped to just that window's screen region,
-so clicks/typing from one window's agent can't land on another.
+A local web page on top of [`secdogie-agent`](../agent): it lists every open
+window on your desktop, lets you pick several, and runs one agent instance
+per selected window at once -- each scoped to just that window's screen
+region, so clicks/typing from one window's agent can't land on another.
+
+Running it starts a small HTTP server bound to `127.0.0.1` only (never a
+public interface) and opens the page in your normal browser -- no separate
+GUI toolkit, no webview engine to install. The dark glass-surface look
+follows [OpenClaw](https://github.com/openclaw/openclaw)'s published design
+system (exact color tokens, blur tiers, and motion values from its
+`ui/docs/design-system/`) so this reads as the same visual language as
+OpenClaw's own control UI, scaled down to what a one-page picker needs.
 
 > Read `agent/README.md`'s safety section first -- everything there applies
 > here too, times however many windows you select at once.
@@ -61,7 +69,9 @@ packaging\build.ps1          # produces packaging\dist\secdogie-open.exe
 ## Run
 
 ```sh
-secdogie-open
+secdogie-open                # opens the page in your default browser
+secdogie-open --no-browser   # print the URL instead (e.g. over SSH with a forwarded port)
+secdogie-open --port 8734    # bind a fixed port instead of picking a free one
 ```
 
 1. The window list populates automatically (Refresh re-scans). Windows
@@ -73,11 +83,15 @@ secdogie-open
    mouse/keyboard. Turn it on only once you trust the task, against windows/
    machines you fully control -- with several windows running unattended at
    once, there's no per-step y/N prompt (it wouldn't make sense across
-   multiple windows sharing one terminal), so review carefully in dry-run
-   first.
+   multiple windows sharing one browser tab), so review carefully in dry-run
+   first; the page shows a native confirm dialog restating that warning
+   before it will actually enable real actions.
 5. **Start selected** launches one thread per selected window; **Stop all**
    asks every running window to stop before its next step (in-flight
-   actions still finish).
+   actions still finish). Each window's live status polls in the page every
+   ~0.7s; the run's own step-by-step log still prints to the terminal you
+   launched `secdogie-open` from.
+6. Close the tab and press Ctrl+C in that terminal to stop the server.
 
 ## Known limitations
 
@@ -89,3 +103,22 @@ secdogie-open
   assignment or coordinating "dispatcher" yet.
 - Stopping is cooperative (checked once per step), not instant -- an
   in-progress click/type finishes before a stop takes effect.
+- The server has no auth -- anyone who can reach `127.0.0.1:<port>` on this
+  machine (any local user/process) can drive it. Fine for its intended use
+  (you, on your own desktop); don't port-forward it to an untrusted network.
+
+## Layout
+
+```
+secdogie_open/
+  windows.py       enumerate open windows (PyWinCtl), filter to real app windows
+  runner.py        one agent thread per window, posts (id, status, detail) to a queue
+  controller.py    pure-Python state layer: windows/runner + a status snapshot, no HTTP/GUI import
+  server.py        stdlib http.server: static webui/ + a small JSON API over Controller
+  cli.py           argument parsing, binds the server, opens the browser
+  webui/
+    index.html      page structure (task form, window list, banner)
+    style.css       openclaw-derived dark glass-surface theme (also ships a light variant)
+    app.js          fetch()-based client: render windows, poll status, wire up actions
+tests/              unit tests for windows/runner/controller (no display or browser needed)
+```

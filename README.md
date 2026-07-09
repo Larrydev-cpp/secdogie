@@ -14,9 +14,9 @@ control.**
   task in plain language, it screenshots your screen, asks a vision model
   what to do next, and executes one action at a time (click, type, scroll,
   ...) until the task is done. See [`agent/README.md`](agent/README.md).
-- [`open/`](open/) — a GUI on top of `agent/` that splits the screen by open
-  window and drives one `agent` instance per selected window at once,
-  instead of one agent owning the whole screen. See
+- [`open/`](open/) — a local web page on top of `agent/` that splits the
+  screen by open window and drives one `agent` instance per selected window
+  at once, instead of one agent owning the whole screen. See
   [`open/README.md`](open/README.md).
 - [`android/`](android/) — points the same `agent/` loop at an Android phone
   instead of the desktop: screenshots come from `adb screencap`, taps/typing
@@ -101,7 +101,7 @@ type on a real phone.
   actions** off) and keep per-step confirmation on until you trust a given
   task; `open` runs unattended across every selected window once real
   actions are on, since a per-step prompt doesn't make sense across several
-  windows sharing one terminal.
+  windows sharing one browser tab.
 - None of these components has been independently security-audited. Read the
   "Known limitations" sections in each subproject's docs before relying on
   them for anything sensitive.
@@ -111,7 +111,7 @@ type on a real phone.
 ```
 tunnel/   C, libsodium-based VPN tunnel (PROTOCOL.md has the design + limitations)
 agent/    Python vision-LLM computer-control agent (provider-agnostic action schema)
-open/     Python GUI: split the screen by window, drive several agent instances at once
+open/     Python, local web page: split the screen by window, drive several agent instances at once
 android/  Python: drive an Android phone over adb, reusing the agent loop + action schema
 ios/      Python: drive an iPhone/iPad over WebDriverAgent, reusing the agent loop + action schema
 scene3d/  Python: multi-model 3D scene analysis (per-view workers + an aggregator)
