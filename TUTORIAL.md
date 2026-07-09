@@ -44,21 +44,96 @@ git clone https://github.com/Larrydev-cpp/secdogie.git
 cd secdogie
 ```
 
+### 🪟 On Windows
+
+Every command below is shown for **bash** (Linux/macOS/WSL). cmd.exe and
+PowerShell need different syntax for a few recurring things — same commands,
+different spelling:
+
+| Task | bash | cmd.exe | PowerShell |
+|------|------|---------|------------|
+| Activate a venv | `source .venv/bin/activate` | `.venv\Scripts\activate` | `.venv\Scripts\Activate.ps1` |
+| Set an env var (this session) | `export KEY=value` | `set KEY=value` | `$env:KEY = "value"` |
+| Home directory | `~` | `%USERPROFILE%` | `$env:USERPROFILE` or `~` |
+| Chain commands | `a && b` | `a && b` (works) | `a; b` (or `a && b` on PowerShell 7+) |
+
+Two extra Windows-specific notes:
+
+- The `python3` command shown throughout this tutorial usually doesn't exist
+  on Windows — the installer from python.org gives you `python` (or the `py`
+  launcher). Substitute accordingly.
+- PowerShell may refuse to run `Activate.ps1` with a "running scripts is
+  disabled" error. Fix it for just the current window (no admin needed):
+  `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`.
+
+**The simplest Windows path skips all of this.** CI is set up to build a real,
+standalone `secdogie-agent.exe` on a genuine Windows runner whenever a release
+is tagged (see [`docs/RELEASING.md`](docs/RELEASING.md)) — check the
+[Releases](../../releases) page first in case one already exists. If it
+doesn't yet, build it yourself; it takes under a minute and needs no bash, no
+venv activation, no shell-syntax translation:
+
+1. Install [Python](https://www.python.org/downloads/) (check "Add python.exe
+   to PATH" in the installer).
+2. In **PowerShell**:
+   ```powershell
+   cd agent\packaging
+   .\build.ps1
+   ```
+   (**cmd.exe** can't run `.ps1` files directly — use
+   `powershell -ExecutionPolicy Bypass -File build.ps1` instead.) This
+   produces `agent\packaging\dist\secdogie-agent.exe` — a real Windows binary,
+   not a renamed Linux one.
+3. In that `dist` folder, create a plain text file named `secdogie.env`
+   (Notepad is fine) containing one line:
+   ```ini
+   ANTHROPIC_API_KEY=sk-ant-...
+   ```
+   This file in the current directory is the **first** place the tool looks
+   for a key — simpler than the `--init-config` path below, and avoids typing
+   any Windows-specific paths at all.
+4. Still in `dist`:
+   ```
+   .\secdogie-agent.exe "open a text editor and type 'hello world'" --dry-run
+   ```
+
+Each of `android`/`ios`/`open`/`scene3d` has the same `packaging\build.ps1` —
+see their own READMEs. The rest of this tutorial assumes the Python/pip path;
+each step below gives the bash command plus its cmd/PowerShell equivalent
+where they differ.
+
 ---
 
 ## Part 1 — Your first run: control the desktop
 
 ### 1.1 Install
 
+**bash** (Linux/macOS/WSL):
 ```sh
 cd agent
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 ```
 
-Check it runs:
+**PowerShell:**
+```powershell
+cd agent
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e .
+```
 
-```sh
+**cmd.exe:**
+```
+cd agent
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e .
+```
+
+Check it runs (same command, every shell):
+
+```
 secdogie-agent --help
 ```
 
@@ -66,11 +141,19 @@ secdogie-agent --help
 
 Create a config file once and fill in your key:
 
-```sh
-secdogie-agent --init-config     # writes ~/.config/secdogie/config (chmod 600)
+```
+secdogie-agent --init-config
 ```
 
-Open `~/.config/secdogie/config` and set the line for your provider:
+- **Linux/macOS:** writes `~/.config/secdogie/config` (chmod 600). Open it in
+  any text editor.
+- **Windows:** writes `%USERPROFILE%\.config\secdogie\config` — a valid but
+  unusual-looking path. **Simpler on Windows:** instead of hunting for that
+  path, create a plain text file named `secdogie.env` in the folder you're
+  running from (Notepad is fine) — it's the *first* place the tool checks for
+  a key, so this sidesteps the home-directory path entirely.
+
+Either way, the file's contents are the same:
 
 ```ini
 ANTHROPIC_API_KEY=sk-ant-...
@@ -78,9 +161,10 @@ ANTHROPIC_API_KEY=sk-ant-...
 # SECDOGIE_MODEL=claude-sonnet-5   # optional: change the default model
 ```
 
-(You can instead export `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`, or pass
-`--api-key` on the command line — the CLI flag wins, then the env var, then
-this file.)
+(You can instead set the env var — `export ANTHROPIC_API_KEY=sk-...` in bash,
+`$env:ANTHROPIC_API_KEY = "sk-..."` in PowerShell, `set ANTHROPIC_API_KEY=sk-...`
+in cmd — or pass `--api-key` on the command line. Priority: CLI flag, then env
+var, then the config file.)
 
 ### 1.3 Dry run — see what it *would* do, touching nothing
 
@@ -218,6 +302,10 @@ adb devices        # your device should be listed in the `device` state
 
 ### 4.2 Install
 
+Same pattern as Part 1.1, in `android/` instead of `agent/` (bash shown; see
+[`android/README.md`](android/README.md#install) for the PowerShell/cmd
+blocks):
+
 ```sh
 cd android
 python3 -m venv .venv && source .venv/bin/activate
@@ -226,7 +314,7 @@ pip install -e .
 ```
 
 Use the **same API key setup** as Part 1.2 (`secdogie-android --init-config`,
-env var, or `--api-key`).
+a `secdogie.env` file, env var, or `--api-key`).
 
 ### 4.3 First run
 
@@ -264,7 +352,10 @@ that it's the same loop over WDA's HTTP API.
 
 The setup (Xcode signing, launching WDA, `iproxy` port-forwarding) is
 step-by-step in [`ios/README.md`](ios/README.md#setup-one-time-needs-a-mac--xcode).
-Once `http://127.0.0.1:8100/status` returns WDA's status JSON:
+Once `http://127.0.0.1:8100/status` returns WDA's status JSON, install the
+client the same way as Part 1.1 (`ios/` instead of `agent/`; see
+[`ios/README.md`](ios/README.md#install) for the PowerShell/cmd blocks — this
+client itself runs on any OS, including Windows, once WDA is reachable):
 
 ```sh
 cd ios
@@ -287,6 +378,9 @@ secdogie-ios "open Settings and turn on Airplane Mode"
 `secdogie-open` is a GUI that lists your open windows, lets you select
 several, and runs one agent per selected window — each scoped to just that
 window, so they don't collide.
+
+Install the same way as Part 1.1 (`open/` instead of `agent/`; see
+[`open/README.md`](open/README.md#install) for the PowerShell/cmd blocks):
 
 ```sh
 cd open
@@ -312,6 +406,14 @@ To let the agent (or a cloud model) drive a *different* machine — your home
 desktop, a phone on another network — put an encrypted tunnel between the two
 boxes with `secdogie-tunnel`, then run the agent so it targets the remote
 screen over that tunnel.
+
+> **🪟 Windows: this part doesn't apply directly.** `secdogie-tunnel` creates a
+> Linux TUN device via the Linux-specific `/dev/net/tun` + ioctl API — it has
+> no Windows build and CI doesn't produce one (see
+> [`docs/RELEASING.md`](docs/RELEASING.md)). If a leg of your setup needs to
+> run on Windows, run this part inside **WSL2** (which has a real Linux
+> kernel and TUN support) rather than native Windows — everything below then
+> works unmodified inside the WSL2 shell.
 
 ### 7.1 Build
 
@@ -401,6 +503,10 @@ route, so it can see inter-client traffic) is in
 | Android: `uiautomator dump returned no hierarchy` | Some secure screens block dumping; snapping silently falls back to raw taps — nothing to fix. |
 | iOS: `could not reach WebDriverAgent` | WDA isn't running or not forwarded. Relaunch WDA and `iproxy 8100 8100`; check `http://127.0.0.1:8100/status`. |
 | Tunnel: `tun create failed ... are you root / CAP_NET_ADMIN?` | Creating a TUN device needs privilege. Run with `sudo`, or `sudo setcap cap_net_admin+ep build/secdogie-tunnel`. |
+| Windows: `python3 : The term 'python3' is not recognized ...` | Windows installs Python as `python`, not `python3`. Use `python -m venv .venv` instead. |
+| Windows PowerShell: `... cannot be loaded because running scripts is disabled on this system` | Script execution is blocked by default. Run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` first (current window only, no admin needed), then retry `.venv\Scripts\Activate.ps1`. |
+| Windows: `'source' is not recognized` / `export' is not recognized` | Those are bash-only. PowerShell: `.venv\Scripts\Activate.ps1` and `$env:KEY = "value"`. cmd: `.venv\Scripts\activate` and `set KEY=value`. See the Windows table in Part 0. |
+| Windows: not sure the API key is being picked up | Create a `secdogie.env` text file (Notepad) in the folder you're running from with `ANTHROPIC_API_KEY=sk-...` — it's the first place every tool here looks, no env var or hidden-folder path needed. |
 
 Each subproject's README has deeper reference docs; this tutorial is the
 happy-path walkthrough that ties them together.

@@ -63,6 +63,7 @@ pixels, so taps land where intended.
 
 ## Install
 
+**Linux/macOS:**
 ```sh
 cd android
 python3 -m venv .venv && source .venv/bin/activate
@@ -70,15 +71,34 @@ pip install -e ../agent      # the loop/providers/config live here
 pip install -e .
 ```
 
-Set up an API key exactly as for `secdogie-agent` (env var or
-`secdogie-android --init-config`).
+**Windows (PowerShell):**
+```powershell
+cd android
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e ..\agent
+pip install -e .
+```
+(cmd: `.venv\Scripts\activate`. See `agent/README.md`'s Install section for
+the PowerShell execution-policy note if `Activate.ps1` is blocked.)
+
+Set up an API key exactly as for `secdogie-agent` (env var,
+`secdogie-android --init-config`, or — simplest on Windows — a
+`secdogie.env` text file in the current folder).
 
 ### Or: a single-file executable (no Python needed)
 
 ```sh
-./packaging/build.sh          # produces packaging/dist/secdogie-android
+./packaging/build.sh          # Linux/macOS -- produces packaging/dist/secdogie-android
 ./packaging/dist/secdogie-android --help
 ```
+
+**Windows (PowerShell):**
+```powershell
+packaging\build.ps1          # produces packaging\dist\secdogie-android.exe
+.\packaging\dist\secdogie-android.exe --help
+```
+(cmd.exe can't run `.ps1` files directly: `powershell -ExecutionPolicy Bypass -File packaging\build.ps1`.)
 
 `adb` itself is a separate system tool the binary still needs on `PATH` at
 run time (see Setup above) -- PyInstaller bundles the Python side, not `adb`.
