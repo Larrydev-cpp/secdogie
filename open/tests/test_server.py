@@ -143,6 +143,18 @@ def test_api_status_empty_initially(live_server):
     assert json.loads(body) == {}
 
 
+# -- /api/models ---------------------------------------------------------
+
+def test_api_models_returns_catalog(live_server):
+    _server, base_url = live_server
+    status, _ct, body = _get(base_url, "/api/models")
+    assert status == 200
+    data = json.loads(body)
+    assert data["default"] == "claude-sonnet-5"
+    assert any(p["id"] == "openai" for p in data["providers"])
+    assert all(p["models"] and p["label"] for p in data["providers"])
+
+
 # -- /api/start, /api/stop ---------------------------------------------------------
 
 def test_api_start_validation_error_as_json(live_server):
@@ -170,3 +182,29 @@ def test_api_start_and_stop_round_trip(monkeypatch, live_server):
     status, data = _post_json(base_url, "/api/stop", {})
     assert status == 200
     assert data == {"stopped": []}  # already finished by the time we stop it (fake run() returns immediately)
+
+
+def test_api_start_forwards_api_key_and_model_from_the_page(monkeypatch, live_server):
+    win = _window()
+    monkeypatch.setattr(controller_mod.windows, "list_windows", lambda: [win])
+    seen = {}
+
+    def fake_resolve(**kw):
+        seen.update(kw)
+        return _resolved()
+
+    monkeypatch.setattr(controller_mod.config_mod, "resolve", fake_resolve)
+    monkeypatch.setattr(controller_mod, "make_provider", lambda provider, model, key: "the-provider")
+    monkeypatch.setattr(runner, "run", lambda provider, config: 0)
+    _server, base_url = live_server
+
+    _get(base_url, "/api/windows")  # populate the controller's window cache
+    status, data = _post_json(
+        base_url,
+        "/api/start",
+        {"task": "t", "window_ids": [win.id], "auto": True, "api_key": "sk-from-page", "model": "gpt-5.5"},
+    )
+    assert status == 200
+    assert data["started"] == [win.id]
+    assert seen["cli_api_key"] == "sk-from-page"
+    assert seen["cli_model"] == "gpt-5.5"

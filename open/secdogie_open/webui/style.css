@@ -211,7 +211,9 @@ main {
 
 textarea,
 input[type="text"],
-input[type="number"] {
+input[type="number"],
+input[type="password"],
+select {
   width: 100%;
   background: var(--bg-muted);
   color: var(--text);
@@ -222,12 +224,52 @@ input[type="number"] {
   transition: border-color var(--duration-fast) var(--ease-out);
 }
 textarea:hover,
-input:hover {
+input:hover,
+select:hover {
   border-color: var(--border-hover);
 }
 textarea:focus,
-input:focus {
+input:focus,
+select:focus {
   border-color: var(--border-strong);
+}
+
+select {
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  /* Coral chevron so the native select reads as part of the dark theme. */
+  background-image: linear-gradient(45deg, transparent 50%, var(--accent) 50%),
+    linear-gradient(135deg, var(--accent) 50%, transparent 50%);
+  background-position: right 1rem center, right 0.75rem center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 2rem;
+}
+
+.model-custom {
+  margin-top: 0.5rem;
+}
+
+/* API key: text field + a Show/Hide reveal button on one row. */
+.key-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+.key-row input {
+  flex: 1;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+.key-toggle {
+  flex: 0 0 auto;
+  min-height: 0;
+  padding: 0.55rem 0.85rem;
+}
+.field .help code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.92em;
+  color: var(--text-strong);
 }
 textarea {
   resize: vertical;

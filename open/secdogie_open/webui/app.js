@@ -8,13 +8,18 @@ const state = {
   status: {}, // id -> {status, detail}
 };
 
+const CUSTOM_MODEL_VALUE = "__custom__";
+
 const el = {
   banner: document.getElementById("banner"),
   list: document.getElementById("window-list"),
   empty: document.getElementById("empty-state"),
   task: document.getElementById("task"),
   model: document.getElementById("model"),
+  modelCustom: document.getElementById("model-custom"),
   maxSteps: document.getElementById("max-steps"),
+  apiKey: document.getElementById("api-key"),
+  keyToggle: document.getElementById("key-toggle"),
   auto: document.getElementById("auto"),
   autoHelp: document.getElementById("auto-help"),
   refresh: document.getElementById("refresh"),
@@ -50,6 +55,73 @@ el.themeToggle.addEventListener("click", () => {
   localStorage.setItem("secdogie-theme", next);
   applyTheme(next);
 });
+
+// -- model picker + API key ----------------------------------------------------
+
+// Turn the current dropdown/custom selection into the model string to send.
+function currentModel() {
+  if (el.model.value === CUSTOM_MODEL_VALUE) return el.modelCustom.value.trim();
+  return el.model.value;
+}
+
+// Show the free-text box only when "Custom…" is picked.
+function syncCustomModel() {
+  const isCustom = el.model.value === CUSTOM_MODEL_VALUE;
+  el.modelCustom.hidden = !isCustom;
+  if (isCustom) el.modelCustom.focus();
+}
+
+async function initModelPicker() {
+  let catalog;
+  try {
+    const resp = await fetch("/api/models");
+    catalog = await resp.json();
+  } catch {
+    catalog = { default: "claude-sonnet-5", providers: [] };
+  }
+
+  el.model.innerHTML = "";
+  for (const provider of catalog.providers || []) {
+    const group = document.createElement("optgroup");
+    group.label = provider.label;
+    for (const id of provider.models) {
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = id;
+      group.appendChild(opt);
+    }
+    el.model.appendChild(group);
+  }
+  const customOpt = document.createElement("option");
+  customOpt.value = CUSTOM_MODEL_VALUE;
+  customOpt.textContent = "Custom…";
+  el.model.appendChild(customOpt);
+
+  // Restore the last choice: a known id selects it directly; anything else is
+  // treated as a custom model and shown in the text box.
+  const saved = localStorage.getItem("secdogie-model") || catalog.default || "";
+  const known = [...el.model.options].some((o) => o.value === saved);
+  if (known) {
+    el.model.value = saved;
+  } else if (saved) {
+    el.model.value = CUSTOM_MODEL_VALUE;
+    el.modelCustom.value = saved;
+  }
+  syncCustomModel();
+
+  el.model.addEventListener("change", syncCustomModel);
+}
+
+function initApiKey() {
+  el.apiKey.value = localStorage.getItem("secdogie-api-key") || "";
+  el.keyToggle.addEventListener("click", () => {
+    const showing = el.apiKey.type === "text";
+    el.apiKey.type = showing ? "password" : "text";
+    el.keyToggle.textContent = showing ? "Show" : "Hide";
+    el.keyToggle.setAttribute("aria-pressed", String(!showing));
+    el.keyToggle.setAttribute("aria-label", showing ? "Show API key" : "Hide API key");
+  });
+}
 
 // -- window list ---------------------------------------------------------
 
@@ -179,6 +251,13 @@ el.start.addEventListener("click", async () => {
     return;
   }
 
+  const model = currentModel();
+  const apiKey = el.apiKey.value.trim();
+  // Remember the choices so the next launch doesn't retype them. Stored only in
+  // this browser; the key never leaves the local machine.
+  localStorage.setItem("secdogie-model", model);
+  localStorage.setItem("secdogie-api-key", apiKey);
+
   el.start.disabled = true;
   try {
     const resp = await fetch("/api/start", {
@@ -186,7 +265,8 @@ el.start.addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         task,
-        model: el.model.value.trim(),
+        model,
+        api_key: apiKey,
         max_steps: parseInt(el.maxSteps.value, 10) || 50,
         auto,
         window_ids: [...state.selected],
@@ -222,5 +302,7 @@ el.stop.addEventListener("click", async () => {
 // -- boot ---------------------------------------------------------
 
 initTheme();
+initModelPicker();
+initApiKey();
 fetchWindows();
 setInterval(pollStatus, STATUS_POLL_MS);
