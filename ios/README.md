@@ -62,6 +62,8 @@ points before tapping — so taps land where intended.
 
 ## Install
 
+**Linux/macOS/WSL** (the setup above needs a Mac for Xcode, but the client
+below runs on any OS, including Windows):
 ```sh
 cd ios
 python3 -m venv .venv && source .venv/bin/activate
@@ -69,15 +71,37 @@ pip install -e ../agent      # the loop/providers/config live here
 pip install -e .
 ```
 
-Set up an API key exactly as for `secdogie-agent` (env var or
-`secdogie-ios --init-config`).
+**Windows (PowerShell):**
+```powershell
+cd ios
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e ..\agent
+pip install -e .
+```
+(cmd: `.venv\Scripts\activate`. See `agent/README.md`'s Install section for
+the PowerShell execution-policy note if `Activate.ps1` is blocked.)
+
+Set up an API key exactly as for `secdogie-agent` (env var,
+`secdogie-ios --init-config`, or — simplest on Windows — a `secdogie.env`
+text file in the current folder).
 
 ### Or: a single-file executable (no Python needed)
 
 ```sh
-./packaging/build.sh          # produces packaging/dist/secdogie-ios
+./packaging/build.sh          # Linux/macOS -- produces packaging/dist/secdogie-ios
 ./packaging/dist/secdogie-ios --help
 ```
+
+**Windows (PowerShell):**
+```powershell
+packaging\build.ps1          # produces packaging\dist\secdogie-ios.exe
+.\packaging\dist\secdogie-ios.exe --help
+```
+(cmd.exe can't run `.ps1` files directly: `powershell -ExecutionPolicy Bypass -File packaging\build.ps1`.)
+
+(WDA itself only runs on the iPhone/Mac side; the `secdogie-ios` client that
+talks to it over HTTP works from any OS, including Windows.)
 
 WDA itself still needs to be running and port-forwarded (see Setup above) --
 this only bundles the Python side.

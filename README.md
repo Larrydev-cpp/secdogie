@@ -38,7 +38,8 @@ from a fresh clone to a model driving your desktop, a phone, several windows,
 and a machine across the network, with the exact commands and the output you
 should see at each step, plus a troubleshooting table.
 
-The 60-second version (control your own desktop):
+The 60-second version (control your own desktop; **bash** shown — Windows
+PowerShell/cmd commands differ, see below):
 
 ```sh
 # 1. install
@@ -53,6 +54,12 @@ secdogie-agent "open a text editor and type 'hello world'" --dry-run
 # 4. do it for real — approves each action with a y/N prompt
 secdogie-agent "open a text editor and type 'hello world'"
 ```
+
+**🪟 On Windows:** don't hand-translate the above — `venv`/`export`/`~` all
+need different syntax in cmd vs. PowerShell, and [`TUTORIAL.md`](TUTORIAL.md)'s
+Part 0 has the full command table plus the fastest path (build
+`secdogie-agent.exe` with `agent\packaging\build.ps1`, no venv or shell-syntax
+juggling at all — see [`agent/packaging/README.md`](agent/packaging/README.md)).
 
 Then follow [`TUTORIAL.md`](TUTORIAL.md) for phones (`android`/`ios`), several
 windows at once (`open`), and reaching a remote machine (`tunnel`).

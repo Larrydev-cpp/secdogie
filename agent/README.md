@@ -49,11 +49,24 @@ pip install -e '.[openai]'      # or: pip install openai
 
 ## Install
 
+**Linux/macOS:**
 ```sh
 cd agent
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 ```
+
+**Windows (PowerShell):**
+```powershell
+cd agent
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e .
+```
+(cmd: `.venv\Scripts\activate` instead of `Activate.ps1`. If PowerShell
+refuses to run the script, `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
+first.) Or skip Python entirely — see [single-file executable](#or-a-single-file-executable-no-python-needed)
+below.
 
 ### Plugging in your API key
 
@@ -83,6 +96,14 @@ Searched config locations (first that exists wins): `./secdogie.env`,
 `~/.config/secdogie/config`, `~/.secdogie/config`. Point at a specific file
 with `--config PATH`.
 
+**On Windows**, `--init-config` still works the same way (writes to
+`%USERPROFILE%\.config\secdogie\config` — an unusual-looking but valid path;
+`~` above means your home directory on every OS). The simplest option,
+especially for the standalone `.exe`, is the first-checked location: create a
+plain text file named `secdogie.env` **in the same folder you're running
+from** (Notepad is fine) with the `ANTHROPIC_API_KEY=sk-...` line — no
+special path needed at all.
+
 ### Or: a single-file executable (no Python needed)
 
 To hand someone a program they can run without installing Python at all,
@@ -90,9 +111,20 @@ build a standalone binary with PyInstaller — see
 [`packaging/README.md`](packaging/README.md):
 
 ```sh
-./packaging/build.sh          # produces packaging/dist/secdogie-agent
+./packaging/build.sh          # Linux/macOS -- produces packaging/dist/secdogie-agent
 ./packaging/dist/secdogie-agent --help
 ```
+
+**Windows (PowerShell):**
+```powershell
+packaging\build.ps1          # produces packaging\dist\secdogie-agent.exe
+.\packaging\dist\secdogie-agent.exe --help
+```
+(cmd.exe can't run `.ps1` files directly: `powershell -ExecutionPolicy Bypass -File packaging\build.ps1`.)
+
+(CI also builds and publishes `secdogie-agent.exe` on tagged releases — see
+[`docs/RELEASING.md`](../docs/RELEASING.md) — check the
+[Releases](../../releases) page before building your own.)
 
 ## Run
 

@@ -37,6 +37,7 @@ aggregator uses the first key.
 
 ## Install
 
+**Linux/macOS:**
 ```sh
 cd scene3d
 python3 -m venv .venv && source .venv/bin/activate
@@ -45,15 +46,35 @@ pip install -e .
 pip install anthropic        # and/or: pip install 'secdogie-scene3d[openai]'
 ```
 
+**Windows (PowerShell):**
+```powershell
+cd scene3d
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e ..\agent
+pip install -e .
+pip install anthropic        # and/or: pip install "secdogie-scene3d[openai]"
+```
+(cmd: `.venv\Scripts\activate`. See `agent/README.md`'s Install section for
+the PowerShell execution-policy note if `Activate.ps1` is blocked.)
+
 ### Or: a single-file executable (no Python needed)
 
 ```sh
-./packaging/build.sh          # produces packaging/dist/secdogie-scene3d
+./packaging/build.sh          # Linux/macOS -- produces packaging/dist/secdogie-scene3d
 ./packaging/dist/secdogie-scene3d --help
 ```
 
+**Windows (PowerShell):**
+```powershell
+packaging\build.ps1          # produces packaging\dist\secdogie-scene3d.exe
+.\packaging\dist\secdogie-scene3d.exe --help
+```
+(cmd.exe can't run `.ps1` files directly: `powershell -ExecutionPolicy Bypass -File packaging\build.ps1`.)
+
 Bundles both the Anthropic and OpenAI adapters by default; edit
-`packaging/build.sh` to ship a smaller, single-provider binary.
+`packaging/build.sh` (or `packaging\build.ps1` on Windows) to ship a smaller,
+single-provider binary.
 
 ## Run
 

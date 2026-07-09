@@ -21,6 +21,7 @@ higher concurrency); today every window still shares the single key
 
 ## Install
 
+**Linux/macOS:**
 ```sh
 cd open
 python3 -m venv .venv && source .venv/bin/activate
@@ -28,15 +29,34 @@ pip install -e ../agent      # secdogie-open drives it as a library
 pip install -e .
 ```
 
-Set up an API key the same way you would for `secdogie-agent` (env var or
-`secdogie-agent --init-config`) before running.
+**Windows (PowerShell):**
+```powershell
+cd open
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e ..\agent
+pip install -e .
+```
+(cmd: `.venv\Scripts\activate`. See `agent/README.md`'s Install section for
+the PowerShell execution-policy note if `Activate.ps1` is blocked.)
+
+Set up an API key the same way you would for `secdogie-agent` (env var,
+`secdogie-agent --init-config`, or — simplest on Windows — a `secdogie.env`
+text file in the current folder; see `agent/README.md`) before running.
 
 ### Or: a single-file executable (no Python needed)
 
 ```sh
-./packaging/build.sh          # produces packaging/dist/secdogie-open
+./packaging/build.sh          # Linux/macOS -- produces packaging/dist/secdogie-open
 ./packaging/dist/secdogie-open
 ```
+
+**Windows (PowerShell):**
+```powershell
+packaging\build.ps1          # produces packaging\dist\secdogie-open.exe
+.\packaging\dist\secdogie-open.exe
+```
+(cmd.exe can't run `.ps1` files directly: `powershell -ExecutionPolicy Bypass -File packaging\build.ps1`.)
 
 ## Run
 
