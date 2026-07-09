@@ -247,6 +247,42 @@ secdogie-agent "log into example.com and open the dashboard" --macro dashboard.j
 - The macro file is plain, human-readable JSON (`secdogie_agent/macro.py`) —
   inspect or hand-edit it if useful.
 
+## Latency, and the local reflex layer
+
+A cloud vision model runs at roughly **1 Hz** — 1–3 seconds per screenshot →
+action round trip. That's fine for *deciding what to do*, but hopeless for
+anything that has to keep up with a **60 Hz** screen (a moving target, a value
+you're dragging to a mark, a fast event): by the time one screenshot has
+round-tripped, ~16 frames have already gone by. No amount of tuning fixes this —
+it's the physics of a network call to a large model, not an optimization target.
+
+So secdogie uses the standard two-tier split that every real-time control system
+uses: the **model is the slow planner**, and a **fast local loop is the
+controller**. Two things keep the model *out* of the tight loop:
+
+- **Macros** (`--macro`, above) replay a known sequence with **zero** model
+  calls.
+- **The reflex layer** (`secdogie_agent/reflex.py`, needs
+  `pip install 'secdogie-agent[reflex]'`) closes a tight, goal-directed loop
+  *locally* — capture a small region, match a target template, move/click — at
+  frame rate, no network call per frame. `pursue()` tracks a moving target and
+  clicks it once it settles; `track_and_click_desktop(region, target)` wires
+  that to mss + pyautogui:
+
+  ```python
+  from secdogie_agent.reflex import track_and_click_desktop
+  # chase a moving element inside this screen region and click it when it stops
+  result = track_and_click_desktop(region=(600, 300, 400, 400), target=(800, 480))
+  print(result.outcome, result.fps)   # e.g. "clicked" 55.0
+  ```
+
+  Template matching is FFT-based normalized cross-correlation: about **4 ms
+  (~230 Hz)** for a 200×200 search region and ~14 ms (~70 Hz) for 320×240 on a
+  laptop CPU — so keep the search region bounded around the target and the loop
+  comfortably clears 30–60 Hz. It is a CPU reflex, not a game engine; sub-
+  millisecond control needs C/GPU and is out of scope. The model decides *what*
+  to pursue; the reflex layer does the chasing.
+
 ## How it decides what to do
 
 Each step, the model sees the current screenshot, the task, and a short
@@ -267,6 +303,7 @@ secdogie_agent/
   loop.py                the screenshot -> action -> execute -> repeat loop
   backend.py              Backend protocol (setup/capture/execute) + optional Locatable capability
   macro.py                RPA macro record/replay: Macro, MacroRecorder, resolve_replay_step
+  reflex.py               local reflex layer: FFT template matching + a frame-rate pursue loop (needs numpy)
   screen.py               screenshot capture + resize/coordinate scaling (mss + Pillow)
   actions.py              executes an Action via pyautogui (smooth move + settle)
   safety.py                logging + y/N confirmation

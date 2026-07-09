@@ -33,6 +33,7 @@ jobs:
       matrix:
         include:
           - dir: agent
+            extras: "[reflex]"  # so the reflex layer's numpy-backed tests run
           - dir: android
             needs_agent: true
           - dir: ios
@@ -57,7 +58,7 @@ jobs:
           if [ "${{ matrix.needs_agent }}" = "true" ]; then
             pip install -e ../agent
           fi
-          pip install -e . pytest
+          pip install -e ".${{ matrix.extras }}" pytest
 
       - name: Test
         working-directory: ${{ matrix.dir }}
