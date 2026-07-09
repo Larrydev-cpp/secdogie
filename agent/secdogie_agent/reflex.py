@@ -233,3 +233,47 @@ def track_and_click_desktop(region, target, box=(48, 48), **pursue_kwargs) -> Pu
         pyautogui.click()
 
     return pursue(capture, move, click, template, **pursue_kwargs)
+
+
+# Cap on how long a single track_click may chase (and hold the shared input
+# lock) before giving up -- a model asking for a huge timeout must not be able
+# to freeze every other desktop actor.
+MAX_TRACK_SECONDS = 30.0
+
+
+def track_click_target(x: int, y: int, *, search: int = 200, timeout_s: float | None = None) -> str:
+    """Model-facing reflex entry: the target is *currently* near absolute screen
+    point (x, y) and moving. Capture a `search`x`search` window around it and
+    locally track+click it (pursue) at frame rate -- no model call per frame.
+    Returns a one-line result for the agent history. Desktop only.
+
+    The search window is deliberately small (fast matching) and clamped to the
+    monitor; if the target escapes it, pursue reports "lost" and control returns
+    to the model, which re-locates it. That graceful give-up is why the window
+    doesn't need to be the whole screen."""
+    from . import screen
+
+    sw, sh = screen.primary_size()
+    width = min(search, sw)
+    height = min(search, sh)
+    left = max(0, min(x - width // 2, sw - width))
+    top = max(0, min(y - height // 2, sh - height))
+    region = (left, top, width, height)
+
+    kwargs: dict = {}
+    if timeout_s is not None:
+        kwargs["timeout_s"] = min(timeout_s, MAX_TRACK_SECONDS)
+    result = track_and_click_desktop(region, (x, y), **kwargs)
+
+    # pursue reports the center in the captured region's own pixels; map it back
+    # to absolute screen coordinates so the history the model reads matches the
+    # (x, y) space it asked in.
+    if result.center is not None:
+        abs_center = (left + result.center[0], top + result.center[1])
+        where = f" at {abs_center}"
+    else:
+        where = ""
+    return (
+        f"reflex track near ({x}, {y}): {result.outcome}{where} "
+        f"after {result.frames} frame(s) [{result.fps:.0f} fps]"
+    )

@@ -101,6 +101,30 @@ def test_new_actions_are_valid_schema():
     assert b.kind == "open" and b.path == "/x"
 
 
+# -- track_click routes to the reflex layer, holding the input lock -----------
+
+def test_track_click_routes_to_reflex_under_the_input_lock(monkeypatch):
+    # track_click is an input action: it must hold _INPUT_LOCK for the whole
+    # (multi-second) local pursuit, and hand its coords + timeout to the reflex
+    # layer. Stub the reflex layer so no numpy/display is needed here.
+    from secdogie_agent import reflex
+
+    _fake_pyautogui(monkeypatch)  # _dispatch imports pyautogui at its top, before the branch
+    seen = {}
+
+    def fake_track(x, y, *, timeout_s=None):
+        seen["args"] = (x, y, timeout_s)
+        seen["locked"] = actions._INPUT_LOCK.locked()  # proves we ran inside the guard
+        return "reflex track: clicked"
+
+    monkeypatch.setattr(reflex, "track_click_target", fake_track)
+    res = _run({"action": "track_click", "x": 12, "y": 34, "seconds": 8})
+    assert seen["args"] == (12, 34, 8)
+    assert seen["locked"] is True
+    assert res == "reflex track: clicked"
+    assert "track_click" not in actions._NON_INPUT_KINDS  # not benign -> takes the lock
+
+
 # -- concurrent input serialization (the multi-actor / distributed case) ------
 
 def test_concurrent_clicks_do_not_interleave_move_and_press(monkeypatch):

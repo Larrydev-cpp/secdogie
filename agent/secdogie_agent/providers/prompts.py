@@ -30,6 +30,14 @@ Action schema (choose exactly one "action"):
            e.g. holding an arrow key to keep moving. ["right"] held 1.5s, etc.
   {{"action": "scroll", "x": int, "y": int, "dx": int, "dy": int, "reasoning": str}}
   {{"action": "open", "path": str, "reasoning": str}}   -- open a file/folder/URL with the OS default program
+  {{"action": "track_click", "x": int, "y": int, "seconds": number, "reasoning": str}}
+        -- LOCAL REFLEX MODE (desktop only): the target at (x, y) is currently MOVING
+           (a dragged slider handle, an animated control, an object sliding across a
+           video/timeline). Do NOT guess where it will land; the machine locks onto it
+           locally at screen frame rate and clicks it the instant it stops moving --
+           far faster and more accurate than you round-tripping each frame. "x"/"y" are
+           where the target is NOW; optional "seconds" caps the chase. Use ONLY for a
+           moving target; for anything stationary use left_click.
   {{"action": "wait", "seconds": number, "reasoning": str}}
   {{"action": "done", "text": str}}        -- task is complete, text = summary for the user
   {{"action": "ask_user", "text": str}}    -- you need clarification or explicit permission before continuing

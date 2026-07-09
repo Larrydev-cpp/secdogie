@@ -134,6 +134,16 @@ def _dispatch(action: Action, move_duration: float, settle: float) -> str:
         if action.dy:
             pyautogui.vscroll(action.dy)
         return f"scrolled dx={action.dx} dy={action.dy} at ({action.x}, {action.y})"
+    elif action.kind == "track_click":
+        # Hand a MOVING target to the local reflex loop: track it at frame rate
+        # and click it the moment it settles, with no model call per frame. This
+        # runs inside the shared input lock (track_click is not benign), so the
+        # whole multi-second pursuit owns the physical cursor exclusively -- no
+        # other desktop actor can inject input mid-chase. numpy-gated; the reflex
+        # layer raises a clear install hint if it's missing.
+        from . import reflex
+
+        return reflex.track_click_target(action.x, action.y, timeout_s=action.seconds)
     elif action.kind == "wait":
         seconds = action.seconds or 1.0
         time.sleep(seconds)

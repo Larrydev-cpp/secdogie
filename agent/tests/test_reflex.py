@@ -1,4 +1,6 @@
 import io
+import sys
+import types
 
 import pytest
 
@@ -132,3 +134,62 @@ def test_pursue_reports_fps_and_frame_count():
     )
     assert result.outcome == "clicked"
     assert result.frames >= 4 and result.fps > 0
+
+
+# -- track_click_target (the model-facing desktop wrapper) ------------------
+
+def test_track_click_target_clamps_region_and_clicks_absolute(monkeypatch):
+    # The target sits still at absolute (500, 400); the wrapper must build a
+    # search window around it, track it locally, and click in ABSOLUTE screen
+    # coordinates (region origin added back).
+    import secdogie_agent.screen as screen_mod
+
+    frame = np.full((200, 200), 30, np.uint8)
+    frame[88:112, 88:112] = PATCH  # region-local, inside the cropped template box
+    buf = io.BytesIO()
+    Image.fromarray(frame, "L").save(buf, format="PNG")
+    frame_png = buf.getvalue()
+
+    regions = []
+
+    def fake_capture(region=None):
+        regions.append(region)
+        return frame_png, (200, 200)
+
+    monkeypatch.setattr(screen_mod, "primary_size", lambda: (1920, 1080))
+    monkeypatch.setattr(screen_mod, "capture_screenshot", fake_capture)
+
+    moves, clicks = [], []
+    fake_pg = types.ModuleType("pyautogui")
+    fake_pg.moveTo = lambda x, y, duration=0: moves.append((x, y))
+    fake_pg.click = lambda *a, **k: clicks.append(moves[-1])
+    monkeypatch.setitem(sys.modules, "pyautogui", fake_pg)
+
+    result = reflex.track_click_target(500, 400, timeout_s=5.0)
+
+    assert regions[0] == (400, 300, 200, 200)  # centered on the target, clamped in-bounds
+    assert clicks == [(500, 400)]              # clicked the absolute target, not region-local
+    assert "clicked at (500, 400)" in result
+
+
+def test_track_click_target_caps_the_timeout(monkeypatch):
+    # A model asking for a huge chase must be capped so it can't hold the shared
+    # input lock forever; the wrapper clamps timeout_s to MAX_TRACK_SECONDS.
+    import secdogie_agent.screen as screen_mod
+
+    monkeypatch.setattr(screen_mod, "primary_size", lambda: (800, 600))
+    monkeypatch.setattr(screen_mod, "capture_screenshot", lambda region=None: (b"", (200, 200)))
+
+    seen = {}
+
+    def fake_pursue(capture, move, click, template, **kw):
+        seen.update(kw)
+        return reflex.PursueResult("lost", 1, 0.0, 0.0, None)
+
+    monkeypatch.setattr(reflex, "pursue", fake_pursue)
+    # png_to_gray/crop still run on the first capture; stub the decode too.
+    monkeypatch.setattr(reflex, "png_to_gray", lambda png: np.zeros((200, 200), np.float32))
+    monkeypatch.setitem(sys.modules, "pyautogui", types.ModuleType("pyautogui"))
+
+    reflex.track_click_target(100, 100, timeout_s=9999.0)
+    assert seen["timeout_s"] == reflex.MAX_TRACK_SECONDS

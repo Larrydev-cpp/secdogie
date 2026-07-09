@@ -283,6 +283,17 @@ controller**. Two things keep the model *out* of the tight loop:
   millisecond control needs C/GPU and is out of scope. The model decides *what*
   to pursue; the reflex layer does the chasing.
 
+The model can hand off to the reflex layer itself, without any glue code: it
+emits a **`track_click`** action naming where the moving target is *right now*,
+and the loop drops into the local pursuit — a window around that point is
+captured and matched at frame rate, and the target is clicked the instant it
+settles, all with no model call per frame. Control returns to the model with a
+one-line result (`clicked` / `lost` / `timeout` and the frame rate reached).
+This runs inside the same input lock as every other action, so a multi-second
+chase owns the physical cursor exclusively — no other window's actor can inject
+input mid-pursuit. It's desktop-only (mss + pyautogui + numpy); the prompt marks
+it that way, since over adb/WDA a phone can't be captured at frame rate anyway.
+
 ## How it decides what to do
 
 Each step, the model sees the current screenshot, the task, and a short

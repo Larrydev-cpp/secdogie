@@ -63,6 +63,20 @@ def capture_screenshot(
         ) from e
 
 
+def primary_size() -> tuple[int, int]:
+    """(width, height) of the primary monitor, in absolute pixels.
+
+    Used to clamp a small capture region against the screen edge -- the reflex
+    layer captures a window *around* a moving target, and mss.grab errors (or
+    returns garbage) if that window pokes past the monitor bounds.
+    """
+    import mss
+
+    with mss.mss() as sct:
+        m = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+        return m["width"], m["height"]
+
+
 def prepare_for_model(
     png_bytes: bytes,
     real_size: tuple[int, int],

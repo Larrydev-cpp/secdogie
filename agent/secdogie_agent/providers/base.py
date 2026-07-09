@@ -27,6 +27,7 @@ VALID_ACTIONS = {
     "open",
     "wait",
     "screenshot",
+    "track_click",
     "done",
     "ask_user",
 }
