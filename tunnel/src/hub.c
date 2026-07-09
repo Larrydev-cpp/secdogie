@@ -161,6 +161,13 @@ int sdtp_hub_config_load(const char *path, sdtp_hub_config *cfg) {
         fprintf(stderr, "%s: hub config must list at least one peer\n", path);
         return -1;
     }
+    /* See config.c: an MTU above SDTP_MTU silently truncates oversized inner
+     * packets (reads cap at SDTP_MTU), and a non-positive MTU makes the
+     * interface ioctl fail obscurely. */
+    if (cfg->mtu <= 0 || cfg->mtu > SDTP_MTU) {
+        fprintf(stderr, "%s: mtu must be between 1 and %d\n", path, SDTP_MTU);
+        return -1;
+    }
     return 0;
 }
 
