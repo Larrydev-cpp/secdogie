@@ -72,6 +72,16 @@ pip install -e .
 Set up an API key exactly as for `secdogie-agent` (env var or
 `secdogie-ios --init-config`).
 
+### Or: a single-file executable (no Python needed)
+
+```sh
+./packaging/build.sh          # produces packaging/dist/secdogie-ios
+./packaging/dist/secdogie-ios --help
+```
+
+WDA itself still needs to be running and port-forwarded (see Setup above) --
+this only bundles the Python side.
+
 ## Run
 
 ```sh

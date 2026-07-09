@@ -31,6 +31,13 @@ pip install -e .
 Set up an API key the same way you would for `secdogie-agent` (env var or
 `secdogie-agent --init-config`) before running.
 
+### Or: a single-file executable (no Python needed)
+
+```sh
+./packaging/build.sh          # produces packaging/dist/secdogie-open
+./packaging/dist/secdogie-open
+```
+
 ## Run
 
 ```sh
