@@ -45,6 +45,16 @@ pip install -e .
 pip install anthropic        # and/or: pip install 'secdogie-scene3d[openai]'
 ```
 
+### Or: a single-file executable (no Python needed)
+
+```sh
+./packaging/build.sh          # produces packaging/dist/secdogie-scene3d
+./packaging/dist/secdogie-scene3d --help
+```
+
+Bundles both the Anthropic and OpenAI adapters by default; edit
+`packaging/build.sh` to ship a smaller, single-provider binary.
+
 ## Run
 
 ```sh

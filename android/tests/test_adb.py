@@ -119,6 +119,39 @@ def test_timeout_is_wrapped(monkeypatch):
     assert "timed out" in str(ei.value)
 
 
+def test_injection_blocked_nonzero_exit_raises_actionable_hint(monkeypatch):
+    # MIUI-style rejection: input's Java process exits non-zero with the
+    # SecurityException stack trace on stderr.
+    _capture_calls(
+        monkeypatch,
+        _FakeProc(
+            stderr=b"java.lang.SecurityException: Injecting to another application "
+            b"requires INJECT_EVENTS permission",
+            returncode=1,
+        ),
+    )
+    with pytest.raises(AdbError) as ei:
+        Adb().tap(1, 1)
+    assert "USB debugging (Security settings)" in str(ei.value)
+    assert "Mi account" in str(ei.value)
+
+
+def test_injection_blocked_even_when_exit_code_is_zero(monkeypatch):
+    # Some devices/adb versions report success (exit 0) even though the tap
+    # was rejected -- this must still raise, not silently look like a real tap.
+    _capture_calls(monkeypatch, _FakeProc(stdout=b"INJECT_EVENTS permission", returncode=0))
+    with pytest.raises(AdbError) as ei:
+        Adb().tap(1, 1)
+    assert "USB debugging (Security settings)" in str(ei.value)
+
+
+def test_ordinary_shell_output_is_not_mistaken_for_injection_block(monkeypatch):
+    # Sanity: normal successful output must not trip the detector.
+    calls = _capture_calls(monkeypatch, _FakeProc(stdout=b"", returncode=0))
+    Adb().tap(1, 1)  # must not raise
+    assert calls  # the call did happen
+
+
 def test_resolve_keycode_passthrough_for_existing_keycode():
     assert adb._resolve_keycode("KEYCODE_CAMERA") == "KEYCODE_CAMERA"
     assert adb._resolve_keycode("7") == "KEYCODE_7"

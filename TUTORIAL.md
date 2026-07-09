@@ -207,6 +207,15 @@ Same loop, but screenshots come from `adb screencap` and taps go out through
 adb devices        # your device should be listed in the `device` state
 ```
 
+4. **MIUI/Xiaomi (and often other Chinese ROMs) need one more toggle.** Plain
+   USB debugging covers screenshots, but taps/typing use input *injection*,
+   which MIUI blocks unless you also enable **"USB debugging (Security
+   settings)"** in Developer options — which only becomes available after you
+   sign in to a **Mi account** on the phone (Settings → your name/Mi Account).
+   **This is not a root requirement**; root is only a fallback for people who
+   can't sign in to a Mi account at all. Skip this if you're not on a Chinese
+   ROM. Full detail: [`android/README.md`](android/README.md#setup).
+
 ### 4.2 Install
 
 ```sh
@@ -388,6 +397,7 @@ route, so it can see inter-client traffic) is in
 | Every action is skipped without asking | stdin isn't a terminal, so confirmation fails closed (No). Use `--auto` for unattended, or run in a real terminal. |
 | Agent stops after 50 steps | Hit the default `--max-steps`; raise it, or the task may be under-specified. |
 | Android: `adb ... device offline` / not listed | Reconnect USB, re-accept the debugging prompt, `adb kill-server && adb start-server`, check `adb devices`. |
+| Android: `adb shell ... was rejected: the device is blocking input injection ...` | MIUI/Xiaomi (or another Chinese ROM) is gating taps/typing behind a second toggle. Sign in to a Mi account on the phone, then enable Developer options → "USB debugging (Security settings)" — **not** a root requirement, see [`android/README.md`](android/README.md#setup). Screenshots/`adb devices` still work without it; only input is blocked. |
 | Android: `uiautomator dump returned no hierarchy` | Some secure screens block dumping; snapping silently falls back to raw taps — nothing to fix. |
 | iOS: `could not reach WebDriverAgent` | WDA isn't running or not forwarded. Relaunch WDA and `iproxy 8100 8100`; check `http://127.0.0.1:8100/status`. |
 | Tunnel: `tun create failed ... are you root / CAP_NET_ADMIN?` | Creating a TUN device needs privilege. Run with `sudo`, or `sudo setcap cap_net_admin+ep build/secdogie-tunnel`. |

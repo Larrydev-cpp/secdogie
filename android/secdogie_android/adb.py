@@ -16,6 +16,30 @@ import subprocess
 _TEXT_SPACE = "%s"
 _SHELL_METACHARS = set(" ()<>|;&*\\~\"'`$#")
 
+# Some Chinese Android ROMs (MIUI foremost) gate input *injection* behind a
+# second toggle beyond plain "USB debugging" -- without it, `adb shell input
+# ...` is rejected by the device with this SecurityException, either as a
+# nonzero exit (message in stderr) or, on some devices/adb versions, while
+# still reporting exit 0 (the tap silently does nothing). _shell() checks for
+# this substring in stdout+stderr regardless of exit code so a blocked input
+# call always surfaces as a clear, actionable AdbError instead of a raw Java
+# stack trace or a tap that looks like it succeeded but didn't.
+_INJECTION_BLOCKED_MARKERS = (b"INJECT_EVENTS", b"Injecting to another application")
+_INJECTION_BLOCKED_HINT = (
+    "the device is blocking input injection (SecurityException: Injecting to another "
+    "application requires INJECT_EVENTS permission). This is common on MIUI/Xiaomi: "
+    "besides plain USB debugging, enable Settings -> Additional settings -> Developer "
+    "options -> 'USB debugging (Security settings)' (this needs a Mi account signed "
+    "in on the phone first -- it is not a root requirement). Other Chinese ROMs "
+    "(EMUI/HarmonyOS, ColorOS, OriginOS) often have a similarly named extra toggle "
+    "alongside plain USB debugging."
+)
+
+
+def _injection_blocked(data: bytes) -> bool:
+    return any(marker in data for marker in _INJECTION_BLOCKED_MARKERS)
+
+
 # Model-facing key names -> Android keycodes. The vision prompt speaks in
 # desktop-ish key names; map the ones that have a phone equivalent, and fall
 # back to KEYCODE_<NAME> for anything else (adb accepts named keycodes).
@@ -61,9 +85,10 @@ class Adb:
         target = ["-s", self.serial] if self.serial else []
         return [self.adb_path, *target, *args]
 
-    def _run(self, args: list[str]) -> bytes:
-        """Run `adb <args>` and return raw stdout bytes. Raises AdbError on a
-        missing binary, timeout, or non-zero exit."""
+    def _exec(self, args: list[str]) -> subprocess.CompletedProcess:
+        """Run `adb <args>` and return the raw CompletedProcess. Raises AdbError
+        on a missing binary or a timeout; does not itself check the exit code,
+        so callers can apply their own success criteria."""
         if shutil.which(self.adb_path) is None and "/" not in self.adb_path:
             raise AdbError(
                 f"`{self.adb_path}` was not found on PATH. Install the Android "
@@ -71,7 +96,7 @@ class Adb:
                 "--adb-path. See android/README.md."
             )
         try:
-            proc = subprocess.run(
+            return subprocess.run(
                 self._argv(args),
                 capture_output=True,
                 timeout=self.timeout,
@@ -81,13 +106,29 @@ class Adb:
             raise AdbError(f"could not run adb: {e}") from e
         except subprocess.TimeoutExpired as e:
             raise AdbError(f"adb timed out after {self.timeout}s running: adb {' '.join(args)}") from e
+
+    def _run(self, args: list[str]) -> bytes:
+        """Run `adb <args>` and return raw stdout bytes. Raises AdbError on a
+        missing binary, timeout, or non-zero exit."""
+        proc = self._exec(args)
         if proc.returncode != 0:
             stderr = proc.stderr.decode("utf-8", "replace").strip()
             raise AdbError(f"adb {' '.join(args)} failed (exit {proc.returncode}): {stderr}")
         return proc.stdout
 
     def _shell(self, args: list[str]) -> None:
-        self._run(["shell", *args])
+        """Run `adb shell <args>`. Raises AdbError on a non-zero exit, or (even
+        on exit 0 -- some devices/adb versions swallow the real status) if the
+        device's response looks like a blocked input-injection call, so a
+        rejected tap never silently looks like it worked. See
+        _INJECTION_BLOCKED_HINT."""
+        proc = self._exec(["shell", *args])
+        combined = proc.stdout + proc.stderr
+        if _injection_blocked(combined):
+            raise AdbError(f"adb shell {' '.join(args)} was rejected: {_INJECTION_BLOCKED_HINT}")
+        if proc.returncode != 0:
+            stderr = proc.stderr.decode("utf-8", "replace").strip()
+            raise AdbError(f"adb shell {' '.join(args)} failed (exit {proc.returncode}): {stderr}")
 
     # -- device discovery ---------------------------------------------------------
     def list_devices(self) -> list[str]:
