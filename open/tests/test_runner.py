@@ -54,6 +54,32 @@ def test_launch_scopes_config_to_window_and_reports_done(monkeypatch):
     assert statuses[-1] == (win.id, "done", "done")
 
 
+def test_launch_gives_each_window_a_backend_with_a_focus_hook(monkeypatch):
+    # The whole point of the activate hook: it must be wired to *this*
+    # window (via windows.focus_window), so the shared input lock's
+    # activate-then-act sequence (see agent's actions.execute) re-focuses the
+    # right window before every action, not just whichever ran last.
+    captured = {}
+
+    def fake_run(provider, config):
+        captured["config"] = config
+        return 0
+
+    monkeypatch.setattr(runner, "run", fake_run)
+    calls = []
+    monkeypatch.setattr(runner.windows, "focus_window", lambda win: calls.append(win) or True)
+
+    win = _window()
+    q = queue.Queue()
+    run_handle = runner.launch(win, lambda: "p", "task", auto=True, dry_run=False, max_steps=1, status_queue=q)
+    run_handle.thread.join(timeout=2)
+
+    backend = captured["config"].backend
+    assert backend is not None
+    assert backend.activate() is True
+    assert calls == [win]  # focus_window was called with exactly this run's window
+
+
 def test_launch_max_steps_exit_reported_distinctly_from_done(monkeypatch):
     monkeypatch.setattr(runner, "run", lambda provider, config: 3)
     win = _window()

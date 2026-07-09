@@ -107,14 +107,17 @@ secdogie-open --port 8734    # bind a fixed port instead of picking a free one
   work there.
 - All windows share one API key/provider today; there's no per-window key
   assignment or coordinating "dispatcher" yet.
-- **One physical cursor.** Every window's agent drives the *same* mouse and
-  keyboard, so their actions are **serialized** (a shared input lock in
-  `secdogie-agent`): each click completes atomically and they never corrupt
-  each other's cursor position, but they also can't truly click *simultaneously*
-  on one desktop — the models perceive their windows in parallel, the actions
-  take turns. For genuinely parallel action, drive separate devices
-  (`secdogie-android`/`secdogie-ios`, each with its own input channel) or
-  separate machines over the tunnel.
+- **One physical cursor, and one keyboard focus.** Every window's agent drives
+  the *same* mouse and keyboard, so their actions are **serialized** (a shared
+  input lock in `secdogie-agent`). Each window's turn is: bring that window to
+  focus, confirm it actually took focus, then click/type — all as one atomic
+  step, so the next window's turn can't even begin bringing *its* window to
+  focus until this one finishes. That means a click/type always lands in the
+  window it was meant for, never a window that raced ahead — but the windows
+  also can't truly act *simultaneously* on one desktop. The models perceive
+  their windows in parallel; the actions take turns. For genuinely parallel
+  action, drive separate devices (`secdogie-android`/`secdogie-ios`, each with
+  its own input channel) or separate machines over the tunnel.
 - Stopping is cooperative (checked once per step), not instant -- an
   in-progress click/type finishes before a stop takes effect.
 - The server has no auth -- anyone who can reach `127.0.0.1:<port>` on this
