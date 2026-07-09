@@ -47,6 +47,19 @@ pixels, so taps land where intended.
    ```sh
    adb devices        # should list your device in the `device` state
    ```
+4. **On MIUI/Xiaomi (and often other Chinese ROMs), one more toggle.** Plain
+   USB debugging is enough for `adb devices`/screenshots, but taps/typing use
+   input *injection*, which MIUI gates behind a separate **"USB debugging
+   (Security settings)"** toggle in Developer options. That toggle only
+   appears, and can only be turned on, after you **sign in to a Mi account on
+   the phone** (Settings → your name/Mi Account) — it is not a root
+   requirement. Without it, every tap/swipe/type/key fails with a clear error
+   from this tool naming the fix (see Troubleshooting). Root is only relevant
+   as a workaround for people who genuinely cannot sign in to a Mi account
+   (editing `remote_provider_preferences.xml` via a rooted shell); it is not
+   the normal path. Other Chinese ROMs (EMUI/HarmonyOS, ColorOS, OriginOS)
+   often have a similarly named extra security toggle alongside plain USB
+   debugging — look for it in Developer options if taps fail the same way.
 
 ## Install
 
@@ -107,6 +120,9 @@ select-by-name actions.)
 
 ## Known limitations
 
+- **Some Chinese ROMs need an extra toggle for input injection** (see Setup
+  step 4) — plain USB debugging alone isn't enough for taps/typing on MIUI
+  and often other Chinese ROMs.
 - **ASCII typing only.** `adb shell input text` can't emit Unicode (Chinese,
   emoji, accents). Non-ASCII `type` actions are skipped with a message; to
   type Unicode, install an on-device IME such as ADBKeyBoard (out of scope
