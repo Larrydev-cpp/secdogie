@@ -2,7 +2,6 @@ import sys
 import types
 
 import pytest
-
 from secdogie_agent.providers import (
     ANTHROPIC_PROVIDER_ID,
     DEFAULT_MODELS,

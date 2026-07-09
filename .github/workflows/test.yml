@@ -1,0 +1,83 @@
+name: test
+
+# Runs every component's test suite on every push and pull request -- unlike
+# release.yml (which only builds/publishes binaries on a tag push or manual
+# dispatch), this is the gate that actually catches a regression before it
+# lands. All Python suites are written to run headless (mocked screen/input/
+# network/window-backend layers -- see each component's README), so a single
+# ubuntu-latest runner covers all of them; the C tunnel gets its own job for
+# its own toolchain.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # --- Lint: one ruff pass over every Python component (rules in ruff.toml) --
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install ruff
+        run: python -m pip install --upgrade pip ruff
+      - name: Lint
+        run: ruff check .
+
+  # --- Python components: one job per package, same shape for each ----------
+  python-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dir: agent
+          - dir: android
+            needs_agent: true
+          - dir: ios
+            needs_agent: true
+          - dir: open
+            needs_agent: true
+          - dir: scene3d
+            needs_agent: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install
+        working-directory: ${{ matrix.dir }}
+        run: |
+          python -m pip install --upgrade pip
+          if [ "${{ matrix.needs_agent }}" = "true" ]; then
+            pip install -e ../agent
+          fi
+          pip install -e . pytest
+
+      - name: Test
+        working-directory: ${{ matrix.dir }}
+        run: pytest tests/ -q
+
+  # --- C tunnel: build + its own unit test binary ----------------------------
+  tunnel-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake libsodium-dev pkg-config
+
+      - name: Build
+        working-directory: tunnel
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake --build build -j
+
+      - name: Test
+        working-directory: tunnel
+        run: ctest --test-dir build --output-on-failure

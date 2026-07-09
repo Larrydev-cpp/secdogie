@@ -1,5 +1,4 @@
 from conftest import FakeModel, view
-
 from secdogie_scene3d.analyze import WORKER_SYSTEM, analyze_view, run_workers
 
 

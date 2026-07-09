@@ -2,10 +2,9 @@ import io
 
 import pytest
 from PIL import Image
-
 from secdogie_agent import screen
+from secdogie_agent.backend import ElementSelector, Locatable
 from secdogie_agent.providers.base import Action
-
 from secdogie_android.adb import AdbError
 from secdogie_android.backend import AdbBackend
 
@@ -161,6 +160,71 @@ def test_find_element_returns_match():
     el = b.find_element(text="Submit")
     assert el is not None and el.resource_id == "app:id/submit"
     assert b.find_element(text="nope") is None
+
+
+# -- Locatable: macro.py record/replay by element identity ---------------------------------------------------------
+
+def test_adb_backend_satisfies_locatable_protocol():
+    assert isinstance(AdbBackend(FakeAdb()), Locatable)
+
+
+def test_describe_target_returns_selector_for_clickable_element():
+    adb = FakeAdb(ui_xml=_SNAP_XML)
+    b = AdbBackend(adb)
+    sel = b.describe_target(410, 305)  # inside the Submit button
+    assert sel == ElementSelector(
+        kind="android-uiautomator",
+        attrs={"resource_id": "app:id/submit", "text": "Submit", "cls": "a"},
+    )
+
+
+def test_describe_target_returns_none_when_nothing_clickable_at_point():
+    adb = FakeAdb(ui_xml=_SNAP_XML)
+    b = AdbBackend(adb)
+    assert b.describe_target(2000, 5000) is None  # outside even the full-screen backdrop's bounds
+
+
+def test_describe_target_returns_none_on_dump_error():
+    adb = FakeAdb(ui_error=AdbError("secure view blocks dump"))
+    b = AdbBackend(adb)
+    assert b.describe_target(410, 305) is None
+
+
+def test_locate_finds_element_center_by_selector():
+    adb = FakeAdb(ui_xml=_SNAP_XML)
+    b = AdbBackend(adb)
+    sel = ElementSelector(kind="android-uiautomator", attrs={"resource_id": "app:id/submit"})
+    assert b.locate(sel) == (540, 360)  # Submit button center
+
+
+def test_locate_returns_none_when_selector_no_longer_matches():
+    adb = FakeAdb(ui_xml=_SNAP_XML)
+    b = AdbBackend(adb)
+    sel = ElementSelector(kind="android-uiautomator", attrs={"resource_id": "app:id/gone"})
+    assert b.locate(sel) is None
+
+
+def test_locate_returns_none_for_selector_kind_from_another_backend():
+    adb = FakeAdb(ui_xml=_SNAP_XML)
+    b = AdbBackend(adb)
+    sel = ElementSelector(kind="ios-wda", attrs={"resource_id": "app:id/submit"})
+    assert b.locate(sel) is None
+
+
+def test_locate_returns_none_on_dump_error():
+    adb = FakeAdb(ui_error=AdbError("secure view blocks dump"))
+    b = AdbBackend(adb)
+    sel = ElementSelector(kind="android-uiautomator", attrs={"resource_id": "app:id/submit"})
+    assert b.locate(sel) is None
+
+
+def test_describe_then_locate_round_trip_finds_same_element():
+    # The core record -> replay contract: whatever describe_target names,
+    # locate must be able to find again from the same hierarchy.
+    adb = FakeAdb(ui_xml=_SNAP_XML)
+    b = AdbBackend(adb)
+    sel = b.describe_target(410, 305)
+    assert b.locate(sel) == (540, 360)
 
 
 def test_move_is_a_noop_with_message():

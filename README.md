@@ -14,9 +14,9 @@ control.**
   task in plain language, it screenshots your screen, asks a vision model
   what to do next, and executes one action at a time (click, type, scroll,
   ...) until the task is done. See [`agent/README.md`](agent/README.md).
-- [`open/`](open/) — a GUI on top of `agent/` that splits the screen by open
-  window and drives one `agent` instance per selected window at once,
-  instead of one agent owning the whole screen. See
+- [`open/`](open/) — a local web page on top of `agent/` that splits the
+  screen by open window and drives one `agent` instance per selected window
+  at once, instead of one agent owning the whole screen. See
   [`open/README.md`](open/README.md).
 - [`android/`](android/) — points the same `agent/` loop at an Android phone
   instead of the desktop: screenshots come from `adb screencap`, taps/typing
@@ -66,12 +66,12 @@ windows at once (`open`), and reaching a remote machine (`tunnel`).
 
 ## Downloads
 
-Pre-built binaries (a single-file `secdogie-agent` executable for Linux,
-Windows, and macOS, plus the `secdogie-tunnel` binary for Linux) are
-published on the [Releases](../../releases) page. They're built and attached
-automatically when a `v*` tag is pushed — see
-[`docs/RELEASING.md`](docs/RELEASING.md). Prefer to build from source?
-Each subdirectory's README has instructions.
+Pre-built binaries — a single-file executable for `agent`, `android`, `ios`,
+`open`, and `scene3d` on Linux, Windows, and macOS each, plus the
+`secdogie-tunnel` binary for Linux — are published on the
+[Releases](../../releases) page. They're built and attached automatically
+when a `v*` tag is pushed — see [`docs/RELEASING.md`](docs/RELEASING.md).
+Prefer to build from source? Each subdirectory's README has instructions.
 
 ## How they fit together
 
@@ -101,17 +101,21 @@ type on a real phone.
   actions** off) and keep per-step confirmation on until you trust a given
   task; `open` runs unattended across every selected window once real
   actions are on, since a per-step prompt doesn't make sense across several
-  windows sharing one terminal.
+  windows sharing one browser tab.
 - None of these components has been independently security-audited. Read the
   "Known limitations" sections in each subproject's docs before relying on
   them for anything sensitive.
+
+See [`SECURITY.md`](SECURITY.md) for the full trust model (what secdogie
+assumes about the operator and the machines it drives) and how to report a
+vulnerability privately.
 
 ## Layout
 
 ```
 tunnel/   C, libsodium-based VPN tunnel (PROTOCOL.md has the design + limitations)
 agent/    Python vision-LLM computer-control agent (provider-agnostic action schema)
-open/     Python GUI: split the screen by window, drive several agent instances at once
+open/     Python, local web page: split the screen by window, drive several agent instances at once
 android/  Python: drive an Android phone over adb, reusing the agent loop + action schema
 ios/      Python: drive an iPhone/iPad over WebDriverAgent, reusing the agent loop + action schema
 scene3d/  Python: multi-model 3D scene analysis (per-view workers + an aggregator)
@@ -119,3 +123,21 @@ scene3d/  Python: multi-model 3D scene analysis (per-view workers + an aggregato
 
 Each subdirectory has its own README with build/install/run instructions
 and its own test suite.
+
+## Development
+
+Every push and pull request runs [`.github/workflows/test.yml`](.github/workflows/test.yml):
+each Python component's `pytest` suite (headless), the C tunnel's `ctest`, and a
+single `ruff` lint pass over all the Python code. To run the same checks locally:
+
+```sh
+pip install ruff
+ruff check .            # lint config lives in ruff.toml at the repo root
+# then each component's own tests, e.g.:
+cd agent && pip install -e . pytest && pytest tests/ -q
+```
+
+The `agent/` package owns the shared pieces — the loop, providers, config, and
+the CLI front door (`secdogie_agent/cli_common.py`) that `android`, `ios`, and
+the desktop `agent` all reuse for their `--model`/`--api-key`/loop flags — so a
+change there is picked up by every tool.

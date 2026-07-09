@@ -1,5 +1,4 @@
 import pytest
-
 from secdogie_agent.providers.base import Action, parse_action_json
 
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import base64
 
-from .base import Action, HistoryStep, VisionProvider, VALID_ACTIONS, parse_action_json
+from .base import VALID_ACTIONS, Action, HistoryStep, VisionProvider, parse_action_json
 from .prompts import BRIEFING_PROMPT, SYSTEM_PROMPT
 
 

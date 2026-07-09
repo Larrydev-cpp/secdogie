@@ -1,7 +1,6 @@
 import subprocess
 
 import pytest
-
 from secdogie_android import adb
 from secdogie_android.adb import Adb, AdbError
 

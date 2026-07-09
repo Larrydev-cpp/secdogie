@@ -24,9 +24,10 @@ PACKAGE_ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 AGENT_ROOT = os.path.abspath(os.path.join(SPECPATH, "..", "..", "agent"))
 
 # secdogie_open drives secdogie_agent as a library, so its own runtime deps
-# (anthropic, pyautogui, mss, pyperclip) need to come along too. pywinctl and
-# tkinter both do platform-dependent dynamic imports PyInstaller's static
-# analysis can miss.
+# (anthropic, pyautogui, mss, pyperclip) need to come along too. pywinctl does
+# platform-dependent dynamic imports PyInstaller's static analysis can miss.
+# The page itself is stdlib http.server + the user's own browser -- no
+# webview/GTK/tkinter dependency to bundle.
 hidden = (
     collect_submodules("secdogie_open")
     + collect_submodules("secdogie_agent")
@@ -42,7 +43,10 @@ a = Analysis(
     ["entry.py"],
     pathex=[PACKAGE_ROOT, AGENT_ROOT],
     binaries=[],
-    datas=[],
+    # The static page (index.html/style.css/app.js) is a data file, not a
+    # Python module -- PyInstaller only bundles it if it's listed here.
+    # server.py resolves it back out via sys._MEIPASS at run time.
+    datas=[(os.path.join(PACKAGE_ROOT, "secdogie_open", "webui"), os.path.join("secdogie_open", "webui"))],
     hiddenimports=hidden,
     hookspath=[],
     hooksconfig={},

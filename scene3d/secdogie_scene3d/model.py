@@ -18,6 +18,22 @@ DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5"
 DEFAULT_OPENAI_MODEL = "gpt-5.5"
 
 
+def detect_media_type(data: bytes) -> str:
+    """Sniff an image's media type from its magic bytes. Views come from
+    arbitrary user files (a `Viewpoint.image_png` may in fact be a JPEG/GIF/
+    WebP screenshot), and both providers reject an image whose declared type
+    doesn't match its bytes -- so we label it by content, not by the field
+    name. Falls back to image/png for anything unrecognized, which the
+    providers also accept for a genuine (headerless) raw PNG."""
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return "image/png"
+
+
 class SceneModel(Protocol):
     def describe(self, system: str, user: str, image_png: bytes | None = None) -> str:
         """One vision (or text-only) turn: system + user (+ optional image) ->
@@ -44,7 +60,8 @@ class AnthropicSceneModel:
         if image_png is not None:
             b64 = base64.b64encode(image_png).decode("ascii")
             content.append(
-                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": b64}}
+                {"type": "image", "source": {"type": "base64",
+                                             "media_type": detect_media_type(image_png), "data": b64}}
             )
         content.append({"type": "text", "text": user})
         resp = self._client.messages.create(
@@ -74,7 +91,8 @@ class OpenAISceneModel:
         content: list = [{"type": "text", "text": user}]
         if image_png is not None:
             b64 = base64.b64encode(image_png).decode("ascii")
-            content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}})
+            media_type = detect_media_type(image_png)
+            content.append({"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{b64}"}})
         resp = self._client.chat.completions.create(
             model=self.model,
             max_completion_tokens=self.max_tokens,
