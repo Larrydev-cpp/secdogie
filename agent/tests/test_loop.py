@@ -1,4 +1,8 @@
+import pytest
+
 from secdogie_agent import actions, loop, screen
+from secdogie_agent.backend import ElementSelector
+from secdogie_agent.macro import Macro, MacroStep
 from secdogie_agent.providers.base import Action, HistoryStep, VisionProvider
 
 
@@ -244,3 +248,127 @@ def test_loop_should_stop_halts_before_next_step(monkeypatch):
     rc = loop.run(provider, config)
     assert rc == 5
     assert provider.calls == 2  # stopped before a 3rd step was requested
+
+
+# -- RPA macro replay/record integration ---------------------------------------------------------
+
+class FakeReplayBackend:
+    """Non-Locatable backend for macro tests: replay steps with a selector
+    can never resolve against it, so it exercises the live-fallback path."""
+
+    def __init__(self, size=(1000, 500)):
+        self.size = size
+        self.executed = []
+
+    def setup(self, logger):
+        pass
+
+    def capture(self, region):
+        return b"device-png", self.size
+
+    def execute(self, action):
+        self.executed.append(action)
+        return "ok"
+
+
+def test_macro_replay_skips_model_calls_for_resolved_steps(monkeypatch, tmp_path):
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+    macro_path = tmp_path / "macro.json"
+    macro = Macro(task="click then type")
+    macro.steps.append(MacroStep(kind="left_click", point=(0.5, 0.5)))
+    macro.steps.append(MacroStep(kind="type", fields={"text": "hi"}))
+    macro.save(macro_path)
+
+    backend = FakeReplayBackend(size=(1000, 500))
+    # Only the final `done` should ever reach the model -- both macro steps
+    # must resolve from the replay path without a model call.
+    provider = ScriptedProvider([{"action": "done", "text": "done"}])
+    config = loop.AgentConfig(
+        task="click then type", auto=True, max_steps=10, backend=backend, macro_path=str(macro_path)
+    )
+    rc = loop.run(provider, config)
+
+    assert rc == 0
+    assert provider.calls == 1
+    assert [a.kind for a in backend.executed] == ["left_click", "type"]
+    assert (backend.executed[0].x, backend.executed[0].y) == (500, 250)  # denormalized against real size
+    assert backend.executed[1].text == "hi"
+
+
+def test_macro_replay_falls_back_to_live_model_mid_run(monkeypatch, tmp_path):
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+    macro_path = tmp_path / "macro.json"
+    macro = Macro(task="click twice")
+    macro.steps.append(MacroStep(kind="left_click", point=(0.1, 0.1)))  # resolves fine
+    macro.steps.append(
+        MacroStep(kind="left_click", selector=ElementSelector(kind="k", attrs={"a": "1"}))
+    )  # backend isn't Locatable -- can never resolve
+    macro.save(macro_path)
+
+    backend = FakeReplayBackend(size=(1000, 500))
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 5, "y": 5},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(
+        task="click twice", auto=True, max_steps=10, backend=backend, macro_path=str(macro_path)
+    )
+    rc = loop.run(provider, config)
+
+    assert rc == 0
+    # First step replayed (no model call); second step's selector can't
+    # resolve, so it and everything after fall back to the live model.
+    assert provider.calls == 2
+    assert [a.kind for a in backend.executed] == ["left_click", "left_click"]
+    assert (backend.executed[0].x, backend.executed[0].y) == (100, 50)  # from replay
+    assert (backend.executed[1].x, backend.executed[1].y) == (5, 5)  # from the live model
+
+
+def test_loop_records_and_saves_macro_on_success(monkeypatch, tmp_path):
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+    macro_path = tmp_path / "macro.json"
+    assert not macro_path.exists()
+
+    backend = FakeReplayBackend(size=(1000, 500))
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 100, "y": 50},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(
+        task="click something", auto=True, max_steps=10, backend=backend, macro_path=str(macro_path)
+    )
+    rc = loop.run(provider, config)
+
+    assert rc == 0
+    assert macro_path.exists()
+    saved = Macro.load(macro_path)
+    assert len(saved.steps) == 1
+    assert saved.steps[0].kind == "left_click"
+    assert saved.steps[0].point == pytest.approx((0.1, 0.1))
+
+
+def test_loop_watch_mode_ignores_macro_path(monkeypatch, tmp_path):
+    # Watch mode is exempted from macro replay/recording entirely -- a
+    # variable-length trigger doesn't fit a fixed recorded sequence.
+    macro_path = tmp_path / "macro.json"
+    macro = Macro(task="anything")
+    macro.steps.append(MacroStep(kind="left_click", point=(0.5, 0.5)))
+    macro.save(macro_path)
+
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(
+        task="anything", watch=True, watch_interval=0, auto=True, max_steps=10, macro_path=str(macro_path)
+    )
+    rc = loop.run(provider, config)
+
+    assert rc == 0
+    assert provider.calls == 2  # never consulted the macro
+    assert executed == ["left_click"]
+    # The pre-existing macro file must be left untouched -- watch mode never
+    # loads or overwrites it.
+    assert Macro.load(macro_path).steps[0].kind == "left_click"

@@ -72,6 +72,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="ask the model for actions and log them, but never touch the device")
     parser.add_argument("--log-file", default=None, help="also append the run log to this file")
     parser.add_argument(
+        "--macro",
+        default=None,
+        metavar="PATH",
+        help="RPA: replay this macro file with zero model calls, falling back to the live model the "
+        "moment a step can't be resolved (e.g. the UI changed); a run that finishes successfully "
+        "re-saves the full sequence here. Steps recorded on Android use the uiautomator hierarchy to "
+        "re-find taps by element identity, not frozen coordinates -- independent of --snap-to-elements, "
+        "which only affects live (non-replayed) taps.",
+    )
+    parser.add_argument(
         "--max-image-edge",
         type=int,
         default=None,
@@ -130,6 +140,7 @@ def main(argv: list[str] | None = None) -> int:
         watch=args.watch,
         watch_interval=args.watch_interval,
         backend=backend,
+        macro_path=args.macro,
     )
     if args.max_image_edge is not None:
         cfg_kwargs["max_image_edge"] = args.max_image_edge

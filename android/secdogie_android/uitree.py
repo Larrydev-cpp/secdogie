@@ -78,11 +78,14 @@ def find_elements(
     text: str | None = None,
     resource_id: str | None = None,
     content_desc: str | None = None,
+    cls: str | None = None,
     clickable_only: bool = False,
 ) -> list[UiElement]:
     """Filter by any combination of selectors. `text`/`content_desc` match on a
     case-insensitive substring; `resource_id` matches exactly or on the id part
-    after `.../id/`."""
+    after `.../id/`; `cls` matches the element's class name exactly (it's a
+    canonical Java class string, e.g. "android.widget.Button", not free text --
+    the weakest/last-resort selector when nothing more specific is available)."""
     out = []
     for el in elements:
         if clickable_only and not el.clickable:
@@ -92,6 +95,8 @@ def find_elements(
         if content_desc is not None and content_desc.lower() not in el.content_desc.lower():
             continue
         if resource_id is not None and not _resource_matches(el.resource_id, resource_id):
+            continue
+        if cls is not None and el.cls != cls:
             continue
         out.append(el)
     return out

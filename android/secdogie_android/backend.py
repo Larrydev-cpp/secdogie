@@ -11,11 +11,14 @@ from __future__ import annotations
 import io
 
 from secdogie_agent import screen
+from secdogie_agent.backend import ElementSelector
 from secdogie_agent.providers.base import Action
 
 from . import uitree
 from .adb import Adb, AdbError
 from .uitree import UiElement
+
+_SELECTOR_KIND = "android-uiautomator"
 
 # A scroll action carries a direction (sign of dx/dy) but not a pixel distance;
 # on a touchscreen we turn each scroll into a swipe of this many pixels.
@@ -91,6 +94,46 @@ class AdbBackend:
             clickable_only=clickable_only,
         )
         return matches[0] if matches else None
+
+    # -- Locatable (backend.py): lets macro.py record/replay taps by element
+    # identity instead of a frozen pixel coordinate. Reuses the same
+    # uiautomator lookup as find_element()/_snap(). ---------------------------
+    def describe_target(self, x: int, y: int) -> ElementSelector | None:
+        try:
+            elements = uitree.parse(self.adb.ui_dump())
+        except (AdbError, ValueError):
+            return None
+        el = uitree.smallest_clickable_at(elements, x, y)
+        if el is None:
+            return None
+        attrs = {}
+        if el.resource_id:
+            attrs["resource_id"] = el.resource_id
+        if el.text:
+            attrs["text"] = el.text
+        if el.content_desc:
+            attrs["content_desc"] = el.content_desc
+        if el.cls:
+            attrs["cls"] = el.cls
+        if not attrs:
+            return None  # nothing identifiable here -- the recorder falls back to a raw coordinate
+        return ElementSelector(kind=_SELECTOR_KIND, attrs=attrs)
+
+    def locate(self, selector: ElementSelector) -> tuple[int, int] | None:
+        if selector.kind != _SELECTOR_KIND:
+            return None
+        try:
+            elements = uitree.parse(self.adb.ui_dump())
+        except (AdbError, ValueError):
+            return None
+        matches = uitree.find_elements(
+            elements,
+            text=selector.attrs.get("text"),
+            resource_id=selector.attrs.get("resource_id"),
+            content_desc=selector.attrs.get("content_desc"),
+            cls=selector.attrs.get("cls"),
+        )
+        return matches[0].center if matches else None
 
     def _snap(self, x: int, y: int) -> tuple[int, int, str]:
         """Snap (x, y) onto the widget under it, if snapping is on and a nearby

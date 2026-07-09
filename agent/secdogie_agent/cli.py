@@ -59,6 +59,14 @@ def main(argv: list[str] | None = None) -> int:
         help="ask the model for actions and log them, but never touch the mouse/keyboard",
     )
     parser.add_argument("--log-file", default=None, help="also append the run log to this file")
+    parser.add_argument(
+        "--macro",
+        default=None,
+        metavar="PATH",
+        help="RPA: replay this macro file with zero model calls, falling back to the live model the "
+        "moment a step can't be resolved (e.g. the UI changed); a run that finishes successfully "
+        "re-saves the full sequence here, so the next identical run gets faster/cheaper over time",
+    )
 
     # API key / config file
     parser.add_argument(
@@ -160,6 +168,7 @@ def main(argv: list[str] | None = None) -> int:
         gui=gui,
         watch=args.watch,
         watch_interval=args.watch_interval,
+        macro_path=args.macro,
     )
     if args.max_image_edge is not None:
         cfg_kwargs["max_image_edge"] = args.max_image_edge

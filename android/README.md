@@ -138,6 +138,34 @@ so buttons/menu items get hit reliably even when the model's aim is a few pixels
 off. (The tree also drives `AdbBackend.find_element(...)`, a seam for future
 select-by-name actions.)
 
+## RPA macros (`--macro`): record once, replay for free
+
+Same `--macro PATH` flag and behavior as `secdogie-agent` (see
+`agent/README.md`'s "RPA macros" section for the full model) — the first run
+against a task drives it live and saves the sequence to PATH on success;
+every run after that replays from PATH with **zero model calls**, falling
+back to the live model the instant a step can't be resolved.
+
+```sh
+secdogie-android "open the overflow menu and tap Settings" --macro settings.json --auto
+secdogie-android "open the overflow menu and tap Settings" --macro settings.json --auto   # replays -- no model calls
+```
+
+What's Android-specific: every tap step is recorded against the **UI
+element itself** — resource-id, text, content-desc, and class read from the
+uiautomator hierarchy at the moment of the tap (the same hierarchy
+`--snap-to-elements` reads) — not a frozen pixel. On replay, that element is
+re-found by identity on the current screen, so the macro survives layout
+shifts, different screen sizes, and minor content changes that would break a
+fixed-coordinate replay. If the app removed or renamed the element, the
+lookup returns nothing, replay falls back to the live model for the rest of
+the run, and the resulting new sequence is re-saved — the macro heals itself.
+
+`--macro` is independent of `--snap-to-elements`: the latter only adjusts
+*live* (non-replayed) taps; a macro's replay step always resolves by element
+identity (when one was recorded) regardless of whether `--snap-to-elements`
+is passed on that particular run.
+
 ## Known limitations
 
 - **Some Chinese ROMs need an extra toggle for input injection** (see Setup

@@ -207,6 +207,44 @@ secdogie-agent --watch --watch-interval 5 --auto "when the download finishes, do
 - Watch mode runs long by default (up to 100000 frames); cap it with
   `--max-steps`.
 
+## RPA macros: record once, replay for free
+
+`--macro PATH` gives a task you've already driven successfully a repeatable,
+zero-model-call fast path — the "robotic" half of RPA, on top of the vision
+model that figures out *what* to do the first time.
+
+```sh
+secdogie-agent "log into example.com and open the dashboard" --macro dashboard.json --auto
+# first run: PATH doesn't exist yet, so this drives it live (asking the model
+# every step) exactly as without --macro, and on success saves dashboard.json
+
+secdogie-agent "log into example.com and open the dashboard" --macro dashboard.json --auto
+# second run: PATH exists, so each step first tries to replay the recorded
+# sequence -- no model calls, no API cost -- falling back to the live model
+# only if a step can no longer be resolved
+```
+
+- Each step first tries the next recorded step before ever asking the model.
+  The moment one can't be resolved (its target is no longer on screen — the
+  UI changed), the agent gives up on replay for the rest of that run and
+  drops back to the normal live loop, same as if `--macro` had never been
+  passed.
+- A step is recorded against **the UI element itself** when the backend can
+  identify one, so replay re-finds the target even after small UI shifts —
+  the Android backend does this via the uiautomator hierarchy (see
+  `android/README.md`). The desktop backend has no element-identification
+  yet, so its steps fall back to a resolution-independent normalized
+  `(0..1, 0..1)` coordinate instead.
+- A run that finishes successfully — replayed, live, or a mix of both — always
+  re-saves the full sequence to PATH, so a macro can self-heal after a UI
+  change without you re-recording it by hand.
+- `--watch` and `--macro` don't compose: watch mode waits for a
+  variable-length trigger, which doesn't fit a fixed recorded sequence, so
+  `--macro` is ignored entirely (never loaded or written) whenever `--watch`
+  is on.
+- The macro file is plain, human-readable JSON (`secdogie_agent/macro.py`) —
+  inspect or hand-edit it if useful.
+
 ## How it decides what to do
 
 Each step, the model sees the current screenshot, the task, and a short
@@ -225,6 +263,8 @@ secdogie_agent/
   config.py              API-key/model resolution (CLI > env > config file)
   dialog.py              optional tkinter dialogs (task entry, plan briefing, ask_user)
   loop.py                the screenshot -> action -> execute -> repeat loop
+  backend.py              Backend protocol (setup/capture/execute) + optional Locatable capability
+  macro.py                RPA macro record/replay: Macro, MacroRecorder, resolve_replay_step
   screen.py               screenshot capture + resize/coordinate scaling (mss + Pillow)
   actions.py              executes an Action via pyautogui (smooth move + settle)
   safety.py                logging + y/N confirmation

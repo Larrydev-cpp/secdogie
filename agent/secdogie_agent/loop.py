@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from . import actions, dialog, safety, screen
 from .backend import Backend, DesktopBackend
+from .macro import Macro, MacroRecorder, MacroStep, resolve_replay_step
 from .providers.base import HistoryStep, VisionProvider
 
 # Benign actions that never need a confirmation prompt -- they don't touch the
@@ -48,6 +49,9 @@ class AgentConfig:
     logger_name: str = "secdogie_agent"  # distinct per concurrent run so loggers don't share/race on handlers
     should_stop: Callable[[], bool] | None = None  # checked each step; lets a caller cancel a running loop
     backend: Backend | None = None  # what to drive; None = the local desktop (mss + pyautogui)
+    # RPA: if set, replay this macro file (zero model calls) with a live fallback the moment a step
+    # can't be resolved; a run that finishes with `done` re-saves the full sequence here. See macro.py.
+    macro_path: str | None = None
 
 
 def run(provider: VisionProvider, config: AgentConfig) -> int:
@@ -75,6 +79,27 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
     if config.watch:
         logger.info("watch mode: polling every %.1fs until the trigger condition occurs", config.watch_interval)
 
+    # RPA: replay_steps holds the macro while it's still being trusted; a step
+    # that can't be resolved (selector not found -- the UI changed) clears it
+    # to None, permanently switching the rest of this run to the live model
+    # loop below. Watch mode is exempted -- it waits for a variable-length
+    # trigger, which doesn't fit a fixed recorded sequence.
+    replay_steps: list[MacroStep] | None = None
+    replay_index = 0
+    macro_recorder: MacroRecorder | None = None
+    if config.macro_path and not config.watch:
+        macro_recorder = MacroRecorder(config.task)
+        try:
+            replay_steps = Macro.load(config.macro_path).steps
+            logger.info(
+                "replaying macro %s (%d step(s)); falling back to the live model if a step can't be resolved",
+                config.macro_path, len(replay_steps),
+            )
+        except FileNotFoundError:
+            pass  # no macro yet -- this run's own successful steps will create one
+        except (OSError, ValueError) as e:
+            logger.warning("could not load macro %s (%s); running live instead", config.macro_path, e)
+
     history: list[HistoryStep] = []
 
     for step in range(1, config.max_steps + 1):
@@ -91,23 +116,48 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
         except screen.CaptureError as e:
             logger.error("%s", e)
             return 4
-        # Downscale to a known size and remember the factor to map the model's
-        # coordinates back to real screen pixels -- this is what keeps clicks
-        # landing on target.
-        model_png, model_size, scale = screen.prepare_for_model(
-            raw_png, real_size, max_edge=config.max_image_edge, grid=config.grid
-        )
-        try:
-            action = provider.next_action(effective_task, model_png, model_size, history)
-        except Exception as e:
-            logger.error("provider failed to produce an action: %s", e)
-            return 1
-        action = action.scaled(scale)
-        if config.region is not None:
-            # Model coordinates are relative to the captured region; shift
-            # back to absolute screen coordinates before anything downstream
-            # (confirmation prompts, execution) sees them.
-            action = action.translated(config.region[0], config.region[1])
+
+        # RPA: try the next macro step before ever asking the model -- that's
+        # the whole point (fast, free, deterministic). A step that resolves
+        # (selector still matches, or a normalized fallback point) is used
+        # as-is, already in real screen coordinates. The moment one doesn't
+        # resolve, give up on replay for the rest of this run so the live
+        # model below can adapt to whatever changed.
+        action = None
+        from_replay = False
+        replayed_step: MacroStep | None = None
+        if replay_steps is not None and replay_index < len(replay_steps):
+            candidate = replay_steps[replay_index]
+            resolved = resolve_replay_step(candidate, backend, real_size)
+            if resolved is not None:
+                action, from_replay, replayed_step = resolved, True, candidate
+                replay_index += 1
+            else:
+                logger.warning(
+                    "macro replay: step %d (%s) could not be resolved (the UI may have changed) -- "
+                    "switching to the live model for the rest of this run",
+                    replay_index, candidate.kind,
+                )
+                replay_steps = None
+
+        if action is None:
+            # Downscale to a known size and remember the factor to map the model's
+            # coordinates back to real screen pixels -- this is what keeps clicks
+            # landing on target.
+            model_png, model_size, scale = screen.prepare_for_model(
+                raw_png, real_size, max_edge=config.max_image_edge, grid=config.grid
+            )
+            try:
+                action = provider.next_action(effective_task, model_png, model_size, history)
+            except Exception as e:
+                logger.error("provider failed to produce an action: %s", e)
+                return 1
+            action = action.scaled(scale)
+            if config.region is not None:
+                # Model coordinates are relative to the captured region; shift
+                # back to absolute screen coordinates before anything downstream
+                # (confirmation prompts, execution) sees them.
+                action = action.translated(config.region[0], config.region[1])
 
         reasoning = action.reasoning or action.raw.get("reasoning", "")
 
@@ -123,6 +173,12 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
         if action.kind == "done":
             summary = action.text or action.raw.get("text", "")
             logger.info("done: %s", summary)
+            if macro_recorder is not None and macro_recorder.steps:
+                try:
+                    macro_recorder.build().save(config.macro_path)
+                    logger.info("saved macro: %s (%d step(s))", config.macro_path, len(macro_recorder.steps))
+                except OSError as e:
+                    logger.warning("could not save macro %s (%s); the run still succeeded", config.macro_path, e)
             return 0
 
         if action.kind == "ask_user":
@@ -155,6 +211,12 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
         except Exception as e:
             result = f"error: {e}"
             logger.error("action failed: %s", e)
+        else:
+            if macro_recorder is not None:
+                if from_replay:
+                    macro_recorder.record_step(replayed_step)
+                else:
+                    macro_recorder.record(action, result, backend, real_size)
         history.append(HistoryStep(action=action, result=result))
 
     logger.warning("reached max_steps (%d) without the model signaling done", config.max_steps)
