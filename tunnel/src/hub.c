@@ -14,6 +14,7 @@
 #include "sdtp.h"
 #include "handshake.h"
 #include "data.h"
+#include "net.h"
 #include "util.h"
 
 static volatile sig_atomic_t g_hub_should_exit = 0;
@@ -184,6 +185,75 @@ static void forward_to_peer(int udp_fd, sdtp_hub_peer *peer, const uint8_t *pt, 
     }
 }
 
+/* Handle one received UDP datagram: a handshake_init (demux by trying each
+ * configured peer's static key -- only the right one authenticates), or
+ * data/keepalive (demux by the 8-byte session id, then route the decrypted
+ * inner packet by destination IP). Returns early on any malformed or
+ * unauthenticated input (exercised by the fuzz harness); factored out of the
+ * run loop so a whole recvmmsg batch can be handled one datagram at a time. */
+static void hub_handle_datagram(sdtp_hub_config *cfg, int tun_fd, int udp_fd,
+                                const uint8_t *buf, ssize_t n, struct sockaddr_in src_addr,
+                                socklen_t src_len, time_t now, uint8_t *out_buf, uint8_t *pt_buf) {
+    if (n <= 0) return;
+    uint8_t type = buf[0];
+
+    if (type == SDTP_MSG_HANDSHAKE_INIT) {
+        int matched = -1;
+        uint8_t msg2[SDTP_MSG2_LEN];
+        sdtp_session new_session;
+        for (size_t i = 0; i < cfg->peer_count; i++) {
+            sdtp_hub_peer *p = &cfg->peers[i];
+            size_t rlen = sdtp_handshake_respond(buf, (size_t)n, &cfg->my_static, p->static_pk,
+                                                  &p->last_peer_ts, msg2, &new_session);
+            if (rlen > 0) {
+                p->session = new_session;
+                p->established = 1;
+                p->addr = src_addr;
+                p->have_addr = 1;
+                p->last_recv = now;
+                p->last_send = 0;
+                sendto(udp_fd, msg2, rlen, 0, (struct sockaddr *)&src_addr, src_len);
+                sdtp_log("hub: handshake completed with peer %zu (%s:%u)", i,
+                         inet_ntoa(src_addr.sin_addr), ntohs(src_addr.sin_port));
+                matched = (int)i;
+                break;
+            }
+        }
+        if (matched < 0) {
+            sdtp_log("hub: rejected handshake_init from %s:%u (no configured peer matched)",
+                     inet_ntoa(src_addr.sin_addr), ntohs(src_addr.sin_port));
+        }
+    } else if (type == SDTP_MSG_DATA || type == SDTP_MSG_KEEPALIVE) {
+        if ((size_t)n < 1 + SDTP_SESSION_ID_LEN) return;
+        int idx = sdtp_hub_find_peer_by_session_id(cfg->peers, cfg->peer_count, buf + 1);
+        if (idx < 0) return;
+        sdtp_hub_peer *p = &cfg->peers[idx];
+        size_t pt_len = 0;
+        if (sdtp_data_decrypt(&p->session, buf, (size_t)n, pt_buf, SDTP_MTU, &pt_len) != 0) {
+            return;
+        }
+        p->last_recv = now;
+        p->addr = src_addr; /* adopt the current source addr (NAT rebind) */
+        p->have_addr = 1;
+        if (type != SDTP_MSG_DATA || pt_len == 0) return;
+
+        /* Route the decrypted inner packet by its destination IP. */
+        uint32_t dst;
+        if (sdtp_hub_parse_ipv4_dst(pt_buf, pt_len, &dst) != 0 || dst == cfg->self_ip) {
+            /* For the hub itself, or anything we can't parse, hand it to the
+             * local TUN and let the hub's kernel route it further. */
+            write(tun_fd, pt_buf, pt_len);
+            return;
+        }
+        int j = sdtp_hub_find_peer_by_ip(cfg->peers, cfg->peer_count, dst);
+        if (j >= 0 && j != idx) {
+            forward_to_peer(udp_fd, &cfg->peers[j], pt_buf, pt_len, out_buf, now);
+        } else {
+            write(tun_fd, pt_buf, pt_len);
+        }
+    }
+}
+
 void sdtp_hub_run(int tun_fd, int udp_fd, sdtp_hub_config *cfg) {
     uint8_t buf[SDTP_MAX_DATAGRAM];
     uint8_t out_buf[SDTP_MAX_DATAGRAM];
@@ -243,68 +313,15 @@ void sdtp_hub_run(int tun_fd, int udp_fd, sdtp_hub_config *cfg) {
             }
         }
 
-        /* UDP -> handshake (demux by static key) or data (demux by session id). */
+        /* UDP -> handshake (demux by static key) or data (demux by session id).
+         * Drain every datagram queued on this wake in one recvmmsg, then handle
+         * them one at a time -- one syscall for the batch, not one per packet. */
         if (pfds[1].revents & POLLIN) {
-            struct sockaddr_in src_addr;
-            socklen_t src_len = sizeof(src_addr);
-            ssize_t n = recvfrom(udp_fd, buf, sizeof(buf), 0, (struct sockaddr *)&src_addr, &src_len);
-            if (n <= 0) continue;
-            uint8_t type = buf[0];
-
-            if (type == SDTP_MSG_HANDSHAKE_INIT) {
-                int matched = -1;
-                uint8_t msg2[SDTP_MSG2_LEN];
-                sdtp_session new_session;
-                for (size_t i = 0; i < cfg->peer_count; i++) {
-                    sdtp_hub_peer *p = &cfg->peers[i];
-                    size_t rlen = sdtp_handshake_respond(buf, (size_t)n, &cfg->my_static, p->static_pk,
-                                                          &p->last_peer_ts, msg2, &new_session);
-                    if (rlen > 0) {
-                        p->session = new_session;
-                        p->established = 1;
-                        p->addr = src_addr;
-                        p->have_addr = 1;
-                        p->last_recv = now;
-                        p->last_send = 0;
-                        sendto(udp_fd, msg2, rlen, 0, (struct sockaddr *)&src_addr, src_len);
-                        sdtp_log("hub: handshake completed with peer %zu (%s:%u)", i,
-                                 inet_ntoa(src_addr.sin_addr), ntohs(src_addr.sin_port));
-                        matched = (int)i;
-                        break;
-                    }
-                }
-                if (matched < 0) {
-                    sdtp_log("hub: rejected handshake_init from %s:%u (no configured peer matched)",
-                             inet_ntoa(src_addr.sin_addr), ntohs(src_addr.sin_port));
-                }
-            } else if (type == SDTP_MSG_DATA || type == SDTP_MSG_KEEPALIVE) {
-                if ((size_t)n < 1 + SDTP_SESSION_ID_LEN) continue;
-                int idx = sdtp_hub_find_peer_by_session_id(cfg->peers, cfg->peer_count, buf + 1);
-                if (idx < 0) continue;
-                sdtp_hub_peer *p = &cfg->peers[idx];
-                size_t pt_len = 0;
-                if (sdtp_data_decrypt(&p->session, buf, (size_t)n, pt_buf, sizeof(pt_buf), &pt_len) != 0) {
-                    continue;
-                }
-                p->last_recv = now;
-                p->addr = src_addr; /* adopt the current source addr (NAT rebind) */
-                p->have_addr = 1;
-                if (type != SDTP_MSG_DATA || pt_len == 0) continue;
-
-                /* Route the decrypted inner packet by its destination IP. */
-                uint32_t dst;
-                if (sdtp_hub_parse_ipv4_dst(pt_buf, pt_len, &dst) != 0 || dst == cfg->self_ip) {
-                    /* For the hub itself, or anything we can't parse, hand it to
-                     * the local TUN and let the hub's kernel route it further. */
-                    write(tun_fd, pt_buf, pt_len);
-                    continue;
-                }
-                int j = sdtp_hub_find_peer_by_ip(cfg->peers, cfg->peer_count, dst);
-                if (j >= 0 && j != idx) {
-                    forward_to_peer(udp_fd, &cfg->peers[j], pt_buf, pt_len, out_buf, now);
-                } else {
-                    write(tun_fd, pt_buf, pt_len);
-                }
+            sdtp_udp_msg batch[SDTP_RECV_BATCH];
+            int count = sdtp_udp_recv_batch(udp_fd, batch, SDTP_RECV_BATCH);
+            for (int bi = 0; bi < count; bi++) {
+                hub_handle_datagram(cfg, tun_fd, udp_fd, batch[bi].buf, (ssize_t)batch[bi].len,
+                                    batch[bi].src, batch[bi].src_len, now, out_buf, pt_buf);
             }
         }
     }
