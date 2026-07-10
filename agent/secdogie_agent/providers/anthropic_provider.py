@@ -10,7 +10,7 @@ from __future__ import annotations
 import base64
 
 from .base import VALID_ACTIONS, Action, HistoryStep, VisionProvider, parse_action_json, parse_plan
-from .prompts import BRIEFING_PROMPT, PLAN_PROMPT, SYSTEM_PROMPT
+from .prompts import BRIEFING_PROMPT, CHECK_PROMPT, PLAN_PROMPT, SYSTEM_PROMPT
 
 
 class AnthropicProvider(VisionProvider):
@@ -119,3 +119,30 @@ class AnthropicProvider(VisionProvider):
         )
         text = "".join(block.text for block in response.content if block.type == "text")
         return parse_plan(text) or None
+
+    def check_condition(
+        self,
+        question: str,
+        screenshot_png: bytes,
+        screen_size: tuple[int, int],
+    ) -> bool:
+        b64 = base64.b64encode(screenshot_png).decode("ascii")
+        response = self._client.messages.create(
+            model=self.model,
+            max_tokens=8,
+            system=CHECK_PROMPT,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {"type": "base64", "media_type": "image/png", "data": b64},
+                        },
+                        {"type": "text", "text": f"Question: {question}"},
+                    ],
+                }
+            ],
+        )
+        text = "".join(block.text for block in response.content if block.type == "text")
+        return text.strip().lower().startswith("yes")

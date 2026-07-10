@@ -61,6 +61,10 @@ Handling common obstacles:
 - If a previous action's result says "no visible change detected", that action did NOT land -- do not repeat it. Pick a different target (you may be a few pixels off), or a different approach (scroll it into view, dismiss an overlay covering it, or wait for load).
 """
 
+CHECK_PROMPT = """You are looking at a screenshot of a computer screen. Answer a single yes/no
+question about what is CURRENTLY visible on it. Judge only what you can actually see right now.
+Reply with exactly "yes" or "no" -- one word, lowercase, nothing else."""
+
 PLAN_PROMPT = """You are about to operate a real computer to accomplish a task for a user.
 Before acting, break the task into a short ordered list of concrete sub-tasks -- 2 to 6 of them,
 each a single UI-level goal you could verify is done by looking at the screen (e.g. "open the File

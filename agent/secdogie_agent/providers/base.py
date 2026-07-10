@@ -234,3 +234,14 @@ class VisionProvider:
         provider doesn't support planning (the loop then runs unplanned); an
         empty/short list is fine and just means "no useful split"."""
         return None
+
+    def check_condition(
+        self,
+        question: str,
+        screenshot_png: bytes,
+        screen_size: tuple[int, int],
+    ) -> bool:
+        """Answer a yes/no question about the current screen, used to evaluate a
+        skill's `screen` condition (see skill.py / skill_runner.py). Providers
+        that can't do this raise NotImplementedError."""
+        raise NotImplementedError("this provider does not support screen condition checks")
