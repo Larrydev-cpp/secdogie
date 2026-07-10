@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import base64
 
-from .base import VALID_ACTIONS, Action, HistoryStep, VisionProvider, parse_action_json
-from .prompts import BRIEFING_PROMPT, SYSTEM_PROMPT
+from .base import VALID_ACTIONS, Action, HistoryStep, VisionProvider, parse_action_json, parse_plan
+from .prompts import BRIEFING_PROMPT, PLAN_PROMPT, SYSTEM_PROMPT
 
 
 class OpenAIProvider(VisionProvider):
@@ -93,3 +93,12 @@ class OpenAIProvider(VisionProvider):
     ) -> str | None:
         text = self._complete(BRIEFING_PROMPT, f"Task: {task}", screenshot_png)
         return text.strip() or None
+
+    def plan_task(
+        self,
+        task: str,
+        screenshot_png: bytes,
+        screen_size: tuple[int, int],
+    ) -> list[str] | None:
+        text = self._complete(PLAN_PROMPT, f"Task: {task}", screenshot_png)
+        return parse_plan(text) or None

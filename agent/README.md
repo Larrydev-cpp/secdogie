@@ -175,6 +175,8 @@ Extra knobs:
 | `--settle S` | seconds to hover before clicking (default 0.05; lets the UI react) |
 | `--action-pause S` | seconds to wait *after* each action before the next screenshot (default 0.4). This is the timing safeguard: without it a fast model takes the next screenshot before a slow-animating app has updated, sees a stale frame, and repeats itself. Lower is faster but riskier; `0` disables. |
 | `--stall-limit N` | stop if the model picks the same action against an unchanged screen `N` times in a row (default 4) — the action isn't landing (a dead control, a frozen render), so bail with exit code 6 instead of spinning to `--max-steps`. `0` disables. |
+| `--plan` | decompose the task into sub-tasks up front and work one at a time (see below). |
+| `--subtask-step-limit N` | with `--plan`, skip a sub-task that runs `N` steps without finishing (default 15; `0` disables). |
 
 Cursor movement is intentionally not instantaneous — teleport-and-click can
 miss hover/focus handlers in some apps, so the agent glides to the target
@@ -206,6 +208,36 @@ task completion. Controlled by `AgentConfig.verify_actions` (default on),
 `verify_threshold` (changed-pixel fraction, default 0.005), and `action_retries`
 (default 1); it composes with `--stall-limit`, which remains the cross-step
 backstop. The one-frame diff is a few milliseconds locally.
+
+## Planning (task decomposition)
+
+`--plan` adds a small planning layer for longer, multi-part jobs. Before acting,
+the model breaks the task into a short ordered list of sub-tasks; the agent then
+works **one at a time**, carrying the plan and progress into every prompt:
+
+```
+PLAN PROGRESS (1/4 done). Work ONLY on the CURRENT sub-task...
+  [x] open the File menu
+  -> [ ] click Save As   <-- CURRENT sub-task
+     [ ] type the filename
+     [ ] click Save
+```
+
+Two reasons this helps a long task:
+
+- **State management** — the model always knows where it is in the job instead of
+  re-deriving the whole plan from the last 10 actions each step. With planning
+  on, `done` means "**this sub-task** is finished" and advances to the next; the
+  run ends only when the last one completes.
+- **Error recovery** — a sub-task that burns `--subtask-step-limit` steps without
+  finishing is **skipped** (the loop moves to the next one and logs it) rather
+  than spinning the whole run to `--max-steps`. A run that finished but skipped
+  something exits `3` (incomplete), not `0`.
+
+Planning costs one extra model call up front and is **off by default**; it's most
+worth it for tasks with clear sequential stages, less so for a single click.
+Providers implement it via `plan_task` (Anthropic and OpenAI both do); a provider
+that doesn't just runs unplanned.
 
 ## Actions it can take
 
@@ -341,6 +373,7 @@ secdogie_agent/
   loop.py                the screenshot -> action -> execute -> repeat loop
   backend.py              Backend protocol (setup/capture/execute) + optional Locatable capability
   macro.py                RPA macro record/replay: Macro, MacroRecorder, resolve_replay_step
+  plan.py                 task decomposition + sub-task progress tracking (used with --plan)
   reflex.py               local reflex layer: FFT template matching + a frame-rate pursue loop (needs numpy)
   screen.py               screenshot capture + resize/coordinate scaling (mss + Pillow)
   actions.py              executes an Action via pyautogui (smooth move + settle)

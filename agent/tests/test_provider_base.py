@@ -1,5 +1,27 @@
 import pytest
-from secdogie_agent.providers.base import Action, parse_action_json
+from secdogie_agent.providers.base import Action, parse_action_json, parse_plan
+
+
+def test_parse_plan_json_array():
+    assert parse_plan('["open menu", "click save"]') == ["open menu", "click save"]
+
+
+def test_parse_plan_code_fence_with_preamble():
+    text = 'Here is the plan:\n```json\n["a", "b", "c"]\n```'
+    assert parse_plan(text) == ["a", "b", "c"]
+
+
+def test_parse_plan_falls_back_to_numbered_lines():
+    text = "1. open the file menu\n2. click Save As\n3. type the name"
+    assert parse_plan(text) == ["open the file menu", "click Save As", "type the name"]
+
+
+def test_parse_plan_empty_when_nothing_listlike():
+    assert parse_plan("") == []
+
+
+def test_parse_plan_drops_blank_items():
+    assert parse_plan('["a", "", "  ", "b"]') == ["a", "b"]
 
 
 def test_parse_action_json_bare():

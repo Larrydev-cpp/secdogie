@@ -61,6 +61,16 @@ Handling common obstacles:
 - If a previous action's result says "no visible change detected", that action did NOT land -- do not repeat it. Pick a different target (you may be a few pixels off), or a different approach (scroll it into view, dismiss an overlay covering it, or wait for load).
 """
 
+PLAN_PROMPT = """You are about to operate a real computer to accomplish a task for a user.
+Before acting, break the task into a short ordered list of concrete sub-tasks -- 2 to 6 of them,
+each a single UI-level goal you could verify is done by looking at the screen (e.g. "open the File
+menu", "click Save As", "type the filename", "click Save"). Keep them in the order they must happen.
+
+Look at the current screenshot so the sub-tasks fit what's actually on screen.
+
+Return ONLY a JSON array of short strings and nothing else, e.g.:
+["open the File menu", "click Save As", "type the filename", "click Save"]"""
+
 BRIEFING_PROMPT = """You are about to operate a real computer to accomplish a task for a user.
 Look at the current screenshot, then reply in plain language (NOT JSON):
 

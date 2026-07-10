@@ -559,6 +559,83 @@ def test_verify_and_stall_guard_coexist(monkeypatch):
     assert provider.calls == 4  # one baseline + three no-change repeats
 
 
+# -- task decomposition / planning (state management + stuck recovery) --------
+
+class PlanProvider(VisionProvider):
+    """Returns a fixed plan from plan_task and replays scripted actions, while
+    recording the task text it's shown each step (to assert the plan/progress
+    reaches the model). `subtasks=None` simulates a provider that can't plan."""
+
+    def __init__(self, subtasks, script):
+        self.subtasks = subtasks
+        self.script = list(script)
+        self.calls = 0
+        self.plan_called = 0
+        self.tasks_seen = []
+
+    def plan_task(self, task, screenshot_png, screen_size):
+        self.plan_called += 1
+        return self.subtasks
+
+    def next_action(self, task, screenshot_png, screen_size, history):
+        self.calls += 1
+        self.tasks_seen.append(task)
+        return Action.from_dict(self.script.pop(0))
+
+
+def _plan_cfg(**kw):
+    base = dict(task="t", auto=True, max_steps=20, action_pause=0, stall_limit=0, verify_actions=False)
+    base.update(kw)
+    return loop.AgentConfig(**base)
+
+
+def test_plan_advances_through_subtasks_then_finishes(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    provider = PlanProvider(
+        ["click the A button", "click the B button"],
+        [{"action": "left_click", "x": 1, "y": 1}, {"action": "done"},
+         {"action": "left_click", "x": 2, "y": 2}, {"action": "done"}],
+    )
+    rc = loop.run(provider, _plan_cfg(plan=True))
+    assert rc == 0
+    assert executed == ["left_click", "left_click"]  # done advanced sub-tasks, didn't end the run early
+    assert provider.plan_called == 1
+    # The model saw the current sub-task (and the "done = this sub-task" framing).
+    assert "click the A button" in provider.tasks_seen[0] and "CURRENT" in provider.tasks_seen[0]
+    assert "click the B button" in provider.tasks_seen[2]
+
+
+def test_plan_skips_a_stuck_subtask_and_reports_incomplete(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    # Never emits done: each sub-task must be abandoned by the step budget.
+    provider = PlanProvider(["stuck one", "stuck two"], [{"action": "left_click", "x": 1, "y": 1}] * 20)
+    rc = loop.run(provider, _plan_cfg(plan=True, subtask_step_limit=3))
+    assert rc == 3  # finished with skipped sub-tasks -> not a clean 0
+    assert "stuck two" in provider.tasks_seen[3]  # moved on to the second after skipping the first
+
+
+def test_plan_disabled_by_default_done_ends_the_run(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    provider = PlanProvider(["a", "b"], [{"action": "left_click", "x": 1, "y": 1}, {"action": "done"}])
+    rc = loop.run(provider, _plan_cfg())  # plan=False
+    assert rc == 0
+    assert executed == ["left_click"]
+    assert provider.plan_called == 0  # no planning call when --plan is off
+
+
+def test_plan_falls_back_to_unplanned_when_provider_returns_no_plan(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    provider = PlanProvider(None, [{"action": "left_click", "x": 1, "y": 1}, {"action": "done"}])
+    rc = loop.run(provider, _plan_cfg(plan=True))
+    assert rc == 0
+    assert provider.plan_called == 1  # planning was attempted...
+    assert executed == ["left_click"]  # ...but with no plan, done ends the run normally
+
+
 def test_loop_watch_mode_ignores_macro_path(monkeypatch, tmp_path):
     # Watch mode is exempted from macro replay/recording entirely -- a
     # variable-length trigger doesn't fit a fixed recorded sequence.

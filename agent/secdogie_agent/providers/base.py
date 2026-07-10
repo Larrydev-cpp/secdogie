@@ -164,6 +164,41 @@ def parse_action_json(text: str) -> dict[str, Any]:
     return json.loads(match.group(0))
 
 
+_JSON_ARRAY_RE = re.compile(r"\[.*\]", re.DOTALL)
+
+
+def parse_plan(text: str) -> list[str]:
+    """Parse a model's task decomposition into an ordered list of sub-task
+    strings. Prefers a JSON array; falls back to numbered/bulleted lines so a
+    model that ignores the "JSON only" instruction still yields a usable plan.
+    Returns [] when nothing list-like is found (the caller then runs unplanned).
+    """
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.strip("`")
+        if stripped.startswith("json"):
+            stripped = stripped[4:]
+        stripped = stripped.strip()
+
+    match = _JSON_ARRAY_RE.search(stripped)
+    if match:
+        try:
+            arr = json.loads(match.group(0))
+            items = [str(x).strip() for x in arr if str(x).strip()]
+            if items:
+                return items
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    # Fallback: one sub-task per non-empty line, stripping list markers.
+    out: list[str] = []
+    for raw in text.splitlines():
+        line = raw.strip().lstrip("-*0123456789.)( ").strip()
+        if line:
+            out.append(line)
+    return out
+
+
 class VisionProvider:
     """Base class for a vision-LLM backed action source."""
 
@@ -186,4 +221,16 @@ class VisionProvider:
         plan, shown to the user for confirmation before the agent acts. A
         provider that doesn't support briefings returns None (the agent then
         skips the briefing step)."""
+        return None
+
+    def plan_task(
+        self,
+        task: str,
+        screenshot_png: bytes,
+        screen_size: tuple[int, int],
+    ) -> list[str] | None:
+        """Decompose the task into an ordered list of concrete sub-tasks, used
+        when the loop runs with planning on (see plan.py). Return None if the
+        provider doesn't support planning (the loop then runs unplanned); an
+        empty/short list is fine and just means "no useful split"."""
         return None

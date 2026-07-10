@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from . import actions, dialog, safety, screen
 from .backend import Backend, DesktopBackend
 from .macro import Macro, MacroRecorder, MacroStep, resolve_replay_step
+from .plan import Plan
 from .providers.base import HistoryStep, VisionProvider
 
 # Benign actions that never need a confirmation prompt -- they don't touch the
@@ -84,13 +85,20 @@ class AgentConfig:
     # RPA: if set, replay this macro file (zero model calls) with a live fallback the moment a step
     # can't be resolved; a run that finishes with `done` re-saves the full sequence here. See macro.py.
     macro_path: str | None = None
+    # Planning: decompose the task into sub-tasks up front and work one at a time (see plan.py). `done`
+    # then means "this sub-task is complete" and advances; the run ends when the last one finishes.
+    plan: bool = False
+    # Error recovery when planning: if a sub-task burns this many steps without a `done`, skip it and
+    # move on instead of spinning the whole run. 0 disables (only meaningful with plan=True).
+    subtask_step_limit: int = 15
 
 
 def run(provider: VisionProvider, config: AgentConfig) -> int:
     """Returns a process-style exit code: 0 done, 1 provider error,
-    2 user declined to continue past an ask_user, 3 max_steps exhausted,
-    4 no graphical display available to screenshot, 5 stopped via should_stop,
-    6 stalled (same action, unchanged screen, stall_limit times)."""
+    2 user declined to continue past an ask_user, 3 max_steps exhausted (or a
+    plan finished with skipped sub-tasks), 4 no graphical display available to
+    screenshot, 5 stopped via should_stop, 6 stalled (same action, unchanged
+    screen, stall_limit times)."""
     logger = safety.setup_logging(config.log_path, name=config.logger_name)
     logger.info("task: %s", config.task)
     if config.auto:
@@ -133,6 +141,13 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
         except (OSError, ValueError) as e:
             logger.warning("could not load macro %s (%s); running live instead", config.macro_path, e)
 
+    # Planning: decompose the task into sub-tasks up front and work one at a time.
+    # Skipped in watch mode (a variable-length trigger doesn't fit a fixed plan).
+    plan: Plan | None = None
+    if config.plan and not config.watch:
+        plan = _build_plan(provider, config, logger, backend)
+    subtask_started = 1  # the step the current sub-task began on (for its budget)
+
     history: list[HistoryStep] = []
     # Stall detection: the signature + captured-frame hash of the last executed
     # action, and how many times in a row the same action met an unchanged screen.
@@ -156,6 +171,22 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             return 4
 
         frame_hash = hashlib.blake2b(raw_png, digest_size=16).digest()
+
+        # Error recovery: a sub-task that won't finish shouldn't burn the whole
+        # run. If the current one has spent its step budget without a `done`,
+        # skip it and move on -- the next step will show the following sub-task.
+        if plan is not None and not plan.is_done and config.subtask_step_limit:
+            if step - subtask_started >= config.subtask_step_limit:
+                logger.warning(
+                    "sub-task exceeded %d steps without completing; skipping: %s",
+                    config.subtask_step_limit, plan.current,
+                )
+                plan.skip_current()
+                subtask_started = step
+                if plan.is_done:
+                    logger.warning("plan ended with %d skipped sub-task(s)", len(plan.skipped))
+                    return 3
+                continue
 
         # RPA: try the next macro step before ever asking the model -- that's
         # the whole point (fast, free, deterministic). A step that resolves
@@ -187,8 +218,14 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             model_png, model_size, scale = screen.prepare_for_model(
                 raw_png, real_size, max_edge=config.max_image_edge, grid=config.grid
             )
+            # When planning, carry the plan + progress into the prompt so the
+            # model works the current sub-task and knows where it is (state) --
+            # rather than re-deriving the whole job from the last 10 actions.
+            step_task = effective_task
+            if plan is not None and not plan.is_done:
+                step_task = f"{effective_task}\n\n{plan.progress_note()}"
             try:
-                action = provider.next_action(effective_task, model_png, model_size, history)
+                action = provider.next_action(step_task, model_png, model_size, history)
             except Exception as e:
                 logger.error("provider failed to produce an action: %s", e)
                 return 1
@@ -211,15 +248,29 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
         logger.info("step %d/%d: %s %s", step, config.max_steps, action.kind, f"({reasoning})" if reasoning else "")
 
         if action.kind == "done":
+            # When planning, `done` finishes the CURRENT sub-task, not the run:
+            # advance and keep going until the last sub-task is done.
+            if plan is not None and not plan.is_done:
+                finished = plan.current
+                plan.complete_current()
+                subtask_started = step
+                logger.info("sub-task complete (%d/%d): %s", len(plan.completed), len(plan.subtasks), finished)
+                if not plan.is_done:
+                    history.append(HistoryStep(action=action, result="sub-task complete; moving to the next"))
+                    continue
+                # fall through: the last sub-task just completed -> finish the run
+
             summary = action.text or action.raw.get("text", "")
             logger.info("done: %s", summary)
+            if plan is not None and plan.skipped:
+                logger.warning("run finished but %d sub-task(s) were skipped: %s", len(plan.skipped), plan.skipped)
             if macro_recorder is not None and macro_recorder.steps:
                 try:
                     macro_recorder.build().save(config.macro_path)
                     logger.info("saved macro: %s (%d step(s))", config.macro_path, len(macro_recorder.steps))
                 except OSError as e:
                     logger.warning("could not save macro %s (%s); the run still succeeded", config.macro_path, e)
-            return 0
+            return 0 if (plan is None or not plan.skipped) else 3
 
         if action.kind == "ask_user":
             question = action.text or action.raw.get("text", "")
@@ -291,6 +342,31 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
 
     logger.warning("reached max_steps (%d) without the model signaling done", config.max_steps)
     return 3
+
+
+def _build_plan(provider: VisionProvider, config: AgentConfig, logger, backend: Backend) -> Plan | None:
+    """Ask the provider to decompose the task into sub-tasks (needs one
+    screenshot to ground them). Returns a Plan, or None to run unplanned if
+    capture/planning fails or the provider returns nothing -- planning must
+    never be able to stop a run from starting."""
+    try:
+        raw_png, real_size = backend.capture(config.region)
+    except screen.CaptureError as e:
+        logger.warning("could not capture a screenshot to plan (%s); running unplanned", e)
+        return None
+    model_png, _size, _scale = screen.prepare_for_model(raw_png, real_size, max_edge=config.max_image_edge)
+    try:
+        subtasks = provider.plan_task(config.task, model_png, real_size)
+    except Exception as e:
+        logger.warning("could not get a task plan from the model (%s); running unplanned", e)
+        return None
+    if not subtasks:
+        logger.info("no task decomposition returned; running unplanned")
+        return None
+    logger.info("plan: %d sub-task(s)", len(subtasks))
+    for i, sub in enumerate(subtasks, 1):
+        logger.info("  %d. %s", i, sub)
+    return Plan(subtasks=subtasks)
 
 
 def _visible_change(pre_png: bytes, post_png: bytes, threshold: float, logger) -> bool:
