@@ -16,6 +16,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 
 from .providers.base import Action
 
@@ -40,12 +41,32 @@ def execute(
     action: Action,
     move_duration: float = DEFAULT_MOVE_DURATION,
     settle: float = DEFAULT_SETTLE,
+    activate: Callable[[], bool] | None = None,
 ) -> str:
     """Execute one action, holding the shared input lock for anything that
     drives the real mouse/keyboard so concurrent desktop actors don't corrupt
-    each other's cursor position."""
+    each other's cursor position.
+
+    `activate`, if given, is called INSIDE the lock, before the action itself,
+    to bring this actor's target window to the foreground and confirm it took
+    focus (see open/secdogie_open/windows.py's focus_window, used as this hook
+    by runner.py). Doing that inside the same locked section as the action is
+    what makes "one actor's click+type, then the next actor's click+type"
+    actually hold: since only one window can be the OS foreground window at a
+    time, a later actor's activate() call cannot even begin -- it's waiting on
+    this same lock -- until this action (and its own activate) has completed,
+    so the earlier actor's window is guaranteed to have already lost focus by
+    the time the next one runs. No separate "confirm focus released" check is
+    needed; gaining focus for the next window IS that confirmation. A failed
+    activation is swallowed (best-effort) -- the action still runs rather than
+    silently doing nothing."""
     guard = _NULL_CTX if action.kind in _NON_INPUT_KINDS else _INPUT_LOCK
     with guard:
+        if activate is not None and action.kind not in _NON_INPUT_KINDS:
+            try:
+                activate()
+            except Exception:
+                pass  # best-effort: the action still executes even if activation failed
         return _dispatch(action, move_duration, settle)
 
 
@@ -113,6 +134,16 @@ def _dispatch(action: Action, move_duration: float, settle: float) -> str:
         if action.dy:
             pyautogui.vscroll(action.dy)
         return f"scrolled dx={action.dx} dy={action.dy} at ({action.x}, {action.y})"
+    elif action.kind == "track_click":
+        # Hand a MOVING target to the local reflex loop: track it at frame rate
+        # and click it the moment it settles, with no model call per frame. This
+        # runs inside the shared input lock (track_click is not benign), so the
+        # whole multi-second pursuit owns the physical cursor exclusively -- no
+        # other desktop actor can inject input mid-chase. numpy-gated; the reflex
+        # layer raises a clear install hint if it's missing.
+        from . import reflex
+
+        return reflex.track_click_target(action.x, action.y, timeout_s=action.seconds)
     elif action.kind == "wait":
         seconds = action.seconds or 1.0
         time.sleep(seconds)

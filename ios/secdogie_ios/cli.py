@@ -27,6 +27,13 @@ def main(argv: list[str] | None = None) -> int:
         help=f"base URL of the running WebDriverAgent server (default: {DEFAULT_WDA_URL}); "
         "forward it from the device with `iproxy 8100 8100` -- see ios/README.md",
     )
+    parser.add_argument(
+        "--humanize-taps",
+        action="store_true",
+        help="issue each single tap as a short randomized-duration touchAndHold instead of the "
+        "instantaneous /wda/tap. Changes tap timing signature only -- see ios/README.md for what "
+        "this does and does not change (double-tap is unaffected)",
+    )
 
     cli_common.add_loop_args(parser)
     args = parser.parse_args(argv)
@@ -41,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
     if provider is None:
         return 1
 
-    backend = IosBackend(Wda(base_url=args.wda_url))
+    backend = IosBackend(Wda(base_url=args.wda_url), humanize_taps=args.humanize_taps)
     cfg_kwargs = cli_common.loop_config_kwargs(args, task=args.task, backend=backend)
     return run(provider, AgentConfig(**cfg_kwargs))
 

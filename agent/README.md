@@ -175,10 +175,98 @@ Extra knobs:
 | `--settle S` | seconds to hover before clicking (default 0.05; lets the UI react) |
 | `--action-pause S` | seconds to wait *after* each action before the next screenshot (default 0.4). This is the timing safeguard: without it a fast model takes the next screenshot before a slow-animating app has updated, sees a stale frame, and repeats itself. Lower is faster but riskier; `0` disables. |
 | `--stall-limit N` | stop if the model picks the same action against an unchanged screen `N` times in a row (default 4) — the action isn't landing (a dead control, a frozen render), so bail with exit code 6 instead of spinning to `--max-steps`. `0` disables. |
+| `--plan` | decompose the task into sub-tasks up front and work one at a time (see below). |
+| `--subtask-step-limit N` | with `--plan`, skip a sub-task that runs `N` steps without finishing (default 15; `0` disables). |
+| `--trace PATH` | write a tamper-evident hash-chained audit trace of every step to `PATH` (JSONL); verify later with `python -m secdogie_agent.trace PATH` (see below). |
 
 Cursor movement is intentionally not instantaneous — teleport-and-click can
 miss hover/focus handlers in some apps, so the agent glides to the target
 and pauses briefly before pressing.
+
+## Action verification & retry
+
+The biggest source of flaky automation is an action that silently doesn't land:
+a click a few pixels off the button, a window that wasn't focused, an overlay
+covering the target. After each mutating action the agent takes a fresh
+screenshot and compares it to the pre-action frame (`screen.changed_ratio`, a
+downscaled grayscale pixel diff). If nothing visibly changed:
+
+- **idempotent actions** (`left_click`, `right_click`, `double_click`, `move`,
+  `scroll`) are **retried** up to `action_retries` times (default 1) — the
+  common cause is a transient miss (focus not ready, mid-animation), and
+  re-clicking an unresponsive spot is harmless;
+- **side-effectful actions** (`type`, `key`, `hold_key`, `drag`, `open`) are
+  **never auto-retried** — re-sending them would double-type text or re-submit —
+  but the result still carries a note;
+- if it still didn't land, the result fed back to the model gets
+  `"(no visible change detected ...)"`, and the system prompt tells the model to
+  **change target or approach** rather than repeat a dead action.
+
+This is a heuristic: it detects *visible* change, not semantic success (an action
+that correctly changed something off-screen reads as "no change"). It's tuned to
+cut the most common failure — a repeated action that never lands — not to judge
+task completion. Controlled by `AgentConfig.verify_actions` (default on),
+`verify_threshold` (changed-pixel fraction, default 0.005), and `action_retries`
+(default 1); it composes with `--stall-limit`, which remains the cross-step
+backstop. The one-frame diff is a few milliseconds locally.
+
+## Verifiable execution trace
+
+For high-stakes or zero-trust runs, `--trace run.jsonl` writes a **tamper-evident
+audit log**: one entry per step recording *what the model saw* (a SHA-256 of the
+exact screenshot), *what it decided* (the action + its reasoning), and *what
+happened* (the result), each stamped with a time and sequence number.
+
+The entries form a **hash chain** — every entry commits to the previous one's
+hash — so altering, reordering, or dropping any past entry changes its hash and
+breaks every entry after it. The last entry's hash (`head`) is a single
+commitment to the whole ordered history. Verify a trace afterwards:
+
+```bash
+python -m secdogie_agent.trace run.jsonl
+# trace OK: 42 entry(ies), chain intact. head=ca769f78...
+# (or) trace TAMPERED: entry 7: content does not match its hash (entry was edited)
+```
+
+The file is written incrementally (each step is flushed as it happens), so it
+survives a crash mid-run. **Honest scope:** the chain proves *internal
+consistency* — no entry was edited without recomputing all following hashes. It
+is not a signature, so a party who can rewrite the whole file can also recompute
+a fresh valid chain, and truncation from the end is only detectable against a
+known head. To make it genuinely tamper-*proof*, anchor the `head` somewhere the
+rewriter doesn't control (print it to a monitored log, sign it, or publish it at
+run time). A Merkle tree would add per-entry inclusion proofs; the chain is the
+simpler tool that fits an append-only, ordered log.
+
+## Planning (task decomposition)
+
+`--plan` adds a small planning layer for longer, multi-part jobs. Before acting,
+the model breaks the task into a short ordered list of sub-tasks; the agent then
+works **one at a time**, carrying the plan and progress into every prompt:
+
+```
+PLAN PROGRESS (1/4 done). Work ONLY on the CURRENT sub-task...
+  [x] open the File menu
+  -> [ ] click Save As   <-- CURRENT sub-task
+     [ ] type the filename
+     [ ] click Save
+```
+
+Two reasons this helps a long task:
+
+- **State management** — the model always knows where it is in the job instead of
+  re-deriving the whole plan from the last 10 actions each step. With planning
+  on, `done` means "**this sub-task** is finished" and advances to the next; the
+  run ends only when the last one completes.
+- **Error recovery** — a sub-task that burns `--subtask-step-limit` steps without
+  finishing is **skipped** (the loop moves to the next one and logs it) rather
+  than spinning the whole run to `--max-steps`. A run that finished but skipped
+  something exits `3` (incomplete), not `0`.
+
+Planning costs one extra model call up front and is **off by default**; it's most
+worth it for tasks with clear sequential stages, less so for a single click.
+Providers implement it via `plan_task` (Anthropic and OpenAI both do); a provider
+that doesn't just runs unplanned.
 
 ## Actions it can take
 
@@ -247,6 +335,53 @@ secdogie-agent "log into example.com and open the dashboard" --macro dashboard.j
 - The macro file is plain, human-readable JSON (`secdogie_agent/macro.py`) —
   inspect or hand-edit it if useful.
 
+## Latency, and the local reflex layer
+
+A cloud vision model runs at roughly **1 Hz** — 1–3 seconds per screenshot →
+action round trip. That's fine for *deciding what to do*, but hopeless for
+anything that has to keep up with a **60 Hz** screen (a moving target, a value
+you're dragging to a mark, a fast event): by the time one screenshot has
+round-tripped, ~16 frames have already gone by. No amount of tuning fixes this —
+it's the physics of a network call to a large model, not an optimization target.
+
+So secdogie uses the standard two-tier split that every real-time control system
+uses: the **model is the slow planner**, and a **fast local loop is the
+controller**. Two things keep the model *out* of the tight loop:
+
+- **Macros** (`--macro`, above) replay a known sequence with **zero** model
+  calls.
+- **The reflex layer** (`secdogie_agent/reflex.py`, needs
+  `pip install 'secdogie-agent[reflex]'`) closes a tight, goal-directed loop
+  *locally* — capture a small region, match a target template, move/click — at
+  frame rate, no network call per frame. `pursue()` tracks a moving target and
+  clicks it once it settles; `track_and_click_desktop(region, target)` wires
+  that to mss + pyautogui:
+
+  ```python
+  from secdogie_agent.reflex import track_and_click_desktop
+  # chase a moving element inside this screen region and click it when it stops
+  result = track_and_click_desktop(region=(600, 300, 400, 400), target=(800, 480))
+  print(result.outcome, result.fps)   # e.g. "clicked" 55.0
+  ```
+
+  Template matching is FFT-based normalized cross-correlation: about **4 ms
+  (~230 Hz)** for a 200×200 search region and ~14 ms (~70 Hz) for 320×240 on a
+  laptop CPU — so keep the search region bounded around the target and the loop
+  comfortably clears 30–60 Hz. It is a CPU reflex, not a game engine; sub-
+  millisecond control needs C/GPU and is out of scope. The model decides *what*
+  to pursue; the reflex layer does the chasing.
+
+The model can hand off to the reflex layer itself, without any glue code: it
+emits a **`track_click`** action naming where the moving target is *right now*,
+and the loop drops into the local pursuit — a window around that point is
+captured and matched at frame rate, and the target is clicked the instant it
+settles, all with no model call per frame. Control returns to the model with a
+one-line result (`clicked` / `lost` / `timeout` and the frame rate reached).
+This runs inside the same input lock as every other action, so a multi-second
+chase owns the physical cursor exclusively — no other window's actor can inject
+input mid-pursuit. It's desktop-only (mss + pyautogui + numpy); the prompt marks
+it that way, since over adb/WDA a phone can't be captured at frame rate anyway.
+
 ## How it decides what to do
 
 Each step, the model sees the current screenshot, the task, and a short
@@ -267,6 +402,9 @@ secdogie_agent/
   loop.py                the screenshot -> action -> execute -> repeat loop
   backend.py              Backend protocol (setup/capture/execute) + optional Locatable capability
   macro.py                RPA macro record/replay: Macro, MacroRecorder, resolve_replay_step
+  plan.py                 task decomposition + sub-task progress tracking (used with --plan)
+  trace.py                tamper-evident hash-chained audit trace (used with --trace; `python -m` verifies)
+  reflex.py               local reflex layer: FFT template matching + a frame-rate pursue loop (needs numpy)
   screen.py               screenshot capture + resize/coordinate scaling (mss + Pillow)
   actions.py              executes an Action via pyautogui (smooth move + settle)
   safety.py                logging + y/N confirmation

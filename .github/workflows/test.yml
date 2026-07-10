@@ -33,6 +33,11 @@ jobs:
       matrix:
         include:
           - dir: agent
+            extras: "[reflex]"  # so the reflex layer's numpy-backed tests run
+          - dir: handoff
+          - dir: aim
+            needs_handoff: true
+          - dir: commander  # decision core is pure; run/wiring imports agent/aim/handoff lazily
           - dir: android
             needs_agent: true
           - dir: ios
@@ -57,7 +62,10 @@ jobs:
           if [ "${{ matrix.needs_agent }}" = "true" ]; then
             pip install -e ../agent
           fi
-          pip install -e . pytest
+          if [ "${{ matrix.needs_handoff }}" = "true" ]; then
+            pip install -e ../handoff
+          fi
+          pip install -e ".${{ matrix.extras }}" pytest
 
       - name: Test
         working-directory: ${{ matrix.dir }}

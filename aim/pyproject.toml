@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secdogie-aim"
+version = "0.1.0"
+description = "Node B combat controller: relative mouse-look injection + a proportional aim loop that pulls the crosshair onto a detected target and fires."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# The control law itself is stdlib-only (engage takes an injected capture
+# callback). mss/pillow are for the CLI's screen capture + the YOLO adapter's
+# PNG decode; secdogie-handoff is the input baton shared with Node A.
+dependencies = [
+    "mss>=9.0.1",
+    "pillow>=10.0.0",
+    "secdogie-handoff>=0.1.0",
+]
+
+[project.optional-dependencies]
+# The YOLO detector is the GPU-machine half; keep the heavyweight ultralytics
+# stack out of the default install (tests and the control law don't need it).
+yolo = ["ultralytics>=8.0"]
+# Linux relative-injection backend (Windows uses ctypes/SendInput, stdlib).
+linux = ["python-uinput>=1.0"]
+
+[project.scripts]
+secdogie-aim = "secdogie_aim.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["secdogie_aim*"]

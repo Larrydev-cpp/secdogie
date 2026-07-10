@@ -30,6 +30,14 @@ Action schema (choose exactly one "action"):
            e.g. holding an arrow key to keep moving. ["right"] held 1.5s, etc.
   {{"action": "scroll", "x": int, "y": int, "dx": int, "dy": int, "reasoning": str}}
   {{"action": "open", "path": str, "reasoning": str}}   -- open a file/folder/URL with the OS default program
+  {{"action": "track_click", "x": int, "y": int, "seconds": number, "reasoning": str}}
+        -- LOCAL REFLEX MODE (desktop only): the target at (x, y) is currently MOVING
+           (a dragged slider handle, an animated control, an object sliding across a
+           video/timeline). Do NOT guess where it will land; the machine locks onto it
+           locally at screen frame rate and clicks it the instant it stops moving --
+           far faster and more accurate than you round-tripping each frame. "x"/"y" are
+           where the target is NOW; optional "seconds" caps the chase. Use ONLY for a
+           moving target; for anything stationary use left_click.
   {{"action": "wait", "seconds": number, "reasoning": str}}
   {{"action": "done", "text": str}}        -- task is complete, text = summary for the user
   {{"action": "ask_user", "text": str}}    -- you need clarification or explicit permission before continuing
@@ -45,7 +53,23 @@ Rules:
   explicitly asked for, use "ask_user" and explain what you need confirmed instead of doing it.
 - If you believe the task is complete, use "done", don't keep clicking around.
 - One action per reply. You will be shown the result and a fresh screenshot before the next one.
+
+Handling common obstacles:
+- Unexpected popups, cookie banners, or dialogs: dismiss/close them first, then continue toward the goal.
+- If the page looks mid-load (spinners, blank areas), use "wait" a couple seconds, then re-check on the next frame instead of clicking into a half-loaded UI.
+- If the target isn't visible, "scroll" toward where it should be rather than guessing at off-screen coordinates.
+- If a previous action's result says "no visible change detected", that action did NOT land -- do not repeat it. Pick a different target (you may be a few pixels off), or a different approach (scroll it into view, dismiss an overlay covering it, or wait for load).
 """
+
+PLAN_PROMPT = """You are about to operate a real computer to accomplish a task for a user.
+Before acting, break the task into a short ordered list of concrete sub-tasks -- 2 to 6 of them,
+each a single UI-level goal you could verify is done by looking at the screen (e.g. "open the File
+menu", "click Save As", "type the filename", "click Save"). Keep them in the order they must happen.
+
+Look at the current screenshot so the sub-tasks fit what's actually on screen.
+
+Return ONLY a JSON array of short strings and nothing else, e.g.:
+["open the File menu", "click Save As", "type the filename", "click Save"]"""
 
 BRIEFING_PROMPT = """You are about to operate a real computer to accomplish a task for a user.
 Look at the current screenshot, then reply in plain language (NOT JSON):

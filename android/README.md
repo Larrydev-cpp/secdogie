@@ -166,6 +166,35 @@ the run, and the resulting new sequence is re-saved — the macro heals itself.
 identity (when one was recorded) regardless of whether `--snap-to-elements`
 is passed on that particular run.
 
+## Tap timing (`--humanize-taps`)
+
+`adb shell input tap` always injects a MotionEvent DOWN+UP pair with **zero
+elapsed time** and the **exact requested pixel** — a real finger never does
+either. `--humanize-taps` issues each tap instead as `input swipe` from the
+point to a randomly jittered point 0–2px away, over a randomized 45–130ms
+duration (the same mechanism `long_press` already uses for its own duration,
+just applied to ordinary taps too):
+
+```sh
+secdogie-android "..." --humanize-taps
+```
+
+**What this changes:** the injected event's duration and exact coordinate stop
+being a fixed, always-identical signature — useful if a target app's *own*
+in-app heuristics look at those specifically (e.g. flagging every tap that has
+literally 0ms duration and pixel-perfect repeat coordinates).
+
+**What this does not change, and cannot:** every event `adb shell input`
+injects — humanized or not — still carries Android's `SOURCE_TOUCHSCREEN`
+input-device flag marking it as *synthesized*, not from a real digitizer, and
+any check that reads that flag, or that relies on hardware attestation
+(Play Integrity / SafetyNet-style checks), sees straight through this
+regardless. This flag exists purely to reduce a lookalike-timing heuristic,
+**not** to defeat app-level bot detection, anti-cheat, or CAPTCHA/verification
+challenges — those operate at a different layer this can't touch. Composes
+with `--snap-to-elements`: snapping picks *where* to tap, humanizing changes
+*how* the tap itself is issued.
+
 ## Known limitations
 
 - **Some Chinese ROMs need an extra toggle for input injection** (see Setup

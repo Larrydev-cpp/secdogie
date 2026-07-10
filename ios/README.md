@@ -118,6 +118,32 @@ secdogie-ios "..." --watch                   # act only when a condition on scre
 Flags mirror `secdogie-agent` (`--model`, `--provider`, `--auto`, `--grid`,
 `--max-steps`, `--watch`, …), plus `--wda-url` for the WDA server.
 
+## Tap timing (`--humanize-taps`)
+
+WDA's `/wda/tap` has no duration knob — a real finger's contact time varies, this
+endpoint's doesn't. `--humanize-taps` issues each **single** tap instead as
+`touchAndHold` for a short randomized 50–140ms duration (the same primitive
+`right_click`'s long-press already uses, just much shorter):
+
+```sh
+secdogie-ios "..." --humanize-taps
+```
+
+**What this changes:** the tap stops having a perfectly instantaneous, always-
+identical duration — useful only if something is specifically looking at that.
+
+**What this does not change, and cannot:** `touchAndHold` maps to XCUITest's
+`press(forDuration:)`, a **different underlying gesture** from `tap()` — this
+is a timing tweak riding on the closest available primitive, not a faithful
+recreation of a real touch event, and it still goes through the same
+WDA-automation path the OS/apps can identify as automated (accessibility/
+XCTest driven) regardless of duration. It does not touch, and cannot defeat,
+device attestation (e.g. App Attest/DeviceCheck) or any check operating below
+the WDA layer. `--humanize-taps` **never** applies to `double_click`: WDA's
+`doubleTap` is its own distinct gesture, and substituting two `touchAndHold`
+calls risks the app not registering a double-tap at all rather than just
+changing its timing.
+
 ## Known limitations
 
 - **WDA must be running** and reachable at `--wda-url` (forward it with

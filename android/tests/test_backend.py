@@ -94,6 +94,53 @@ def test_right_click_long_presses():
     assert _do("right_click", x=7, y=8) == [("long_press", 7, 8)]
 
 
+# -- humanize_taps ---------------------------------------------------------
+
+def test_humanize_off_by_default_uses_plain_tap():
+    assert _do("left_click", x=100, y=200) == [("tap", 100, 200)]
+
+
+def test_humanize_on_uses_swipe_with_randomized_duration_and_jitter():
+    import random
+
+    adb = FakeAdb()
+    b = AdbBackend(adb, humanize_taps=True, rng=random.Random(0))
+    b.execute(Action.from_dict({"action": "left_click", "x": 100, "y": 200}))
+    assert len(adb.calls) == 1
+    name, x1, y1, x2, y2, duration_ms = adb.calls[0]
+    assert name == "swipe" and (x1, y1) == (100, 200)
+    from secdogie_android.backend import _HUMANIZE_DURATION_MS, _HUMANIZE_JITTER_PX
+
+    assert _HUMANIZE_DURATION_MS[0] <= duration_ms <= _HUMANIZE_DURATION_MS[1]
+    assert abs(x2 - 100) <= _HUMANIZE_JITTER_PX and abs(y2 - 200) <= _HUMANIZE_JITTER_PX
+
+
+def test_humanize_gives_each_tap_independent_duration_and_jitter():
+    import random
+
+    adb = FakeAdb()
+    b = AdbBackend(adb, humanize_taps=True, rng=random.Random(0))
+    b.execute(Action.from_dict({"action": "double_click", "x": 50, "y": 50}))
+    assert len(adb.calls) == 2
+    assert adb.calls[0][0] == "swipe" and adb.calls[1][0] == "swipe"
+    # not required to differ, but with a real RNG across many calls they should
+    # vary -- assert the two durations aren't hardcoded to be identical by construction
+    durations = {c[5] for c in adb.calls}
+    endpoints = {(c[3], c[4]) for c in adb.calls}
+    assert len(durations) + len(endpoints) > 1  # at least one of them varied between the two taps
+
+
+def test_humanize_composes_with_snap_to_elements():
+    # Humanizing changes HOW a tap is issued; snapping still decides WHERE.
+    adb = FakeAdb(png=_png(1080, 2400), ui_xml=_SNAP_XML)
+    b = AdbBackend(adb, snap_to_elements=True, humanize_taps=True)
+    b.capture(region=None)
+    b.execute(Action.from_dict({"action": "left_click", "x": 410, "y": 305}))
+    assert len(adb.calls) == 1
+    name, x1, y1, _x2, _y2, _duration = adb.calls[0]
+    assert name == "swipe" and (x1, y1) == (540, 360)  # snapped to the Submit button center
+
+
 # -- RPA-style element snapping ---------------------------------------------------------
 
 # A full-screen clickable backdrop plus a small Submit button inside it.

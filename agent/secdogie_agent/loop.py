@@ -12,11 +12,28 @@ from dataclasses import dataclass
 from . import actions, dialog, safety, screen
 from .backend import Backend, DesktopBackend
 from .macro import Macro, MacroRecorder, MacroStep, resolve_replay_step
+from .plan import Plan
 from .providers.base import HistoryStep, VisionProvider
+from .trace import ExecutionTrace
 
 # Benign actions that never need a confirmation prompt -- they don't touch the
 # mouse/keyboard in a way that can do harm.
 _BENIGN = {"wait", "screenshot"}
+
+# Actions that are safe to auto-repeat when they appear to have had no effect:
+# re-clicking an unresponsive spot or re-scrolling is harmless. Deliberately
+# EXCLUDES type/key/hold_key/drag/open -- re-sending those double-types text,
+# re-presses Enter/submits, or re-opens things, so a "no visible change" there
+# is reported to the model but never blindly retried.
+_RETRY_SAFE = {"left_click", "right_click", "double_click", "move", "scroll"}
+
+# Appended to an action's result when the screen didn't visibly change, so the
+# model treats it as a miss and picks a different target/approach (the prompt
+# tells it to). Kept as a stable phrase the prompt can reference.
+_NO_CHANGE_NOTE = (
+    " (no visible change detected after this action -- the target may be wrong or the UI "
+    "is blocked; try a different target or approach)"
+)
 
 # Injected into the task when --watch is on, turning the loop into a monitor:
 # most frames the model just reports "keep watching"; it only acts on a trigger.
@@ -54,6 +71,14 @@ class AgentConfig:
     # row, the action isn't landing (dead control / frozen render) -- stop instead of
     # spinning to max_steps. 0 disables. Benign/terminal actions (wait/done/...) are exempt.
     stall_limit: int = 4
+    # After a mutating action, re-screenshot and check whether anything visibly
+    # changed (screen.changed_ratio). A click/scroll that changed nothing likely
+    # missed (wrong target, window not focused, blocked UI): retry the
+    # idempotent ones, and if still nothing, tell the model so it can change
+    # strategy instead of repeating a dead action. 0 disables the whole check.
+    verify_actions: bool = True
+    verify_threshold: float = 0.005  # changed-pixel fraction at/above which an action "did something"
+    action_retries: int = 1  # extra attempts for a no-effect *idempotent* action (clicks/scroll/move)
     region: tuple[int, int, int, int] | None = None  # (left, top, width, height); None = full primary monitor
     logger_name: str = "secdogie_agent"  # distinct per concurrent run so loggers don't share/race on handlers
     should_stop: Callable[[], bool] | None = None  # checked each step; lets a caller cancel a running loop
@@ -61,13 +86,23 @@ class AgentConfig:
     # RPA: if set, replay this macro file (zero model calls) with a live fallback the moment a step
     # can't be resolved; a run that finishes with `done` re-saves the full sequence here. See macro.py.
     macro_path: str | None = None
+    # Planning: decompose the task into sub-tasks up front and work one at a time (see plan.py). `done`
+    # then means "this sub-task is complete" and advances; the run ends when the last one finishes.
+    plan: bool = False
+    # Error recovery when planning: if a sub-task burns this many steps without a `done`, skip it and
+    # move on instead of spinning the whole run. 0 disables (only meaningful with plan=True).
+    subtask_step_limit: int = 15
+    # Audit: if set, write a tamper-evident hash-chained trace of every step (frame hash + decision +
+    # result) to this JSONL path. Verify later with `python -m secdogie_agent.trace <path>`. See trace.py.
+    trace_path: str | None = None
 
 
 def run(provider: VisionProvider, config: AgentConfig) -> int:
     """Returns a process-style exit code: 0 done, 1 provider error,
-    2 user declined to continue past an ask_user, 3 max_steps exhausted,
-    4 no graphical display available to screenshot, 5 stopped via should_stop,
-    6 stalled (same action, unchanged screen, stall_limit times)."""
+    2 user declined to continue past an ask_user, 3 max_steps exhausted (or a
+    plan finished with skipped sub-tasks), 4 no graphical display available to
+    screenshot, 5 stopped via should_stop, 6 stalled (same action, unchanged
+    screen, stall_limit times)."""
     logger = safety.setup_logging(config.log_path, name=config.logger_name)
     logger.info("task: %s", config.task)
     if config.auto:
@@ -110,6 +145,18 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
         except (OSError, ValueError) as e:
             logger.warning("could not load macro %s (%s); running live instead", config.macro_path, e)
 
+    # Planning: decompose the task into sub-tasks up front and work one at a time.
+    # Skipped in watch mode (a variable-length trigger doesn't fit a fixed plan).
+    plan: Plan | None = None
+    if config.plan and not config.watch:
+        plan = _build_plan(provider, config, logger, backend)
+    subtask_started = 1  # the step the current sub-task began on (for its budget)
+
+    # Audit: a tamper-evident hash chain of every decision, written as it happens.
+    trace = ExecutionTrace(config.trace_path) if config.trace_path else None
+    if trace is not None:
+        logger.info("writing a verifiable execution trace to %s", config.trace_path)
+
     history: list[HistoryStep] = []
     # Stall detection: the signature + captured-frame hash of the last executed
     # action, and how many times in a row the same action met an unchanged screen.
@@ -133,6 +180,22 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             return 4
 
         frame_hash = hashlib.blake2b(raw_png, digest_size=16).digest()
+
+        # Error recovery: a sub-task that won't finish shouldn't burn the whole
+        # run. If the current one has spent its step budget without a `done`,
+        # skip it and move on -- the next step will show the following sub-task.
+        if plan is not None and not plan.is_done and config.subtask_step_limit:
+            if step - subtask_started >= config.subtask_step_limit:
+                logger.warning(
+                    "sub-task exceeded %d steps without completing; skipping: %s",
+                    config.subtask_step_limit, plan.current,
+                )
+                plan.skip_current()
+                subtask_started = step
+                if plan.is_done:
+                    logger.warning("plan ended with %d skipped sub-task(s)", len(plan.skipped))
+                    return 3
+                continue
 
         # RPA: try the next macro step before ever asking the model -- that's
         # the whole point (fast, free, deterministic). A step that resolves
@@ -164,8 +227,14 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             model_png, model_size, scale = screen.prepare_for_model(
                 raw_png, real_size, max_edge=config.max_image_edge, grid=config.grid
             )
+            # When planning, carry the plan + progress into the prompt so the
+            # model works the current sub-task and knows where it is (state) --
+            # rather than re-deriving the whole job from the last 10 actions.
+            step_task = effective_task
+            if plan is not None and not plan.is_done:
+                step_task = f"{effective_task}\n\n{plan.progress_note()}"
             try:
-                action = provider.next_action(effective_task, model_png, model_size, history)
+                action = provider.next_action(step_task, model_png, model_size, history)
             except Exception as e:
                 logger.error("provider failed to produce an action: %s", e)
                 return 1
@@ -178,25 +247,56 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
 
         reasoning = action.reasoning or action.raw.get("reasoning", "")
 
+        # Loop vars are bound as defaults so this closure snapshots THIS step's
+        # action/frame/reasoning (it's only ever called within the same step).
+        def record_result(result: str, *, action=action, raw_png=raw_png, reasoning=reasoning) -> None:
+            """Append the step's outcome to history and, if auditing, to the
+            tamper-evident trace -- both keyed to this step's action, the frame
+            it was decided on, and the model's reasoning."""
+            history.append(HistoryStep(action=action, result=result))
+            if trace is not None:
+                trace.record(
+                    raw_png,
+                    {"kind": action.kind, "x": action.x, "y": action.y, "to_x": action.to_x,
+                     "to_y": action.to_y, "text": action.text, "keys": action.keys, "raw": action.raw},
+                    reasoning,
+                    result,
+                )
+
         # In watch mode a "wait" means "trigger not seen yet" -- log quietly and
         # keep watching without a confirmation prompt.
         if config.watch and action.kind == "wait":
             logger.info("watching (step %d): no trigger yet%s", step, f" -- {reasoning}" if reasoning else "")
-            history.append(HistoryStep(action=action, result="watching, condition not met"))
+            record_result("watching, condition not met")
             continue
 
         logger.info("step %d/%d: %s %s", step, config.max_steps, action.kind, f"({reasoning})" if reasoning else "")
 
         if action.kind == "done":
+            # When planning, `done` finishes the CURRENT sub-task, not the run:
+            # advance and keep going until the last sub-task is done.
+            if plan is not None and not plan.is_done:
+                finished = plan.current
+                plan.complete_current()
+                subtask_started = step
+                logger.info("sub-task complete (%d/%d): %s", len(plan.completed), len(plan.subtasks), finished)
+                if not plan.is_done:
+                    record_result("sub-task complete; moving to the next")
+                    continue
+                # fall through: the last sub-task just completed -> finish the run
+
             summary = action.text or action.raw.get("text", "")
             logger.info("done: %s", summary)
+            record_result(f"done: {summary}" if summary else "done")
+            if plan is not None and plan.skipped:
+                logger.warning("run finished but %d sub-task(s) were skipped: %s", len(plan.skipped), plan.skipped)
             if macro_recorder is not None and macro_recorder.steps:
                 try:
                     macro_recorder.build().save(config.macro_path)
                     logger.info("saved macro: %s (%d step(s))", config.macro_path, len(macro_recorder.steps))
                 except OSError as e:
                     logger.warning("could not save macro %s (%s); the run still succeeded", config.macro_path, e)
-            return 0
+            return 0 if (plan is None or not plan.skipped) else 3
 
         if action.kind == "ask_user":
             question = action.text or action.raw.get("text", "")
@@ -209,12 +309,12 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             if not allowed:
                 logger.info("user declined to continue after ask_user")
                 return 2
-            history.append(HistoryStep(action=action, result="user confirmed, continuing"))
+            record_result("user confirmed, continuing")
             continue
 
         if config.dry_run:
             logger.info("[dry-run] would execute: %s", action.raw)
-            history.append(HistoryStep(action=action, result="skipped (dry-run)"))
+            record_result("skipped (dry-run)")
             continue
 
         # Stall guard: the same real action about to run against a screen that
@@ -237,29 +337,107 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
         needs_confirm = not config.auto and action.kind not in _BENIGN
         if needs_confirm and not safety.confirm(f"Execute {action.kind}({action.raw})?"):
             logger.info("user declined action: %s", action.kind)
-            history.append(HistoryStep(action=action, result="skipped (user declined)"))
+            record_result("skipped (user declined)")
             continue
 
+        executed_ok = False
         try:
             result = backend.execute(action)
+            executed_ok = True
         except Exception as e:
             result = f"error: {e}"
             logger.error("action failed: %s", e)
-        else:
-            if macro_recorder is not None:
-                if from_replay:
-                    macro_recorder.record_step(replayed_step)
-                else:
-                    macro_recorder.record(action, result, backend, real_size)
-        history.append(HistoryStep(action=action, result=result))
 
-        # Let the UI react before the next screenshot; benign actions (wait)
-        # already pace themselves, so they're exempt.
+        # Let the UI react before we screenshot (to verify, and before the next
+        # step); benign actions (wait) already pace themselves, so they're exempt.
         if config.action_pause > 0 and action.kind not in _BENIGN:
             time.sleep(config.action_pause)
 
+        # Post-action visual verification: did the screen actually change? Retry
+        # no-effect idempotent actions, and annotate the result otherwise so the
+        # model changes strategy. raw_png is this step's pre-action frame.
+        if executed_ok and config.verify_actions and action.kind not in _BENIGN:
+            result = _verify_and_maybe_retry(backend, action, raw_png, result, config, logger)
+
+        if executed_ok and macro_recorder is not None:
+            if from_replay:
+                macro_recorder.record_step(replayed_step)
+            else:
+                macro_recorder.record(action, result, backend, real_size)
+        record_result(result)
+
     logger.warning("reached max_steps (%d) without the model signaling done", config.max_steps)
     return 3
+
+
+def _build_plan(provider: VisionProvider, config: AgentConfig, logger, backend: Backend) -> Plan | None:
+    """Ask the provider to decompose the task into sub-tasks (needs one
+    screenshot to ground them). Returns a Plan, or None to run unplanned if
+    capture/planning fails or the provider returns nothing -- planning must
+    never be able to stop a run from starting."""
+    try:
+        raw_png, real_size = backend.capture(config.region)
+    except screen.CaptureError as e:
+        logger.warning("could not capture a screenshot to plan (%s); running unplanned", e)
+        return None
+    model_png, _size, _scale = screen.prepare_for_model(raw_png, real_size, max_edge=config.max_image_edge)
+    try:
+        subtasks = provider.plan_task(config.task, model_png, real_size)
+    except Exception as e:
+        logger.warning("could not get a task plan from the model (%s); running unplanned", e)
+        return None
+    if not subtasks:
+        logger.info("no task decomposition returned; running unplanned")
+        return None
+    logger.info("plan: %d sub-task(s)", len(subtasks))
+    for i, sub in enumerate(subtasks, 1):
+        logger.info("  %d. %s", i, sub)
+    return Plan(subtasks=subtasks)
+
+
+def _visible_change(pre_png: bytes, post_png: bytes, threshold: float, logger) -> bool:
+    """Did the screen change by at least `threshold`? Verification is best-effort:
+    if a frame can't be decoded/diffed, assume it changed so a flaky capture never
+    triggers a false 'no change' note or a spurious retry."""
+    try:
+        return screen.changed_ratio(pre_png, post_png) >= threshold
+    except Exception as e:
+        logger.debug("could not diff frames for verification (%s); assuming changed", e)
+        return True
+
+
+def _verify_and_maybe_retry(backend: Backend, action, pre_png: bytes, result: str, config: AgentConfig, logger) -> str:
+    """Check whether a just-executed action visibly changed the screen. If not,
+    retry the safe-to-repeat kinds up to `action_retries` times, and if it still
+    didn't land, append a note so the model tries something else rather than
+    repeating a dead action."""
+    try:
+        after_png, _ = backend.capture(config.region)
+    except screen.CaptureError:
+        return result  # can't grab a verify frame -> leave the result untouched
+
+    if _visible_change(pre_png, after_png, config.verify_threshold, logger):
+        return result
+
+    if action.kind in _RETRY_SAFE:
+        for attempt in range(1, config.action_retries + 1):
+            logger.info("action '%s' had no visible effect; retry %d/%d", action.kind, attempt, config.action_retries)
+            try:
+                result = backend.execute(action)
+            except Exception as e:
+                logger.error("retry of '%s' failed: %s", action.kind, e)
+                return f"error on retry: {e}"
+            if config.action_pause > 0:
+                time.sleep(config.action_pause)
+            try:
+                after_png, _ = backend.capture(config.region)
+            except screen.CaptureError:
+                return result
+            if _visible_change(pre_png, after_png, config.verify_threshold, logger):
+                return result  # a retry landed
+
+    logger.info("action '%s' produced no visible change; signaling the model", action.kind)
+    return result + _NO_CHANGE_NOTE
 
 
 def _run_briefing(provider: VisionProvider, config: AgentConfig, logger, backend: Backend) -> int | None:

@@ -13,6 +13,7 @@ via `AgentConfig.backend`, reusing everything else unchanged.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
@@ -83,9 +84,16 @@ class DesktopBackend:
         self,
         move_duration: float = actions.DEFAULT_MOVE_DURATION,
         settle: float = actions.DEFAULT_SETTLE,
+        activate: Callable[[], bool] | None = None,
     ):
         self.move_duration = move_duration
         self.settle = settle
+        # Optional per-instance hook: bring this backend's target window to the
+        # foreground (and confirm it took focus) right before each real action.
+        # Only open/'s per-window runner needs this (a single-window run has
+        # nothing else to steal focus); see actions.execute for why calling it
+        # inside the shared input lock is what makes multi-window runs safe.
+        self.activate = activate
 
     def setup(self, logger) -> None:
         try:
@@ -101,4 +109,6 @@ class DesktopBackend:
         return screen.capture_screenshot(region=region)
 
     def execute(self, action: Action) -> str:
-        return actions.execute(action, move_duration=self.move_duration, settle=self.settle)
+        return actions.execute(
+            action, move_duration=self.move_duration, settle=self.settle, activate=self.activate
+        )

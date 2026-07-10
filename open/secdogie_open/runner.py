@@ -17,9 +17,11 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from secdogie_agent.backend import DesktopBackend
 from secdogie_agent.loop import AgentConfig, run
 from secdogie_agent.providers.base import VisionProvider
 
+from . import windows
 from .windows import WindowInfo
 
 # Closed set of states a window run can be in, posted to the status queue
@@ -76,6 +78,13 @@ def launch(
             status_queue.put((window.id, "error", f"could not set up provider: {e}"))
             return
 
+        # Each window's actions run against a backend that re-focuses this
+        # specific window right before every real action -- see actions.execute:
+        # that call happens inside the process-wide input lock, so one window's
+        # click+type always completes (and hands focus to whichever window acts
+        # next) before another window's action can start.
+        backend = DesktopBackend(activate=lambda: windows.focus_window(window))
+
         config = AgentConfig(
             task=task,
             max_steps=max_steps,
@@ -84,6 +93,7 @@ def launch(
             region=window.region,
             logger_name=f"secdogie_open.{window.id}",
             should_stop=stop_event.is_set,
+            backend=backend,
         )
         try:
             rc = run(provider, config)

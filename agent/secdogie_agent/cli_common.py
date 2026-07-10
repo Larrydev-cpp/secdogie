@@ -101,6 +101,25 @@ def add_loop_args(parser: argparse.ArgumentParser) -> None:
         help="stop if the model repeats the same action against an unchanged screen this many times "
         "in a row -- the action isn't landing (default 4; 0 disables)",
     )
+    parser.add_argument(
+        "--plan",
+        action="store_true",
+        help="decompose the task into sub-tasks up front and work one at a time, carrying progress "
+        "forward; a stuck sub-task is skipped after --subtask-step-limit steps instead of spinning",
+    )
+    parser.add_argument(
+        "--subtask-step-limit",
+        type=int,
+        default=None,
+        help="with --plan, skip a sub-task that runs this many steps without finishing (default 15; 0 disables)",
+    )
+    parser.add_argument(
+        "--trace",
+        default=None,
+        metavar="PATH",
+        help="write a tamper-evident hash-chained audit trace (frame hash + decision + result per step) "
+        "to this JSONL file; verify later with `python -m secdogie_agent.trace <path>`",
+    )
 
 
 def handle_init_config(args: argparse.Namespace, prog: str) -> int:
@@ -165,4 +184,10 @@ def loop_config_kwargs(args: argparse.Namespace, *, task: str, backend=None) -> 
         kwargs["action_pause"] = args.action_pause
     if args.stall_limit is not None:
         kwargs["stall_limit"] = args.stall_limit
+    if getattr(args, "plan", False):
+        kwargs["plan"] = True
+    if getattr(args, "subtask_step_limit", None) is not None:
+        kwargs["subtask_step_limit"] = args.subtask_step_limit
+    if getattr(args, "trace", None) is not None:
+        kwargs["trace_path"] = args.trace
     return kwargs

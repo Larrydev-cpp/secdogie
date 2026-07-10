@@ -101,6 +101,30 @@ def test_new_actions_are_valid_schema():
     assert b.kind == "open" and b.path == "/x"
 
 
+# -- track_click routes to the reflex layer, holding the input lock -----------
+
+def test_track_click_routes_to_reflex_under_the_input_lock(monkeypatch):
+    # track_click is an input action: it must hold _INPUT_LOCK for the whole
+    # (multi-second) local pursuit, and hand its coords + timeout to the reflex
+    # layer. Stub the reflex layer so no numpy/display is needed here.
+    from secdogie_agent import reflex
+
+    _fake_pyautogui(monkeypatch)  # _dispatch imports pyautogui at its top, before the branch
+    seen = {}
+
+    def fake_track(x, y, *, timeout_s=None):
+        seen["args"] = (x, y, timeout_s)
+        seen["locked"] = actions._INPUT_LOCK.locked()  # proves we ran inside the guard
+        return "reflex track: clicked"
+
+    monkeypatch.setattr(reflex, "track_click_target", fake_track)
+    res = _run({"action": "track_click", "x": 12, "y": 34, "seconds": 8})
+    assert seen["args"] == (12, 34, 8)
+    assert seen["locked"] is True
+    assert res == "reflex track: clicked"
+    assert "track_click" not in actions._NON_INPUT_KINDS  # not benign -> takes the lock
+
+
 # -- concurrent input serialization (the multi-actor / distributed case) ------
 
 def test_concurrent_clicks_do_not_interleave_move_and_press(monkeypatch):
@@ -167,3 +191,64 @@ def test_wait_does_not_take_the_input_lock(monkeypatch):
     with actions._INPUT_LOCK:  # input is held, but wait doesn't need it -> finishes anyway
         threading.Thread(target=worker, daemon=True).start()
         assert done.wait(timeout=1)
+
+
+# -- activate hook (window-focus-aware multi-actor serialization) -------------
+
+def test_activate_is_called_before_dispatch_for_real_actions(monkeypatch):
+    calls = _fake_pyautogui(monkeypatch)
+    order = []
+    _run({"action": "left_click", "x": 1, "y": 1}, activate=lambda: order.append("activate") or True)
+    assert order == ["activate"]
+    assert [c[0] for c in calls] == ["moveTo", "click"]  # activate happened, then the real dispatch
+
+
+def test_activate_not_called_for_benign_actions(monkeypatch):
+    _fake_pyautogui(monkeypatch)
+    called = []
+    _run({"action": "wait", "seconds": 0.01}, activate=lambda: called.append(1) or True)
+    assert called == []
+
+
+def test_activate_failure_does_not_block_the_action(monkeypatch):
+    # Activation is best-effort: an exception must not stop the real action
+    # (nor escape execute()) -- silently doing nothing would be worse than
+    # acting against whatever currently has focus.
+    calls = _fake_pyautogui(monkeypatch)
+
+    def boom():
+        raise RuntimeError("no window manager support")
+
+    result = _run({"action": "left_click", "x": 1, "y": 1}, activate=boom)
+    assert "clicked" in result
+    assert [c[0] for c in calls] == ["moveTo", "click"]
+
+
+def test_activate_runs_inside_the_input_lock(monkeypatch):
+    # This is the whole point: activate() for actor B must not be able to run
+    # until actor A's activate()+dispatch has released the lock, so A's window
+    # is guaranteed to have already lost focus by the time B's activate() (and
+    # therefore B's action) begins.
+    _fake_pyautogui(monkeypatch)
+    order = []
+
+    def make_activate(name):
+        def _activate():
+            assert actions._INPUT_LOCK.locked()  # only true if called from inside execute()'s guard
+            order.append(name)
+            return True
+        return _activate
+
+    def worker(name):
+        actions.execute(
+            Action.from_dict({"action": "left_click", "x": 1, "y": 1}),
+            move_duration=0, settle=0, activate=make_activate(name),
+        )
+
+    threads = [threading.Thread(target=worker, args=(n,)) for n in ("A", "B")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=2)
+
+    assert set(order) == {"A", "B"}  # both ran, and (by the lock) never concurrently

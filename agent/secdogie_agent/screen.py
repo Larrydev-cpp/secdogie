@@ -63,6 +63,58 @@ def capture_screenshot(
         ) from e
 
 
+def primary_size() -> tuple[int, int]:
+    """(width, height) of the primary monitor, in absolute pixels.
+
+    Used to clamp a small capture region against the screen edge -- the reflex
+    layer captures a window *around* a moving target, and mss.grab errors (or
+    returns garbage) if that window pokes past the monitor bounds.
+    """
+    import mss
+
+    with mss.mss() as sct:
+        m = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+        return m["width"], m["height"]
+
+
+def changed_ratio(before_png: bytes, after_png: bytes, max_edge: int = 256, tol: int = 16) -> float:
+    """Fraction (0..1) of pixels that visibly changed between two screenshots.
+
+    A finer signal than an exact hash: the loop uses it to answer "did that
+    action actually do anything?" -- a click that changed nothing likely missed
+    (wrong target, unfocused window, blocked UI). Both frames are converted to
+    grayscale and shrunk to `max_edge` on the long side (so the compare is a few
+    milliseconds, not a full-resolution pass), then counted as changed where the
+    absolute per-pixel difference exceeds `tol` (which absorbs JPEG/anti-alias
+    noise so a static screen reads as 0, not a nonzero shimmer).
+
+    Mismatched sizes (e.g. a resolution change) count as fully changed -- that
+    is itself a large visible change, which is the right answer here.
+    """
+    from PIL import Image, ImageChops
+
+    def _small_gray(png: bytes) -> Image.Image:
+        with Image.open(io.BytesIO(png)) as img:
+            g = img.convert("L")
+            longest = max(g.width, g.height)
+            if longest > max_edge:
+                factor = max_edge / longest
+                g = g.resize((max(1, round(g.width * factor)), max(1, round(g.height * factor))))
+            return g.copy()
+
+    a = _small_gray(before_png)
+    b = _small_gray(after_png)
+    if a.size != b.size:
+        return 1.0
+
+    # Per-pixel |a-b|, thresholded at tol, then counted via the histogram -- all
+    # in PIL's C core, so no per-pixel Python loop and no numpy dependency.
+    mask = ImageChops.difference(a, b).point(lambda p: 255 if p > tol else 0)
+    changed = mask.histogram()[255]
+    total = a.width * a.height
+    return changed / total if total else 0.0
+
+
 def prepare_for_model(
     png_bytes: bytes,
     real_size: tuple[int, int],

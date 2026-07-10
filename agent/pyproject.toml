@@ -21,6 +21,9 @@ dependencies = [
 # The OpenAI provider is opt-in so the default install stays lean; the CLI
 # prints an install hint if you point it at a gpt-* model without it.
 openai = ["openai>=1.0.0"]
+# The local reflex layer (secdogie_agent/reflex.py) needs numpy for its fast
+# FFT template matching; nothing else does, so it stays optional.
+reflex = ["numpy>=1.21"]
 
 [project.scripts]
 secdogie-agent = "secdogie_agent.cli:main"

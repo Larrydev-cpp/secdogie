@@ -11,6 +11,7 @@ WDA.
 from __future__ import annotations
 
 import io
+import random
 
 from secdogie_agent import screen
 from secdogie_agent.providers.base import Action
@@ -22,6 +23,15 @@ from .wda import Wda, WdaError
 _SCROLL_SWIPE_PT = 300
 _LONG_PRESS_SECONDS = 0.6
 _DRAG_SECONDS = 0.4
+
+# WDA's /wda/tap has no duration knob -- a real finger's contact time varies,
+# this endpoint's doesn't. When humanize_taps is on, a tap is issued instead as
+# touchAndHold with a short randomized duration (the same primitive right_click
+# already uses for a real long-press, just much shorter). Range is typical
+# human tap dwell time, not tuned against any specific detector. NOTE:
+# touchAndHold maps to XCUITest's press(forDuration:), a different underlying
+# gesture from tap() -- see ios/README.md for what this does and does not change.
+_HUMANIZE_DURATION_S = (0.05, 0.14)
 
 # Model key names -> WDA hardware buttons (the only physical buttons WDA can
 # press). Everything else is a keyboard key and goes through typed text.
@@ -44,11 +54,22 @@ _TYPED_KEYS = {
 
 
 class IosBackend:
-    def __init__(self, wda: Wda):
+    def __init__(self, wda: Wda, humanize_taps: bool = False, rng: random.Random | None = None):
         self.wda = wda
         # pixels-per-point for the current frame; set in capture(), used to map
         # the loop's pixel coordinates down to WDA's point coordinates.
         self._px_per_pt = 1.0
+        # See _HUMANIZE_DURATION_S above.
+        self.humanize_taps = humanize_taps
+        self._rng = rng if rng is not None else random.Random()
+
+    def _tap(self, x: int, y: int) -> None:
+        """A single tap, humanized if enabled."""
+        if not self.humanize_taps:
+            self.wda.tap(x, y)
+            return
+        duration = self._rng.uniform(*_HUMANIZE_DURATION_S)
+        self.wda.touch_and_hold(x, y, duration)
 
     def setup(self, logger) -> None:
         # Don't hard-fail -- --dry-run should work with WDA down. A real
@@ -82,9 +103,14 @@ class IosBackend:
         a = action
         if a.kind == "left_click":
             x, y = self._pt(a.x), self._pt(a.y)
-            self.wda.tap(x, y)
+            self._tap(x, y)
             return f"tapped ({x}, {y}) pt"
         if a.kind == "double_click":
+            # Always WDA's real doubleTap gesture, even when humanizing: unlike
+            # Android (where a double-tap is just two ordinary tap events an app
+            # times itself), WDA's doubleTap is its own distinct gesture, and
+            # substituting two touchAndHolds would risk not registering as a
+            # double-tap at all rather than just changing its timing signature.
             x, y = self._pt(a.x), self._pt(a.y)
             self.wda.double_tap(x, y)
             return f"double-tapped ({x}, {y}) pt"
