@@ -180,6 +180,33 @@ Cursor movement is intentionally not instantaneous — teleport-and-click can
 miss hover/focus handlers in some apps, so the agent glides to the target
 and pauses briefly before pressing.
 
+## Action verification & retry
+
+The biggest source of flaky automation is an action that silently doesn't land:
+a click a few pixels off the button, a window that wasn't focused, an overlay
+covering the target. After each mutating action the agent takes a fresh
+screenshot and compares it to the pre-action frame (`screen.changed_ratio`, a
+downscaled grayscale pixel diff). If nothing visibly changed:
+
+- **idempotent actions** (`left_click`, `right_click`, `double_click`, `move`,
+  `scroll`) are **retried** up to `action_retries` times (default 1) — the
+  common cause is a transient miss (focus not ready, mid-animation), and
+  re-clicking an unresponsive spot is harmless;
+- **side-effectful actions** (`type`, `key`, `hold_key`, `drag`, `open`) are
+  **never auto-retried** — re-sending them would double-type text or re-submit —
+  but the result still carries a note;
+- if it still didn't land, the result fed back to the model gets
+  `"(no visible change detected ...)"`, and the system prompt tells the model to
+  **change target or approach** rather than repeat a dead action.
+
+This is a heuristic: it detects *visible* change, not semantic success (an action
+that correctly changed something off-screen reads as "no change"). It's tuned to
+cut the most common failure — a repeated action that never lands — not to judge
+task completion. Controlled by `AgentConfig.verify_actions` (default on),
+`verify_threshold` (changed-pixel fraction, default 0.005), and `action_retries`
+(default 1); it composes with `--stall-limit`, which remains the cross-step
+backstop. The one-frame diff is a few milliseconds locally.
+
 ## Actions it can take
 
 Each step the model picks one action: `left_click` / `right_click` /

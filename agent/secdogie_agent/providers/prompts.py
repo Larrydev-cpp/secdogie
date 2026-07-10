@@ -53,6 +53,12 @@ Rules:
   explicitly asked for, use "ask_user" and explain what you need confirmed instead of doing it.
 - If you believe the task is complete, use "done", don't keep clicking around.
 - One action per reply. You will be shown the result and a fresh screenshot before the next one.
+
+Handling common obstacles:
+- Unexpected popups, cookie banners, or dialogs: dismiss/close them first, then continue toward the goal.
+- If the page looks mid-load (spinners, blank areas), use "wait" a couple seconds, then re-check on the next frame instead of clicking into a half-loaded UI.
+- If the target isn't visible, "scroll" toward where it should be rather than guessing at off-screen coordinates.
+- If a previous action's result says "no visible change detected", that action did NOT land -- do not repeat it. Pick a different target (you may be a few pixels off), or a different approach (scroll it into view, dismiss an overlay covering it, or wait for load).
 """
 
 BRIEFING_PROMPT = """You are about to operate a real computer to accomplish a task for a user.

@@ -11,6 +11,23 @@ def _png(w, h):
     return buf.getvalue()
 
 
+def _solid(shade, w=200, h=150):
+    buf = io.BytesIO()
+    Image.new("L", (w, h), shade).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _solid_with_patch(shade, patch_shade, box, w=200, h=150):
+    img = Image.new("L", (w, h), shade)
+    x0, y0, x1, y1 = box
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            img.putpixel((x, y), patch_shade)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
 def test_large_image_is_downscaled_and_scale_is_exact():
     png = _png(2560, 1440)
     out, (mw, mh), scale = screen.prepare_for_model(png, (2560, 1440), max_edge=1568)
@@ -78,6 +95,37 @@ def test_action_translated_leaves_scroll_amounts_alone():
 def test_action_translated_identity_returns_self():
     a = Action.from_dict({"action": "left_click", "x": 5, "y": 5})
     assert a.translated(0, 0) is a
+
+
+# -- changed_ratio (post-action visual verification primitive) ----------------
+
+def test_changed_ratio_identical_frames_is_zero():
+    frame = _solid(120)
+    assert screen.changed_ratio(frame, frame) == 0.0
+
+
+def test_changed_ratio_black_to_white_is_near_one():
+    assert screen.changed_ratio(_solid(0), _solid(255)) > 0.99
+
+
+def test_changed_ratio_small_patch_is_small_and_below_default_threshold():
+    # A ~10% area patch that flips well past the tolerance -> a small ratio,
+    # below the loop's default verify_threshold (0.005) would be too strict, so
+    # confirm it lands in a sensible small-but-nonzero range.
+    before = _solid(30)
+    after = _solid_with_patch(30, 220, box=(0, 0, 60, 45))  # 60*45 / (200*150) = 9%
+    ratio = screen.changed_ratio(before, after)
+    assert 0.05 < ratio < 0.15
+
+
+def test_changed_ratio_ignores_sub_tolerance_noise():
+    # A shift of a few gray levels (below `tol`) should read as no change, so a
+    # static screen with mild compression shimmer isn't mistaken for activity.
+    assert screen.changed_ratio(_solid(100), _solid(108), tol=16) == 0.0
+
+
+def test_changed_ratio_mismatched_sizes_counts_as_fully_changed():
+    assert screen.changed_ratio(_solid(100, w=200, h=150), _solid(100, w=100, h=100)) == 1.0
 
 
 def test_capture_screenshot_region_grabs_only_that_box(monkeypatch):

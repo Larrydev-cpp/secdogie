@@ -18,6 +18,21 @@ from .providers.base import HistoryStep, VisionProvider
 # mouse/keyboard in a way that can do harm.
 _BENIGN = {"wait", "screenshot"}
 
+# Actions that are safe to auto-repeat when they appear to have had no effect:
+# re-clicking an unresponsive spot or re-scrolling is harmless. Deliberately
+# EXCLUDES type/key/hold_key/drag/open -- re-sending those double-types text,
+# re-presses Enter/submits, or re-opens things, so a "no visible change" there
+# is reported to the model but never blindly retried.
+_RETRY_SAFE = {"left_click", "right_click", "double_click", "move", "scroll"}
+
+# Appended to an action's result when the screen didn't visibly change, so the
+# model treats it as a miss and picks a different target/approach (the prompt
+# tells it to). Kept as a stable phrase the prompt can reference.
+_NO_CHANGE_NOTE = (
+    " (no visible change detected after this action -- the target may be wrong or the UI "
+    "is blocked; try a different target or approach)"
+)
+
 # Injected into the task when --watch is on, turning the loop into a monitor:
 # most frames the model just reports "keep watching"; it only acts on a trigger.
 _WATCH_DIRECTIVE = """\
@@ -54,6 +69,14 @@ class AgentConfig:
     # row, the action isn't landing (dead control / frozen render) -- stop instead of
     # spinning to max_steps. 0 disables. Benign/terminal actions (wait/done/...) are exempt.
     stall_limit: int = 4
+    # After a mutating action, re-screenshot and check whether anything visibly
+    # changed (screen.changed_ratio). A click/scroll that changed nothing likely
+    # missed (wrong target, window not focused, blocked UI): retry the
+    # idempotent ones, and if still nothing, tell the model so it can change
+    # strategy instead of repeating a dead action. 0 disables the whole check.
+    verify_actions: bool = True
+    verify_threshold: float = 0.005  # changed-pixel fraction at/above which an action "did something"
+    action_retries: int = 1  # extra attempts for a no-effect *idempotent* action (clicks/scroll/move)
     region: tuple[int, int, int, int] | None = None  # (left, top, width, height); None = full primary monitor
     logger_name: str = "secdogie_agent"  # distinct per concurrent run so loggers don't share/race on handlers
     should_stop: Callable[[], bool] | None = None  # checked each step; lets a caller cancel a running loop
@@ -240,26 +263,79 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             history.append(HistoryStep(action=action, result="skipped (user declined)"))
             continue
 
+        executed_ok = False
         try:
             result = backend.execute(action)
+            executed_ok = True
         except Exception as e:
             result = f"error: {e}"
             logger.error("action failed: %s", e)
-        else:
-            if macro_recorder is not None:
-                if from_replay:
-                    macro_recorder.record_step(replayed_step)
-                else:
-                    macro_recorder.record(action, result, backend, real_size)
-        history.append(HistoryStep(action=action, result=result))
 
-        # Let the UI react before the next screenshot; benign actions (wait)
-        # already pace themselves, so they're exempt.
+        # Let the UI react before we screenshot (to verify, and before the next
+        # step); benign actions (wait) already pace themselves, so they're exempt.
         if config.action_pause > 0 and action.kind not in _BENIGN:
             time.sleep(config.action_pause)
 
+        # Post-action visual verification: did the screen actually change? Retry
+        # no-effect idempotent actions, and annotate the result otherwise so the
+        # model changes strategy. raw_png is this step's pre-action frame.
+        if executed_ok and config.verify_actions and action.kind not in _BENIGN:
+            result = _verify_and_maybe_retry(backend, action, raw_png, result, config, logger)
+
+        if executed_ok and macro_recorder is not None:
+            if from_replay:
+                macro_recorder.record_step(replayed_step)
+            else:
+                macro_recorder.record(action, result, backend, real_size)
+        history.append(HistoryStep(action=action, result=result))
+
     logger.warning("reached max_steps (%d) without the model signaling done", config.max_steps)
     return 3
+
+
+def _visible_change(pre_png: bytes, post_png: bytes, threshold: float, logger) -> bool:
+    """Did the screen change by at least `threshold`? Verification is best-effort:
+    if a frame can't be decoded/diffed, assume it changed so a flaky capture never
+    triggers a false 'no change' note or a spurious retry."""
+    try:
+        return screen.changed_ratio(pre_png, post_png) >= threshold
+    except Exception as e:
+        logger.debug("could not diff frames for verification (%s); assuming changed", e)
+        return True
+
+
+def _verify_and_maybe_retry(backend: Backend, action, pre_png: bytes, result: str, config: AgentConfig, logger) -> str:
+    """Check whether a just-executed action visibly changed the screen. If not,
+    retry the safe-to-repeat kinds up to `action_retries` times, and if it still
+    didn't land, append a note so the model tries something else rather than
+    repeating a dead action."""
+    try:
+        after_png, _ = backend.capture(config.region)
+    except screen.CaptureError:
+        return result  # can't grab a verify frame -> leave the result untouched
+
+    if _visible_change(pre_png, after_png, config.verify_threshold, logger):
+        return result
+
+    if action.kind in _RETRY_SAFE:
+        for attempt in range(1, config.action_retries + 1):
+            logger.info("action '%s' had no visible effect; retry %d/%d", action.kind, attempt, config.action_retries)
+            try:
+                result = backend.execute(action)
+            except Exception as e:
+                logger.error("retry of '%s' failed: %s", action.kind, e)
+                return f"error on retry: {e}"
+            if config.action_pause > 0:
+                time.sleep(config.action_pause)
+            try:
+                after_png, _ = backend.capture(config.region)
+            except screen.CaptureError:
+                return result
+            if _visible_change(pre_png, after_png, config.verify_threshold, logger):
+                return result  # a retry landed
+
+    logger.info("action '%s' produced no visible change; signaling the model", action.kind)
+    return result + _NO_CHANGE_NOTE
 
 
 def _run_briefing(provider: VisionProvider, config: AgentConfig, logger, backend: Backend) -> int | None:

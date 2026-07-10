@@ -191,7 +191,9 @@ def test_loop_region_is_passed_to_capture_and_offsets_actions(monkeypatch):
         {"action": "done", "text": "done"},
     ])
     region = (100, 200, 400, 300)
-    config = loop.AgentConfig(task="click in a window", auto=True, max_steps=5, region=region)
+    # verify_actions off so this stays "one capture per step" -- post-action
+    # verification (tested separately) would add its own capture per action.
+    config = loop.AgentConfig(task="click in a window", auto=True, max_steps=5, region=region, verify_actions=False)
     rc = loop.run(provider, config)
     assert rc == 0
     assert captured_regions == [region, region]  # one capture per step (left_click, then done)
@@ -414,6 +416,147 @@ def test_stall_guard_disabled_when_limit_zero(monkeypatch):
     rc = loop.run(provider, loop.AgentConfig(task="t", auto=True, max_steps=4, stall_limit=0, action_pause=0))
     assert rc == 3  # no stall detection; runs out its steps instead
     assert provider.calls == 4
+
+
+# -- post-action visual verification + retry (execution robustness) -----------
+
+def _real_png(shade, w=64, h=48):
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("L", (w, h), shade).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+class HistoryCapturingProvider(VisionProvider):
+    """Like ScriptedProvider, but snapshots the result-history it's shown each
+    call, so a test can assert what feedback the model would see."""
+
+    def __init__(self, script):
+        self.script = list(script)
+        self.calls = 0
+        self.seen_history = []
+
+    def next_action(self, task, screenshot_png, screen_size, history):
+        self.calls += 1
+        self.seen_history.append([h.result for h in history])
+        return Action.from_dict(self.script.pop(0))
+
+
+def _patch_for_verify(monkeypatch, executed, frames):
+    """capture() walks `frames` (real PNG bytes) in order, holding the last;
+    execute() records the action kind. Lets a test control the pre/post frames
+    the verification diff sees."""
+    i = {"n": 0}
+
+    def cap(region=None):
+        f = frames[min(i["n"], len(frames) - 1)]
+        i["n"] += 1
+        return f, (64, 48)
+
+    monkeypatch.setattr(screen, "capture_screenshot", cap)
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+    monkeypatch.setattr(actions, "execute", lambda action, **kw: executed.append(action.kind) or "ok")
+
+
+def _verify_cfg(**kw):
+    base = dict(task="t", auto=True, max_steps=5, action_pause=0, stall_limit=0, action_retries=1)
+    base.update(kw)
+    return loop.AgentConfig(**base)
+
+
+def test_verify_retries_idempotent_action_with_no_visible_change(monkeypatch):
+    executed = []
+    _patch_for_verify(monkeypatch, executed, [_real_png(100)])  # every frame identical -> nothing changes
+    provider = HistoryCapturingProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "done", "text": "d"},
+    ])
+    rc = loop.run(provider, _verify_cfg())
+    assert rc == 0
+    assert executed == ["left_click", "left_click"]  # original + one retry
+    assert any("no visible change" in r for r in provider.seen_history[-1])  # signal reached the model
+
+
+def test_verify_skips_retry_and_note_when_the_action_lands(monkeypatch):
+    executed = []
+    # top frame black, verify frame white -> a big change -> the action landed.
+    _patch_for_verify(monkeypatch, executed, [_real_png(0), _real_png(255)])
+    provider = HistoryCapturingProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "done", "text": "d"},
+    ])
+    rc = loop.run(provider, _verify_cfg())
+    assert rc == 0
+    assert executed == ["left_click"]  # no retry
+    assert not any("no visible change" in r for r in provider.seen_history[-1])
+
+
+def test_verify_stops_retrying_once_a_retry_lands(monkeypatch):
+    executed = []
+    # top black, first verify black (no change -> retry), retry verify white (changed).
+    _patch_for_verify(monkeypatch, executed, [_real_png(0), _real_png(0), _real_png(255)])
+    provider = HistoryCapturingProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "done", "text": "d"},
+    ])
+    rc = loop.run(provider, _verify_cfg())
+    assert rc == 0
+    assert executed == ["left_click", "left_click"]  # one retry, which landed
+    assert not any("no visible change" in r for r in provider.seen_history[-1])
+
+
+def test_verify_does_not_retry_side_effectful_action_but_still_signals(monkeypatch):
+    executed = []
+    _patch_for_verify(monkeypatch, executed, [_real_png(100)])  # type has no visible effect
+    provider = HistoryCapturingProvider([
+        {"action": "type", "text": "hello"},
+        {"action": "done", "text": "d"},
+    ])
+    rc = loop.run(provider, _verify_cfg())
+    assert rc == 0
+    assert executed == ["type"]  # NOT retried (re-typing would double the text)
+    assert any("no visible change" in r for r in provider.seen_history[-1])  # but the model is told
+
+
+def test_verify_skips_benign_actions(monkeypatch):
+    executed = []
+    _patch_for_verify(monkeypatch, executed, [_real_png(100)])
+    provider = HistoryCapturingProvider([
+        {"action": "wait", "seconds": 0},
+        {"action": "done", "text": "d"},
+    ])
+    rc = loop.run(provider, _verify_cfg())
+    assert rc == 0
+    assert executed == ["wait"]
+    assert not any("no visible change" in r for r in provider.seen_history[-1])  # wait isn't verified
+
+
+def test_verify_actions_false_disables_the_whole_check(monkeypatch):
+    executed = []
+    _patch_for_verify(monkeypatch, executed, [_real_png(100)])  # unchanged, but verification off
+    provider = HistoryCapturingProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "done", "text": "d"},
+    ])
+    rc = loop.run(provider, _verify_cfg(verify_actions=False))
+    assert rc == 0
+    assert executed == ["left_click"]  # no retry
+    assert not any("no visible change" in r for r in provider.seen_history[-1])
+
+
+def test_verify_and_stall_guard_coexist(monkeypatch):
+    # A no-effect click that the model keeps re-issuing: each step retries once
+    # (verify) but the screen never changes, so the cross-step stall guard still
+    # trips -- the two mechanisms compose, they don't cancel out.
+    executed = []
+    _patch_for_verify(monkeypatch, executed, [_real_png(100)])
+    provider = HistoryCapturingProvider([{"action": "left_click", "x": 5, "y": 5}] * 20)
+    rc = loop.run(provider, _verify_cfg(stall_limit=3, max_steps=20))
+    assert rc == 6  # stalled despite the per-step retries
+    assert provider.calls == 4  # one baseline + three no-change repeats
 
 
 def test_loop_watch_mode_ignores_macro_path(monkeypatch, tmp_path):
