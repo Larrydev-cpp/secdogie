@@ -35,6 +35,8 @@ jobs:
           - dir: agent
             extras: "[reflex]"  # so the reflex layer's numpy-backed tests run
           - dir: handoff
+          - dir: aim
+            needs_handoff: true
           - dir: android
             needs_agent: true
           - dir: ios
@@ -58,6 +60,9 @@ jobs:
           python -m pip install --upgrade pip
           if [ "${{ matrix.needs_agent }}" = "true" ]; then
             pip install -e ../agent
+          fi
+          if [ "${{ matrix.needs_handoff }}" = "true" ]; then
+            pip install -e ../handoff
           fi
           pip install -e ".${{ matrix.extras }}" pytest
 
