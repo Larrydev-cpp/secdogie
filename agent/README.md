@@ -177,6 +177,7 @@ Extra knobs:
 | `--stall-limit N` | stop if the model picks the same action against an unchanged screen `N` times in a row (default 4) — the action isn't landing (a dead control, a frozen render), so bail with exit code 6 instead of spinning to `--max-steps`. `0` disables. |
 | `--plan` | decompose the task into sub-tasks up front and work one at a time (see below). |
 | `--subtask-step-limit N` | with `--plan`, skip a sub-task that runs `N` steps without finishing (default 15; `0` disables). |
+| `--trace PATH` | write a tamper-evident hash-chained audit trace of every step to `PATH` (JSONL); verify later with `python -m secdogie_agent.trace PATH` (see below). |
 
 Cursor movement is intentionally not instantaneous — teleport-and-click can
 miss hover/focus handlers in some apps, so the agent glides to the target
@@ -208,6 +209,34 @@ task completion. Controlled by `AgentConfig.verify_actions` (default on),
 `verify_threshold` (changed-pixel fraction, default 0.005), and `action_retries`
 (default 1); it composes with `--stall-limit`, which remains the cross-step
 backstop. The one-frame diff is a few milliseconds locally.
+
+## Verifiable execution trace
+
+For high-stakes or zero-trust runs, `--trace run.jsonl` writes a **tamper-evident
+audit log**: one entry per step recording *what the model saw* (a SHA-256 of the
+exact screenshot), *what it decided* (the action + its reasoning), and *what
+happened* (the result), each stamped with a time and sequence number.
+
+The entries form a **hash chain** — every entry commits to the previous one's
+hash — so altering, reordering, or dropping any past entry changes its hash and
+breaks every entry after it. The last entry's hash (`head`) is a single
+commitment to the whole ordered history. Verify a trace afterwards:
+
+```bash
+python -m secdogie_agent.trace run.jsonl
+# trace OK: 42 entry(ies), chain intact. head=ca769f78...
+# (or) trace TAMPERED: entry 7: content does not match its hash (entry was edited)
+```
+
+The file is written incrementally (each step is flushed as it happens), so it
+survives a crash mid-run. **Honest scope:** the chain proves *internal
+consistency* — no entry was edited without recomputing all following hashes. It
+is not a signature, so a party who can rewrite the whole file can also recompute
+a fresh valid chain, and truncation from the end is only detectable against a
+known head. To make it genuinely tamper-*proof*, anchor the `head` somewhere the
+rewriter doesn't control (print it to a monitored log, sign it, or publish it at
+run time). A Merkle tree would add per-entry inclusion proofs; the chain is the
+simpler tool that fits an append-only, ordered log.
 
 ## Planning (task decomposition)
 
@@ -374,6 +403,7 @@ secdogie_agent/
   backend.py              Backend protocol (setup/capture/execute) + optional Locatable capability
   macro.py                RPA macro record/replay: Macro, MacroRecorder, resolve_replay_step
   plan.py                 task decomposition + sub-task progress tracking (used with --plan)
+  trace.py                tamper-evident hash-chained audit trace (used with --trace; `python -m` verifies)
   reflex.py               local reflex layer: FFT template matching + a frame-rate pursue loop (needs numpy)
   screen.py               screenshot capture + resize/coordinate scaling (mss + Pillow)
   actions.py              executes an Action via pyautogui (smooth move + settle)

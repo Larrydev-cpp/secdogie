@@ -14,6 +14,7 @@ from .backend import Backend, DesktopBackend
 from .macro import Macro, MacroRecorder, MacroStep, resolve_replay_step
 from .plan import Plan
 from .providers.base import HistoryStep, VisionProvider
+from .trace import ExecutionTrace
 
 # Benign actions that never need a confirmation prompt -- they don't touch the
 # mouse/keyboard in a way that can do harm.
@@ -91,6 +92,9 @@ class AgentConfig:
     # Error recovery when planning: if a sub-task burns this many steps without a `done`, skip it and
     # move on instead of spinning the whole run. 0 disables (only meaningful with plan=True).
     subtask_step_limit: int = 15
+    # Audit: if set, write a tamper-evident hash-chained trace of every step (frame hash + decision +
+    # result) to this JSONL path. Verify later with `python -m secdogie_agent.trace <path>`. See trace.py.
+    trace_path: str | None = None
 
 
 def run(provider: VisionProvider, config: AgentConfig) -> int:
@@ -147,6 +151,11 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
     if config.plan and not config.watch:
         plan = _build_plan(provider, config, logger, backend)
     subtask_started = 1  # the step the current sub-task began on (for its budget)
+
+    # Audit: a tamper-evident hash chain of every decision, written as it happens.
+    trace = ExecutionTrace(config.trace_path) if config.trace_path else None
+    if trace is not None:
+        logger.info("writing a verifiable execution trace to %s", config.trace_path)
 
     history: list[HistoryStep] = []
     # Stall detection: the signature + captured-frame hash of the last executed
@@ -238,11 +247,27 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
 
         reasoning = action.reasoning or action.raw.get("reasoning", "")
 
+        # Loop vars are bound as defaults so this closure snapshots THIS step's
+        # action/frame/reasoning (it's only ever called within the same step).
+        def record_result(result: str, *, action=action, raw_png=raw_png, reasoning=reasoning) -> None:
+            """Append the step's outcome to history and, if auditing, to the
+            tamper-evident trace -- both keyed to this step's action, the frame
+            it was decided on, and the model's reasoning."""
+            history.append(HistoryStep(action=action, result=result))
+            if trace is not None:
+                trace.record(
+                    raw_png,
+                    {"kind": action.kind, "x": action.x, "y": action.y, "to_x": action.to_x,
+                     "to_y": action.to_y, "text": action.text, "keys": action.keys, "raw": action.raw},
+                    reasoning,
+                    result,
+                )
+
         # In watch mode a "wait" means "trigger not seen yet" -- log quietly and
         # keep watching without a confirmation prompt.
         if config.watch and action.kind == "wait":
             logger.info("watching (step %d): no trigger yet%s", step, f" -- {reasoning}" if reasoning else "")
-            history.append(HistoryStep(action=action, result="watching, condition not met"))
+            record_result("watching, condition not met")
             continue
 
         logger.info("step %d/%d: %s %s", step, config.max_steps, action.kind, f"({reasoning})" if reasoning else "")
@@ -256,12 +281,13 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 subtask_started = step
                 logger.info("sub-task complete (%d/%d): %s", len(plan.completed), len(plan.subtasks), finished)
                 if not plan.is_done:
-                    history.append(HistoryStep(action=action, result="sub-task complete; moving to the next"))
+                    record_result("sub-task complete; moving to the next")
                     continue
                 # fall through: the last sub-task just completed -> finish the run
 
             summary = action.text or action.raw.get("text", "")
             logger.info("done: %s", summary)
+            record_result(f"done: {summary}" if summary else "done")
             if plan is not None and plan.skipped:
                 logger.warning("run finished but %d sub-task(s) were skipped: %s", len(plan.skipped), plan.skipped)
             if macro_recorder is not None and macro_recorder.steps:
@@ -283,12 +309,12 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             if not allowed:
                 logger.info("user declined to continue after ask_user")
                 return 2
-            history.append(HistoryStep(action=action, result="user confirmed, continuing"))
+            record_result("user confirmed, continuing")
             continue
 
         if config.dry_run:
             logger.info("[dry-run] would execute: %s", action.raw)
-            history.append(HistoryStep(action=action, result="skipped (dry-run)"))
+            record_result("skipped (dry-run)")
             continue
 
         # Stall guard: the same real action about to run against a screen that
@@ -311,7 +337,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
         needs_confirm = not config.auto and action.kind not in _BENIGN
         if needs_confirm and not safety.confirm(f"Execute {action.kind}({action.raw})?"):
             logger.info("user declined action: %s", action.kind)
-            history.append(HistoryStep(action=action, result="skipped (user declined)"))
+            record_result("skipped (user declined)")
             continue
 
         executed_ok = False
@@ -338,7 +364,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 macro_recorder.record_step(replayed_step)
             else:
                 macro_recorder.record(action, result, backend, real_size)
-        history.append(HistoryStep(action=action, result=result))
+        record_result(result)
 
     logger.warning("reached max_steps (%d) without the model signaling done", config.max_steps)
     return 3

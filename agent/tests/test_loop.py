@@ -636,6 +636,53 @@ def test_plan_falls_back_to_unplanned_when_provider_returns_no_plan(monkeypatch)
     assert executed == ["left_click"]  # ...but with no plan, done ends the run normally
 
 
+# -- verifiable execution trace (audit) ---------------------------------------
+
+def test_run_writes_a_verifiable_trace_of_every_step(monkeypatch, tmp_path):
+    from secdogie_agent import trace
+
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 3, "y": 4, "reasoning": "click it"},
+        {"action": "done", "text": "all set"},
+    ])
+    path = tmp_path / "run.jsonl"
+    rc = loop.run(provider, loop.AgentConfig(
+        task="t", auto=True, max_steps=5, action_pause=0, stall_limit=0,
+        verify_actions=False, trace_path=str(path),
+    ))
+    assert rc == 0
+
+    entries = trace.load(str(path))
+    assert [e["action"]["kind"] for e in entries] == ["left_click", "done"]  # every decision recorded
+    assert entries[0]["reasoning"] == "click it"
+    ok, reason = trace.verify_entries(entries)
+    assert ok, reason  # the chain the run produced verifies clean
+
+
+def test_trace_detects_tampering_after_the_run(monkeypatch, tmp_path):
+    from secdogie_agent import trace
+
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    provider = ScriptedProvider([
+        {"action": "type", "text": "password123"},
+        {"action": "done", "text": "done"},
+    ])
+    path = tmp_path / "run.jsonl"
+    loop.run(provider, loop.AgentConfig(
+        task="t", auto=True, max_steps=5, action_pause=0, stall_limit=0,
+        verify_actions=False, trace_path=str(path),
+    ))
+
+    # An auditor changes what was typed -- the chain must catch it.
+    entries = trace.load(str(path))
+    entries[0]["action"]["text"] = "innocent text"
+    ok, reason = trace.verify_entries(entries)
+    assert not ok and "entry 0" in reason
+
+
 def test_loop_watch_mode_ignores_macro_path(monkeypatch, tmp_path):
     # Watch mode is exempted from macro replay/recording entirely -- a
     # variable-length trigger doesn't fit a fixed recorded sequence.
