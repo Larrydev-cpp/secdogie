@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secdogie-commander"
+version = "0.1.0"
+description = "The tactician: decide the dragon fight's phases and sequence Node A (logistics) and Node B (combat)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# The decision core is stdlib-only. The `run` subcommand drives the real fight
+# and needs the sibling packages (secdogie-agent, secdogie-aim, secdogie-handoff)
+# installed on the machine; those are imported lazily (see wiring.py), not hard
+# dependencies, so `plan` and the tests stay dependency-free.
+dependencies = []
+
+[project.scripts]
+secdogie-commander = "secdogie_commander.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["secdogie_commander*"]

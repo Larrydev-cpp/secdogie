@@ -37,6 +37,7 @@ jobs:
           - dir: handoff
           - dir: aim
             needs_handoff: true
+          - dir: commander  # decision core is pure; run/wiring imports agent/aim/handoff lazily
           - dir: android
             needs_agent: true
           - dir: ios

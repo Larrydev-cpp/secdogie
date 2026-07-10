@@ -2,7 +2,8 @@
 
 **Node B of the hybrid game architecture**: a real-time combat controller that
 pulls the crosshair onto a detected target with **relative mouse-look** and
-fires when it's on target. Built for the single-player / own-server Minecraft
+fires when it's on target. (The `commander/` package sits above this and
+`agent/`, deciding *when* to fight vs restock and sequencing the two.) Built for the single-player / own-server Minecraft
 ender-dragon project; secdogie's normal 2D machinery (Node A) handles menus,
 crafting and hotbar, and this node takes over only for the fight.
 

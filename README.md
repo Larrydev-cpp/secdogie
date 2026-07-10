@@ -121,6 +121,7 @@ ios/      Python: drive an iPhone/iPad over WebDriverAgent, reusing the agent lo
 scene3d/  Python: multi-model 3D scene analysis (per-view workers + an aggregator)
 handoff/  Python: cross-process input-ownership baton (one node drives the mouse/keyboard at a time)
 aim/      Python: real-time combat controller -- relative mouse-look + P-control aim onto a detected target
+commander/ Python: tactician state machine -- decides fight phases and sequences the logistics/combat nodes
 ```
 
 Each subdirectory has its own README with build/install/run instructions
