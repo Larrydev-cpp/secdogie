@@ -166,10 +166,17 @@ static void run_loop(int tun_fd, int udp_fd, sdtp_config *cfg, int is_server) {
         }
 
         if (pfds[1].revents & POLLIN) {
-            struct sockaddr_in src_addr;
-            socklen_t src_len = sizeof(src_addr);
-            ssize_t n = recvfrom(udp_fd, buf, sizeof(buf), 0, (struct sockaddr *)&src_addr, &src_len);
-            if (n > 0) {
+            /* Drain every datagram queued on this wake in one recvmmsg, not one
+             * recvfrom + poll round-trip per packet -- that per-packet syscall
+             * cost is what dominates latency under load. */
+            sdtp_udp_msg batch[SDTP_RECV_BATCH];
+            int count = sdtp_udp_recv_batch(udp_fd, batch, SDTP_RECV_BATCH);
+            for (int bi = 0; bi < count; bi++) {
+                uint8_t *buf = batch[bi].buf;
+                ssize_t n = (ssize_t)batch[bi].len;
+                struct sockaddr_in src_addr = batch[bi].src;
+                socklen_t src_len = batch[bi].src_len;
+                if (n <= 0) continue;
                 uint8_t type = buf[0];
                 if (type == SDTP_MSG_HANDSHAKE_INIT && is_server) {
                     uint8_t msg2[SDTP_MSG2_LEN];

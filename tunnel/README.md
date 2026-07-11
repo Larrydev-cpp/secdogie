@@ -115,9 +115,10 @@ classes of bug up front:
   live in caller-owned structs, and every `memcpy` uses a compile-time constant
   length (a key/session-id size), never an attacker-supplied one. So there are
   no leaks, use-after-frees, or double-frees to have.
-- **Single-threaded.** The server and hub are one `poll()` loop with one
-  `recvfrom`; there are no threads and no locks, so there are no data races or
-  lock ordering to get wrong.
+- **Single-threaded.** The server and hub are one `poll()` loop; there are no
+  threads and no locks, so there are no data races or lock ordering to get
+  wrong. (Per wake it drains the whole queued UDP batch in one `recvmmsg` — see
+  Latency — which is a syscall count change, not a concurrency one.)
 
 What remains is the real risk: a malformed datagram driving an out-of-bounds
 read in a parser. That surface is covered by `tests/fuzz_packets.c`, which
@@ -137,6 +138,42 @@ ctest --test-dir build-asan --output-on-failure   # protocol + fuzz, clean under
 None of this makes the *cryptography* audited (see [`PROTOCOL.md`](PROTOCOL.md)
 and `SECURITY.md`); it's about not crashing on hostile input.
 
+## Latency
+
+The data plane's latency is dominated by three things — the `recvfrom`/`sendto`
+syscalls, libsodium's AEAD, and network RTT — none of which the *language*
+changes (libsodium is already optimized C; syscalls are the kernel's; RTT is the
+wire). The lever that *is* available is the **per-packet syscall count**, which
+is what dominates cost under load. So each `poll()` wake drains the whole queued
+UDP batch in a single `recvmmsg` (`sdtp_udp_recv_batch`, `src/net.c`) instead of
+one `recvfrom` + one poll round-trip per packet.
+
+The effect, measured on loopback by `bench_recv` (built + run as a ctest):
+
+```
+$ ./build/bench_recv 50000
+received 800000 datagrams (16 per burst, 50000 rounds)
+  one recvfrom/pkt :   800000 recv syscalls, ...
+  recvmmsg batches :    50000 recv syscalls, ...
+  -> 16.0x fewer receive syscalls, ~1.0x wall-time
+```
+
+**Honest framing:** the deterministic win is **~16× fewer receive syscalls**
+(one per batch instead of one per packet). On loopback the wall-time barely
+moves — a loopback `recvfrom` is already cheap — but on a real NIC under load
+the saved syscalls and context switches are where tail latency comes from. A
+single, idle packet's latency was already near-optimal (`poll` wakes on it
+immediately, then one syscall + one AEAD); batching does nothing for that case
+and everything for the under-load case. It's non-blocking (`MSG_DONTWAIT`), so a
+spurious wake never stalls the loop. `recvmmsg` is Linux; other platforms fall
+back to a bounded `recvfrom` loop with identical behavior.
+
+Deliberately **not** done: threads / an event-loop library (the single `poll`
+loop is correct and auditable for a handful of peers — adding concurrency would
+only add attack surface and races). Known follow-ups if a workload ever needs
+them: the symmetric TUN-read drain and `sendmmsg` on the send side, and
+`io_uring` for a bigger syscall-amortization step — all in C, no rewrite.
+
 ## Layout
 
 ```
@@ -146,7 +183,7 @@ src/        implementation
   handshake.c   the 3-DH handshake state machine (see PROTOCOL.md)
   data.c        data-channel AEAD framing + replay window
   tun.c         Linux TUN device creation/configuration (ioctl-based)
-  net.c         UDP socket helpers
+  net.c         UDP socket helpers + batched receive (recvmmsg drain)
   config.c      config file parsing
   hub.c         hub config loader + multi-client routing event loop
   hub_route.c   pure hub routing helpers (inner-IP parse, peer lookup)

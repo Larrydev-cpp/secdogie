@@ -38,6 +38,7 @@ jobs:
           - dir: aim
             needs_handoff: true
           - dir: commander  # decision core is pure; run/wiring imports agent/aim/handoff lazily
+          - dir: gta        # protocol + control law are pure; bridge/cli need the game (not tested)
           - dir: android
             needs_agent: true
           - dir: ios

@@ -4,12 +4,17 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include <unistd.h>
+#include <poll.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
 
 #include "sdtp.h"
 #include "crypto.h"
 #include "handshake.h"
 #include "data.h"
 #include "hub.h"
+#include "net.h"
 
 static int failures = 0;
 #define CHECK(cond, msg) do { \
@@ -222,6 +227,49 @@ static void test_hub_two_client_session_demux(void) {
           "client 2's packet does not decrypt under client 1's session");
 }
 
+/* Exercises the recvmmsg batch drain against real loopback UDP sockets (no TUN,
+ * no root) -- the same call path the run loops use, so this proves the syscall
+ * batching actually works on this OS, not just that the wrapper compiles. */
+static void test_udp_recv_batch(void) {
+    int rx = sdtp_udp_bind(0); /* ephemeral port */
+    CHECK(rx >= 0, "udp bind for batch test");
+
+    struct sockaddr_in raddr;
+    socklen_t rlen = sizeof(raddr);
+    getsockname(rx, (struct sockaddr *)&raddr, &rlen);
+    raddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
+    int tx = socket(AF_INET, SOCK_DGRAM, 0);
+    CHECK(tx >= 0, "udp sender socket");
+
+    const int N = 8;
+    for (int i = 0; i < N; i++) {
+        uint8_t payload[4] = {(uint8_t)i, 0xAB, 0xCD, (uint8_t)(i * 7)};
+        sendto(tx, payload, sizeof(payload), 0, (struct sockaddr *)&raddr, sizeof(raddr));
+    }
+
+    struct pollfd pfd = {.fd = rx, .events = POLLIN};
+    poll(&pfd, 1, 1000);
+
+    sdtp_udp_msg batch[SDTP_RECV_BATCH];
+    int count = sdtp_udp_recv_batch(rx, batch, SDTP_RECV_BATCH);
+    CHECK(count == N, "recv_batch drained all N datagrams in a single call");
+
+    int intact = (count == N);
+    for (int i = 0; i < count && intact; i++) {
+        if (batch[i].len != 4 || batch[i].buf[0] != (uint8_t)i || batch[i].buf[3] != (uint8_t)(i * 7)) {
+            intact = 0;
+        }
+    }
+    CHECK(intact, "batched datagrams arrive intact and in send order");
+
+    int empty = sdtp_udp_recv_batch(rx, batch, SDTP_RECV_BATCH);
+    CHECK(empty == 0, "recv_batch on a drained socket returns 0 without blocking");
+
+    close(tx);
+    close(rx);
+}
+
 int main(void) {
     if (sdtp_crypto_init() != 0) {
         fprintf(stderr, "crypto init failed\n");
@@ -233,6 +281,7 @@ int main(void) {
     test_hub_parse_ipv4_dst();
     test_hub_peer_lookup();
     test_hub_two_client_session_demux();
+    test_udp_recv_batch();
 
     if (failures) {
         fprintf(stderr, "\n%d check(s) FAILED\n", failures);

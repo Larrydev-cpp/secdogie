@@ -335,6 +335,46 @@ secdogie-agent "log into example.com and open the dashboard" --macro dashboard.j
 - The macro file is plain, human-readable JSON (`secdogie_agent/macro.py`) —
   inspect or hand-edit it if useful.
 
+## Programmable skills: sub-flows, conditions, loops
+
+A recorded macro is a flat, one-shot sequence — no parameters, no reuse, no
+branching. A **skill** is the step up: an authored JSON program of named,
+parameterized flows that call each other, branch on what's on screen, and loop.
+Run one with `--skill`:
+
+```bash
+secdogie-agent --skill skills.example.json --skill-entry main \
+  --skill-arg user=alice --skill-arg pass=secret --skill-arg count=20 --auto
+```
+
+Statements are `action` (any of the actions above, with `{param}` substitution),
+`call` (invoke another skill with args), `if` (then/else), `while`, `repeat`
+(with an optional 1-based index var), and `set`/`incr` for counters. Conditions
+are either `screen` (a yes/no question answered by the model about the current
+screenshot — "a cookie banner is covering the page") or `expr` (a pure compare
+like `{i} < 10`), optionally wrapped in `not`. See
+[`skills.example.json`](skills.example.json) for a login-then-process-N-rows
+program.
+
+```json
+{"op": "while",
+ "cond": {"kind": "screen", "description": "there is another unread row"},
+ "body": [{"op": "call", "skill": "handle_row"}]}
+```
+
+Design and honesty:
+
+- **The interpreter is deterministic and unit-tested** (`secdogie_agent/skill.py`)
+  — control flow, parameter binding, recursion/loop guards. A runaway `while` or
+  recursion is bounded (`max_loop` / `max_statements` / call-depth), so a bad
+  program stops rather than spins forever.
+- **Only `screen` conditions call the model** (one cheap yes/no per check); the
+  actions and control flow don't. So a skill is far cheaper than the live loop
+  while being far more capable than a flat macro.
+- It is *authored*, not recorded — you write (or generate) the JSON. Coordinates
+  are real screen pixels; `skill_runner.py` wires the interpreter to the backend
+  (hands) and provider (eyes).
+
 ## Latency, and the local reflex layer
 
 A cloud vision model runs at roughly **1 Hz** — 1–3 seconds per screenshot →
@@ -402,6 +442,8 @@ secdogie_agent/
   loop.py                the screenshot -> action -> execute -> repeat loop
   backend.py              Backend protocol (setup/capture/execute) + optional Locatable capability
   macro.py                RPA macro record/replay: Macro, MacroRecorder, resolve_replay_step
+  skill.py                programmable skill interpreter (call/if/while/repeat/params) -- pure, tested
+  skill_runner.py         wires skills to a real backend + a model yes/no for conditions (--skill)
   plan.py                 task decomposition + sub-task progress tracking (used with --plan)
   trace.py                tamper-evident hash-chained audit trace (used with --trace; `python -m` verifies)
   reflex.py               local reflex layer: FFT template matching + a frame-rate pursue loop (needs numpy)

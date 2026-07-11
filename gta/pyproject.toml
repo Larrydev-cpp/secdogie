@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secdogie-gta"
+version = "0.1.0"
+description = "Drive GTA V (single-player) via a ScriptHookV plugin: a JSON bridge protocol + a proportional heading control law that steers a vehicle to a waypoint."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# Pure stdlib: the protocol is JSON, the control law is math, the bridge is a
+# socket. The ScriptHookV plugin it talks to is a separate C++ artifact (README).
+dependencies = []
+
+[project.scripts]
+secdogie-gta = "secdogie_gta.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["secdogie_gta*"]
