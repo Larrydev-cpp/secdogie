@@ -86,6 +86,52 @@ agent directly on the remote machine and only using the tunnel to reach it
 for setup/monitoring). The tunnel and the agent are independent, composable
 pieces on purpose — neither hard-depends on the other.
 
+## Architecture
+
+The heart is `agent/`'s two-tier loop: a slow cloud vision-model (~1 Hz)
+decides *what* to do, a fast local reflex layer (frame-rate NCC template
+matching) handles *where* precisely. Every action goes through one closed
+schema and is verified by a pixel diff before the loop moves on. The other
+components either reuse that loop against a different backend
+(`android`/`ios`), fan it out (`open`), carry it to another machine
+(`tunnel`), or bolt a fast controller onto it for games (the game stack).
+
+```mermaid
+flowchart TB
+    subgraph core["agent/ — two-tier control loop"]
+        cap["screen: capture screenshot"] --> prov["provider: vision-LLM<br/>(~1 Hz) picks next action"]
+        prov --> plan["plan / skill / trace<br/>planning · macros · audit chain"]
+        plan --> act["actions: closed VALID_ACTIONS schema<br/>(the sandbox boundary)"]
+        act --> backend{{backend}}
+        backend --> verify["verify: screen.changed_ratio<br/>no visible change → retry"]
+        verify --> cap
+        act -. fast local .-> reflex["reflex: NCC template match<br/>track_click · refine_point"]
+        reflex --> cap
+    end
+
+    backend --> desktop["desktop<br/>pyautogui"]
+    backend --> android["android/<br/>adb"]
+    backend --> ios["ios/<br/>WebDriverAgent"]
+
+    open["open/ — multi-window web GUI"] -->|drives N instances| core
+    scene3d["scene3d/ — multi-model<br/>3D scene aggregator"] -. perception .-> prov
+    core -. optional, to a remote box .-> tunnel["tunnel/<br/>libsodium VPN"] --> remote[(remote machine)]
+
+    subgraph game["game stack — single-player only"]
+        commander["commander/<br/>tactician state machine"] -->|baton| handoff["handoff/<br/>input-ownership baton"]
+        handoff --> nodeA["Node A: agent macros<br/>2D logistics"]
+        handoff --> nodeB["aim/ — Node B<br/>relative mouse-look + P-aim"]
+        gta["gta/ — steering control law<br/>→ ScriptHookV bridge"]
+    end
+    commander -. sequences .-> core
+```
+
+Solid arrows are the per-frame data path; dotted arrows are optional or
+out-of-band seams. The game stack, `gta/`, and the on-machine halves of
+`aim/` need a real GPU/game and are documented as on-machine interfaces —
+the headless-testable cores (control laws, protocols, the loop itself) are
+what the test suite proves.
+
 ## Before you run any of this
 
 These pieces execute real, consequential actions: the tunnel moves real
