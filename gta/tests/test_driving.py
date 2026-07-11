@@ -9,6 +9,7 @@ from secdogie_gta.driving import (
     bearing,
     drive_to,
     normalize_deg,
+    smooth_steer,
     steer_to,
 )
 from secdogie_gta.protocol import GameState
@@ -75,17 +76,22 @@ def test_arrived_inside_the_radius():
 # -- the simulated vehicle + convergence -------------------------------------
 
 class SimVehicle:
-    """A unicycle-ish car: a drive_control command turns the heading (steer *
-    turn_rate) and sets speed (throttle * max_speed), then it advances along its
-    heading one dt. Enough to prove the steering law actually reaches a point."""
+    """A unicycle-ish car: a drive_control command turns the (true) heading and
+    sets speed, then it advances along its heading one dt. `wobble` degrees of
+    suspension bob are added to the heading *reported* to the controller (not the
+    true motion), modeling a car rolling on its springs -- so the controller sees
+    a jittery signal but the car really travels its true heading."""
 
-    def __init__(self, x, y, heading, *, turn_rate=120.0, max_speed=18.0, dt=0.1):
+    def __init__(self, x, y, heading, *, turn_rate=120.0, max_speed=18.0, dt=0.1,
+                 wobble=0.0, wobble_hz=3.0):
         self.x, self.y, self.heading, self.speed = x, y, heading, 0.0
         self.turn_rate, self.max_speed, self.dt = turn_rate, max_speed, dt
+        self.wobble, self.wobble_hz, self.t = wobble, wobble_hz, 0.0
         self.commands = []
 
     def get_state(self) -> GameState:
-        return GameState(x=self.x, y=self.y, heading=self.heading, speed=self.speed, in_vehicle=True)
+        reported = normalize_deg(self.heading + self.wobble * math.sin(2 * math.pi * self.wobble_hz * self.t))
+        return GameState(x=self.x, y=self.y, heading=reported, speed=self.speed, in_vehicle=True)
 
     def send(self, cmd) -> None:
         self.commands.append(cmd)
@@ -98,6 +104,15 @@ class SimVehicle:
         rad = math.radians(self.heading)
         self.x += self.speed * math.cos(rad) * self.dt
         self.y += self.speed * math.sin(rad) * self.dt
+        self.t += self.dt
+
+    def steer_jerk(self) -> float:
+        """Mean absolute change in commanded steer per tick -- how much the wheel
+        is sawing back and forth (the thing wobble-chasing inflates)."""
+        steers = [c.steer for c in self.commands if c.kind == "drive_control"]
+        if len(steers) < 2:
+            return 0.0
+        return sum(abs(b - a) for a, b in zip(steers, steers[1:], strict=False)) / (len(steers) - 1)
 
 
 def _drive(sim, target, **kw):
@@ -153,3 +168,36 @@ def test_drive_to_stops_when_asked():
                       clock=lambda: 0.0, sleep=lambda s: None, should_stop=should_stop)
     assert result.outcome == "stopped"
     assert sim.commands[-1].kind == "stop"
+
+
+# -- suspension wobble rejection ----------------------------------------------
+
+def test_smooth_steer_low_passes_and_slew_limits():
+    assert smooth_steer(0.0, 1.0, smoothing=1.0, slew=2.0) == 1.0   # no filtering -> passthrough
+    assert smooth_steer(0.0, 1.0, smoothing=0.0, slew=2.0) == 0.0   # fully smoothed -> holds prev
+    assert smooth_steer(0.0, 1.0, smoothing=1.0, slew=0.3) == 0.3   # slew caps the jump
+    assert smooth_steer(0.5, 0.6, smoothing=0.5, slew=0.3) == 0.55  # EMA halfway
+
+
+def test_drive_to_still_reaches_a_wobbly_waypoint():
+    sim = SimVehicle(0, 0, 0, wobble=8.0, wobble_hz=3.0)  # 8deg suspension bob
+    result = _drive(sim, (100, 100))
+    assert result.outcome == "arrived"
+    assert math.hypot(sim.x - 100, sim.y - 100) <= CFG.arrive_radius
+
+
+def test_filter_reduces_steering_jerk_under_wobble():
+    # Same wobble, two controllers: filtered (default) vs effectively unfiltered
+    # (react instantly, no slew cap). The filter must saw the wheel back and
+    # forth far less -- that's the whole point of rejecting suspension wobble.
+    filtered = SimVehicle(0, 0, 0, wobble=8.0, wobble_hz=3.0)
+    _drive(filtered, (100, 100))
+
+    unfiltered_cfg = DriveConfig(gain=0.03, arrive_radius=5.0, timeout_s=1e9, max_fps=0,
+                                 steer_smoothing=1.0, steer_slew=2.0)
+    raw = SimVehicle(0, 0, 0, wobble=8.0, wobble_hz=3.0)
+    guard = {"n": 0}
+    drive_to(raw.get_state, raw.send, (100, 100), unfiltered_cfg, clock=lambda: 0.0,
+             sleep=lambda s: None, should_stop=lambda: guard.__setitem__("n", guard["n"] + 1) or guard["n"] > 5000)
+
+    assert filtered.steer_jerk() < 0.5 * raw.steer_jerk()  # markedly smoother steering

@@ -48,6 +48,13 @@ class DriveConfig:
     ease_angle: float = 90.0  # heading error at which throttle is fully eased to min
     timeout_s: float = 60.0
     max_fps: float = 20.0  # control rate; 0 = uncapped (tests)
+    # A real car bobs and rolls on its suspension, so the heading read back each
+    # frame carries high-frequency wobble. A raw P controller would chase that
+    # and weave. These reject it: a low-pass (EMA) on the steer command well
+    # below suspension frequency, and a per-tick slew limit so steering ramps
+    # instead of snapping. steer_smoothing 1.0 + a large steer_slew = no filter.
+    steer_smoothing: float = 0.5  # EMA factor on steer (1 = react instantly, lower = smoother/laggier)
+    steer_slew: float = 0.3  # max change in steer per control tick
 
 
 @dataclass(frozen=True)
@@ -77,6 +84,15 @@ def steer_to(state: GameState, target: tuple[float, float], cfg: DriveConfig = _
     return DriveControl(steer, throttle, arrived=False)
 
 
+def smooth_steer(prev: float, raw: float, smoothing: float, slew: float) -> float:
+    """Filter a raw steer command against the previous one: a low-pass (EMA) to
+    reject suspension-frequency wobble in the heading reading, then a slew limit
+    so the wheel ramps rather than snaps. Both are what keep the car from weaving
+    on a signal that jitters faster than it should be steered."""
+    ema = prev + smoothing * (raw - prev)
+    return max(prev - slew, min(prev + slew, ema))
+
+
 @dataclass(frozen=True)
 class DriveResult:
     outcome: str  # "arrived" | "timeout" | "stopped"
@@ -103,6 +119,7 @@ def drive_to(
     min_dt = 1.0 / cfg.max_fps if cfg.max_fps and cfg.max_fps > 0 else 0.0
     start = clock()
     ticks = 0
+    steer_prev = 0.0  # last commanded steer, for the EMA + slew filter
 
     def done(outcome: str) -> DriveResult:
         send(stop())
@@ -119,7 +136,9 @@ def drive_to(
         ticks += 1
         if control.arrived:
             return done("arrived")
-        send(drive_control(control.steer, control.throttle))
+        # Filter the raw steer against suspension-frequency wobble before sending.
+        steer_prev = smooth_steer(steer_prev, control.steer, cfg.steer_smoothing, cfg.steer_slew)
+        send(drive_control(steer_prev, control.throttle))
 
         if min_dt:
             spent = clock() - now

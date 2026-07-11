@@ -47,6 +47,16 @@ not GTA, so it's proven by driving a **simulated vehicle** to a waypoint
 (`tests/test_driving.py`) — it reaches points ahead, to the side, and directly
 behind it, and always sends a `stop` when it finishes.
 
+**Suspension wobble.** A real car bobs and rolls on its springs, so the heading
+read back each frame carries high-frequency jitter; a raw P controller chases it
+and the car weaves. So the steer command is filtered before it's sent — a
+low-pass (EMA, `steer_smoothing`) well below suspension frequency, then a
+per-tick slew limit (`steer_slew`) so the wheel ramps instead of snapping. The
+sim injects a few degrees of suspension bob into the *reported* heading (not the
+true motion), and the tests show the car still reaches the point **and** that
+the filter cuts steering saw-back (`steer_jerk`) to less than half of the
+unfiltered controller's under the same wobble.
+
 ```python
 from secdogie_gta import steer_to, GameState
 c = steer_to(GameState(x=0, y=0, heading=0), target=(100, 100))
