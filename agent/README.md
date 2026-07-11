@@ -132,7 +132,17 @@ packaging\build.ps1          # produces packaging\dist\secdogie-agent.exe
 secdogie-agent "open a text editor and type 'hello world'" --dry-run   # see what it would do first
 secdogie-agent "open a text editor and type 'hello world'"             # confirms every action (default)
 secdogie-agent "..." --auto                                             # no confirmations -- see warning above
+secdogie-agent "..." --auto --allow-risky                              # ...not even for high-risk actions
 ```
+
+**High-risk actions still confirm under `--auto`.** `--auto` trusts the model
+to click and type unattended, but not to reach *outside* the screen — the
+`open` action hands an arbitrary file/URL to the OS default handler, so it can
+launch a program or open a link. That one kind prompts for a `y/N` even under
+`--auto` (the prompt is labelled `HIGH-RISK`). On a run with no terminal to
+answer (piped stdin, a service), an unconfirmed high-risk action **fails closed
+— it's skipped, never silently launched.** Pass `--allow-risky` to opt back
+into running those unattended too.
 
 ### GUI mode: task dialog + plan briefing
 

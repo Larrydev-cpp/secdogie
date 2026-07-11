@@ -134,16 +134,16 @@ def test_watch_mode_waits_until_trigger_then_acts(monkeypatch):
     provider = ScriptedProvider([
         {"action": "wait", "reasoning": "trigger not seen"},
         {"action": "wait", "reasoning": "still not seen"},
-        {"action": "open", "path": "/tmp/log.txt", "reasoning": "condition met"},
+        {"action": "left_click", "x": 5, "y": 5, "reasoning": "condition met"},
         {"action": "done", "text": "handled"},
     ])
-    config = loop.AgentConfig(task="when X appears open the log", watch=True,
+    config = loop.AgentConfig(task="when X appears click the button", watch=True,
                               watch_interval=0, auto=True, max_steps=20)
     rc = loop.run(provider, config)
     assert rc == 0
     # waits are the "keep watching" signal and are not executed; only the
-    # triggered open runs.
-    assert executed == ["open"]
+    # triggered action (a low-risk click, so no confirm under --auto) runs.
+    assert executed == ["left_click"]
     assert provider.calls == 4
 
 
@@ -708,3 +708,92 @@ def test_loop_watch_mode_ignores_macro_path(monkeypatch, tmp_path):
     # The pre-existing macro file must be left untouched -- watch mode never
     # loads or overwrites it.
     assert Macro.load(macro_path).steps[0].kind == "left_click"
+
+
+# -- risk-gated confirmation (high-risk kinds confirm even under --auto) -------
+
+def test_high_risk_open_confirms_even_under_auto(monkeypatch):
+    # `open` is high-risk; under --auto it must still prompt. Declining it skips
+    # the action (fails closed) but the run continues to the next step.
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    prompts = []
+    monkeypatch.setattr("builtins.input", lambda prompt: prompts.append(prompt) or "n")
+    provider = ScriptedProvider([
+        {"action": "open", "path": "/etc/hosts"},
+        {"action": "done", "text": "done"},
+    ])
+    rc = loop.run(provider, loop.AgentConfig(task="open a file", auto=True, max_steps=5))
+    assert rc == 0
+    assert executed == []                      # declined -> not launched
+    assert prompts and "HIGH-RISK open" in prompts[0]  # prompt flags it as high-risk
+
+
+def test_high_risk_open_runs_when_confirmed_under_auto(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    monkeypatch.setattr("builtins.input", lambda prompt: "y")
+    provider = ScriptedProvider([
+        {"action": "open", "path": "/etc/hosts"},
+        {"action": "done", "text": "done"},
+    ])
+    rc = loop.run(provider, loop.AgentConfig(task="open a file", auto=True, max_steps=5))
+    assert rc == 0
+    assert executed == ["open"]  # confirmed -> launched
+
+
+def test_allow_risky_runs_open_without_confirmation(monkeypatch):
+    # confirm_high_risk=False (CLI --allow-risky) lets --auto run `open` with no
+    # prompt at all -- input must never be consulted.
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+
+    def _no_input(prompt):
+        raise AssertionError("confirm should not be called with confirm_high_risk=False")
+
+    monkeypatch.setattr("builtins.input", _no_input)
+    provider = ScriptedProvider([
+        {"action": "open", "path": "/etc/hosts"},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(task="open a file", auto=True, max_steps=5, confirm_high_risk=False)
+    rc = loop.run(provider, config)
+    assert rc == 0
+    assert executed == ["open"]
+
+
+def test_high_risk_open_fails_closed_without_a_tty(monkeypatch):
+    # Unattended --auto (no TTY): safety.confirm hits EOF and returns False, so
+    # the high-risk action is skipped rather than silently executed.
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+
+    def _eof(prompt):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", _eof)
+    provider = ScriptedProvider([
+        {"action": "open", "path": "/etc/hosts"},
+        {"action": "done", "text": "done"},
+    ])
+    rc = loop.run(provider, loop.AgentConfig(task="open a file", auto=True, max_steps=5))
+    assert rc == 0
+    assert executed == []  # fail-closed: not launched
+
+
+def test_low_risk_click_never_prompts_under_auto(monkeypatch):
+    # Contrast: a low-risk click under --auto must not prompt at all.
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+
+    def _no_input(prompt):
+        raise AssertionError("a low-risk action must not confirm under --auto")
+
+    monkeypatch.setattr("builtins.input", _no_input)
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "done", "text": "done"},
+    ])
+    rc = loop.run(provider, loop.AgentConfig(task="click", auto=True, max_steps=5))
+    assert rc == 0
+    assert executed == ["left_click"]

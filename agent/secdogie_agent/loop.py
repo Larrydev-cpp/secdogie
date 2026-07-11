@@ -54,6 +54,12 @@ class AgentConfig:
     task: str
     max_steps: int = 50
     auto: bool = False  # if False (default), every action needs a y/N confirmation
+    # High-risk kinds (actions.HIGH_RISK_KINDS -- e.g. `open`, which launches an
+    # arbitrary file/URL) require a confirmation *even under --auto*. Default on:
+    # --auto trusts the model to click/type unattended, but not to launch things
+    # outside the screen sandbox without a human ok. Set False (CLI --allow-risky,
+    # or a session that already consented like open/) to run those unattended too.
+    confirm_high_risk: bool = True
     dry_run: bool = False  # still calls the model each step, but never touches mouse/keyboard
     log_path: str | None = None
     max_image_edge: int = screen.DEFAULT_MAX_EDGE  # long-edge cap for the image sent to the model
@@ -334,11 +340,23 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 stall_count = 0
             prev_exec_sig, prev_exec_frame = sig, frame_hash
 
-        needs_confirm = not config.auto and action.kind not in _BENIGN
-        if needs_confirm and not safety.confirm(f"Execute {action.kind}({action.raw})?"):
-            logger.info("user declined action: %s", action.kind)
-            record_result("skipped (user declined)")
-            continue
+        # Risk gate: high-risk kinds (actions.HIGH_RISK_KINDS -- `open` launches
+        # a program/URL outside the screen sandbox) still confirm under --auto
+        # unless confirm_high_risk was turned off; everything else confirms only
+        # when --auto is off. On an unattended run (no TTY) safety.confirm returns
+        # False on EOF, so an unconfirmed high-risk action fails closed (skipped),
+        # not silently executed.
+        is_high_risk = action.kind in actions.HIGH_RISK_KINDS
+        force_confirm = is_high_risk and config.confirm_high_risk
+        needs_confirm = action.kind not in _BENIGN and (not config.auto or force_confirm)
+        if needs_confirm:
+            if config.auto and force_confirm:
+                logger.warning("high-risk action '%s' needs confirmation even under --auto", action.kind)
+            label = "HIGH-RISK " if is_high_risk else ""
+            if not safety.confirm(f"Execute {label}{action.kind}({action.raw})?"):
+                logger.info("action not confirmed, skipping: %s", action.kind)
+                record_result("skipped (user declined)")
+                continue
 
         executed_ok = False
         try:
