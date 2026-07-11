@@ -422,6 +422,17 @@ chase owns the physical cursor exclusively — no other window's actor can injec
 input mid-pursuit. It's desktop-only (mss + pyautogui + numpy); the prompt marks
 it that way, since over adb/WDA a phone can't be captured at frame rate anyway.
 
+**Sharpening a fuzzy detection (`reflex.refine_point`).** A vision model works
+off a *downscaled* screenshot, so the coordinate it returns is approximate — off
+by tens of pixels, because it never saw the full-resolution image. Precision
+doesn't come from feeding it a bigger blurry frame; it comes from a coarse→fine
+(foveated) step: take the model's rough point, crop a small window around it at
+the frame's **native** resolution, and NCC-match the target's appearance there
+to pin the exact center — the same few-millisecond match. If the target isn't in
+the window it returns the coarse point unchanged (`refined=False`) rather than
+jumping somewhere wrong. So: cheap fuzzy model detection to find *roughly* where,
+then a sharp local match to pin *exactly* where.
+
 ## How it decides what to do
 
 Each step, the model sees the current screenshot, the task, and a short
