@@ -188,6 +188,8 @@ Extra knobs:
 | `--plan` | decompose the task into sub-tasks up front and work one at a time (see below). |
 | `--subtask-step-limit N` | with `--plan`, skip a sub-task that runs `N` steps without finishing (default 15; `0` disables). |
 | `--trace PATH` | write a tamper-evident hash-chained audit trace of every step to `PATH` (JSONL); verify later with `python -m secdogie_agent.trace PATH` (see below). |
+| `--memory PATH` | give the agent persistent cross-run memory in the SQLite file `PATH`: it saves durable facts with a `remember` action and they're recalled into its prompt on later runs (see below). Plaintext — never have it store secrets. |
+| `--allow-risky` | with `--auto`, run high-risk actions (currently `open`, which launches a file/URL) without confirmation; by default those still prompt even under `--auto` (see [Before you run](../README.md#before-you-run-any-of-this)). |
 
 Cursor movement is intentionally not instantaneous — teleport-and-click can
 miss hover/focus handlers in some apps, so the agent glides to the target
@@ -278,6 +280,36 @@ worth it for tasks with clear sequential stages, less so for a single click.
 Providers implement it via `plan_task` (Anthropic and OpenAI both do); a provider
 that doesn't just runs unplanned.
 
+## Memory (persistent facts across runs)
+
+The loop is otherwise stateless — each run starts fresh. `--memory mem.sqlite`
+gives it a small key/value store that survives between runs (`secdogie_agent/memory.py`,
+backed by SQLite). The model saves a durable fact with a `remember` action:
+
+```json
+{"action": "remember", "text": "the Save button is bottom-right", "key": "save_btn"}
+```
+
+- A `key` makes it an **upsert** — re-remembering the same key updates that fact.
+  Omit the key for a one-off note (auto-keyed, time-ordered).
+- On the next run, everything remembered is **recalled into the prompt** so the
+  model reads what it learned before instead of rediscovering it — where a
+  control lives, a preference you confirmed, how far it got on a long job. The
+  block is rebuilt each step (and capped), so a fact saved mid-run is visible on
+  the very next step, not just next time.
+
+```sh
+secdogie-agent "learn where things are in this app, remember them" --memory app.sqlite --auto
+secdogie-agent "now use what you learned to export a report" --memory app.sqlite --auto
+```
+
+**Never have it store secrets.** The file is plaintext on disk — it's your
+machine, your file. The prompt tells the model not to save passwords/tokens, and
+`remember` refuses values that obviously look like credentials (a key named
+`password`, a value shaped like an API token) as a *best-effort backstop* — a
+backstop, not a guarantee. Memory is **off by default**; without `--memory` a
+`remember` is a harmless no-op.
+
 ## Actions it can take
 
 Each step the model picks one action: `left_click` / `right_click` /
@@ -286,7 +318,10 @@ Unicode is handled automatically via the clipboard**), `key` (a press or
 hotkey; arrow keys are `up`/`down`/`left`/`right`), `hold_key` (**hold key(s)
 down for N seconds** — use for continuous movement like walking in a game or
 panning a map), `scroll`, `open` (**open a file/folder/URL with the OS default
-program**, no mouse needed), `wait`, plus `done` and `ask_user`.
+program**, no mouse needed — this one still asks for confirmation even under
+`--auto`, see [`--allow-risky`](#click-accuracy)), `wait`, `remember` (**save a durable
+fact** to cross-run memory when `--memory` is on, see above), plus `done` and
+`ask_user`.
 
 ## Watch mode (monitor a screen, act on a trigger)
 
@@ -467,6 +502,7 @@ secdogie_agent/
   skill_runner.py         wires skills to a real backend + a model yes/no for conditions (--skill)
   plan.py                 task decomposition + sub-task progress tracking (used with --plan)
   trace.py                tamper-evident hash-chained audit trace (used with --trace; `python -m` verifies)
+  memory.py               persistent cross-run key/value memory (SQLite; used with --memory) -- tested
   reflex.py               local reflex layer: FFT template matching + a frame-rate pursue loop (needs numpy)
   screen.py               screenshot capture + resize/coordinate scaling (mss + Pillow)
   actions.py              executes an Action via pyautogui (smooth move + settle)

@@ -28,6 +28,7 @@ VALID_ACTIONS = {
     "wait",
     "screenshot",
     "track_click",
+    "remember",
     "done",
     "ask_user",
 }

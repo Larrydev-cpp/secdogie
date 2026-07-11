@@ -797,3 +797,82 @@ def test_low_risk_click_never_prompts_under_auto(monkeypatch):
     rc = loop.run(provider, loop.AgentConfig(task="click", auto=True, max_steps=5))
     assert rc == 0
     assert executed == ["left_click"]
+
+
+# -- memory (persistent cross-run facts via the `remember` action) ------------
+
+class TaskRecordingProvider(VisionProvider):
+    """Like ScriptedProvider but also records every `task` string it was given,
+    so a test can assert what got injected into the prompt."""
+
+    def __init__(self, script):
+        self.script = list(script)
+        self.tasks = []
+
+    def next_action(self, task, screenshot_png, screen_size, history):
+        self.tasks.append(task)
+        return Action.from_dict(self.script.pop(0))
+
+
+def test_remember_action_persists_a_fact(monkeypatch, tmp_path):
+    from secdogie_agent.memory import Memory
+
+    mem_path = str(tmp_path / "mem.sqlite")
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    provider = ScriptedProvider([
+        {"action": "remember", "text": "the save button is bottom-right", "key": "save_btn"},
+        {"action": "done", "text": "done"},
+    ])
+    rc = loop.run(provider, loop.AgentConfig(task="learn the UI", auto=True, max_steps=5, memory_path=mem_path))
+    assert rc == 0
+    assert executed == []  # remember is not an OS action
+    # reopen the file as a fresh run would, and the fact is there.
+    m = Memory(mem_path)
+    assert m.recall("save_btn") == "the save button is bottom-right"
+    m.close()
+
+
+def test_remember_without_memory_file_is_a_harmless_noop(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    provider = ScriptedProvider([
+        {"action": "remember", "text": "something"},  # no memory_path set
+        {"action": "done", "text": "done"},
+    ])
+    rc = loop.run(provider, loop.AgentConfig(task="t", auto=True, max_steps=5))
+    assert rc == 0  # ignored cleanly, run still completes
+
+
+def test_recalled_memory_is_injected_into_the_prompt(monkeypatch, tmp_path):
+    from secdogie_agent.memory import Memory
+
+    mem_path = str(tmp_path / "mem.sqlite")
+    seed = Memory(mem_path)
+    seed.remember("the login button is top-right", key="login_btn")
+    seed.close()
+
+    _patch_screen_and_actions(monkeypatch, [])
+    provider = TaskRecordingProvider([{"action": "done", "text": "done"}])
+    loop.run(provider, loop.AgentConfig(task="log in", auto=True, max_steps=5, memory_path=mem_path))
+
+    injected = provider.tasks[0]
+    assert loop._MEMORY_DIRECTIVE in injected                 # told it can remember
+    assert "What you remember from earlier runs:" in injected
+    assert "login_btn: the login button is top-right" in injected  # the recalled fact
+
+
+def test_remember_refuses_a_secret_in_the_loop(monkeypatch, tmp_path):
+    from secdogie_agent.memory import Memory
+
+    mem_path = str(tmp_path / "mem.sqlite")
+    _patch_screen_and_actions(monkeypatch, [])
+    provider = ScriptedProvider([
+        {"action": "remember", "text": "hunter2", "key": "password"},
+        {"action": "done", "text": "done"},
+    ])
+    rc = loop.run(provider, loop.AgentConfig(task="t", auto=True, max_steps=5, memory_path=mem_path))
+    assert rc == 0
+    m = Memory(mem_path)
+    assert m.items() == []  # the secret was refused, nothing stored
+    m.close()

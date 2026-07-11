@@ -126,6 +126,14 @@ def add_loop_args(parser: argparse.ArgumentParser) -> None:
         help="write a tamper-evident hash-chained audit trace (frame hash + decision + result per step) "
         "to this JSONL file; verify later with `python -m secdogie_agent.trace <path>`",
     )
+    parser.add_argument(
+        "--memory",
+        default=None,
+        metavar="PATH",
+        help="give the agent persistent cross-run memory in this SQLite file: it saves durable facts "
+        "with a `remember` action and they're recalled into its prompt on later runs "
+        "(plaintext on disk -- never have it store secrets)",
+    )
 
 
 def handle_init_config(args: argparse.Namespace, prog: str) -> int:
@@ -198,4 +206,6 @@ def loop_config_kwargs(args: argparse.Namespace, *, task: str, backend=None) -> 
         kwargs["trace_path"] = args.trace
     if getattr(args, "allow_risky", False):
         kwargs["confirm_high_risk"] = False
+    if getattr(args, "memory", None) is not None:
+        kwargs["memory_path"] = args.memory
     return kwargs
