@@ -187,3 +187,32 @@ def test_capture_screenshot_no_region_uses_primary_monitor(monkeypatch):
 
     screen.capture_screenshot()
     assert grabbed["monitor"] == FakeSct.monitors[1]  # picks the primary monitor, not the combined one
+
+
+# -- crop_anchor (a small element patch for macro visual anchoring) -----------
+
+def test_crop_anchor_centers_the_click_and_returns_grayscale():
+    frame = _png(400, 300)
+    patch, ox, oy = screen.crop_anchor(frame, 200, 150, box=64)
+    with Image.open(io.BytesIO(patch)) as img:
+        assert img.mode == "L"          # grayscale
+        assert img.size == (64, 64)     # full box, away from any edge
+    assert (ox, oy) == (32, 32)         # click at the box center
+
+
+def test_crop_anchor_clamps_at_an_edge_and_records_the_offset():
+    # A click near the top-left corner: the box can't center on it, so it's
+    # clamped inside the frame and the offset records where the click really is.
+    frame = _png(400, 300)
+    patch, ox, oy = screen.crop_anchor(frame, 10, 8, box=64)
+    with Image.open(io.BytesIO(patch)) as img:
+        assert img.size == (64, 64)
+    assert (ox, oy) == (10, 8)          # box pinned to (0,0), click stays at (10,8)
+
+
+def test_crop_anchor_shrinks_the_box_to_a_small_frame():
+    frame = _png(40, 30)               # smaller than the 64px box
+    patch, ox, oy = screen.crop_anchor(frame, 20, 15, box=64)
+    with Image.open(io.BytesIO(patch)) as img:
+        assert img.size == (40, 30)     # whole frame
+    assert (ox, oy) == (20, 15)

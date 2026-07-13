@@ -236,7 +236,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             replayed_step: MacroStep | None = None
             if replay_steps is not None and replay_index < len(replay_steps):
                 candidate = replay_steps[replay_index]
-                resolved = resolve_replay_step(candidate, backend, real_size)
+                resolved = resolve_replay_step(candidate, backend, real_size, frame_png=raw_png)
                 if resolved is not None:
                     action, from_replay, replayed_step = resolved, True, candidate
                     replay_index += 1
@@ -435,7 +435,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 if from_replay:
                     macro_recorder.record_step(replayed_step)
                 else:
-                    macro_recorder.record(action, result, backend, real_size)
+                    macro_recorder.record(action, result, backend, real_size, frame_png=raw_png)
             record_result(result)
 
         logger.warning("reached max_steps (%d) without the model signaling done", config.max_steps)

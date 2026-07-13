@@ -876,3 +876,64 @@ def test_remember_refuses_a_secret_in_the_loop(monkeypatch, tmp_path):
     m = Memory(mem_path)
     assert m.items() == []  # the secret was refused, nothing stored
     m.close()
+
+
+# -- RPA visual anchoring: replay survives an element that moved ---------------
+
+def test_macro_replay_refinds_a_moved_element_by_visual_anchor(monkeypatch, tmp_path):
+    import io as _io
+
+    np = pytest.importorskip("numpy")
+    from PIL import Image
+    from secdogie_agent import screen as screen_mod
+    from secdogie_agent.macro import VisualAnchor
+
+    def scene(px, py, w=300, h=200, patch=32):
+        yy, xx = np.mgrid[0:patch, 0:patch]
+        tile = ((xx * 8 + yy * 5) % 256).astype(np.uint8)
+        arr = np.full((h, w), 40, np.uint8)
+        arr[py:py + patch, px:px + patch] = tile
+        buf = _io.BytesIO()
+        Image.fromarray(arr, "L").save(buf, format="PNG")
+        return buf.getvalue()
+
+    # A macro recorded when the button was at (100,60) -> click (116,76). Its
+    # normalized point is that OLD spot; on replay the button has MOVED.
+    png, ox, oy = screen_mod.crop_anchor(scene(100, 60), 116, 76)
+    macro_path = tmp_path / "macro.json"
+    macro = Macro(task="click the button")
+    macro.steps.append(
+        MacroStep(kind="left_click", anchor=VisualAnchor(png, (ox, oy)), point=(116 / 300, 76 / 200))
+    )
+    macro.save(macro_path)
+
+    moved = scene(180, 120)  # same button, now centered at (196,136)
+
+    class SceneBackend:
+        def __init__(self):
+            self.executed = []
+
+        def setup(self, logger):
+            pass
+
+        def capture(self, region):
+            return moved, (300, 200)
+
+        def execute(self, action):
+            self.executed.append(action)
+            return "ok"
+
+    backend = SceneBackend()
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+    provider = ScriptedProvider([{"action": "done", "text": "done"}])
+    config = loop.AgentConfig(
+        task="click the button", auto=True, max_steps=5, backend=backend,
+        macro_path=str(macro_path), verify_actions=False,
+    )
+    rc = loop.run(provider, config)
+
+    assert rc == 0
+    assert provider.calls == 1  # replayed without a model call
+    assert [a.kind for a in backend.executed] == ["left_click"]
+    # Clicked the MOVED button (found by image), not the stale coordinate (116,76).
+    assert abs(backend.executed[0].x - 196) <= 1 and abs(backend.executed[0].y - 136) <= 1

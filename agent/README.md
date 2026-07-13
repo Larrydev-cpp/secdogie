@@ -364,12 +364,23 @@ secdogie-agent "log into example.com and open the dashboard" --macro dashboard.j
   UI changed), the agent gives up on replay for the rest of that run and
   drops back to the normal live loop, same as if `--macro` had never been
   passed.
-- A step is recorded against **the UI element itself** when the backend can
-  identify one, so replay re-finds the target even after small UI shifts —
-  the Android backend does this via the uiautomator hierarchy (see
-  `android/README.md`). The desktop backend has no element-identification
-  yet, so its steps fall back to a resolution-independent normalized
-  `(0..1, 0..1)` coordinate instead.
+- Each positional step re-resolves its target on replay through a ladder, from
+  strongest anchor to weakest, so a click keeps landing even as the UI shifts:
+  1. **Semantic selector** — the UI element by identity. The Android backend
+     records this via the uiautomator hierarchy (see `android/README.md`); a
+     re-find is exact regardless of where the element moved.
+  2. **Visual anchor** — a tiny grayscale snapshot of the clicked element,
+     re-found on the current screen by [reflex](#latency-and-the-local-reflex-layer)
+     NCC template matching, then mapped back to the click point. This is what
+     makes **desktop** replay robust: instead of trusting a fixed spot, it finds
+     *what the button looked like* even after the window moved or the layout
+     reflowed. Needs numpy (the `[reflex]` extra); the patch is embedded in the
+     macro JSON. Falls through if the element genuinely isn't on screen.
+  3. **Normalized `(0..1, 0..1)` coordinate** — the last-resort position, used
+     when there's no selector and the visual anchor can't be found.
+
+  If none of these resolves the target, the step is treated as unresolvable and
+  the run drops back to the live model (above).
 - A run that finishes successfully — replayed, live, or a mix of both — always
   re-saves the full sequence to PATH, so a macro can self-heal after a UI
   change without you re-recording it by hand.
