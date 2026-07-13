@@ -100,6 +100,10 @@ class AgentConfig:
     logger_name: str = "secdogie_agent"  # distinct per concurrent run so loggers don't share/race on handlers
     should_stop: Callable[[], bool] | None = None  # checked each step; lets a caller cancel a running loop
     backend: Backend | None = None  # what to drive; None = the local desktop (mss + pyautogui)
+    # Desktop only (ignored when `backend` is set): attach an accessibility provider so the default
+    # DesktopBackend becomes element-aware, letting macros anchor to UI-automation identity (the
+    # strongest replay tier). Needs the platform a11y lib; off = visual-anchor/coordinate tiers only.
+    desktop_ax: bool = False
     # RPA: if set, replay this macro file (zero model calls) with a live fallback the moment a step
     # can't be resolved; a run that finishes with `done` re-saves the full sequence here. See macro.py.
     macro_path: str | None = None
@@ -131,9 +135,21 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
     if config.dry_run:
         logger.info("running with --dry-run: actions will be logged but not executed")
 
-    backend = config.backend or DesktopBackend(
-        move_duration=config.move_duration, settle=config.settle
-    )
+    if config.backend is not None:
+        backend: Backend = config.backend
+    else:
+        # Build the default desktop backend, optionally element-aware. The a11y
+        # provider is on-machine (reads the live UI-automation tree); if it isn't
+        # available make_desktop_ax_provider logs a hint and returns None, so the
+        # backend just isn't element-aware -- no failure.
+        ax_provider = None
+        if config.desktop_ax:
+            from . import desktop_ax
+
+            ax_provider = desktop_ax.make_desktop_ax_provider(logger)
+        backend = DesktopBackend(
+            move_duration=config.move_duration, settle=config.settle, ax_provider=ax_provider
+        )
     backend.setup(logger)
 
     if config.gui:

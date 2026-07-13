@@ -366,9 +366,12 @@ secdogie-agent "log into example.com and open the dashboard" --macro dashboard.j
   passed.
 - Each positional step re-resolves its target on replay through a ladder, from
   strongest anchor to weakest, so a click keeps landing even as the UI shifts:
-  1. **Semantic selector** — the UI element by identity. The Android backend
-     records this via the uiautomator hierarchy (see `android/README.md`); a
-     re-find is exact regardless of where the element moved.
+  1. **Semantic selector** — the UI element by identity (its accessibility
+     name / automation-id / role), so a re-find is exact regardless of where the
+     element moved. The Android backend always does this via the uiautomator
+     hierarchy (see `android/README.md`); on the **desktop** it's opt-in with
+     [`--desktop-ax`](#desktop-accessibility---desktop-ax), which reads the OS
+     accessibility tree (UI Automation on Windows).
   2. **Visual anchor** — a tiny grayscale snapshot of the clicked element,
      re-found on the current screen by [reflex](#latency-and-the-local-reflex-layer)
      NCC template matching, then mapped back to the click point. This is what
@@ -390,6 +393,28 @@ secdogie-agent "log into example.com and open the dashboard" --macro dashboard.j
   is on.
 - The macro file is plain, human-readable JSON (`secdogie_agent/macro.py`) —
   inspect or hand-edit it if useful.
+
+### Desktop accessibility (`--desktop-ax`)
+
+By default the desktop backend drives raw pixels, so macro replay leans on the
+visual anchor (tier 2 above). `--desktop-ax` makes it **element-aware**: it reads
+the OS accessibility tree and records each click against the widget's identity
+(its accessibility name / automation-id / role) — the strongest tier, exact even
+when the window moves or the layout reflows.
+
+```sh
+pip install uiautomation          # Windows: the accessibility backend
+secdogie-agent "..." --macro flow.json --desktop-ax --auto
+```
+
+The tree-reading half is on-machine (it needs a real desktop), and its provider
+is platform-specific: **Windows** is wired via UI Automation (the `uiautomation`
+package); **Linux (AT-SPI)** and **macOS (AX)** are the next providers to fill in
+against the same `axtree.AxElement` contract (`secdogie_agent/desktop_ax.py`). If
+the accessibility library isn't installed the flag no-ops with a one-line hint —
+replay just falls back to the visual anchor — so nothing breaks. The matching
+logic itself (`secdogie_agent/axtree.py`) is pure and unit-tested without a
+desktop; only the live tree walk is machine-specific.
 
 ## Programmable skills: sub-flows, conditions, loops
 
@@ -508,7 +533,9 @@ secdogie_agent/
   dialog.py              optional tkinter dialogs (task entry, plan briefing, ask_user)
   loop.py                the screenshot -> action -> execute -> repeat loop
   backend.py              Backend protocol (setup/capture/execute) + optional Locatable capability
-  macro.py                RPA macro record/replay: Macro, MacroRecorder, resolve_replay_step
+  macro.py                RPA macro record/replay: Macro, MacroRecorder, resolve_replay_step (selector/anchor/coord tiers)
+  axtree.py               pure desktop accessibility-tree model + queries (element_at / find / selector_for) -- tested
+  desktop_ax.py           on-machine seam: read the live OS accessibility tree (UI Automation) into AxElements
   skill.py                programmable skill interpreter (call/if/while/repeat/params) -- pure, tested
   skill_runner.py         wires skills to a real backend + a model yes/no for conditions (--skill)
   plan.py                 task decomposition + sub-task progress tracking (used with --plan)

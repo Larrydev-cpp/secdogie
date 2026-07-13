@@ -324,3 +324,35 @@ def test_macro_round_trips_a_visual_anchor(tmp_path):
     assert loaded.anchor.png == anchor.png            # base64 codec is lossless
     assert loaded.anchor.offset == (7, 9)
     assert loaded.point == (0.2, 0.3)
+
+
+# -- desktop accessibility tier: selector wins over the visual anchor ----------
+
+def test_desktop_a11y_selector_is_recorded_and_replayed_in_preference_to_an_anchor():
+    from secdogie_agent import axtree
+    from secdogie_agent.backend import DesktopBackend
+
+    class Prov:
+        def __init__(self, els):
+            self.els = els
+
+        def snapshot(self):
+            return self.els
+
+    tree = [axtree.AxElement(role="Button", name="Save", automation_id="saveBtn", bounds=(100, 100, 200, 140))]
+    backend = DesktopBackend(ax_provider=Prov(tree))
+
+    rec = MacroRecorder("t")
+    action = Action(kind="left_click", x=150, y=120, raw={"action": "left_click", "x": 150, "y": 120})
+    rec.record(action, "clicked", backend, (800, 600), frame_png=b"ignored-when-a-selector-is-found")
+    step = rec.steps[0]
+    # The strongest tier won: a semantic selector, and NO visual anchor / coordinate.
+    assert step.selector is not None and step.selector.kind == "desktop-ax"
+    assert step.anchor is None and step.point is None
+
+    # Replay after the button moved: the selector re-finds it by identity.
+    backend.ax_provider = Prov(
+        [axtree.AxElement(role="Button", name="Save", automation_id="saveBtn", bounds=(500, 300, 600, 340))]
+    )
+    resolved = resolve_replay_step(step, backend, (800, 600))
+    assert resolved is not None and (resolved.x, resolved.y) == (550, 320)
