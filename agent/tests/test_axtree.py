@@ -117,3 +117,106 @@ def test_make_provider_is_a_graceful_none_off_windows(caplog):
         assert provider is None or isinstance(provider, desktop_ax.DesktopAxProvider)
     else:
         assert provider is None
+
+
+# -- Linux AT-SPI provider (walk logic verified against a fake pyatspi) --------
+# The real AT-SPI bus needs a live desktop; these fakes stand in for pyatspi's
+# Accessible/Component objects so the provider's active-frame + walk + mapping
+# logic is provable headless. Only the real bus binding is on-machine.
+
+class _FakeExtents:
+    def __init__(self, x, y, w, h):
+        self.x, self.y, self.width, self.height = x, y, w, h
+
+
+class _FakeComponent:
+    def __init__(self, extents):
+        self._extents = extents
+
+    def getExtents(self, coord_type):
+        return self._extents
+
+
+class _FakeState:
+    def __init__(self, active):
+        self._active = active
+
+    def contains(self, state):
+        return self._active and state == "STATE_ACTIVE"
+
+
+class _FakeAccessible:
+    def __init__(self, role="", name="", extents=None, active=False, children=()):
+        self._role, self.name, self._extents = role, name, extents
+        self._active, self._children = active, list(children)
+
+    def getRoleName(self):
+        return self._role
+
+    def getState(self):
+        return _FakeState(self._active)
+
+    def getChildCount(self):
+        return len(self._children)
+
+    def getChildAtIndex(self, i):
+        return self._children[i]
+
+    def queryComponent(self):
+        if self._extents is None:
+            raise LookupError("this accessible has no Component interface")
+        return _FakeComponent(self._extents)
+
+
+def _fake_pyatspi(monkeypatch, desktop):
+    import types as _types
+
+    fake = _types.SimpleNamespace(
+        STATE_ACTIVE="STATE_ACTIVE",
+        DESKTOP_COORDS=0,
+        Registry=_types.SimpleNamespace(getDesktop=lambda screen: desktop),
+    )
+    monkeypatch.setitem(sys.modules, "pyatspi", fake)
+    return fake
+
+
+def _desktop_with_active_button():
+    button = _FakeAccessible(role="push button", name="Save", extents=_FakeExtents(100, 100, 100, 40))
+    frame = _FakeAccessible(role="frame", name="App", extents=_FakeExtents(0, 0, 800, 600),
+                            active=True, children=[button])
+    app = _FakeAccessible(role="application", name="MyApp", children=[frame])  # no box -> skipped
+    return _FakeAccessible(role="desktop frame", children=[app])
+
+
+def test_atspi_snapshot_walks_the_active_frame(monkeypatch):
+    from secdogie_agent.desktop_ax import _AtspiProvider
+
+    _fake_pyatspi(monkeypatch, _desktop_with_active_button())
+    els = _AtspiProvider().snapshot()
+    assert els is not None
+    got = {(e.role, e.name, e.bounds) for e in els}
+    # The active frame and its button map through; the app container (no box) is skipped.
+    assert ("push button", "Save", (100, 100, 200, 140)) in got
+    assert ("frame", "App", (0, 0, 800, 600)) in got
+    assert all(e.role != "application" for e in els)
+    # And the pure query re-finds the button at its center.
+    assert axtree.element_at(els, 150, 120).name == "Save"
+
+
+def test_atspi_snapshot_is_none_when_no_window_is_active(monkeypatch):
+    inactive_frame = _FakeAccessible(role="frame", name="Bg", extents=_FakeExtents(0, 0, 10, 10), active=False)
+    app = _FakeAccessible(role="application", children=[inactive_frame])
+    desktop = _FakeAccessible(role="desktop frame", children=[app])
+    _fake_pyatspi(monkeypatch, desktop)
+
+    from secdogie_agent.desktop_ax import _AtspiProvider
+
+    assert _AtspiProvider().snapshot() is None
+
+
+def test_make_provider_builds_the_atspi_provider_on_linux_when_bindings_exist(monkeypatch):
+    if not sys.platform.startswith("linux"):
+        return  # the linux dispatch branch only runs on linux
+    _fake_pyatspi(monkeypatch, _desktop_with_active_button())
+    provider = desktop_ax.make_desktop_ax_provider()
+    assert isinstance(provider, desktop_ax._AtspiProvider)

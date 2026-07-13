@@ -40,14 +40,13 @@ def make_desktop_ax_provider(logger=None) -> DesktopAxProvider | None:
     the semantic tier is off."""
     if sys.platform.startswith("win"):
         return _make_windows_provider(logger)
-    hint = {
-        "linux": "Linux AT-SPI support isn't wired yet -- implement a DesktopAxProvider "
-                 "over pyatspi against the axtree.AxElement contract (see desktop_ax.py).",
-        "darwin": "macOS AX API support isn't wired yet -- implement a DesktopAxProvider "
-                  "over pyobjc's ApplicationServices against the axtree.AxElement contract.",
-    }.get("darwin" if sys.platform == "darwin" else "linux")
+    if sys.platform.startswith("linux"):
+        return _make_linux_provider(logger)
     if logger is not None:
-        logger.info("desktop accessibility: %s", hint)
+        logger.info(
+            "desktop accessibility: macOS AX API support isn't wired yet -- implement a "
+            "DesktopAxProvider over pyobjc's ApplicationServices against the axtree.AxElement contract."
+        )
     return None
 
 
@@ -117,6 +116,99 @@ class _WindowsUiaProvider:
                 name=control.Name or "",
                 automation_id=control.AutomationId or "",
                 bounds=(left, top, right, bottom),
+            )
+        except Exception:
+            return None
+
+
+def _make_linux_provider(logger) -> DesktopAxProvider | None:
+    try:
+        import pyatspi  # noqa: F401  (probe: are the AT-SPI bindings present?)
+    except Exception as e:
+        if logger is not None:
+            logger.info(
+                "desktop accessibility: the `pyatspi` AT-SPI bindings aren't available (%s); "
+                "install them (e.g. `apt install python3-pyatspi gir1.2-atspi-2.0`) and enable your "
+                "desktop's accessibility bus to use the semantic tier on Linux",
+                e,
+            )
+        return None
+    return _AtspiProvider()
+
+
+class _AtspiProvider:
+    """Reads the Linux AT-SPI tree via the `pyatspi` bindings.
+
+    On-machine only: needs a running desktop with the accessibility bus enabled.
+    AT-SPI has no single "foreground control", so snapshot finds the active
+    top-level window (the frame whose state set contains STATE_ACTIVE) and walks
+    its subtree. The Accessible->AxElement mapping is isolated in `_element_of`;
+    method names follow pyatspi's documented API (Registry.getDesktop,
+    Accessible.getRoleName/name/getState/getChildCount/getChildAtIndex, and the
+    Component interface's getExtents(DESKTOP_COORDS)). Unlike Windows UIA there is
+    no universal automation-id, so elements anchor on name+role, which AT-SPI
+    exposes reliably."""
+
+    def snapshot(self) -> list[axtree.AxElement] | None:
+        import pyatspi
+
+        try:
+            desktop = pyatspi.Registry.getDesktop(0)
+        except Exception:
+            return None
+        frame = self._active_frame(pyatspi, desktop)
+        if frame is None:
+            return None
+        out: list[axtree.AxElement] = []
+        self._walk(pyatspi, frame, 0, out)
+        return out
+
+    def _active_frame(self, pyatspi, desktop):
+        """The focused top-level window: the first frame (across all running
+        apps) whose state set reports STATE_ACTIVE. None if nothing is active."""
+        for app in self._children(desktop):
+            for win in self._children(app):
+                try:
+                    if win.getState().contains(pyatspi.STATE_ACTIVE):
+                        return win
+                except Exception:
+                    continue
+        return None
+
+    @staticmethod
+    def _children(node) -> list:
+        try:
+            return [node.getChildAtIndex(i) for i in range(node.getChildCount())]
+        except Exception:
+            return []  # an accessible can disappear mid-walk; treat as leaf
+
+    def _walk(self, pyatspi, node, depth: int, out: list[axtree.AxElement]) -> None:
+        el = self._element_of(pyatspi, node)
+        if el is not None:
+            out.append(el)
+        if depth >= MAX_TREE_DEPTH:
+            return
+        for child in self._children(node):
+            self._walk(pyatspi, child, depth + 1, out)
+
+    @staticmethod
+    def _element_of(pyatspi, node) -> axtree.AxElement | None:
+        """Map one AT-SPI Accessible to an AxElement, or None if it has no
+        on-screen box (pure containers don't implement the Component interface).
+        Best-effort: any failure drops the element and the walk continues."""
+        try:
+            component = node.queryComponent()
+        except Exception:
+            return None
+        try:
+            ext = component.getExtents(pyatspi.DESKTOP_COORDS)  # screen coordinates
+            if ext.width <= 0 or ext.height <= 0:
+                return None
+            return axtree.AxElement(
+                role=node.getRoleName() or "",
+                name=node.name or "",
+                automation_id="",  # AT-SPI has no universal stable id; anchor on name+role
+                bounds=(ext.x, ext.y, ext.x + ext.width, ext.y + ext.height),
             )
         except Exception:
             return None

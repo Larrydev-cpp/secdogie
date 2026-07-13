@@ -403,18 +403,20 @@ the OS accessibility tree and records each click against the widget's identity
 when the window moves or the layout reflows.
 
 ```sh
-pip install uiautomation          # Windows: the accessibility backend
+pip install uiautomation                  # Windows: the accessibility backend
+sudo apt install python3-pyatspi          # Linux: the AT-SPI bindings (+ enable a11y)
 secdogie-agent "..." --macro flow.json --desktop-ax --auto
 ```
 
 The tree-reading half is on-machine (it needs a real desktop), and its provider
-is platform-specific: **Windows** is wired via UI Automation (the `uiautomation`
-package); **Linux (AT-SPI)** and **macOS (AX)** are the next providers to fill in
-against the same `axtree.AxElement` contract (`secdogie_agent/desktop_ax.py`). If
-the accessibility library isn't installed the flag no-ops with a one-line hint —
-replay just falls back to the visual anchor — so nothing breaks. The matching
-logic itself (`secdogie_agent/axtree.py`) is pure and unit-tested without a
-desktop; only the live tree walk is machine-specific.
+is platform-specific: **Windows** via UI Automation (the `uiautomation` package)
+and **Linux** via AT-SPI (`pyatspi`) are both wired; **macOS (AX)** is the next
+provider to fill in against the same `axtree.AxElement` contract
+(`secdogie_agent/desktop_ax.py`). If the accessibility library isn't installed
+the flag no-ops with a one-line hint — replay just falls back to the visual
+anchor — so nothing breaks. The matching logic itself
+(`secdogie_agent/axtree.py`) is pure and unit-tested without a desktop; only the
+live tree walk is machine-specific.
 
 ## Programmable skills: sub-flows, conditions, loops
 
