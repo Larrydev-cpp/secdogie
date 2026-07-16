@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secdogie-carjack"
+version = "0.1.0"
+description = "On-foot prerequisite to driving: walk up to the nearest car and get in, via YOLO detection + relative mouse-look (single-player only)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# The approach control law is stdlib-only (the loop takes injected effects).
+# secdogie-aim supplies the Detection type, the YOLO adapter, and the
+# relative-mouse-look path this reuses; mss/pillow are for the CLI's capture;
+# pyautogui presses the forward/enter keys.
+dependencies = [
+    "secdogie-aim>=0.1.0",
+    "mss>=9.0.1",
+    "pillow>=10.0.0",
+    "pyautogui>=0.9.54",
+]
+
+[project.optional-dependencies]
+# YOLO is the on-machine perception half; keep ultralytics out of the default
+# install (the control law and its tests don't need it).
+yolo = ["ultralytics>=8.0"]
+
+[project.scripts]
+secdogie-carjack = "secdogie_carjack.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["secdogie_carjack*"]
