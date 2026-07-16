@@ -73,6 +73,29 @@ Pre-built binaries — a single-file executable for `agent`, `android`, `ios`,
 when a `v*` tag is pushed — see [`docs/RELEASING.md`](docs/RELEASING.md).
 Prefer to build from source? Each subdirectory's README has instructions.
 
+## Installing the game stack (one command)
+
+The game packages (`agent`, `aim`, `carjack`, `gta`, `commander`, `handoff`)
+live in this repo and depend on each other but aren't on PyPI, so
+`pip install secdogie-carjack` alone fails — it can't find `secdogie-aim`. Set
+them all up in one venv, in the right order, with:
+
+```sh
+./install.sh            # Linux/macOS   (--yolo adds the YOLO detector, --all adds the non-game packages)
+```
+```powershell
+.\install.ps1           # Windows       (-Yolo / -All)
+```
+
+Then, for single-player games only:
+
+```sh
+secdogie-carjack --weights yolov8n.pt --label car --enter-key f   # walk to a car and get in
+```
+
+Some setup is irreducible and stays manual: a GPU for real-time YOLO, the game
+itself, and (for GTA V's plugin path) ScriptHookV.
+
 ## How they fit together
 
 `agent/` only needs *some* screen and input device to drive — normally the
