@@ -53,6 +53,47 @@ def test_match_template_is_brightness_invariant():
     assert m is not None and (m.cx, m.cy) == (32, 32) and m.score > 0.99
 
 
+# -- refine_point (coarse fuzzy detection -> precise native-res localization) --
+
+def test_refine_point_pins_a_fuzzy_detection_to_the_true_center():
+    # Target at a known place; a "model" gives a coarse point off by ~30px.
+    tx, ty = 60, 45
+    frame = reflex.png_to_gray(_scene_png(tx, ty, w=200, h=150))
+    true_center = (tx + 12, ty + 12)  # PATCH is 24x24
+    coarse = (true_center[0] + 25, true_center[1] - 18)  # fuzzy, ~31px off
+
+    r = reflex.refine_point(frame, coarse, PATCH_GRAY, window=96)
+    assert r.refined and r.score > 0.99
+    assert (r.x, r.y) == true_center  # snapped exactly onto the target
+    # and it is much closer to the truth than the coarse guess was
+    coarse_err = ((coarse[0] - true_center[0]) ** 2 + (coarse[1] - true_center[1]) ** 2) ** 0.5
+    refined_err = ((r.x - true_center[0]) ** 2 + (r.y - true_center[1]) ** 2) ** 0.5
+    assert refined_err < coarse_err / 5
+
+
+def test_refine_point_falls_back_when_target_not_in_window():
+    # The coarse point is nowhere near the target -> the window holds no match,
+    # so refine returns the coarse point untouched rather than jumping.
+    frame = reflex.png_to_gray(_scene_png(20, 20, w=200, h=150))
+    coarse = (180, 130)  # far from the patch at (20,20)
+    r = reflex.refine_point(frame, coarse, PATCH_GRAY, window=64, min_score=0.5)
+    assert not r.refined and (r.x, r.y) == coarse
+
+
+def test_refine_point_falls_back_when_template_bigger_than_window():
+    frame = reflex.png_to_gray(_scene_png(60, 45, w=200, h=150))
+    r = reflex.refine_point(frame, (72, 57), PATCH_GRAY, window=16)  # 16 < 24 template
+    assert not r.refined and (r.x, r.y) == (72, 57)
+
+
+def test_refine_point_clamps_window_at_the_frame_edge():
+    # A coarse point near the corner still works: the window is clamped inside.
+    tx, ty = 4, 4
+    frame = reflex.png_to_gray(_scene_png(tx, ty, w=200, h=150))
+    r = reflex.refine_point(frame, (tx + 12 + 10, ty + 12 + 8), PATCH_GRAY, window=96)
+    assert r.refined and (r.x, r.y) == (tx + 12, ty + 12)
+
+
 # -- pursue ---------------------------------------------------------
 
 def _capturer(positions):

@@ -115,6 +115,46 @@ def match_template(frame_gray, template_gray, min_score: float = 0.0) -> Match |
 
 
 @dataclass(frozen=True)
+class RefinedPoint:
+    x: int
+    y: int
+    score: float
+    refined: bool  # True if the template was found and the point moved; False = fell back to coarse
+
+
+def refine_point(frame_gray, coarse: tuple[int, int], template_gray, *, window: int = 96,
+                 min_score: float = 0.5) -> RefinedPoint:
+    """Pin a coarse, fuzzy detection to a precise location.
+
+    A vision model (LLM or a downscaled detector) gives an approximate point --
+    off by tens of pixels, because it saw a shrunk image. Precision doesn't come
+    from feeding it a bigger blurry frame; it comes from working at the frame's
+    OWN resolution in a small window around the guess. So: crop a `window`x`window`
+    native-res box around `coarse`, match `template_gray` (the target's
+    appearance) inside it, and map the hit back to full-frame coordinates -- the
+    same fast NCC the reflex loop uses. This is the "sharp" half of a coarse ->
+    fine (foveated) detector.
+
+    If the template isn't found in the window (score < `min_score`, or the window
+    can't hold the template), returns the coarse point unchanged with
+    refined=False, so the caller degrades to the fuzzy guess instead of jumping
+    somewhere wrong."""
+    np = _require_numpy()
+    frame = np.asarray(frame_gray, dtype=np.float64)
+    fh, fw = frame.shape
+    cx, cy = int(coarse[0]), int(coarse[1])
+    half = window // 2
+    x0 = max(0, min(cx - half, fw - window)) if fw >= window else 0
+    y0 = max(0, min(cy - half, fh - window)) if fh >= window else 0
+    win = frame[y0:y0 + window, x0:x0 + window]
+
+    m = match_template(win, template_gray, min_score=min_score)
+    if m is None:
+        return RefinedPoint(cx, cy, 0.0, refined=False)
+    return RefinedPoint(x=x0 + m.cx, y=y0 + m.cy, score=m.score, refined=True)
+
+
+@dataclass(frozen=True)
 class PursueResult:
     outcome: str  # "clicked" | "lost" | "timeout" | "stopped"
     frames: int

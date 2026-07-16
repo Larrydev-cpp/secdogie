@@ -90,6 +90,12 @@ def launch(
             max_steps=max_steps,
             auto=auto,
             dry_run=dry_run,
+            # open/ has no TTY to answer a per-action prompt (it runs in a daemon
+            # thread), and the web UI already made the user consent to unattended
+            # real actions before starting. That session-level ok stands in for
+            # the per-action high-risk confirm, so don't force one here -- else
+            # every `open` action would silently fail closed with no way to say yes.
+            confirm_high_risk=False,
             region=window.region,
             logger_name=f"secdogie_open.{window.id}",
             should_stop=stop_event.is_set,

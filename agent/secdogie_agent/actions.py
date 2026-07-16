@@ -36,6 +36,15 @@ _INPUT_LOCK = threading.Lock()
 _NON_INPUT_KINDS = frozenset({"wait", "screenshot", "open"})
 _NULL_CTX = contextlib.nullcontext()
 
+# Action kinds that reach OUTSIDE the "move the mouse / type into the focused
+# window" sandbox and can have consequences a screenshot can't undo. `open`
+# hands an arbitrary path/URL to the OS default handler (_open_path below), so
+# it can launch a program, run an installer, or open a link -- unlike every
+# other kind, which only manipulates whatever window already has focus. The
+# loop force-confirms these even under --auto (see loop.confirm_high_risk); keep
+# the set tight -- a kind belongs here only if it can act beyond the screen.
+HIGH_RISK_KINDS = frozenset({"open"})
+
 
 def execute(
     action: Action,

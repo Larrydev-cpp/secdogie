@@ -134,16 +134,16 @@ def test_watch_mode_waits_until_trigger_then_acts(monkeypatch):
     provider = ScriptedProvider([
         {"action": "wait", "reasoning": "trigger not seen"},
         {"action": "wait", "reasoning": "still not seen"},
-        {"action": "open", "path": "/tmp/log.txt", "reasoning": "condition met"},
+        {"action": "left_click", "x": 5, "y": 5, "reasoning": "condition met"},
         {"action": "done", "text": "handled"},
     ])
-    config = loop.AgentConfig(task="when X appears open the log", watch=True,
+    config = loop.AgentConfig(task="when X appears click the button", watch=True,
                               watch_interval=0, auto=True, max_steps=20)
     rc = loop.run(provider, config)
     assert rc == 0
     # waits are the "keep watching" signal and are not executed; only the
-    # triggered open runs.
-    assert executed == ["open"]
+    # triggered action (a low-risk click, so no confirm under --auto) runs.
+    assert executed == ["left_click"]
     assert provider.calls == 4
 
 
@@ -708,3 +708,232 @@ def test_loop_watch_mode_ignores_macro_path(monkeypatch, tmp_path):
     # The pre-existing macro file must be left untouched -- watch mode never
     # loads or overwrites it.
     assert Macro.load(macro_path).steps[0].kind == "left_click"
+
+
+# -- risk-gated confirmation (high-risk kinds confirm even under --auto) -------
+
+def test_high_risk_open_confirms_even_under_auto(monkeypatch):
+    # `open` is high-risk; under --auto it must still prompt. Declining it skips
+    # the action (fails closed) but the run continues to the next step.
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    prompts = []
+    monkeypatch.setattr("builtins.input", lambda prompt: prompts.append(prompt) or "n")
+    provider = ScriptedProvider([
+        {"action": "open", "path": "/etc/hosts"},
+        {"action": "done", "text": "done"},
+    ])
+    rc = loop.run(provider, loop.AgentConfig(task="open a file", auto=True, max_steps=5))
+    assert rc == 0
+    assert executed == []                      # declined -> not launched
+    assert prompts and "HIGH-RISK open" in prompts[0]  # prompt flags it as high-risk
+
+
+def test_high_risk_open_runs_when_confirmed_under_auto(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    monkeypatch.setattr("builtins.input", lambda prompt: "y")
+    provider = ScriptedProvider([
+        {"action": "open", "path": "/etc/hosts"},
+        {"action": "done", "text": "done"},
+    ])
+    rc = loop.run(provider, loop.AgentConfig(task="open a file", auto=True, max_steps=5))
+    assert rc == 0
+    assert executed == ["open"]  # confirmed -> launched
+
+
+def test_allow_risky_runs_open_without_confirmation(monkeypatch):
+    # confirm_high_risk=False (CLI --allow-risky) lets --auto run `open` with no
+    # prompt at all -- input must never be consulted.
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+
+    def _no_input(prompt):
+        raise AssertionError("confirm should not be called with confirm_high_risk=False")
+
+    monkeypatch.setattr("builtins.input", _no_input)
+    provider = ScriptedProvider([
+        {"action": "open", "path": "/etc/hosts"},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(task="open a file", auto=True, max_steps=5, confirm_high_risk=False)
+    rc = loop.run(provider, config)
+    assert rc == 0
+    assert executed == ["open"]
+
+
+def test_high_risk_open_fails_closed_without_a_tty(monkeypatch):
+    # Unattended --auto (no TTY): safety.confirm hits EOF and returns False, so
+    # the high-risk action is skipped rather than silently executed.
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+
+    def _eof(prompt):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", _eof)
+    provider = ScriptedProvider([
+        {"action": "open", "path": "/etc/hosts"},
+        {"action": "done", "text": "done"},
+    ])
+    rc = loop.run(provider, loop.AgentConfig(task="open a file", auto=True, max_steps=5))
+    assert rc == 0
+    assert executed == []  # fail-closed: not launched
+
+
+def test_low_risk_click_never_prompts_under_auto(monkeypatch):
+    # Contrast: a low-risk click under --auto must not prompt at all.
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+
+    def _no_input(prompt):
+        raise AssertionError("a low-risk action must not confirm under --auto")
+
+    monkeypatch.setattr("builtins.input", _no_input)
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "done", "text": "done"},
+    ])
+    rc = loop.run(provider, loop.AgentConfig(task="click", auto=True, max_steps=5))
+    assert rc == 0
+    assert executed == ["left_click"]
+
+
+# -- memory (persistent cross-run facts via the `remember` action) ------------
+
+class TaskRecordingProvider(VisionProvider):
+    """Like ScriptedProvider but also records every `task` string it was given,
+    so a test can assert what got injected into the prompt."""
+
+    def __init__(self, script):
+        self.script = list(script)
+        self.tasks = []
+
+    def next_action(self, task, screenshot_png, screen_size, history):
+        self.tasks.append(task)
+        return Action.from_dict(self.script.pop(0))
+
+
+def test_remember_action_persists_a_fact(monkeypatch, tmp_path):
+    from secdogie_agent.memory import Memory
+
+    mem_path = str(tmp_path / "mem.sqlite")
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    provider = ScriptedProvider([
+        {"action": "remember", "text": "the save button is bottom-right", "key": "save_btn"},
+        {"action": "done", "text": "done"},
+    ])
+    rc = loop.run(provider, loop.AgentConfig(task="learn the UI", auto=True, max_steps=5, memory_path=mem_path))
+    assert rc == 0
+    assert executed == []  # remember is not an OS action
+    # reopen the file as a fresh run would, and the fact is there.
+    m = Memory(mem_path)
+    assert m.recall("save_btn") == "the save button is bottom-right"
+    m.close()
+
+
+def test_remember_without_memory_file_is_a_harmless_noop(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    provider = ScriptedProvider([
+        {"action": "remember", "text": "something"},  # no memory_path set
+        {"action": "done", "text": "done"},
+    ])
+    rc = loop.run(provider, loop.AgentConfig(task="t", auto=True, max_steps=5))
+    assert rc == 0  # ignored cleanly, run still completes
+
+
+def test_recalled_memory_is_injected_into_the_prompt(monkeypatch, tmp_path):
+    from secdogie_agent.memory import Memory
+
+    mem_path = str(tmp_path / "mem.sqlite")
+    seed = Memory(mem_path)
+    seed.remember("the login button is top-right", key="login_btn")
+    seed.close()
+
+    _patch_screen_and_actions(monkeypatch, [])
+    provider = TaskRecordingProvider([{"action": "done", "text": "done"}])
+    loop.run(provider, loop.AgentConfig(task="log in", auto=True, max_steps=5, memory_path=mem_path))
+
+    injected = provider.tasks[0]
+    assert loop._MEMORY_DIRECTIVE in injected                 # told it can remember
+    assert "What you remember from earlier runs:" in injected
+    assert "login_btn: the login button is top-right" in injected  # the recalled fact
+
+
+def test_remember_refuses_a_secret_in_the_loop(monkeypatch, tmp_path):
+    from secdogie_agent.memory import Memory
+
+    mem_path = str(tmp_path / "mem.sqlite")
+    _patch_screen_and_actions(monkeypatch, [])
+    provider = ScriptedProvider([
+        {"action": "remember", "text": "hunter2", "key": "password"},
+        {"action": "done", "text": "done"},
+    ])
+    rc = loop.run(provider, loop.AgentConfig(task="t", auto=True, max_steps=5, memory_path=mem_path))
+    assert rc == 0
+    m = Memory(mem_path)
+    assert m.items() == []  # the secret was refused, nothing stored
+    m.close()
+
+
+# -- RPA visual anchoring: replay survives an element that moved ---------------
+
+def test_macro_replay_refinds_a_moved_element_by_visual_anchor(monkeypatch, tmp_path):
+    import io as _io
+
+    np = pytest.importorskip("numpy")
+    from PIL import Image
+    from secdogie_agent import screen as screen_mod
+    from secdogie_agent.macro import VisualAnchor
+
+    def scene(px, py, w=300, h=200, patch=32):
+        yy, xx = np.mgrid[0:patch, 0:patch]
+        tile = ((xx * 8 + yy * 5) % 256).astype(np.uint8)
+        arr = np.full((h, w), 40, np.uint8)
+        arr[py:py + patch, px:px + patch] = tile
+        buf = _io.BytesIO()
+        Image.fromarray(arr, "L").save(buf, format="PNG")
+        return buf.getvalue()
+
+    # A macro recorded when the button was at (100,60) -> click (116,76). Its
+    # normalized point is that OLD spot; on replay the button has MOVED.
+    png, ox, oy = screen_mod.crop_anchor(scene(100, 60), 116, 76)
+    macro_path = tmp_path / "macro.json"
+    macro = Macro(task="click the button")
+    macro.steps.append(
+        MacroStep(kind="left_click", anchor=VisualAnchor(png, (ox, oy)), point=(116 / 300, 76 / 200))
+    )
+    macro.save(macro_path)
+
+    moved = scene(180, 120)  # same button, now centered at (196,136)
+
+    class SceneBackend:
+        def __init__(self):
+            self.executed = []
+
+        def setup(self, logger):
+            pass
+
+        def capture(self, region):
+            return moved, (300, 200)
+
+        def execute(self, action):
+            self.executed.append(action)
+            return "ok"
+
+    backend = SceneBackend()
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+    provider = ScriptedProvider([{"action": "done", "text": "done"}])
+    config = loop.AgentConfig(
+        task="click the button", auto=True, max_steps=5, backend=backend,
+        macro_path=str(macro_path), verify_actions=False,
+    )
+    rc = loop.run(provider, config)
+
+    assert rc == 0
+    assert provider.calls == 1  # replayed without a model call
+    assert [a.kind for a in backend.executed] == ["left_click"]
+    # Clicked the MOVED button (found by image), not the stale coordinate (116,76).
+    assert abs(backend.executed[0].x - 196) <= 1 and abs(backend.executed[0].y - 136) <= 1

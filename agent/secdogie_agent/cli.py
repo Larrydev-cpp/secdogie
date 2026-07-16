@@ -38,6 +38,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--move-duration", type=float, default=None, help="seconds to glide the cursor to a target")
     parser.add_argument("--settle", type=float, default=None, help="seconds to hover before clicking")
     parser.add_argument(
+        "--desktop-ax",
+        action="store_true",
+        help="make the desktop element-aware via the OS accessibility tree (UI Automation on Windows), "
+        "so --macro can anchor clicks to a widget's identity instead of pixels; needs the platform "
+        "accessibility library (Windows: `pip install uiautomation`), and no-ops with a hint without it",
+    )
+    parser.add_argument(
         "--gui",
         action="store_true",
         help="use GUI dialogs: enter the task in a window, review the model's plan before it acts, "
@@ -93,6 +100,7 @@ def main(argv: list[str] | None = None) -> int:
     cfg_kwargs = cli_common.loop_config_kwargs(args, task=args.task, backend=None)
     cfg_kwargs["gui"] = gui
     cfg_kwargs["macro_path"] = args.macro
+    cfg_kwargs["desktop_ax"] = args.desktop_ax
     if args.move_duration is not None:
         cfg_kwargs["move_duration"] = args.move_duration
     if args.settle is not None:

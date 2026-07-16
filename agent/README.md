@@ -132,7 +132,17 @@ packaging\build.ps1          # produces packaging\dist\secdogie-agent.exe
 secdogie-agent "open a text editor and type 'hello world'" --dry-run   # see what it would do first
 secdogie-agent "open a text editor and type 'hello world'"             # confirms every action (default)
 secdogie-agent "..." --auto                                             # no confirmations -- see warning above
+secdogie-agent "..." --auto --allow-risky                              # ...not even for high-risk actions
 ```
+
+**High-risk actions still confirm under `--auto`.** `--auto` trusts the model
+to click and type unattended, but not to reach *outside* the screen — the
+`open` action hands an arbitrary file/URL to the OS default handler, so it can
+launch a program or open a link. That one kind prompts for a `y/N` even under
+`--auto` (the prompt is labelled `HIGH-RISK`). On a run with no terminal to
+answer (piped stdin, a service), an unconfirmed high-risk action **fails closed
+— it's skipped, never silently launched.** Pass `--allow-risky` to opt back
+into running those unattended too.
 
 ### GUI mode: task dialog + plan briefing
 
@@ -178,6 +188,8 @@ Extra knobs:
 | `--plan` | decompose the task into sub-tasks up front and work one at a time (see below). |
 | `--subtask-step-limit N` | with `--plan`, skip a sub-task that runs `N` steps without finishing (default 15; `0` disables). |
 | `--trace PATH` | write a tamper-evident hash-chained audit trace of every step to `PATH` (JSONL); verify later with `python -m secdogie_agent.trace PATH` (see below). |
+| `--memory PATH` | give the agent persistent cross-run memory in the SQLite file `PATH`: it saves durable facts with a `remember` action and they're recalled into its prompt on later runs (see below). Plaintext — never have it store secrets. |
+| `--allow-risky` | with `--auto`, run high-risk actions (currently `open`, which launches a file/URL) without confirmation; by default those still prompt even under `--auto` (see [Before you run](../README.md#before-you-run-any-of-this)). |
 
 Cursor movement is intentionally not instantaneous — teleport-and-click can
 miss hover/focus handlers in some apps, so the agent glides to the target
@@ -268,6 +280,36 @@ worth it for tasks with clear sequential stages, less so for a single click.
 Providers implement it via `plan_task` (Anthropic and OpenAI both do); a provider
 that doesn't just runs unplanned.
 
+## Memory (persistent facts across runs)
+
+The loop is otherwise stateless — each run starts fresh. `--memory mem.sqlite`
+gives it a small key/value store that survives between runs (`secdogie_agent/memory.py`,
+backed by SQLite). The model saves a durable fact with a `remember` action:
+
+```json
+{"action": "remember", "text": "the Save button is bottom-right", "key": "save_btn"}
+```
+
+- A `key` makes it an **upsert** — re-remembering the same key updates that fact.
+  Omit the key for a one-off note (auto-keyed, time-ordered).
+- On the next run, everything remembered is **recalled into the prompt** so the
+  model reads what it learned before instead of rediscovering it — where a
+  control lives, a preference you confirmed, how far it got on a long job. The
+  block is rebuilt each step (and capped), so a fact saved mid-run is visible on
+  the very next step, not just next time.
+
+```sh
+secdogie-agent "learn where things are in this app, remember them" --memory app.sqlite --auto
+secdogie-agent "now use what you learned to export a report" --memory app.sqlite --auto
+```
+
+**Never have it store secrets.** The file is plaintext on disk — it's your
+machine, your file. The prompt tells the model not to save passwords/tokens, and
+`remember` refuses values that obviously look like credentials (a key named
+`password`, a value shaped like an API token) as a *best-effort backstop* — a
+backstop, not a guarantee. Memory is **off by default**; without `--memory` a
+`remember` is a harmless no-op.
+
 ## Actions it can take
 
 Each step the model picks one action: `left_click` / `right_click` /
@@ -276,7 +318,10 @@ Unicode is handled automatically via the clipboard**), `key` (a press or
 hotkey; arrow keys are `up`/`down`/`left`/`right`), `hold_key` (**hold key(s)
 down for N seconds** — use for continuous movement like walking in a game or
 panning a map), `scroll`, `open` (**open a file/folder/URL with the OS default
-program**, no mouse needed), `wait`, plus `done` and `ask_user`.
+program**, no mouse needed — this one still asks for confirmation even under
+`--auto`, see [`--allow-risky`](#click-accuracy)), `wait`, `remember` (**save a durable
+fact** to cross-run memory when `--memory` is on, see above), plus `done` and
+`ask_user`.
 
 ## Watch mode (monitor a screen, act on a trigger)
 
@@ -319,12 +364,26 @@ secdogie-agent "log into example.com and open the dashboard" --macro dashboard.j
   UI changed), the agent gives up on replay for the rest of that run and
   drops back to the normal live loop, same as if `--macro` had never been
   passed.
-- A step is recorded against **the UI element itself** when the backend can
-  identify one, so replay re-finds the target even after small UI shifts —
-  the Android backend does this via the uiautomator hierarchy (see
-  `android/README.md`). The desktop backend has no element-identification
-  yet, so its steps fall back to a resolution-independent normalized
-  `(0..1, 0..1)` coordinate instead.
+- Each positional step re-resolves its target on replay through a ladder, from
+  strongest anchor to weakest, so a click keeps landing even as the UI shifts:
+  1. **Semantic selector** — the UI element by identity (its accessibility
+     name / automation-id / role), so a re-find is exact regardless of where the
+     element moved. The Android backend always does this via the uiautomator
+     hierarchy (see `android/README.md`); on the **desktop** it's opt-in with
+     [`--desktop-ax`](#desktop-accessibility---desktop-ax), which reads the OS
+     accessibility tree (UI Automation on Windows).
+  2. **Visual anchor** — a tiny grayscale snapshot of the clicked element,
+     re-found on the current screen by [reflex](#latency-and-the-local-reflex-layer)
+     NCC template matching, then mapped back to the click point. This is what
+     makes **desktop** replay robust: instead of trusting a fixed spot, it finds
+     *what the button looked like* even after the window moved or the layout
+     reflowed. Needs numpy (the `[reflex]` extra); the patch is embedded in the
+     macro JSON. Falls through if the element genuinely isn't on screen.
+  3. **Normalized `(0..1, 0..1)` coordinate** — the last-resort position, used
+     when there's no selector and the visual anchor can't be found.
+
+  If none of these resolves the target, the step is treated as unresolvable and
+  the run drops back to the live model (above).
 - A run that finishes successfully — replayed, live, or a mix of both — always
   re-saves the full sequence to PATH, so a macro can self-heal after a UI
   change without you re-recording it by hand.
@@ -334,6 +393,30 @@ secdogie-agent "log into example.com and open the dashboard" --macro dashboard.j
   is on.
 - The macro file is plain, human-readable JSON (`secdogie_agent/macro.py`) —
   inspect or hand-edit it if useful.
+
+### Desktop accessibility (`--desktop-ax`)
+
+By default the desktop backend drives raw pixels, so macro replay leans on the
+visual anchor (tier 2 above). `--desktop-ax` makes it **element-aware**: it reads
+the OS accessibility tree and records each click against the widget's identity
+(its accessibility name / automation-id / role) — the strongest tier, exact even
+when the window moves or the layout reflows.
+
+```sh
+pip install uiautomation                  # Windows: the accessibility backend
+sudo apt install python3-pyatspi          # Linux: the AT-SPI bindings (+ enable a11y)
+secdogie-agent "..." --macro flow.json --desktop-ax --auto
+```
+
+The tree-reading half is on-machine (it needs a real desktop), and its provider
+is platform-specific: **Windows** via UI Automation (the `uiautomation` package)
+and **Linux** via AT-SPI (`pyatspi`) are both wired; **macOS (AX)** is the next
+provider to fill in against the same `axtree.AxElement` contract
+(`secdogie_agent/desktop_ax.py`). If the accessibility library isn't installed
+the flag no-ops with a one-line hint — replay just falls back to the visual
+anchor — so nothing breaks. The matching logic itself
+(`secdogie_agent/axtree.py`) is pure and unit-tested without a desktop; only the
+live tree walk is machine-specific.
 
 ## Programmable skills: sub-flows, conditions, loops
 
@@ -422,6 +505,17 @@ chase owns the physical cursor exclusively — no other window's actor can injec
 input mid-pursuit. It's desktop-only (mss + pyautogui + numpy); the prompt marks
 it that way, since over adb/WDA a phone can't be captured at frame rate anyway.
 
+**Sharpening a fuzzy detection (`reflex.refine_point`).** A vision model works
+off a *downscaled* screenshot, so the coordinate it returns is approximate — off
+by tens of pixels, because it never saw the full-resolution image. Precision
+doesn't come from feeding it a bigger blurry frame; it comes from a coarse→fine
+(foveated) step: take the model's rough point, crop a small window around it at
+the frame's **native** resolution, and NCC-match the target's appearance there
+to pin the exact center — the same few-millisecond match. If the target isn't in
+the window it returns the coarse point unchanged (`refined=False`) rather than
+jumping somewhere wrong. So: cheap fuzzy model detection to find *roughly* where,
+then a sharp local match to pin *exactly* where.
+
 ## How it decides what to do
 
 Each step, the model sees the current screenshot, the task, and a short
@@ -441,11 +535,14 @@ secdogie_agent/
   dialog.py              optional tkinter dialogs (task entry, plan briefing, ask_user)
   loop.py                the screenshot -> action -> execute -> repeat loop
   backend.py              Backend protocol (setup/capture/execute) + optional Locatable capability
-  macro.py                RPA macro record/replay: Macro, MacroRecorder, resolve_replay_step
+  macro.py                RPA macro record/replay: Macro, MacroRecorder, resolve_replay_step (selector/anchor/coord tiers)
+  axtree.py               pure desktop accessibility-tree model + queries (element_at / find / selector_for) -- tested
+  desktop_ax.py           on-machine seam: read the live OS accessibility tree (UI Automation) into AxElements
   skill.py                programmable skill interpreter (call/if/while/repeat/params) -- pure, tested
   skill_runner.py         wires skills to a real backend + a model yes/no for conditions (--skill)
   plan.py                 task decomposition + sub-task progress tracking (used with --plan)
   trace.py                tamper-evident hash-chained audit trace (used with --trace; `python -m` verifies)
+  memory.py               persistent cross-run key/value memory (SQLite; used with --memory) -- tested
   reflex.py               local reflex layer: FFT template matching + a frame-rate pursue loop (needs numpy)
   screen.py               screenshot capture + resize/coordinate scaling (mss + Pillow)
   actions.py              executes an Action via pyautogui (smooth move + settle)

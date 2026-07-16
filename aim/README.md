@@ -96,6 +96,18 @@ prove — and what you verify once on the real Windows + GPU box:
    overshoot. `engage` takes the input baton from Node A first (waits for it),
    and hands it back when the engagement ends.
 
+   **If the camera spins wildly / turns the wrong way:** an axis is inverted.
+   The loop assumes moving the mouse +y turns the view so the target drifts
+   toward center; if the game has *invert look* on (or its look direction is
+   simply opposite), that axis becomes positive feedback and the camera runs
+   away. The guard catches this and ends the run with outcome `diverging` and a
+   hint rather than spinning forever. Fix it by re-running with `--invert-y`
+   (and/or `--invert-x`), or by toggling the game's invert-look setting:
+
+   ```bash
+   secdogie-aim engage --weights dragon.pt --label ender_dragon --gain 0.4 --invert-y
+   ```
+
 ## Wiring Node A (no agent changes needed)
 
 Node A wraps each macro step in the baton and yields between steps — both

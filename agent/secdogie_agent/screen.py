@@ -115,6 +115,32 @@ def changed_ratio(before_png: bytes, after_png: bytes, max_edge: int = 256, tol:
     return changed / total if total else 0.0
 
 
+def crop_anchor(frame_png: bytes, cx: int, cy: int, box: int = 64) -> tuple[bytes, int, int]:
+    """Cut a small grayscale patch out of `frame_png` around (cx, cy) -- a visual
+    fingerprint of the element being clicked, so a macro can re-find it later by
+    matching the patch instead of trusting a fixed coordinate (see macro.py).
+
+    Returns (grayscale PNG bytes, offset_x, offset_y) where the offset is where
+    (cx, cy) sits *inside* the returned patch. The window is clamped to the frame,
+    so near an edge the click is no longer the patch center -- the offset records
+    that, and lets replay map a re-found patch back to the true click point. PIL
+    only (no numpy), so recording an anchor never needs the reflex extra.
+    """
+    from PIL import Image
+
+    with Image.open(io.BytesIO(frame_png)) as img:
+        gray = img.convert("L")
+        w, h = gray.width, gray.height
+        # A box larger than the frame just takes the whole frame.
+        bw, bh = min(box, w), min(box, h)
+        left = max(0, min(cx - bw // 2, w - bw))
+        top = max(0, min(cy - bh // 2, h - bh))
+        patch = gray.crop((left, top, left + bw, top + bh))
+        out = io.BytesIO()
+        patch.save(out, format="PNG")
+        return out.getvalue(), cx - left, cy - top
+
+
 def prepare_for_model(
     png_bytes: bytes,
     real_size: tuple[int, int],

@@ -1,8 +1,9 @@
+import io
 import json
 
 import pytest
 from secdogie_agent.backend import ElementSelector
-from secdogie_agent.macro import Macro, MacroRecorder, MacroStep, resolve_replay_step
+from secdogie_agent.macro import Macro, MacroRecorder, MacroStep, VisualAnchor, resolve_replay_step
 from secdogie_agent.providers.base import Action
 
 
@@ -236,3 +237,122 @@ def test_resolve_raw_reflects_resolved_coordinates_for_confirmation_prompts():
     step = MacroStep(kind="left_click", point=(0.5, 0.5))
     action = resolve_replay_step(step, backend, (800, 400))
     assert action.raw == {"action": "left_click", "x": 400, "y": 200}
+
+
+# -- visual anchoring (re-find a clicked element by image, not a fixed coord) ---
+
+def _scene(px, py, w=300, h=200, patch=32):
+    """A grayscale PNG: flat background with a distinctive textured square whose
+    top-left is (px, py) -- so its click center is (px + patch//2, py + patch//2).
+    The texture gives the patch real variance, so NCC has a sharp peak."""
+    np = pytest.importorskip("numpy")
+    from PIL import Image
+
+    yy, xx = np.mgrid[0:patch, 0:patch]
+    tile = ((xx * 8 + yy * 5) % 256).astype(np.uint8)
+    arr = np.full((h, w), 40, np.uint8)
+    arr[py:py + patch, px:px + patch] = tile
+    buf = io.BytesIO()
+    Image.fromarray(arr, "L").save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _blank(w=300, h=200):
+    np = pytest.importorskip("numpy")
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.fromarray(np.full((h, w), 40, np.uint8), "L").save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _record_click(px, py, frame):
+    """Record a left_click on the element centered in `frame`'s patch."""
+    rec = MacroRecorder("t")
+    cx, cy = px + 16, py + 16
+    action = Action(kind="left_click", x=cx, y=cy, raw={"action": "left_click", "x": cx, "y": cy})
+    rec.record(action, "clicked", FakePlainBackend(), (300, 200), frame_png=frame)
+    return rec.steps[0]
+
+
+def test_record_captures_a_visual_anchor_for_a_non_locatable_backend():
+    step = _record_click(100, 60, _scene(100, 60))
+    assert step.selector is None
+    assert step.anchor is not None and step.anchor.png       # captured the element's image
+    assert step.anchor.offset == (32, 32)                    # click at the center of the 64px anchor box
+    assert step.point is not None                            # and kept the coordinate as a fallback
+
+
+def test_resolve_by_anchor_finds_a_moved_element():
+    # Recorded when the element was at (100,60); on replay it's at (180,120).
+    step = _record_click(100, 60, _scene(100, 60))
+    resolved = resolve_replay_step(step, FakePlainBackend(), (300, 200), frame_png=_scene(180, 120))
+    assert resolved is not None
+    # Re-found at the MOVED center (196,136), not the stale recorded coord (116,76).
+    assert abs(resolved.x - 196) <= 1 and abs(resolved.y - 136) <= 1
+
+
+def test_resolve_anchor_miss_falls_back_to_the_coordinate():
+    step = _record_click(100, 60, _scene(100, 60))
+    # The element is gone from the frame -> NCC finds nothing -> use the point.
+    resolved = resolve_replay_step(step, FakePlainBackend(), (300, 200), frame_png=_blank())
+    assert resolved is not None and (resolved.x, resolved.y) == (116, 76)
+
+
+def test_resolve_without_a_frame_uses_the_coordinate():
+    # No frame to match against (e.g. caller didn't pass one) -> coordinate path.
+    step = MacroStep(kind="left_click", anchor=VisualAnchor(png=b"x", offset=(1, 1)), point=(0.5, 0.5))
+    action = resolve_replay_step(step, FakePlainBackend(), (800, 400))
+    assert action is not None and (action.x, action.y) == (400, 200)
+
+
+def test_resolve_anchor_only_step_is_unresolved_when_the_element_is_gone():
+    # Anchor present, no coordinate fallback, element not on screen -> None, so
+    # the loop hands off to the live model rather than clicking a guess.
+    step = _record_click(100, 60, _scene(100, 60))
+    no_coord = MacroStep(kind="left_click", anchor=step.anchor)  # drop the point
+    assert resolve_replay_step(no_coord, FakePlainBackend(), (300, 200), frame_png=_blank()) is None
+
+
+def test_macro_round_trips_a_visual_anchor(tmp_path):
+    anchor = VisualAnchor(png=b"\x89PNG\r\n\x1a\n\x00\xff raw bytes", offset=(7, 9))
+    m = Macro(task="t", steps=[MacroStep(kind="left_click", anchor=anchor, point=(0.2, 0.3))])
+    path = tmp_path / "m.json"
+    m.save(path)
+    loaded = Macro.load(path).steps[0]
+    assert loaded.anchor is not None
+    assert loaded.anchor.png == anchor.png            # base64 codec is lossless
+    assert loaded.anchor.offset == (7, 9)
+    assert loaded.point == (0.2, 0.3)
+
+
+# -- desktop accessibility tier: selector wins over the visual anchor ----------
+
+def test_desktop_a11y_selector_is_recorded_and_replayed_in_preference_to_an_anchor():
+    from secdogie_agent import axtree
+    from secdogie_agent.backend import DesktopBackend
+
+    class Prov:
+        def __init__(self, els):
+            self.els = els
+
+        def snapshot(self):
+            return self.els
+
+    tree = [axtree.AxElement(role="Button", name="Save", automation_id="saveBtn", bounds=(100, 100, 200, 140))]
+    backend = DesktopBackend(ax_provider=Prov(tree))
+
+    rec = MacroRecorder("t")
+    action = Action(kind="left_click", x=150, y=120, raw={"action": "left_click", "x": 150, "y": 120})
+    rec.record(action, "clicked", backend, (800, 600), frame_png=b"ignored-when-a-selector-is-found")
+    step = rec.steps[0]
+    # The strongest tier won: a semantic selector, and NO visual anchor / coordinate.
+    assert step.selector is not None and step.selector.kind == "desktop-ax"
+    assert step.anchor is None and step.point is None
+
+    # Replay after the button moved: the selector re-finds it by identity.
+    backend.ax_provider = Prov(
+        [axtree.AxElement(role="Button", name="Save", automation_id="saveBtn", bounds=(500, 300, 600, 340))]
+    )
+    resolved = resolve_replay_step(step, backend, (800, 600))
+    assert resolved is not None and (resolved.x, resolved.y) == (550, 320)

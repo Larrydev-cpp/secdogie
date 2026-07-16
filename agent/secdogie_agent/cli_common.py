@@ -75,6 +75,12 @@ def add_loop_args(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="ask the model for actions and log them, but never touch the machine/device",
     )
+    parser.add_argument(
+        "--allow-risky",
+        action="store_true",
+        help="with --auto, also run high-risk actions (currently `open`, which launches a file/URL) "
+        "without confirmation; by default those still prompt even under --auto",
+    )
     parser.add_argument("--log-file", default=None, help="also append the run log to this file")
     parser.add_argument(
         "--max-image-edge",
@@ -119,6 +125,14 @@ def add_loop_args(parser: argparse.ArgumentParser) -> None:
         metavar="PATH",
         help="write a tamper-evident hash-chained audit trace (frame hash + decision + result per step) "
         "to this JSONL file; verify later with `python -m secdogie_agent.trace <path>`",
+    )
+    parser.add_argument(
+        "--memory",
+        default=None,
+        metavar="PATH",
+        help="give the agent persistent cross-run memory in this SQLite file: it saves durable facts "
+        "with a `remember` action and they're recalled into its prompt on later runs "
+        "(plaintext on disk -- never have it store secrets)",
     )
 
 
@@ -190,4 +204,8 @@ def loop_config_kwargs(args: argparse.Namespace, *, task: str, backend=None) -> 
         kwargs["subtask_step_limit"] = args.subtask_step_limit
     if getattr(args, "trace", None) is not None:
         kwargs["trace_path"] = args.trace
+    if getattr(args, "allow_risky", False):
+        kwargs["confirm_high_risk"] = False
+    if getattr(args, "memory", None) is not None:
+        kwargs["memory_path"] = args.memory
     return kwargs
