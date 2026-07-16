@@ -26,6 +26,14 @@ def test_aim_step_deadzone_suppresses_jitter():
     assert aim_step(4, 0, CFG) != (0, 0)  # just outside -> still corrects
 
 
+def test_aim_step_invert_negates_the_chosen_axis():
+    base = aim_step(40, -20, CFG)  # (20, -10)
+    ix = aim_step(40, -20, AimConfig(gain=0.5, invert_x=True))
+    iy = aim_step(40, -20, AimConfig(gain=0.5, invert_y=True))
+    assert ix == (-base[0], base[1])  # only x flipped
+    assert iy == (base[0], -base[1])  # only y flipped
+
+
 # -- the simulated plant ------------------------------------------------------
 
 class SimWorld:
@@ -175,6 +183,41 @@ def test_engage_filters_by_label_and_confidence():
     )
     assert result.outcome == "lost"
     assert mouse.moves == [] and mouse.events == []
+
+
+def test_engage_detects_divergence_on_inverted_sign():
+    # k<0 = the game turns the camera the WRONG way, so every steer grows the
+    # error (positive feedback). The guard must catch it instead of spinning.
+    cfg = AimConfig(gain=0.5, max_step=60, deadzone_px=3, fire_radius_px=12,
+                    fire_cooldown_s=0.25, lost_frames=1000, timeout_s=100, max_fps=0,
+                    diverge_frames=12)
+    world = SimWorld(500, 400, k=-1.0)
+    result = _engage(world, cfg=cfg)
+    assert result.outcome == "diverging"
+    assert result.frames <= 15  # caught in ~a dozen frames, not spinning forever
+
+
+def test_engage_invert_restores_convergence_on_inverted_sign():
+    # Same wrong-sign plant, but invert both axes -> negative feedback again, so
+    # the loop converges and fires exactly like an un-inverted game.
+    cfg = AimConfig(gain=0.5, max_step=60, deadzone_px=3, fire_radius_px=12,
+                    fire_cooldown_s=0.25, lost_frames=5, timeout_s=100, max_fps=0,
+                    invert_x=True, invert_y=True)
+    world = SimWorld(700, 500, k=-1.0)
+    result = _engage(world, cfg=cfg)
+    assert result.shots >= 1
+    assert result.outcome == "timeout"
+
+
+def test_diverge_guard_ignores_a_bounded_limit_cycle():
+    # An over-hot but correctly-signed loop orbits the target (error oscillates,
+    # never grows monotonically); the guard must NOT mistake that for divergence.
+    hot = AimConfig(gain=5.0, max_step=40, deadzone_px=3, fire_radius_px=12,
+                    fire_cooldown_s=0, lost_frames=5, timeout_s=2.0, max_fps=0,
+                    diverge_frames=12)
+    world = SimWorld(750, 550, k=1.5)
+    result = _engage(world, cfg=hot)
+    assert result.outcome == "timeout"  # bounded orbit, not "diverging"
 
 
 def test_engage_stops_when_should_stop_fires():
