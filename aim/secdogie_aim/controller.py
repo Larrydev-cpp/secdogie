@@ -22,6 +22,7 @@ slingshotting past it.
 """
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -61,6 +62,20 @@ class AimConfig:
     lost_frames: int = 15  # consecutive empty frames before giving up
     timeout_s: float = 20.0  # hard cap on one engagement
     max_fps: float = 60.0  # frame pacing; 0 = uncapped (tests)
+    # The loop assumes moving the mouse +x/+y turns the camera so the target's
+    # projection moves -x/-y (negative feedback). If a game inverts an axis --
+    # "invert look" is on, or its look direction is simply opposite -- that axis
+    # becomes POSITIVE feedback and the camera spins away instead of settling.
+    # Flip the offending axis here to restore convergence. `calibrate` on the
+    # real machine tells you which (if any) is inverted.
+    invert_x: bool = False  # negate horizontal steer (camera turns the wrong way left/right)
+    invert_y: bool = False  # negate vertical steer (e.g. the game's "invert look" is on)
+    # Safety net for a still-wrong sign: if the aim error keeps GROWING for this
+    # many consecutive steered frames, the loop is diverging (positive feedback),
+    # so bail out with outcome "diverging" instead of spinning the camera wildly.
+    # A bounded limit cycle or a jumping target oscillates rather than growing
+    # monotonically, so this does not fire on those. 0 disables the guard.
+    diverge_frames: int = 12
 
 
 def aim_step(err_x: float, err_y: float, cfg: AimConfig) -> tuple[int, int]:
@@ -68,21 +83,25 @@ def aim_step(err_x: float, err_y: float, cfg: AimConfig) -> tuple[int, int]:
 
     Inside `deadzone_px` (radial) the step is (0, 0) -- detection boxes wobble a
     pixel or two frame-to-frame even on a stationary target, and chasing that
-    noise shakes the camera."""
+    noise shakes the camera. `invert_x`/`invert_y` negate an axis whose camera
+    turns the wrong way, so a game with inverted look still converges."""
     if err_x * err_x + err_y * err_y <= cfg.deadzone_px * cfg.deadzone_px:
         return (0, 0)
 
     def clamp(v: float) -> int:
         return int(max(-cfg.max_step, min(cfg.max_step, round(v))))
 
-    return (clamp(err_x * cfg.gain), clamp(err_y * cfg.gain))
+    sx = -1.0 if cfg.invert_x else 1.0
+    sy = -1.0 if cfg.invert_y else 1.0
+    return (clamp(err_x * cfg.gain * sx), clamp(err_y * cfg.gain * sy))
 
 
 @dataclass(frozen=True)
 class EngageResult:
-    outcome: str  # "lost" | "timeout" | "stopped" -- combat has no "done" signal;
-    # the caller (tactician/CLI) decides when the fight is over, so the loop only
-    # ever ends by losing the target, running out its budget, or being told to stop.
+    outcome: str  # "lost" | "timeout" | "stopped" | "diverging" -- combat has no
+    # "done" signal; the caller (tactician/CLI) decides when the fight is over, so
+    # the loop only ends by losing the target, running out its budget, being told
+    # to stop, or detecting sign-inverted divergence (see the divergence guard).
     frames: int
     elapsed_s: float
     fps: float
@@ -125,6 +144,8 @@ def engage(
     lost = 0
     shots = 0
     last_shot: float | None = None
+    prev_dist: float | None = None  # last frame's aim-error magnitude, for the divergence guard
+    growing = 0  # consecutive steered frames on which the error grew
 
     def result(outcome: str) -> EngageResult:
         el = clock() - start
@@ -142,6 +163,8 @@ def engage(
 
         if target is None:
             lost += 1
+            growing = 0  # no target to chase; not diverging
+            prev_dist = None
             if lost >= cfg.lost_frames:
                 return result("lost")
         else:
@@ -149,7 +172,21 @@ def engage(
             err_x, err_y = target.cx - center_x, target.cy - center_y
             dx, dy = aim_step(err_x, err_y, cfg)
             if dx or dy:
+                # Divergence guard: only meaningful while we are actually
+                # steering. If the error grows every frame we steer, the sign is
+                # wrong (positive feedback) -- bail before the camera spins off.
+                dist = math.hypot(err_x, err_y)
+                if prev_dist is not None and dist > prev_dist + 1e-6:
+                    growing += 1
+                    if cfg.diverge_frames and growing >= cfg.diverge_frames:
+                        return result("diverging")
+                else:
+                    growing = 0
+                prev_dist = dist
                 mouse.move(dx, dy)
+            else:
+                growing = 0  # inside the deadzone; settled, not diverging
+                prev_dist = None
             on_target = err_x * err_x + err_y * err_y <= cfg.fire_radius_px * cfg.fire_radius_px
             cooled = last_shot is None or (now - last_shot) >= cfg.fire_cooldown_s
             if on_target and cooled:

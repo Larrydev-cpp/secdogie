@@ -32,6 +32,8 @@ def _add_engage(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--weights", required=True, help="path to YOLO .pt weights (e.g. dragon.pt)")
     p.add_argument("--label", default=None, help="only engage detections with this class label (e.g. ender_dragon)")
     p.add_argument("--gain", type=float, default=0.5, help="mouse counts per pixel of error (from calibrate)")
+    p.add_argument("--invert-x", action="store_true", help="negate horizontal steer if the camera turns the wrong way left/right")
+    p.add_argument("--invert-y", action="store_true", help="negate vertical steer if the game has 'invert look' on (camera spins up/down)")
     p.add_argument("--timeout", type=float, default=20.0, help="seconds before one engagement gives up (default 20)")
     p.add_argument("--lock-dir", default=None, help="input-baton directory shared with Node A (default ~/.secdogie/handoff)")
     p.add_argument("--no-baton", action="store_true", help="skip the input baton (single-node runs, no Node A)")
@@ -66,7 +68,7 @@ def _run_engage(args: argparse.Namespace) -> int:
 
     detector = YoloDetector(args.weights)
     mouse = open_mouse()
-    cfg = AimConfig(gain=args.gain, timeout_s=args.timeout)
+    cfg = AimConfig(gain=args.gain, timeout_s=args.timeout, invert_x=args.invert_x, invert_y=args.invert_y)
 
     with mss.mss() as sct:
         monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
@@ -82,6 +84,13 @@ def _run_engage(args: argparse.Namespace) -> int:
                 f"[secdogie-aim] engagement over: {result.outcome} after {result.frames} frame(s), "
                 f"{result.shots} shot(s) [{result.fps:.0f} fps]"
             )
+            if result.outcome == "diverging":
+                print(
+                    "[secdogie-aim] the camera was turning the WRONG way (error grew every "
+                    "frame) -- an inverted axis. Re-run with --invert-y (and/or --invert-x), "
+                    "or toggle the game's 'invert look' setting.",
+                    file=sys.stderr,
+                )
             return 0 if result.shots > 0 else 1
 
         if args.no_baton:
