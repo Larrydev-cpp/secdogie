@@ -18,21 +18,74 @@ ignored. Recognized keys: ANTHROPIC_API_KEY, OPENAI_API_KEY, SECDOGIE_MODEL.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import NamedTuple
 
 from .providers import API_KEY_ENV, resolve_model_provider
 
-# Searched in order; the first that exists wins. `secdogie.env` in the current
-# directory is handy next to a downloaded single-file binary; the ~/.config
-# path is the conventional per-user location.
-DEFAULT_CONFIG_PATHS = [
-    Path("secdogie.env"),
-    Path.home() / ".config" / "secdogie" / "config",
-    Path.home() / ".secdogie" / "config",
-]
 
-# Where --init-config writes its template.
+def _exe_dir() -> Path | None:
+    """Directory containing the actual running executable, for a frozen
+    single-file build (PyInstaller sets `sys.frozen` and points
+    `sys.executable` at the real .exe, not the Python interpreter). None when
+    running from source (pip install / python -m), where there is no single
+    "exe" to anchor to and the current directory / home are used instead.
+
+    This matters because relying on the *current working directory* silently
+    breaks portability: double-clicking the exe, launching it via a shortcut,
+    running it "as Administrator", or invoking it from a shell that `cd`'d
+    somewhere else can all leave the CWD pointing anywhere -- NOT necessarily
+    the folder the exe was unzipped into. Anchoring to sys.executable's real
+    location is invariant to all of that.
+    """
+    if getattr(sys, "frozen", False):
+        try:
+            return Path(sys.executable).resolve().parent
+        except OSError:
+            return None
+    return None
+
+
+def default_config_paths() -> list[Path]:
+    """Searched in order; the first that exists wins.
+
+    A frozen portable build looks first next to the executable itself: unzip
+    it anywhere, drop a `secdogie.env` beside the .exe, and it's found no
+    matter how the exe is launched or what the working directory happens to
+    be -- no files ever need to touch the user's home directory. Then the
+    current directory (running from source, or a config explicitly reached
+    via `cd`), then the conventional per-user locations.
+    """
+    paths: list[Path] = []
+    exe_dir = _exe_dir()
+    if exe_dir is not None:
+        paths.append(exe_dir / "secdogie.env")
+    paths.append(Path("secdogie.env"))
+    paths.append(Path.home() / ".config" / "secdogie" / "config")
+    paths.append(Path.home() / ".secdogie" / "config")
+    return paths
+
+
+# Kept as a module-level snapshot for introspection/back-compat; resolve()
+# always recomputes via default_config_paths() so it reflects the process's
+# actual frozen state rather than whatever it was at import time.
+DEFAULT_CONFIG_PATHS = default_config_paths()
+
+
+def default_write_target() -> Path:
+    """Where --init-config writes when given no explicit path: next to the
+    exe for a frozen portable build (the whole install then stays self
+    contained in one folder -- nothing under the user's home directory), else
+    the conventional per-user config location for a source/pip install."""
+    exe_dir = _exe_dir()
+    if exe_dir is not None:
+        return exe_dir / "secdogie.env"
+    return Path.home() / ".config" / "secdogie" / "config"
+
+
+# Kept for back-compat with any external reference; see default_write_target()
+# for the (frozen-aware) logic write_template() actually uses.
 USER_CONFIG_PATH = Path.home() / ".config" / "secdogie" / "config"
 
 _TEMPLATE = """\
@@ -100,7 +153,7 @@ def resolve(
     """Resolves the provider, API key, and model from CLI args, env, and file."""
     # Parse the config file up front: it can supply both the model and (as the
     # lowest-priority fallback) the provider's API key.
-    chosen = Path(config_path) if config_path else _first_existing(DEFAULT_CONFIG_PATHS)
+    chosen = Path(config_path) if config_path else _first_existing(default_config_paths())
     file_values = parse_config_file(chosen) if chosen is not None else {}
 
     # Model: CLI wins, then env, then config file, else leave None.
@@ -139,10 +192,11 @@ def resolve(
 
 
 def write_template(path: Path | None = None) -> Path:
-    """Writes the config template to `path` (default USER_CONFIG_PATH) with
-    owner-only permissions. Refuses to clobber an existing file. Returns the
-    path written."""
-    target = path or USER_CONFIG_PATH
+    """Writes the config template to `path` (default: default_write_target(),
+    i.e. next to the exe for a frozen portable build) with owner-only
+    permissions. Refuses to clobber an existing file. Returns the path
+    written."""
+    target = path or default_write_target()
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         raise FileExistsError(f"{target} already exists; edit it directly or delete it first")

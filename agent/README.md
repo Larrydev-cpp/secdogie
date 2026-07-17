@@ -82,27 +82,34 @@ The config file is the easiest if you don't want to set an env var every
 time. Create a template and edit it:
 
 ```sh
-secdogie-agent --init-config      # writes ~/.config/secdogie/config (chmod 600)
+secdogie-agent --init-config
 ```
 
 ```ini
-# ~/.config/secdogie/config
 ANTHROPIC_API_KEY=sk-...
 # OPENAI_API_KEY=sk-...            # only if you use gpt-* / o-series models
 # SECDOGIE_MODEL=claude-sonnet-5   # optional default model
 ```
 
-Searched config locations (first that exists wins): `./secdogie.env`,
-`~/.config/secdogie/config`, `~/.secdogie/config`. Point at a specific file
-with `--config PATH`.
+**Where this writes to (and is found from) depends on how you're running it:**
 
-**On Windows**, `--init-config` still works the same way (writes to
-`%USERPROFILE%\.config\secdogie\config` — an unusual-looking but valid path;
-`~` above means your home directory on every OS). The simplest option,
-especially for the standalone `.exe`, is the first-checked location: create a
-plain text file named `secdogie.env` **in the same folder you're running
-from** (Notepad is fine) with the `ANTHROPIC_API_KEY=sk-...` line — no
-special path needed at all.
+- **The standalone `.exe`/binary (packaged build): fully portable.**
+  `--init-config` writes `secdogie.env` **right next to the executable
+  itself** — wherever you unzipped it — and that's the *first* place it's
+  looked for afterward, regardless of your current directory. This is
+  anchored to the exe's real location (not the working directory), so it
+  works the same whether you double-click it, launch it from a shortcut, run
+  it as Administrator, or `cd` somewhere else first and run it from there —
+  all of which can leave the working directory pointing anywhere. Unzip
+  anywhere, run `--init-config`, edit the file that appears beside the exe,
+  done — nothing ever touches your home directory.
+- **Running from source (`pip install -e .`):** writes to
+  `~/.config/secdogie/config` (on Windows: `%USERPROFILE%\.config\secdogie\config`
+  — an unusual-looking but valid path), the conventional per-user location.
+
+Full search order (first that exists wins): next to the exe (portable builds
+only), `./secdogie.env` (current directory), `~/.config/secdogie/config`,
+`~/.secdogie/config`. Point at a specific file with `--config PATH`.
 
 ### Or: a single-file executable (no Python needed)
 
