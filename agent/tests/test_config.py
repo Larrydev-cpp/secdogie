@@ -1,3 +1,4 @@
+from pathlib import Path
 
 import pytest
 from secdogie_agent import config as config_mod
@@ -108,3 +109,96 @@ def test_write_template_refuses_to_clobber(tmp_path):
     with pytest.raises(FileExistsError):
         config_mod.write_template(target)
     assert target.read_text() == "existing"  # untouched
+
+
+# -- portable frozen-exe config location (drag-and-drop, no user-dir files) --
+#
+# A frozen single-file build must find/write its config next to the actual
+# .exe -- not relative to the current working directory, which is unreliable
+# for a launched executable (double-click, shortcut, "Run as Administrator",
+# or a shell that cd'd elsewhere can all leave the CWD pointing anywhere but
+# the folder the exe was unzipped into).
+
+def _freeze_at(monkeypatch, exe_path):
+    """Simulate a PyInstaller frozen build whose real executable is exe_path
+    (parent dir need not exist as an actual file for Path.resolve())."""
+    monkeypatch.setattr(config_mod.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(config_mod.sys, "executable", str(exe_path))
+
+
+def test_exe_dir_is_none_when_not_frozen(monkeypatch):
+    monkeypatch.delattr(config_mod.sys, "frozen", raising=False)
+    assert config_mod._exe_dir() is None
+
+
+def test_exe_dir_resolves_to_the_real_executables_parent(monkeypatch, tmp_path):
+    exe = tmp_path / "dist" / "secdogie-agent.exe"
+    _freeze_at(monkeypatch, exe)
+    assert config_mod._exe_dir() == (tmp_path / "dist").resolve()
+
+
+def test_default_config_paths_checks_next_to_the_exe_first_when_frozen(monkeypatch, tmp_path):
+    exe = tmp_path / "dist" / "secdogie-agent.exe"
+    _freeze_at(monkeypatch, exe)
+    paths = config_mod.default_config_paths()
+    assert paths[0] == (tmp_path / "dist" / "secdogie.env").resolve()
+
+
+def test_default_config_paths_has_no_exe_entry_when_not_frozen(monkeypatch):
+    monkeypatch.delattr(config_mod.sys, "frozen", raising=False)
+    paths = config_mod.default_config_paths()
+    assert paths[0] == Path("secdogie.env")  # CWD-relative, unchanged behavior
+
+
+def test_resolve_finds_config_next_to_frozen_exe_regardless_of_cwd(monkeypatch, tmp_path):
+    # The whole point: put secdogie.env beside a fake .exe in one directory,
+    # then chdir somewhere else entirely -- resolve() must still find it.
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "secdogie.env").write_text("ANTHROPIC_API_KEY=portable-key\n")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.chdir(elsewhere)  # simulates CWD not being the exe's folder
+    _freeze_at(monkeypatch, dist / "secdogie-agent.exe")
+
+    r = config_mod.resolve()
+    assert r.api_key == "portable-key"
+    assert str(dist) in r.api_key_source
+
+
+def test_resolve_ignores_exe_dir_when_not_frozen(monkeypatch, tmp_path):
+    # Running from source (pip install / python -m): no single "exe" exists,
+    # so a stray secdogie.env in some unrelated directory must NOT be picked
+    # up just because it happens to sit next to sys.executable (the Python
+    # interpreter itself, not this program).
+    monkeypatch.delattr(config_mod.sys, "frozen", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    interpreter_dir = tmp_path / "some-python-install"
+    interpreter_dir.mkdir()
+    (interpreter_dir / "secdogie.env").write_text("ANTHROPIC_API_KEY=should-not-be-found\n")
+    monkeypatch.setattr(config_mod.sys, "executable", str(interpreter_dir / "python"))
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    r = config_mod.resolve()
+    assert r.api_key is None
+
+
+def test_default_write_target_is_next_to_the_exe_when_frozen(monkeypatch, tmp_path):
+    exe = tmp_path / "dist" / "secdogie-agent.exe"
+    _freeze_at(monkeypatch, exe)
+    assert config_mod.default_write_target() == (tmp_path / "dist" / "secdogie.env").resolve()
+
+
+def test_write_template_writes_beside_the_exe_when_frozen_and_no_path_given(monkeypatch, tmp_path):
+    exe = tmp_path / "dist" / "secdogie-agent.exe"
+    (tmp_path / "dist").mkdir()
+    _freeze_at(monkeypatch, exe)
+
+    written = config_mod.write_template()  # no explicit path -- must use the portable default
+    assert written == (tmp_path / "dist" / "secdogie.env").resolve()
+    assert written.is_file()
+    assert "ANTHROPIC_API_KEY=" in written.read_text()
