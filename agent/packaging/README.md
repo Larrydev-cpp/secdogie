@@ -8,11 +8,18 @@ or `pip install`-ing anything** — they download one file and run it.
 
 From this directory (or run the script from anywhere):
 
+**Linux/macOS:**
 ```sh
 ./build.sh
 ```
 
-or manually:
+**Windows (PowerShell):**
+```powershell
+.\build.ps1
+```
+(cmd.exe can't run `.ps1` files directly: `powershell -ExecutionPolicy Bypass -File build.ps1`.)
+
+Or manually — Linux/macOS:
 
 ```sh
 cd agent
@@ -21,6 +28,22 @@ pip install -e . pyinstaller
 cd packaging
 pyinstaller secdogie-agent.spec
 ```
+
+Windows (PowerShell):
+
+```powershell
+cd agent
+python -m venv .build-venv
+.build-venv\Scripts\Activate.ps1
+pip install -e . pyinstaller
+cd packaging
+pyinstaller secdogie-agent.spec
+```
+
+(If `Activate.ps1` refuses to run with a "running scripts is disabled" error,
+run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` first — that
+only affects the current window, no admin needed. cmd uses
+`.build-venv\Scripts\activate.bat` instead.)
 
 Output:
 
@@ -40,9 +63,19 @@ the repo's CI if configured).
 
 ## Running the built binary
 
+**Linux/macOS:**
 ```sh
 export ANTHROPIC_API_KEY=sk-...
 ./dist/secdogie-agent "open a text editor and type hello" --dry-run
+```
+
+**Windows:** either set the env var (PowerShell: `$env:ANTHROPIC_API_KEY =
+"sk-..."`; cmd: `set ANTHROPIC_API_KEY=sk-...`), or — simpler, no shell syntax
+to remember — create a `secdogie.env` text file next to `secdogie-agent.exe`
+containing `ANTHROPIC_API_KEY=sk-...`; it's the first place the binary looks
+for a key. Then:
+```
+.\dist\secdogie-agent.exe "open a text editor and type hello" --dry-run
 ```
 
 It must run in a **graphical desktop session** — it screenshots and drives
@@ -63,7 +96,8 @@ just fall back to terminal mode. GUI mode also needs a display at run time.
 - `entry.py` — thin launcher PyInstaller freezes (forwards to `secdogie_agent.cli:main`).
 - `secdogie-agent.spec` — the PyInstaller build recipe (bundles `anthropic`,
   `pyautogui`, `mss` and their hidden imports; produces a one-file console exe).
-- `build.sh` — convenience wrapper that sets up an isolated build venv and runs PyInstaller.
+- `build.sh` / `build.ps1` — convenience wrappers (Linux/macOS and Windows,
+  respectively) that set up an isolated build venv and run PyInstaller.
 
 ## Notes on size and startup
 

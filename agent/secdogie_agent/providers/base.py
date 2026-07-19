@@ -11,7 +11,6 @@ import re
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-
 # The full set of actions the agent loop knows how to execute. A provider's
 # job is to emit a dict that validates against this shape; see
 # Action.from_dict for the exact fields expected per action kind.
@@ -28,6 +27,8 @@ VALID_ACTIONS = {
     "open",
     "wait",
     "screenshot",
+    "track_click",
+    "remember",
     "done",
     "ask_user",
 }
@@ -50,7 +51,7 @@ class Action:
     raw: dict[str, Any] = field(default_factory=dict)
 
     @staticmethod
-    def from_dict(d: dict[str, Any]) -> "Action":
+    def from_dict(d: dict[str, Any]) -> Action:
         kind = d.get("action")
         if kind not in VALID_ACTIONS:
             raise ValueError(f"unknown action {kind!r}; must be one of {sorted(VALID_ACTIONS)}")
@@ -70,7 +71,7 @@ class Action:
             raw=d,
         )
 
-    def scaled(self, factor: float) -> "Action":
+    def scaled(self, factor: float) -> Action:
         """Return a copy with all pixel coordinates multiplied by `factor`.
 
         The model reasons in the (possibly downscaled) image's coordinate
@@ -100,7 +101,7 @@ class Action:
             raw=new_raw,
         )
 
-    def translated(self, dx: int, dy: int) -> "Action":
+    def translated(self, dx: int, dy: int) -> Action:
         """Return a copy with all pixel coordinates shifted by (dx, dy).
 
         Used when the screenshot the model reasoned about was cropped to a
@@ -164,6 +165,41 @@ def parse_action_json(text: str) -> dict[str, Any]:
     return json.loads(match.group(0))
 
 
+_JSON_ARRAY_RE = re.compile(r"\[.*\]", re.DOTALL)
+
+
+def parse_plan(text: str) -> list[str]:
+    """Parse a model's task decomposition into an ordered list of sub-task
+    strings. Prefers a JSON array; falls back to numbered/bulleted lines so a
+    model that ignores the "JSON only" instruction still yields a usable plan.
+    Returns [] when nothing list-like is found (the caller then runs unplanned).
+    """
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.strip("`")
+        if stripped.startswith("json"):
+            stripped = stripped[4:]
+        stripped = stripped.strip()
+
+    match = _JSON_ARRAY_RE.search(stripped)
+    if match:
+        try:
+            arr = json.loads(match.group(0))
+            items = [str(x).strip() for x in arr if str(x).strip()]
+            if items:
+                return items
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    # Fallback: one sub-task per non-empty line, stripping list markers.
+    out: list[str] = []
+    for raw in text.splitlines():
+        line = raw.strip().lstrip("-*0123456789.)( ").strip()
+        if line:
+            out.append(line)
+    return out
+
+
 class VisionProvider:
     """Base class for a vision-LLM backed action source."""
 
@@ -187,3 +223,26 @@ class VisionProvider:
         provider that doesn't support briefings returns None (the agent then
         skips the briefing step)."""
         return None
+
+    def plan_task(
+        self,
+        task: str,
+        screenshot_png: bytes,
+        screen_size: tuple[int, int],
+    ) -> list[str] | None:
+        """Decompose the task into an ordered list of concrete sub-tasks, used
+        when the loop runs with planning on (see plan.py). Return None if the
+        provider doesn't support planning (the loop then runs unplanned); an
+        empty/short list is fine and just means "no useful split"."""
+        return None
+
+    def check_condition(
+        self,
+        question: str,
+        screenshot_png: bytes,
+        screen_size: tuple[int, int],
+    ) -> bool:
+        """Answer a yes/no question about the current screen, used to evaluate a
+        skill's `screen` condition (see skill.py / skill_runner.py). Providers
+        that can't do this raise NotImplementedError."""
+        raise NotImplementedError("this provider does not support screen condition checks")

@@ -104,6 +104,76 @@ slot, and re-encrypted to it, so clients reach each other through the hub.
 Because the hub decrypts to route, it can see inter-client traffic — see
 [`PROTOCOL.md`](PROTOCOL.md).
 
+## Memory safety
+
+This is C parsing bytes straight off a public UDP socket, so memory safety is
+treated as a first-class concern, and two structural choices remove whole
+classes of bug up front:
+
+- **No dynamic allocation.** There is no `malloc`/`free` anywhere in the runtime
+  — the hub's peer table is a fixed `peers[SDTP_HUB_MAX_PEERS]` array, sessions
+  live in caller-owned structs, and every `memcpy` uses a compile-time constant
+  length (a key/session-id size), never an attacker-supplied one. So there are
+  no leaks, use-after-frees, or double-frees to have.
+- **Single-threaded.** The server and hub are one `poll()` loop; there are no
+  threads and no locks, so there are no data races or lock ordering to get
+  wrong. (Per wake it drains the whole queued UDP batch in one `recvmmsg` — see
+  Latency — which is a syscall count change, not a concurrency one.)
+
+What remains is the real risk: a malformed datagram driving an out-of-bounds
+read in a parser. That surface is covered by `tests/fuzz_packets.c`, which
+blasts random, valid-then-corrupted, and oversized datagrams through every
+function that touches network bytes (`sdtp_data_decrypt`,
+`sdtp_handshake_respond`, `sdtp_hub_parse_ipv4_dst`, the peer lookups). It runs
+as part of `ctest`; for the real proof, build with sanitizers so any overread,
+overflow, UB, or leak becomes a hard failure:
+
+```sh
+cmake -S . -B build-asan -DSDTP_SANITIZE=ON
+cmake --build build-asan
+ctest --test-dir build-asan --output-on-failure   # protocol + fuzz, clean under ASan+UBSan+LSan
+./build-asan/fuzz_packets 5000000                  # or a longer soak run
+```
+
+None of this makes the *cryptography* audited (see [`PROTOCOL.md`](PROTOCOL.md)
+and `SECURITY.md`); it's about not crashing on hostile input.
+
+## Latency
+
+The data plane's latency is dominated by three things — the `recvfrom`/`sendto`
+syscalls, libsodium's AEAD, and network RTT — none of which the *language*
+changes (libsodium is already optimized C; syscalls are the kernel's; RTT is the
+wire). The lever that *is* available is the **per-packet syscall count**, which
+is what dominates cost under load. So each `poll()` wake drains the whole queued
+UDP batch in a single `recvmmsg` (`sdtp_udp_recv_batch`, `src/net.c`) instead of
+one `recvfrom` + one poll round-trip per packet.
+
+The effect, measured on loopback by `bench_recv` (built + run as a ctest):
+
+```
+$ ./build/bench_recv 50000
+received 800000 datagrams (16 per burst, 50000 rounds)
+  one recvfrom/pkt :   800000 recv syscalls, ...
+  recvmmsg batches :    50000 recv syscalls, ...
+  -> 16.0x fewer receive syscalls, ~1.0x wall-time
+```
+
+**Honest framing:** the deterministic win is **~16× fewer receive syscalls**
+(one per batch instead of one per packet). On loopback the wall-time barely
+moves — a loopback `recvfrom` is already cheap — but on a real NIC under load
+the saved syscalls and context switches are where tail latency comes from. A
+single, idle packet's latency was already near-optimal (`poll` wakes on it
+immediately, then one syscall + one AEAD); batching does nothing for that case
+and everything for the under-load case. It's non-blocking (`MSG_DONTWAIT`), so a
+spurious wake never stalls the loop. `recvmmsg` is Linux; other platforms fall
+back to a bounded `recvfrom` loop with identical behavior.
+
+Deliberately **not** done: threads / an event-loop library (the single `poll`
+loop is correct and auditable for a handful of peers — adding concurrency would
+only add attack surface and races). Known follow-ups if a workload ever needs
+them: the symmetric TUN-read drain and `sendmmsg` on the send side, and
+`io_uring` for a bigger syscall-amortization step — all in C, no rewrite.
+
 ## Layout
 
 ```
@@ -113,7 +183,7 @@ src/        implementation
   handshake.c   the 3-DH handshake state machine (see PROTOCOL.md)
   data.c        data-channel AEAD framing + replay window
   tun.c         Linux TUN device creation/configuration (ioctl-based)
-  net.c         UDP socket helpers
+  net.c         UDP socket helpers + batched receive (recvmmsg drain)
   config.c      config file parsing
   hub.c         hub config loader + multi-client routing event loop
   hub_route.c   pure hub routing helpers (inner-IP parse, peer lookup)

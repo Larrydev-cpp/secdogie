@@ -17,9 +17,11 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from secdogie_agent.backend import DesktopBackend
 from secdogie_agent.loop import AgentConfig, run
 from secdogie_agent.providers.base import VisionProvider
 
+from . import windows
 from .windows import WindowInfo
 
 # Closed set of states a window run can be in, posted to the status queue
@@ -58,7 +60,7 @@ def launch(
     auto: bool,
     dry_run: bool,
     max_steps: int,
-    status_queue: "queue.Queue[tuple[str, RunStatus, str]]",
+    status_queue: queue.Queue[tuple[str, RunStatus, str]],
 ) -> WindowRun:
     """Starts a daemon thread running one agent loop scoped to `window`.
 
@@ -76,14 +78,28 @@ def launch(
             status_queue.put((window.id, "error", f"could not set up provider: {e}"))
             return
 
+        # Each window's actions run against a backend that re-focuses this
+        # specific window right before every real action -- see actions.execute:
+        # that call happens inside the process-wide input lock, so one window's
+        # click+type always completes (and hands focus to whichever window acts
+        # next) before another window's action can start.
+        backend = DesktopBackend(activate=lambda: windows.focus_window(window))
+
         config = AgentConfig(
             task=task,
             max_steps=max_steps,
             auto=auto,
             dry_run=dry_run,
+            # open/ has no TTY to answer a per-action prompt (it runs in a daemon
+            # thread), and the web UI already made the user consent to unattended
+            # real actions before starting. That session-level ok stands in for
+            # the per-action high-risk confirm, so don't force one here -- else
+            # every `open` action would silently fail closed with no way to say yes.
+            confirm_high_risk=False,
             region=window.region,
             logger_name=f"secdogie_open.{window.id}",
             should_stop=stop_event.is_set,
+            backend=backend,
         )
         try:
             rc = run(provider, config)

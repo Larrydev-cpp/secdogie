@@ -2,14 +2,9 @@ from __future__ import annotations
 
 import argparse
 import sys
-from pathlib import Path
 
-from . import config as config_mod
-from . import dialog
+from . import cli_common, dialog
 from .loop import AgentConfig, run
-from .providers import make_provider
-
-DEFAULT_MODEL = "claude-sonnet-5"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -18,75 +13,37 @@ def main(argv: list[str] | None = None) -> int:
         description="Vision-LLM computer-control agent: point it at a task, it drives your mouse/keyboard.",
     )
     parser.add_argument("task", nargs="?", help="natural-language description of what to accomplish")
-    parser.add_argument(
-        "--model",
-        default=None,
-        help=f"vision model to use (default: {DEFAULT_MODEL}); the prefix picks the provider "
-        "(claude-* -> Anthropic, gpt-*/o-series -> OpenAI), or use a provider/model ref like openai/gpt-5.5",
-    )
-    parser.add_argument(
-        "--provider",
-        choices=["anthropic", "openai"],
-        default=None,
-        help="force the provider instead of inferring it from the model id",
-    )
-    parser.add_argument(
-        "--max-steps",
-        type=int,
-        default=None,
-        help="max frames/actions before stopping (default 50; 100000 in --watch mode)",
-    )
-    parser.add_argument(
-        "--watch",
-        action="store_true",
-        help="monitor mode: keep watching the screen frame by frame and only act when the "
-        "situation described in the task occurs (e.g. 'when X appears, open Y')",
-    )
-    parser.add_argument(
-        "--watch-interval",
-        type=float,
-        default=2.0,
-        help="minimum seconds between frames in --watch mode (default 2.0)",
-    )
-    parser.add_argument(
-        "--auto",
-        action="store_true",
-        help="execute actions without a y/N confirmation each step (only use on a machine/session you fully control)",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="ask the model for actions and log them, but never touch the mouse/keyboard",
-    )
-    parser.add_argument("--log-file", default=None, help="also append the run log to this file")
+    cli_common.add_provider_args(parser)
+    cli_common.add_loop_args(parser)
 
-    # API key / config file
     parser.add_argument(
-        "--api-key",
+        "--macro",
         default=None,
-        help="API key for the chosen provider (overrides env var and config file)",
-    )
-    parser.add_argument("--config", default=None, help="path to a config file to read the API key/model from")
-    parser.add_argument(
-        "--init-config",
-        action="store_true",
-        help="write a template config file you can fill in with your API key, then exit",
+        metavar="PATH",
+        help="RPA: replay this macro file with zero model calls, falling back to the live model the "
+        "moment a step can't be resolved (e.g. the UI changed); a run that finishes successfully "
+        "re-saves the full sequence here, so the next identical run gets faster/cheaper over time",
     )
 
-    # Accuracy / input tuning
+    # Programmable skills: run an authored JSON skill library (sub-flows, if/while,
+    # loops, params) instead of a one-off task. See agent/README.md.
+    parser.add_argument("--skill", default=None, metavar="PATH", help="run a programmable skill library (JSON) instead of a task")
+    parser.add_argument("--skill-entry", default=None, metavar="NAME", help="which skill in the library to run (default: main)")
     parser.add_argument(
-        "--max-image-edge",
-        type=int,
-        default=None,
-        help="longest edge (px) of the screenshot sent to the model; lower = faster/cheaper, higher = more detail",
+        "--skill-arg", action="append", default=[], metavar="K=V",
+        help="bind a skill parameter (repeatable), e.g. --skill-arg user=alice",
     )
-    parser.add_argument(
-        "--grid",
-        action="store_true",
-        help="overlay a labeled coordinate grid on the screenshot to help the model aim clicks",
-    )
+
+    # Desktop-only input tuning + GUI dialogs.
     parser.add_argument("--move-duration", type=float, default=None, help="seconds to glide the cursor to a target")
     parser.add_argument("--settle", type=float, default=None, help="seconds to hover before clicking")
+    parser.add_argument(
+        "--desktop-ax",
+        action="store_true",
+        help="make the desktop element-aware via the OS accessibility tree (UI Automation on Windows), "
+        "so --macro can anchor clicks to a widget's identity instead of pixels; needs the platform "
+        "accessibility library (Windows: `pip install uiautomation`), and no-ops with a hint without it",
+    )
     parser.add_argument(
         "--gui",
         action="store_true",
@@ -96,14 +53,24 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.init_config:
-        try:
-            path = config_mod.write_template(Path(args.config) if args.config else None)
-        except FileExistsError as e:
-            print(f"error: {e}", file=sys.stderr)
+        return cli_common.handle_init_config(args, "secdogie-agent")
+
+    # Programmable skills run their own interpreter instead of the task loop.
+    if args.skill:
+        provider = cli_common.resolve_provider(args, "secdogie-agent")
+        if provider is None:
             return 1
-        print(f"wrote config template to {path}")
-        print('edit it and set your provider\'s API key, then run: secdogie-agent "your task"')
-        return 0
+        skill_args = {}
+        for kv in args.skill_arg:
+            if "=" not in kv:
+                parser.error(f"--skill-arg must be K=V, got {kv!r}")
+            k, v = kv.split("=", 1)
+            skill_args[k] = v
+        from .skill_runner import run_skill_file
+
+        return run_skill_file(
+            provider, args.skill, args.skill_entry or "main", skill_args, auto=args.auto
+        )
 
     # GUI mode: verify we can actually show a window, else fall back gracefully.
     gui = args.gui
@@ -125,44 +92,15 @@ def main(argv: list[str] | None = None) -> int:
         else:
             parser.error("the following arguments are required: task")
 
-    resolved = config_mod.resolve(
-        cli_api_key=args.api_key,
-        cli_model=args.model,
-        config_path=args.config,
-        cli_provider=args.provider,
-    )
-    if not resolved.api_key:
-        print(
-            f"error: no API key found for the {resolved.provider} provider. Provide one via "
-            f"--api-key, the {resolved.env_var} environment variable, or a config file (run "
-            "`secdogie-agent --init-config` to create one).",
-            file=sys.stderr,
-        )
+    provider = cli_common.resolve_provider(args, "secdogie-agent")
+    if provider is None:
         return 1
 
-    try:
-        provider = make_provider(resolved.provider, resolved.model, resolved.api_key)
-    except RuntimeError as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
-
-    # Watch mode runs long by default; a one-shot task caps at 50 unless overridden.
-    max_steps = args.max_steps if args.max_steps is not None else (100000 if args.watch else 50)
-
-    # Build AgentConfig, letting unset CLI options fall back to AgentConfig's defaults.
-    cfg_kwargs: dict = dict(
-        task=args.task,
-        max_steps=max_steps,
-        auto=args.auto,
-        dry_run=args.dry_run,
-        log_path=args.log_file,
-        grid=args.grid,
-        gui=gui,
-        watch=args.watch,
-        watch_interval=args.watch_interval,
-    )
-    if args.max_image_edge is not None:
-        cfg_kwargs["max_image_edge"] = args.max_image_edge
+    # Desktop backend stays None so the loop builds it from move_duration/settle.
+    cfg_kwargs = cli_common.loop_config_kwargs(args, task=args.task, backend=None)
+    cfg_kwargs["gui"] = gui
+    cfg_kwargs["macro_path"] = args.macro
+    cfg_kwargs["desktop_ax"] = args.desktop_ax
     if args.move_duration is not None:
         cfg_kwargs["move_duration"] = args.move_duration
     if args.settle is not None:

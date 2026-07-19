@@ -1,5 +1,4 @@
 from conftest import FakeModel, view
-
 from secdogie_scene3d.pipeline import analyze_scene
 
 

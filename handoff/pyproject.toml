@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secdogie-handoff"
+version = "0.1.0"
+description = "Cross-process input-ownership baton: exactly one node drives the mouse/keyboard at a time, with a safe handoff between separate processes."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# filelock gives the cross-platform OS lock (fcntl on POSIX, msvcrt on Windows)
+# plus release-on-process-death; reinventing that per-OS is exactly what we
+# should not do. The handoff/yield protocol on top of it is the custom part.
+dependencies = [
+    "filelock>=3.12",
+]
+
+[tool.setuptools.packages.find]
+include = ["secdogie_handoff*"]

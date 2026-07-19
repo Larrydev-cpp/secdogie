@@ -5,6 +5,7 @@ import json
 import sys
 
 from secdogie_agent import config as config_mod
+from secdogie_agent.providers import resolve_model_provider
 
 from . import model as model_mod
 from .pipeline import analyze_scene
@@ -56,9 +57,26 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
+    # The aggregator shares the worker provider and key pool -- there's only one
+    # resolved provider/key set here. A --aggregator-model that implies a
+    # different provider (e.g. gpt-* while the workers are claude-*) would
+    # otherwise be sent to the wrong API and fail confusingly, so reject it.
+    aggregator_model = args.aggregator_model or model_id
+    if args.aggregator_model:
+        agg_provider, agg_bare = resolve_model_provider(args.aggregator_model, args.provider)
+        if agg_provider != resolved.provider:
+            print(
+                f"error: --aggregator-model '{args.aggregator_model}' is a {agg_provider} model but the "
+                f"workers use {resolved.provider}; scene3d uses one provider and key pool for both stages. "
+                f"Pick an aggregator model on the {resolved.provider} provider (or change --model/--provider).",
+                file=sys.stderr,
+            )
+            return 1
+        aggregator_model = agg_bare or model_id
+
     try:
         worker_pool = model_mod.build_model_pool(resolved.provider, model_id, keys)
-        aggregator = model_mod.make_scene_model(resolved.provider, args.aggregator_model or model_id, keys[0])
+        aggregator = model_mod.make_scene_model(resolved.provider, aggregator_model, keys[0])
     except (RuntimeError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1

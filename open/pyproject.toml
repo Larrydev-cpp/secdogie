@@ -5,10 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "secdogie-open"
 version = "0.1.0"
-description = "GUI that splits the screen by open window and drives one secdogie-agent instance per selected window at once."
+description = "Local web page that splits the screen by open window and drives one secdogie-agent instance per selected window at once."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
+# The page itself is served with the stdlib (http.server) and opened in the
+# user's normal browser -- no webview/GUI-toolkit dependency.
 dependencies = [
     "pywinctl>=0.4",
     "pillow>=10.0.0",
@@ -19,3 +21,6 @@ secdogie-open = "secdogie_open.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["secdogie_open*"]
+
+[tool.setuptools.package-data]
+secdogie_open = ["webui/*"]

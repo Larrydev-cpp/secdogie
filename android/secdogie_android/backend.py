@@ -9,22 +9,36 @@ true resolution, which the loop uses to scale), so taps land where intended.
 from __future__ import annotations
 
 import io
+import random
 
 from secdogie_agent import screen
+from secdogie_agent.backend import ElementSelector
 from secdogie_agent.providers.base import Action
 
 from . import uitree
 from .adb import Adb, AdbError
 from .uitree import UiElement
 
+_SELECTOR_KIND = "android-uiautomator"
+
 # A scroll action carries a direction (sign of dx/dy) but not a pixel distance;
 # on a touchscreen we turn each scroll into a swipe of this many pixels.
 _SCROLL_SWIPE_PX = 600
 _DRAG_DURATION_MS = 400
 
+# `input tap` always injects a MotionEvent DOWN+UP pair with zero elapsed time
+# and the exact requested coordinate -- a real finger never does either. When
+# humanize_taps is on, a tap is issued instead as `input swipe` from (x,y) to a
+# slightly jittered point with a randomized non-zero duration, matching how
+# long_press already gets its duration. Ranges are typical human tap dwell time
+# / capacitive-digitizer noise, not tuned against any specific detector.
+_HUMANIZE_DURATION_MS = (45, 130)
+_HUMANIZE_JITTER_PX = 2
+
 
 class AdbBackend:
-    def __init__(self, adb: Adb, snap_to_elements: bool = False, max_snap_area_frac: float = 0.25):
+    def __init__(self, adb: Adb, snap_to_elements: bool = False, max_snap_area_frac: float = 0.25,
+                 humanize_taps: bool = False, rng: random.Random | None = None):
         self.adb = adb
         # RPA-style targeting: when on, a tap is snapped onto the real UI widget
         # under the model's point (read from the uiautomator view hierarchy)
@@ -34,6 +48,21 @@ class AdbBackend:
         self.snap_to_elements = snap_to_elements
         self.max_snap_area_frac = max_snap_area_frac
         self._screen_px: tuple[int, int] | None = None  # last captured screen size, for the area guard
+        # See _HUMANIZE_DURATION_MS above. This changes tap *timing/coordinate*
+        # signature only -- see android/README.md for what it does and does not
+        # defeat (it is not a fingerprinting bypass).
+        self.humanize_taps = humanize_taps
+        self._rng = rng if rng is not None else random.Random()
+
+    def _tap(self, x: int, y: int) -> None:
+        """A single tap, humanized if enabled."""
+        if not self.humanize_taps:
+            self.adb.tap(x, y)
+            return
+        jx = x + self._rng.randint(-_HUMANIZE_JITTER_PX, _HUMANIZE_JITTER_PX)
+        jy = y + self._rng.randint(-_HUMANIZE_JITTER_PX, _HUMANIZE_JITTER_PX)
+        duration_ms = self._rng.randint(*_HUMANIZE_DURATION_MS)
+        self.adb.swipe(x, y, jx, jy, duration_ms)
 
     def setup(self, logger) -> None:
         # Don't hard-fail here -- --dry-run should work with no device attached.
@@ -92,6 +121,46 @@ class AdbBackend:
         )
         return matches[0] if matches else None
 
+    # -- Locatable (backend.py): lets macro.py record/replay taps by element
+    # identity instead of a frozen pixel coordinate. Reuses the same
+    # uiautomator lookup as find_element()/_snap(). ---------------------------
+    def describe_target(self, x: int, y: int) -> ElementSelector | None:
+        try:
+            elements = uitree.parse(self.adb.ui_dump())
+        except (AdbError, ValueError):
+            return None
+        el = uitree.smallest_clickable_at(elements, x, y)
+        if el is None:
+            return None
+        attrs = {}
+        if el.resource_id:
+            attrs["resource_id"] = el.resource_id
+        if el.text:
+            attrs["text"] = el.text
+        if el.content_desc:
+            attrs["content_desc"] = el.content_desc
+        if el.cls:
+            attrs["cls"] = el.cls
+        if not attrs:
+            return None  # nothing identifiable here -- the recorder falls back to a raw coordinate
+        return ElementSelector(kind=_SELECTOR_KIND, attrs=attrs)
+
+    def locate(self, selector: ElementSelector) -> tuple[int, int] | None:
+        if selector.kind != _SELECTOR_KIND:
+            return None
+        try:
+            elements = uitree.parse(self.adb.ui_dump())
+        except (AdbError, ValueError):
+            return None
+        matches = uitree.find_elements(
+            elements,
+            text=selector.attrs.get("text"),
+            resource_id=selector.attrs.get("resource_id"),
+            content_desc=selector.attrs.get("content_desc"),
+            cls=selector.attrs.get("cls"),
+        )
+        return matches[0].center if matches else None
+
     def _snap(self, x: int, y: int) -> tuple[int, int, str]:
         """Snap (x, y) onto the widget under it, if snapping is on and a nearby
         clickable element is found. Best-effort: any failure keeps the raw
@@ -117,12 +186,12 @@ class AdbBackend:
         a = action
         if a.kind == "left_click":
             x, y, note = self._snap(a.x, a.y)
-            self.adb.tap(x, y)
+            self._tap(x, y)
             return f"tapped ({x}, {y}){note}"
         if a.kind == "double_click":
             x, y, note = self._snap(a.x, a.y)
-            self.adb.tap(x, y)
-            self.adb.tap(x, y)
+            self._tap(x, y)
+            self._tap(x, y)  # each tap gets its own independent jitter/duration
             return f"double-tapped ({x}, {y}){note}"
         if a.kind == "right_click":
             # No right-click on touch; long-press is the context-menu gesture.

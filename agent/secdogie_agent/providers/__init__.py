@@ -27,6 +27,15 @@ DEFAULT_MODELS = {
     OPENAI_PROVIDER_ID: "gpt-5.5",
 }
 
+# Vision-capable models offered as ready picks in a UI (e.g. secdogie-open's
+# model dropdown), most capable first. Not a gate and not exhaustive -- any
+# model string still works; this is just so the common choices don't have to be
+# typed. The first entry of the default provider is the overall default.
+SUGGESTED_MODELS = {
+    ANTHROPIC_PROVIDER_ID: ["claude-sonnet-5", "claude-opus-4-8", "claude-haiku-4-5-20251001"],
+    OPENAI_PROVIDER_ID: ["gpt-5.5", "gpt-5.4"],
+}
+
 # Accepted spellings for --provider and the head of a `provider/model` ref.
 _PROVIDER_ALIASES = {
     "anthropic": ANTHROPIC_PROVIDER_ID,
@@ -98,6 +107,7 @@ __all__ = [
     "OPENAI_PROVIDER_ID",
     "API_KEY_ENV",
     "DEFAULT_MODELS",
+    "SUGGESTED_MODELS",
     "normalize_provider",
     "resolve_model_provider",
     "make_provider",

@@ -1,7 +1,6 @@
 import io
 
 from PIL import Image
-
 from secdogie_agent import screen
 from secdogie_agent.providers.base import Action
 
@@ -9,6 +8,23 @@ from secdogie_agent.providers.base import Action
 def _png(w, h):
     buf = io.BytesIO()
     Image.new("RGB", (w, h), (10, 20, 30)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _solid(shade, w=200, h=150):
+    buf = io.BytesIO()
+    Image.new("L", (w, h), shade).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _solid_with_patch(shade, patch_shade, box, w=200, h=150):
+    img = Image.new("L", (w, h), shade)
+    x0, y0, x1, y1 = box
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            img.putpixel((x, y), patch_shade)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
     return buf.getvalue()
 
 
@@ -81,6 +97,37 @@ def test_action_translated_identity_returns_self():
     assert a.translated(0, 0) is a
 
 
+# -- changed_ratio (post-action visual verification primitive) ----------------
+
+def test_changed_ratio_identical_frames_is_zero():
+    frame = _solid(120)
+    assert screen.changed_ratio(frame, frame) == 0.0
+
+
+def test_changed_ratio_black_to_white_is_near_one():
+    assert screen.changed_ratio(_solid(0), _solid(255)) > 0.99
+
+
+def test_changed_ratio_small_patch_is_small_and_below_default_threshold():
+    # A ~10% area patch that flips well past the tolerance -> a small ratio,
+    # below the loop's default verify_threshold (0.005) would be too strict, so
+    # confirm it lands in a sensible small-but-nonzero range.
+    before = _solid(30)
+    after = _solid_with_patch(30, 220, box=(0, 0, 60, 45))  # 60*45 / (200*150) = 9%
+    ratio = screen.changed_ratio(before, after)
+    assert 0.05 < ratio < 0.15
+
+
+def test_changed_ratio_ignores_sub_tolerance_noise():
+    # A shift of a few gray levels (below `tol`) should read as no change, so a
+    # static screen with mild compression shimmer isn't mistaken for activity.
+    assert screen.changed_ratio(_solid(100), _solid(108), tol=16) == 0.0
+
+
+def test_changed_ratio_mismatched_sizes_counts_as_fully_changed():
+    assert screen.changed_ratio(_solid(100, w=200, h=150), _solid(100, w=100, h=100)) == 1.0
+
+
 def test_capture_screenshot_region_grabs_only_that_box(monkeypatch):
     import mss
 
@@ -140,3 +187,32 @@ def test_capture_screenshot_no_region_uses_primary_monitor(monkeypatch):
 
     screen.capture_screenshot()
     assert grabbed["monitor"] == FakeSct.monitors[1]  # picks the primary monitor, not the combined one
+
+
+# -- crop_anchor (a small element patch for macro visual anchoring) -----------
+
+def test_crop_anchor_centers_the_click_and_returns_grayscale():
+    frame = _png(400, 300)
+    patch, ox, oy = screen.crop_anchor(frame, 200, 150, box=64)
+    with Image.open(io.BytesIO(patch)) as img:
+        assert img.mode == "L"          # grayscale
+        assert img.size == (64, 64)     # full box, away from any edge
+    assert (ox, oy) == (32, 32)         # click at the box center
+
+
+def test_crop_anchor_clamps_at_an_edge_and_records_the_offset():
+    # A click near the top-left corner: the box can't center on it, so it's
+    # clamped inside the frame and the offset records where the click really is.
+    frame = _png(400, 300)
+    patch, ox, oy = screen.crop_anchor(frame, 10, 8, box=64)
+    with Image.open(io.BytesIO(patch)) as img:
+        assert img.size == (64, 64)
+    assert (ox, oy) == (10, 8)          # box pinned to (0,0), click stays at (10,8)
+
+
+def test_crop_anchor_shrinks_the_box_to_a_small_frame():
+    frame = _png(40, 30)               # smaller than the 64px box
+    patch, ox, oy = screen.crop_anchor(frame, 20, 15, box=64)
+    with Image.open(io.BytesIO(patch)) as img:
+        assert img.size == (40, 30)     # whole frame
+    assert (ox, oy) == (20, 15)

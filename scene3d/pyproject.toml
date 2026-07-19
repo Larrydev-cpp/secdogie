@@ -20,6 +20,7 @@ openai = ["openai>=1.0.0"]
 
 [project.scripts]
 secdogie-scene3d = "secdogie_scene3d.cli:main"
+secdogie-perceive = "secdogie_scene3d.perceive_cli:main"
 
 [tool.setuptools.packages.find]
 include = ["secdogie_scene3d*"]

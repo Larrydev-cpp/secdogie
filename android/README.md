@@ -47,9 +47,23 @@ pixels, so taps land where intended.
    ```sh
    adb devices        # should list your device in the `device` state
    ```
+4. **On MIUI/Xiaomi (and often other Chinese ROMs), one more toggle.** Plain
+   USB debugging is enough for `adb devices`/screenshots, but taps/typing use
+   input *injection*, which MIUI gates behind a separate **"USB debugging
+   (Security settings)"** toggle in Developer options. That toggle only
+   appears, and can only be turned on, after you **sign in to a Mi account on
+   the phone** (Settings → your name/Mi Account) — it is not a root
+   requirement. Without it, every tap/swipe/type/key fails with a clear error
+   from this tool naming the fix (see Troubleshooting). Root is only relevant
+   as a workaround for people who genuinely cannot sign in to a Mi account
+   (editing `remote_provider_preferences.xml` via a rooted shell); it is not
+   the normal path. Other Chinese ROMs (EMUI/HarmonyOS, ColorOS, OriginOS)
+   often have a similarly named extra security toggle alongside plain USB
+   debugging — look for it in Developer options if taps fail the same way.
 
 ## Install
 
+**Linux/macOS:**
 ```sh
 cd android
 python3 -m venv .venv && source .venv/bin/activate
@@ -57,8 +71,37 @@ pip install -e ../agent      # the loop/providers/config live here
 pip install -e .
 ```
 
-Set up an API key exactly as for `secdogie-agent` (env var or
-`secdogie-android --init-config`).
+**Windows (PowerShell):**
+```powershell
+cd android
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e ..\agent
+pip install -e .
+```
+(cmd: `.venv\Scripts\activate`. See `agent/README.md`'s Install section for
+the PowerShell execution-policy note if `Activate.ps1` is blocked.)
+
+Set up an API key exactly as for `secdogie-agent` (env var,
+`secdogie-android --init-config`, or — simplest on Windows — a
+`secdogie.env` text file in the current folder).
+
+### Or: a single-file executable (no Python needed)
+
+```sh
+./packaging/build.sh          # Linux/macOS -- produces packaging/dist/secdogie-android
+./packaging/dist/secdogie-android --help
+```
+
+**Windows (PowerShell):**
+```powershell
+packaging\build.ps1          # produces packaging\dist\secdogie-android.exe
+.\packaging\dist\secdogie-android.exe --help
+```
+(cmd.exe can't run `.ps1` files directly: `powershell -ExecutionPolicy Bypass -File packaging\build.ps1`.)
+
+`adb` itself is a separate system tool the binary still needs on `PATH` at
+run time (see Setup above) -- PyInstaller bundles the Python side, not `adb`.
 
 ## Run
 
@@ -95,8 +138,68 @@ so buttons/menu items get hit reliably even when the model's aim is a few pixels
 off. (The tree also drives `AdbBackend.find_element(...)`, a seam for future
 select-by-name actions.)
 
+## RPA macros (`--macro`): record once, replay for free
+
+Same `--macro PATH` flag and behavior as `secdogie-agent` (see
+`agent/README.md`'s "RPA macros" section for the full model) — the first run
+against a task drives it live and saves the sequence to PATH on success;
+every run after that replays from PATH with **zero model calls**, falling
+back to the live model the instant a step can't be resolved.
+
+```sh
+secdogie-android "open the overflow menu and tap Settings" --macro settings.json --auto
+secdogie-android "open the overflow menu and tap Settings" --macro settings.json --auto   # replays -- no model calls
+```
+
+What's Android-specific: every tap step is recorded against the **UI
+element itself** — resource-id, text, content-desc, and class read from the
+uiautomator hierarchy at the moment of the tap (the same hierarchy
+`--snap-to-elements` reads) — not a frozen pixel. On replay, that element is
+re-found by identity on the current screen, so the macro survives layout
+shifts, different screen sizes, and minor content changes that would break a
+fixed-coordinate replay. If the app removed or renamed the element, the
+lookup returns nothing, replay falls back to the live model for the rest of
+the run, and the resulting new sequence is re-saved — the macro heals itself.
+
+`--macro` is independent of `--snap-to-elements`: the latter only adjusts
+*live* (non-replayed) taps; a macro's replay step always resolves by element
+identity (when one was recorded) regardless of whether `--snap-to-elements`
+is passed on that particular run.
+
+## Tap timing (`--humanize-taps`)
+
+`adb shell input tap` always injects a MotionEvent DOWN+UP pair with **zero
+elapsed time** and the **exact requested pixel** — a real finger never does
+either. `--humanize-taps` issues each tap instead as `input swipe` from the
+point to a randomly jittered point 0–2px away, over a randomized 45–130ms
+duration (the same mechanism `long_press` already uses for its own duration,
+just applied to ordinary taps too):
+
+```sh
+secdogie-android "..." --humanize-taps
+```
+
+**What this changes:** the injected event's duration and exact coordinate stop
+being a fixed, always-identical signature — useful if a target app's *own*
+in-app heuristics look at those specifically (e.g. flagging every tap that has
+literally 0ms duration and pixel-perfect repeat coordinates).
+
+**What this does not change, and cannot:** every event `adb shell input`
+injects — humanized or not — still carries Android's `SOURCE_TOUCHSCREEN`
+input-device flag marking it as *synthesized*, not from a real digitizer, and
+any check that reads that flag, or that relies on hardware attestation
+(Play Integrity / SafetyNet-style checks), sees straight through this
+regardless. This flag exists purely to reduce a lookalike-timing heuristic,
+**not** to defeat app-level bot detection, anti-cheat, or CAPTCHA/verification
+challenges — those operate at a different layer this can't touch. Composes
+with `--snap-to-elements`: snapping picks *where* to tap, humanizing changes
+*how* the tap itself is issued.
+
 ## Known limitations
 
+- **Some Chinese ROMs need an extra toggle for input injection** (see Setup
+  step 4) — plain USB debugging alone isn't enough for taps/typing on MIUI
+  and often other Chinese ROMs.
 - **ASCII typing only.** `adb shell input text` can't emit Unicode (Chinese,
   emoji, accents). Non-ASCII `type` actions are skipped with a message; to
   type Unicode, install an on-device IME such as ADBKeyBoard (out of scope

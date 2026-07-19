@@ -59,6 +59,186 @@ jobs:
           name: ${{ matrix.asset }}
           path: staging/*
 
+  # --- Python android/ios/open/scene3d: each needs agent/ installed first,
+  # same one-executable-per-OS shape as build-agent. ---------------------------
+  build-android:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: android-linux-x86_64
+          - os: windows-latest
+            asset: android-windows-x86_64
+          - os: macos-latest
+            asset: android-macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build single-file executable
+        shell: bash
+        working-directory: android
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ../agent
+          pip install -e . pyinstaller
+          cd packaging
+          pyinstaller secdogie-android.spec --distpath ./dist --workpath ./build --noconfirm
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          mkdir -p staging
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp android/packaging/dist/secdogie-android.exe "staging/${{ matrix.asset }}.exe"
+          else
+            cp android/packaging/dist/secdogie-android "staging/${{ matrix.asset }}"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: staging/*
+
+  build-ios:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: ios-linux-x86_64
+          - os: windows-latest
+            asset: ios-windows-x86_64
+          - os: macos-latest
+            asset: ios-macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build single-file executable
+        shell: bash
+        working-directory: ios
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ../agent
+          pip install -e . pyinstaller
+          cd packaging
+          pyinstaller secdogie-ios.spec --distpath ./dist --workpath ./build --noconfirm
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          mkdir -p staging
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp ios/packaging/dist/secdogie-ios.exe "staging/${{ matrix.asset }}.exe"
+          else
+            cp ios/packaging/dist/secdogie-ios "staging/${{ matrix.asset }}"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: staging/*
+
+  build-open:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: open-linux-x86_64
+          - os: windows-latest
+            asset: open-windows-x86_64
+          - os: macos-latest
+            asset: open-macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build single-file executable
+        shell: bash
+        working-directory: open
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ../agent
+          pip install -e . pyinstaller
+          cd packaging
+          pyinstaller secdogie-open.spec --distpath ./dist --workpath ./build --noconfirm
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          mkdir -p staging
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp open/packaging/dist/secdogie-open.exe "staging/${{ matrix.asset }}.exe"
+          else
+            cp open/packaging/dist/secdogie-open "staging/${{ matrix.asset }}"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: staging/*
+
+  build-scene3d:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: scene3d-linux-x86_64
+          - os: windows-latest
+            asset: scene3d-windows-x86_64
+          - os: macos-latest
+            asset: scene3d-macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build single-file executable
+        shell: bash
+        working-directory: scene3d
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ../agent
+          # Bundle both providers, matching packaging/build.sh, so the built
+          # binary can use either --provider without a rebuild.
+          pip install -e '.[openai]' anthropic pyinstaller
+          cd packaging
+          pyinstaller secdogie-scene3d.spec --distpath ./dist --workpath ./build --noconfirm
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          mkdir -p staging
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp scene3d/packaging/dist/secdogie-scene3d.exe "staging/${{ matrix.asset }}.exe"
+          else
+            cp scene3d/packaging/dist/secdogie-scene3d "staging/${{ matrix.asset }}"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: staging/*
+
   # --- C tunnel: Linux-only (uses the Linux TUN device / ioctl API) ----------
   build-tunnel:
     runs-on: ubuntu-latest
@@ -90,7 +270,7 @@ jobs:
 
   # --- Publish: gather everything, zip with docs, attach to the Release ------
   release:
-    needs: [build-agent, build-tunnel]
+    needs: [build-agent, build-android, build-ios, build-open, build-scene3d, build-tunnel]
     runs-on: ubuntu-latest
     # Only publish an actual Release for tag pushes; a manual run just builds.
     if: startsWith(github.ref, 'refs/tags/')
@@ -136,6 +316,52 @@ jobs:
             esac
             package "secdogie-agent-${platform}-${version}" "$f" "$inner" \
               "$launcher" agent/README.md agent/packaging/README.md LICENSE
+          done
+
+          # android/ios/open/scene3d binaries (one per platform each), same
+          # shape as agent above.
+          for f in downloaded/android-*/*; do
+            base="$(basename "$f")"
+            platform="${base#android-}"; platform="${platform%.exe}"
+            case "$base" in
+              *.exe) inner="secdogie-android.exe" ;;
+              *)     inner="secdogie-android" ;;
+            esac
+            package "secdogie-android-${platform}-${version}" "$f" "$inner" \
+              android/README.md LICENSE
+          done
+
+          for f in downloaded/ios-*/*; do
+            base="$(basename "$f")"
+            platform="${base#ios-}"; platform="${platform%.exe}"
+            case "$base" in
+              *.exe) inner="secdogie-ios.exe" ;;
+              *)     inner="secdogie-ios" ;;
+            esac
+            package "secdogie-ios-${platform}-${version}" "$f" "$inner" \
+              ios/README.md LICENSE
+          done
+
+          for f in downloaded/open-*/*; do
+            base="$(basename "$f")"
+            platform="${base#open-}"; platform="${platform%.exe}"
+            case "$base" in
+              *.exe) inner="secdogie-open.exe" ;;
+              *)     inner="secdogie-open" ;;
+            esac
+            package "secdogie-open-${platform}-${version}" "$f" "$inner" \
+              open/README.md LICENSE
+          done
+
+          for f in downloaded/scene3d-*/*; do
+            base="$(basename "$f")"
+            platform="${base#scene3d-}"; platform="${platform%.exe}"
+            case "$base" in
+              *.exe) inner="secdogie-scene3d.exe" ;;
+              *)     inner="secdogie-scene3d" ;;
+            esac
+            package "secdogie-scene3d-${platform}-${version}" "$f" "$inner" \
+              scene3d/README.md LICENSE
           done
 
           # Tunnel binary (Linux only).

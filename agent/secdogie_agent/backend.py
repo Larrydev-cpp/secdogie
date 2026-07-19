@@ -13,10 +13,48 @@ via `AgentConfig.backend`, reusing everything else unchanged.
 """
 from __future__ import annotations
 
-from typing import Protocol
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any, Protocol, runtime_checkable
 
-from . import actions, screen
+from . import actions, axtree, screen
 from .providers.base import Action
+
+
+@dataclass(frozen=True)
+class ElementSelector:
+    """A backend-defined "find this on-screen target again" description, used
+    by macro.py to replay a click by identity instead of a frozen pixel
+    coordinate. `kind` names which backend produced it (e.g.
+    "android-uiautomator") so a selector is never handed to an unrelated
+    backend's `locate()` by mistake; `attrs` is whatever that backend needs to
+    re-find the same element (e.g. resource id, text, class) -- the macro
+    engine never interprets `attrs` itself, only round-trips it."""
+
+    kind: str
+    attrs: dict[str, Any]
+
+
+@runtime_checkable
+class Locatable(Protocol):
+    """Optional Backend capability: convert an absolute point to a
+    re-locatable selector, and resolve a selector back to a current point.
+    Implement this when the target exposes an accessibility tree/UI
+    automation API (see android's AdbBackend). A backend that can't identify
+    elements (e.g. plain desktop pixels today) just doesn't implement this;
+    callers check `isinstance(backend, Locatable)` and fall back to a
+    resolution-independent normalized coordinate instead."""
+
+    def describe_target(self, x: int, y: int) -> ElementSelector | None:
+        """Best-effort: describe whatever real element is at (x, y) so
+        `locate` can find it again later. None if nothing identifiable is
+        there (the caller then falls back to a raw/normalized coordinate)."""
+        ...
+
+    def locate(self, selector: ElementSelector) -> tuple[int, int] | None:
+        """Best-effort: resolve a previously-recorded selector back to a
+        current (x, y). None if it can't be found (the UI changed)."""
+        ...
 
 
 class Backend(Protocol):
@@ -46,9 +84,22 @@ class DesktopBackend:
         self,
         move_duration: float = actions.DEFAULT_MOVE_DURATION,
         settle: float = actions.DEFAULT_SETTLE,
+        activate: Callable[[], bool] | None = None,
+        ax_provider=None,
     ):
         self.move_duration = move_duration
         self.settle = settle
+        # Optional per-instance hook: bring this backend's target window to the
+        # foreground (and confirm it took focus) right before each real action.
+        # Only open/'s per-window runner needs this (a single-window run has
+        # nothing else to steal focus); see actions.execute for why calling it
+        # inside the shared input lock is what makes multi-window runs safe.
+        self.activate = activate
+        # Optional desktop_ax.DesktopAxProvider: when set, this backend becomes
+        # element-aware (Locatable below) so macros anchor to accessibility
+        # identity instead of pixels. None = not element-aware, and the methods
+        # below no-op so the macro recorder falls back to a visual anchor.
+        self.ax_provider = ax_provider
 
     def setup(self, logger) -> None:
         try:
@@ -64,4 +115,37 @@ class DesktopBackend:
         return screen.capture_screenshot(region=region)
 
     def execute(self, action: Action) -> str:
-        return actions.execute(action, move_duration=self.move_duration, settle=self.settle)
+        return actions.execute(
+            action, move_duration=self.move_duration, settle=self.settle, activate=self.activate
+        )
+
+    # -- Locatable (backend.py): active only when an ax_provider is attached
+    # (--desktop-ax). The matching itself is the tested axtree logic; the
+    # provider is the on-machine half that reads the live accessibility tree.
+    def describe_target(self, x: int, y: int) -> ElementSelector | None:
+        if self.ax_provider is None:
+            return None
+        elements = self.ax_provider.snapshot()
+        if not elements:
+            return None
+        el = axtree.element_at(elements, x, y)
+        if el is None:
+            return None
+        attrs = axtree.selector_for(el)
+        if attrs is None:
+            return None  # nothing identifiable here -- recorder falls back to a visual anchor
+        return ElementSelector(kind=axtree.SELECTOR_KIND, attrs=attrs)
+
+    def locate(self, selector: ElementSelector) -> tuple[int, int] | None:
+        if self.ax_provider is None or selector.kind != axtree.SELECTOR_KIND:
+            return None
+        elements = self.ax_provider.snapshot()
+        if not elements:
+            return None
+        matches = axtree.find_elements(
+            elements,
+            automation_id=selector.attrs.get("automation_id"),
+            name=selector.attrs.get("name"),
+            role=selector.attrs.get("role"),
+        )
+        return matches[0].center if matches else None

@@ -1,5 +1,4 @@
 import pytest
-
 from secdogie_android import uitree
 
 # A trimmed but realistic uiautomator dump: a big clickable container holding a

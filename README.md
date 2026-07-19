@@ -14,9 +14,9 @@ control.**
   task in plain language, it screenshots your screen, asks a vision model
   what to do next, and executes one action at a time (click, type, scroll,
   ...) until the task is done. See [`agent/README.md`](agent/README.md).
-- [`open/`](open/) — a GUI on top of `agent/` that splits the screen by open
-  window and drives one `agent` instance per selected window at once,
-  instead of one agent owning the whole screen. See
+- [`open/`](open/) — a local web page on top of `agent/` that splits the
+  screen by open window and drives one `agent` instance per selected window
+  at once, instead of one agent owning the whole screen. See
   [`open/README.md`](open/README.md).
 - [`android/`](android/) — points the same `agent/` loop at an Android phone
   instead of the desktop: screenshots come from `adb screencap`, taps/typing
@@ -38,7 +38,8 @@ from a fresh clone to a model driving your desktop, a phone, several windows,
 and a machine across the network, with the exact commands and the output you
 should see at each step, plus a troubleshooting table.
 
-The 60-second version (control your own desktop):
+The 60-second version (control your own desktop; **bash** shown — Windows
+PowerShell/cmd commands differ, see below):
 
 ```sh
 # 1. install
@@ -54,17 +55,46 @@ secdogie-agent "open a text editor and type 'hello world'" --dry-run
 secdogie-agent "open a text editor and type 'hello world'"
 ```
 
+**🪟 On Windows:** don't hand-translate the above — `venv`/`export`/`~` all
+need different syntax in cmd vs. PowerShell, and [`TUTORIAL.md`](TUTORIAL.md)'s
+Part 0 has the full command table plus the fastest path (build
+`secdogie-agent.exe` with `agent\packaging\build.ps1`, no venv or shell-syntax
+juggling at all — see [`agent/packaging/README.md`](agent/packaging/README.md)).
+
 Then follow [`TUTORIAL.md`](TUTORIAL.md) for phones (`android`/`ios`), several
 windows at once (`open`), and reaching a remote machine (`tunnel`).
 
 ## Downloads
 
-Pre-built binaries (a single-file `secdogie-agent` executable for Linux,
-Windows, and macOS, plus the `secdogie-tunnel` binary for Linux) are
-published on the [Releases](../../releases) page. They're built and attached
-automatically when a `v*` tag is pushed — see
-[`docs/RELEASING.md`](docs/RELEASING.md). Prefer to build from source?
-Each subdirectory's README has instructions.
+Pre-built binaries — a single-file executable for `agent`, `android`, `ios`,
+`open`, and `scene3d` on Linux, Windows, and macOS each, plus the
+`secdogie-tunnel` binary for Linux — are published on the
+[Releases](../../releases) page. They're built and attached automatically
+when a `v*` tag is pushed — see [`docs/RELEASING.md`](docs/RELEASING.md).
+Prefer to build from source? Each subdirectory's README has instructions.
+
+## Installing the game stack (one command)
+
+The game packages (`agent`, `aim`, `carjack`, `gta`, `commander`, `handoff`)
+live in this repo and depend on each other but aren't on PyPI, so
+`pip install secdogie-carjack` alone fails — it can't find `secdogie-aim`. Set
+them all up in one venv, in the right order, with:
+
+```sh
+./install.sh            # Linux/macOS   (--yolo adds the YOLO detector, --all adds the non-game packages)
+```
+```powershell
+.\install.ps1           # Windows       (-Yolo / -All)
+```
+
+Then, for single-player games only:
+
+```sh
+secdogie-carjack --weights yolov8n.pt --label car --enter-key f   # walk to a car and get in
+```
+
+Some setup is irreducible and stays manual: a GPU for real-time YOLO, the game
+itself, and (for GTA V's plugin path) ScriptHookV.
 
 ## How they fit together
 
@@ -78,6 +108,52 @@ via VNC/RDP/X11-forwarding carried inside the tunnel, or by running the
 agent directly on the remote machine and only using the tunnel to reach it
 for setup/monitoring). The tunnel and the agent are independent, composable
 pieces on purpose — neither hard-depends on the other.
+
+## Architecture
+
+The heart is `agent/`'s two-tier loop: a slow cloud vision-model (~1 Hz)
+decides *what* to do, a fast local reflex layer (frame-rate NCC template
+matching) handles *where* precisely. Every action goes through one closed
+schema and is verified by a pixel diff before the loop moves on. The other
+components either reuse that loop against a different backend
+(`android`/`ios`), fan it out (`open`), carry it to another machine
+(`tunnel`), or bolt a fast controller onto it for games (the game stack).
+
+```mermaid
+flowchart TB
+    subgraph core["agent/ — two-tier control loop"]
+        cap["screen: capture screenshot"] --> prov["provider: vision-LLM<br/>(~1 Hz) picks next action"]
+        prov --> plan["plan / skill / trace<br/>planning · macros · audit chain"]
+        plan --> act["actions: closed VALID_ACTIONS schema<br/>(the sandbox boundary)"]
+        act --> backend{{backend}}
+        backend --> verify["verify: screen.changed_ratio<br/>no visible change → retry"]
+        verify --> cap
+        act -. fast local .-> reflex["reflex: NCC template match<br/>track_click · refine_point"]
+        reflex --> cap
+    end
+
+    backend --> desktop["desktop<br/>pyautogui"]
+    backend --> android["android/<br/>adb"]
+    backend --> ios["ios/<br/>WebDriverAgent"]
+
+    open["open/ — multi-window web GUI"] -->|drives N instances| core
+    scene3d["scene3d/ — multi-model<br/>3D scene aggregator"] -. perception .-> prov
+    core -. optional, to a remote box .-> tunnel["tunnel/<br/>libsodium VPN"] --> remote[(remote machine)]
+
+    subgraph game["game stack — single-player only"]
+        commander["commander/<br/>tactician state machine"] -->|baton| handoff["handoff/<br/>input-ownership baton"]
+        handoff --> nodeA["Node A: agent macros<br/>2D logistics"]
+        handoff --> nodeB["aim/ — Node B<br/>relative mouse-look + P-aim"]
+        gta["gta/ — steering control law<br/>→ ScriptHookV bridge"]
+    end
+    commander -. sequences .-> core
+```
+
+Solid arrows are the per-frame data path; dotted arrows are optional or
+out-of-band seams. The game stack, `gta/`, and the on-machine halves of
+`aim/` need a real GPU/game and are documented as on-machine interfaces —
+the headless-testable cores (control laws, protocols, the loop itself) are
+what the test suite proves.
 
 ## Before you run any of this
 
@@ -94,21 +170,47 @@ type on a real phone.
   actions** off) and keep per-step confirmation on until you trust a given
   task; `open` runs unattended across every selected window once real
   actions are on, since a per-step prompt doesn't make sense across several
-  windows sharing one terminal.
+  windows sharing one browser tab.
 - None of these components has been independently security-audited. Read the
   "Known limitations" sections in each subproject's docs before relying on
   them for anything sensitive.
+
+See [`SECURITY.md`](SECURITY.md) for the full trust model (what secdogie
+assumes about the operator and the machines it drives) and how to report a
+vulnerability privately.
 
 ## Layout
 
 ```
 tunnel/   C, libsodium-based VPN tunnel (PROTOCOL.md has the design + limitations)
 agent/    Python vision-LLM computer-control agent (provider-agnostic action schema)
-open/     Python GUI: split the screen by window, drive several agent instances at once
+open/     Python, local web page: split the screen by window, drive several agent instances at once
 android/  Python: drive an Android phone over adb, reusing the agent loop + action schema
 ios/      Python: drive an iPhone/iPad over WebDriverAgent, reusing the agent loop + action schema
 scene3d/  Python: multi-model 3D scene analysis (per-view workers + an aggregator)
+handoff/  Python: cross-process input-ownership baton (one node drives the mouse/keyboard at a time)
+aim/      Python: real-time combat controller -- relative mouse-look + P-control aim onto a detected target
+commander/ Python: tactician state machine -- decides fight phases and sequences the logistics/combat nodes
+gta/      Python: drive GTA V single-player via a ScriptHookV plugin -- JSON bridge protocol + a steering control law
 ```
 
 Each subdirectory has its own README with build/install/run instructions
 and its own test suite.
+
+## Development
+
+Every push and pull request runs [`.github/workflows/test.yml`](.github/workflows/test.yml):
+each Python component's `pytest` suite (headless), the C tunnel's `ctest`, and a
+single `ruff` lint pass over all the Python code. To run the same checks locally:
+
+```sh
+pip install ruff
+ruff check .            # lint config lives in ruff.toml at the repo root
+# then each component's own tests, e.g.:
+cd agent && pip install -e . pytest && pytest tests/ -q
+```
+
+The `agent/` package owns the shared pieces — the loop, providers, config, and
+the CLI front door (`secdogie_agent/cli_common.py`) that `android`, `ios`, and
+the desktop `agent` all reuse for their `--model`/`--api-key`/loop flags — so a
+change there is picked up by every tool.

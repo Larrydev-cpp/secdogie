@@ -1,0 +1,47 @@
+{
+  "skills": {
+    "main": {
+      "body": [
+        {"op": "call", "skill": "dismiss_popups"},
+        {"op": "call", "skill": "login", "args": {"user": "{user}", "pass": "{pass}"}},
+        {"op": "repeat", "count": "{count}", "var": "i", "body": [
+          {"op": "call", "skill": "process_row"}
+        ]}
+      ]
+    },
+
+    "dismiss_popups": {
+      "body": [
+        {"op": "if",
+         "cond": {"kind": "screen", "description": "a cookie banner or modal dialog is covering the page"},
+         "then": [
+           {"op": "action", "action": "key", "keys": ["esc"], "reasoning": "close the overlay"}
+         ]}
+      ]
+    },
+
+    "login": {
+      "params": ["user", "pass"],
+      "body": [
+        {"op": "action", "action": "left_click", "x": 640, "y": 300, "reasoning": "focus the username field"},
+        {"op": "action", "action": "type", "text": "{user}"},
+        {"op": "action", "action": "key", "keys": ["tab"]},
+        {"op": "action", "action": "type", "text": "{pass}"},
+        {"op": "action", "action": "key", "keys": ["Return"]},
+        {"op": "if",
+         "cond": {"kind": "screen", "description": "a login error message is visible"},
+         "then": [{"op": "action", "action": "done", "text": "login failed"}]}
+      ]
+    },
+
+    "process_row": {
+      "body": [
+        {"op": "action", "action": "left_click", "x": 200, "y": 400, "reasoning": "open the next row"},
+        {"op": "if",
+         "cond": {"kind": "screen", "description": "the row shows an approve button"},
+         "then": [{"op": "action", "action": "left_click", "x": 900, "y": 400}],
+         "else": [{"op": "action", "action": "key", "keys": ["esc"]}]}
+      ]
+    }
+  }
+}

@@ -63,6 +63,84 @@ def capture_screenshot(
         ) from e
 
 
+def primary_size() -> tuple[int, int]:
+    """(width, height) of the primary monitor, in absolute pixels.
+
+    Used to clamp a small capture region against the screen edge -- the reflex
+    layer captures a window *around* a moving target, and mss.grab errors (or
+    returns garbage) if that window pokes past the monitor bounds.
+    """
+    import mss
+
+    with mss.mss() as sct:
+        m = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+        return m["width"], m["height"]
+
+
+def changed_ratio(before_png: bytes, after_png: bytes, max_edge: int = 256, tol: int = 16) -> float:
+    """Fraction (0..1) of pixels that visibly changed between two screenshots.
+
+    A finer signal than an exact hash: the loop uses it to answer "did that
+    action actually do anything?" -- a click that changed nothing likely missed
+    (wrong target, unfocused window, blocked UI). Both frames are converted to
+    grayscale and shrunk to `max_edge` on the long side (so the compare is a few
+    milliseconds, not a full-resolution pass), then counted as changed where the
+    absolute per-pixel difference exceeds `tol` (which absorbs JPEG/anti-alias
+    noise so a static screen reads as 0, not a nonzero shimmer).
+
+    Mismatched sizes (e.g. a resolution change) count as fully changed -- that
+    is itself a large visible change, which is the right answer here.
+    """
+    from PIL import Image, ImageChops
+
+    def _small_gray(png: bytes) -> Image.Image:
+        with Image.open(io.BytesIO(png)) as img:
+            g = img.convert("L")
+            longest = max(g.width, g.height)
+            if longest > max_edge:
+                factor = max_edge / longest
+                g = g.resize((max(1, round(g.width * factor)), max(1, round(g.height * factor))))
+            return g.copy()
+
+    a = _small_gray(before_png)
+    b = _small_gray(after_png)
+    if a.size != b.size:
+        return 1.0
+
+    # Per-pixel |a-b|, thresholded at tol, then counted via the histogram -- all
+    # in PIL's C core, so no per-pixel Python loop and no numpy dependency.
+    mask = ImageChops.difference(a, b).point(lambda p: 255 if p > tol else 0)
+    changed = mask.histogram()[255]
+    total = a.width * a.height
+    return changed / total if total else 0.0
+
+
+def crop_anchor(frame_png: bytes, cx: int, cy: int, box: int = 64) -> tuple[bytes, int, int]:
+    """Cut a small grayscale patch out of `frame_png` around (cx, cy) -- a visual
+    fingerprint of the element being clicked, so a macro can re-find it later by
+    matching the patch instead of trusting a fixed coordinate (see macro.py).
+
+    Returns (grayscale PNG bytes, offset_x, offset_y) where the offset is where
+    (cx, cy) sits *inside* the returned patch. The window is clamped to the frame,
+    so near an edge the click is no longer the patch center -- the offset records
+    that, and lets replay map a re-found patch back to the true click point. PIL
+    only (no numpy), so recording an anchor never needs the reflex extra.
+    """
+    from PIL import Image
+
+    with Image.open(io.BytesIO(frame_png)) as img:
+        gray = img.convert("L")
+        w, h = gray.width, gray.height
+        # A box larger than the frame just takes the whole frame.
+        bw, bh = min(box, w), min(box, h)
+        left = max(0, min(cx - bw // 2, w - bw))
+        top = max(0, min(cy - bh // 2, h - bh))
+        patch = gray.crop((left, top, left + bw, top + bh))
+        out = io.BytesIO()
+        patch.save(out, format="PNG")
+        return out.getvalue(), cx - left, cy - top
+
+
 def prepare_for_model(
     png_bytes: bytes,
     real_size: tuple[int, int],

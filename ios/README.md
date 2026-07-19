@@ -62,6 +62,8 @@ points before tapping — so taps land where intended.
 
 ## Install
 
+**Linux/macOS/WSL** (the setup above needs a Mac for Xcode, but the client
+below runs on any OS, including Windows):
 ```sh
 cd ios
 python3 -m venv .venv && source .venv/bin/activate
@@ -69,8 +71,40 @@ pip install -e ../agent      # the loop/providers/config live here
 pip install -e .
 ```
 
-Set up an API key exactly as for `secdogie-agent` (env var or
-`secdogie-ios --init-config`).
+**Windows (PowerShell):**
+```powershell
+cd ios
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e ..\agent
+pip install -e .
+```
+(cmd: `.venv\Scripts\activate`. See `agent/README.md`'s Install section for
+the PowerShell execution-policy note if `Activate.ps1` is blocked.)
+
+Set up an API key exactly as for `secdogie-agent` (env var,
+`secdogie-ios --init-config`, or — simplest on Windows — a `secdogie.env`
+text file in the current folder).
+
+### Or: a single-file executable (no Python needed)
+
+```sh
+./packaging/build.sh          # Linux/macOS -- produces packaging/dist/secdogie-ios
+./packaging/dist/secdogie-ios --help
+```
+
+**Windows (PowerShell):**
+```powershell
+packaging\build.ps1          # produces packaging\dist\secdogie-ios.exe
+.\packaging\dist\secdogie-ios.exe --help
+```
+(cmd.exe can't run `.ps1` files directly: `powershell -ExecutionPolicy Bypass -File packaging\build.ps1`.)
+
+(WDA itself only runs on the iPhone/Mac side; the `secdogie-ios` client that
+talks to it over HTTP works from any OS, including Windows.)
+
+WDA itself still needs to be running and port-forwarded (see Setup above) --
+this only bundles the Python side.
 
 ## Run
 
@@ -83,6 +117,32 @@ secdogie-ios "..." --watch                   # act only when a condition on scre
 
 Flags mirror `secdogie-agent` (`--model`, `--provider`, `--auto`, `--grid`,
 `--max-steps`, `--watch`, …), plus `--wda-url` for the WDA server.
+
+## Tap timing (`--humanize-taps`)
+
+WDA's `/wda/tap` has no duration knob — a real finger's contact time varies, this
+endpoint's doesn't. `--humanize-taps` issues each **single** tap instead as
+`touchAndHold` for a short randomized 50–140ms duration (the same primitive
+`right_click`'s long-press already uses, just much shorter):
+
+```sh
+secdogie-ios "..." --humanize-taps
+```
+
+**What this changes:** the tap stops having a perfectly instantaneous, always-
+identical duration — useful only if something is specifically looking at that.
+
+**What this does not change, and cannot:** `touchAndHold` maps to XCUITest's
+`press(forDuration:)`, a **different underlying gesture** from `tap()` — this
+is a timing tweak riding on the closest available primitive, not a faithful
+recreation of a real touch event, and it still goes through the same
+WDA-automation path the OS/apps can identify as automated (accessibility/
+XCTest driven) regardless of duration. It does not touch, and cannot defeat,
+device attestation (e.g. App Attest/DeviceCheck) or any check operating below
+the WDA layer. `--humanize-taps` **never** applies to `double_click`: WDA's
+`doubleTap` is its own distinct gesture, and substituting two `touchAndHold`
+calls risks the app not registering a double-tap at all rather than just
+changing its timing.
 
 ## Known limitations
 

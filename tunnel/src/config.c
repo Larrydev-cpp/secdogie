@@ -101,5 +101,13 @@ int sdtp_config_load(const char *path, sdtp_config *cfg) {
         fprintf(stderr, "%s: missing required key(s): private_key, peer_public_key, address\n", path);
         return -1;
     }
+    /* The read side caps each inner packet at SDTP_MTU, so an interface MTU
+     * above it would silently truncate/corrupt oversized packets on the wire;
+     * a non-positive MTU makes the SIOCSIFMTU ioctl fail obscurely. Reject both
+     * here with a clear message instead. */
+    if (cfg->mtu <= 0 || cfg->mtu > SDTP_MTU) {
+        fprintf(stderr, "%s: mtu must be between 1 and %d\n", path, SDTP_MTU);
+        return -1;
+    }
     return 0;
 }
