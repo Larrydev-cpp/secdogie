@@ -27,12 +27,13 @@ from .axtree import AxElement, selector_for
 
 # Roles worth offering the model as click targets. A desktop tree is dense and
 # mostly structural (windows, panes, groups); surfacing every node would drown
-# the model, so we keep the interactable leaves. Both platform vocabularies are
-# listed because the providers report roles differently: Windows UIA yields
+# the model, so we keep the interactable leaves. All three platform vocabularies
+# are listed because the providers report roles differently: Windows UIA yields
 # PascalCase with the "Control" suffix trimmed by desktop_ax ("Button", "Edit"),
-# Linux AT-SPI yields getRoleName() strings ("push button", "entry"). Matching is
-# case-insensitive. This set is a starting point -- tune it on your machine as
-# you see which roles actually matter for the apps you drive.
+# Linux AT-SPI yields getRoleName() strings ("push button", "entry"), macOS AX
+# yields "AXButton"/"AXTextField" with the "AX" prefix trimmed ("Button",
+# "TextField"). Matching is case-insensitive. This set is a starting point --
+# tune it on your machine as you see which roles actually matter for your apps.
 INTERACTABLE_ROLES = frozenset(
     {
         # Windows UI Automation (ControlTypeName, "Control" suffix already trimmed)
@@ -64,6 +65,17 @@ INTERACTABLE_ROLES = frozenset(
         "text",
         "password text",
         "spin button",
+        # macOS AX (AXRole, "AX" prefix already trimmed by desktop_ax)
+        "textfield",
+        "textarea",
+        "securetextfield",
+        "popupbutton",
+        "menubutton",
+        "menubaritem",
+        "disclosuretriangle",
+        "incrementor",
+        "stepper",
+        "tab",
     }
 )
 

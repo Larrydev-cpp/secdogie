@@ -441,20 +441,26 @@ the OS accessibility tree and records each click against the widget's identity
 when the window moves or the layout reflows.
 
 ```sh
-pip install uiautomation                  # Windows: the accessibility backend
-sudo apt install python3-pyatspi          # Linux: the AT-SPI bindings (+ enable a11y)
+pip install 'secdogie-agent[windows-ax]'   # Windows: UI Automation (uiautomation)
+sudo apt install python3-pyatspi            # Linux: AT-SPI bindings (+ enable a11y); a system pkg
+pip install 'secdogie-agent[macos-ax]'      # macOS: AX API (pyobjc) — also grant Accessibility
 secdogie-agent "..." --macro flow.json --desktop-ax --auto
 ```
 
 The tree-reading half is on-machine (it needs a real desktop), and its provider
-is platform-specific: **Windows** via UI Automation (the `uiautomation` package)
-and **Linux** via AT-SPI (`pyatspi`) are both wired; **macOS (AX)** is the next
-provider to fill in against the same `axtree.AxElement` contract
-(`secdogie_agent/desktop_ax.py`). If the accessibility library isn't installed
-the flag no-ops with a one-line hint — replay just falls back to the visual
-anchor — so nothing breaks. The matching logic itself
-(`secdogie_agent/axtree.py`) is pure and unit-tested without a desktop; only the
-live tree walk is machine-specific.
+is platform-specific — all three are now wired against the same
+`axtree.AxElement` contract (`secdogie_agent/desktop_ax.py`): **Windows** via UI
+Automation (the `uiautomation` package), **Linux** via AT-SPI (`pyatspi`), and
+**macOS** via the AX API (pyobjc's `ApplicationServices`). macOS has one extra
+gate the others don't: the host app (Terminal, your IDE, the built `.app`) must
+be granted **Accessibility** permission in System Settings → Privacy & Security →
+Accessibility, or the AX API returns nothing. If the accessibility library isn't
+installed — or that permission isn't granted — the flag no-ops with a one-line
+hint (replay falls back to the visual anchor, the live loop to pixels), so
+nothing breaks. The matching logic itself (`secdogie_agent/axtree.py`,
+`elements.py`) is pure and unit-tested without a desktop; only the live tree walk
+is machine-specific, and each provider's walk/mapping is proved against a faked
+platform API in `tests/test_axtree.py`.
 
 **Click by identity, not by pixel (live loop).** `--desktop-ax` also changes how
 the model drives *live*, not just how macros replay. On each step the current

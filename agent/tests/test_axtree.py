@@ -111,9 +111,9 @@ def test_make_provider_is_a_graceful_none_off_windows(caplog):
     import logging
 
     provider = desktop_ax.make_desktop_ax_provider(logging.getLogger("test.ax"))
-    if sys.platform.startswith("win"):
-        # On Windows it depends on whether `uiautomation` is installed; either a
-        # provider or a clean None, never an exception.
+    if sys.platform.startswith("win") or sys.platform == "darwin":
+        # On Windows / macOS it depends on whether the platform a11y library is
+        # installed; either a provider or a clean None, never an exception.
         assert provider is None or isinstance(provider, desktop_ax.DesktopAxProvider)
     else:
         assert provider is None
@@ -220,3 +220,139 @@ def test_make_provider_builds_the_atspi_provider_on_linux_when_bindings_exist(mo
     _fake_pyatspi(monkeypatch, _desktop_with_active_button())
     provider = desktop_ax.make_desktop_ax_provider()
     assert isinstance(provider, desktop_ax._AtspiProvider)
+
+
+# -- macOS AX provider (walk logic verified against a fake ApplicationServices) --
+# The real AX API needs a live macOS session with Accessibility permission; these
+# fakes stand in for pyobjc's AXUIElement objects and the AXValue unwrap so the
+# provider's focused-window scoping + walk + AX-role/geometry mapping is provable
+# headless. Only the real framework binding is on-machine.
+
+class _FakeAXValue:
+    """Stands in for an AXValueRef; AXValueGetValue just returns its inner
+    CGPoint/CGSize (already carrying x/y or width/height)."""
+
+    def __init__(self, inner):
+        self.inner = inner
+
+
+class _FakePoint:
+    def __init__(self, x, y):
+        self.x, self.y = x, y
+
+
+class _FakeSize:
+    def __init__(self, width, height):
+        self.width, self.height = width, height
+
+
+class _FakeAXElement:
+    """An AXUIElement whose attributes the test controls, keyed by the same AX
+    constant strings the fake module exposes."""
+
+    def __init__(self, attrs):
+        self.attrs = attrs
+
+
+def _fake_appservices(monkeypatch, system_element):
+    import types as _types
+
+    def copy_attr(element, attribute, _none):
+        if attribute in element.attrs:
+            return (0, element.attrs[attribute])   # kAXErrorSuccess == 0
+        return (-1, None)                          # attribute absent
+
+    def get_value(axvalue, value_type, _none):
+        return (True, axvalue.inner)               # unwrap the CGPoint/CGSize
+
+    fake = _types.SimpleNamespace(
+        kAXFocusedApplicationAttribute="AXFocusedApplication",
+        kAXFocusedWindowAttribute="AXFocusedWindow",
+        kAXChildrenAttribute="AXChildren",
+        kAXRoleAttribute="AXRole",
+        kAXTitleAttribute="AXTitle",
+        kAXDescriptionAttribute="AXDescription",
+        kAXIdentifierAttribute="AXIdentifier",
+        kAXPositionAttribute="AXPosition",
+        kAXSizeAttribute="AXSize",
+        kAXValueCGPointType="CGPoint",
+        kAXValueCGSizeType="CGSize",
+        AXUIElementCreateSystemWide=lambda: system_element,
+        AXUIElementCopyAttributeValue=copy_attr,
+        AXValueGetValue=get_value,
+    )
+    monkeypatch.setitem(sys.modules, "ApplicationServices", fake)
+    return fake
+
+
+def _macos_focused_window_with_button():
+    button = _FakeAXElement({
+        "AXRole": "AXButton",
+        "AXTitle": "Save",
+        "AXIdentifier": "saveBtn",
+        "AXPosition": _FakeAXValue(_FakePoint(100, 100)),
+        "AXSize": _FakeAXValue(_FakeSize(100, 40)),
+    })
+    window = _FakeAXElement({
+        "AXRole": "AXWindow",
+        "AXTitle": "App",
+        "AXPosition": _FakeAXValue(_FakePoint(0, 0)),
+        "AXSize": _FakeAXValue(_FakeSize(800, 600)),
+        "AXChildren": [button],
+    })
+    app = _FakeAXElement({"AXFocusedWindow": window})
+    return _FakeAXElement({"AXFocusedApplication": app})
+
+
+def test_macos_snapshot_walks_the_focused_window(monkeypatch):
+    fake = _fake_appservices(monkeypatch, _macos_focused_window_with_button())
+    els = desktop_ax._MacosAxProvider(fake).snapshot()
+    assert els is not None
+    got = {(e.role, e.name, e.automation_id, e.bounds) for e in els}
+    # "AX" prefix trimmed, bounds derived from AXPosition + AXSize, AXIdentifier
+    # used as the automation-id.
+    assert ("Button", "Save", "saveBtn", (100, 100, 200, 140)) in got
+    assert ("Window", "App", "", (0, 0, 800, 600)) in got
+    # The pure query re-finds the button at its centre, and it's an interactable
+    # target the model would be offered.
+    assert axtree.element_at(els, 150, 120).name == "Save"
+
+
+def test_macos_snapshot_none_when_nothing_is_focused(monkeypatch):
+    fake = _fake_appservices(monkeypatch, _FakeAXElement({}))  # no focused application
+    assert desktop_ax._MacosAxProvider(fake).snapshot() is None
+
+
+def test_macos_element_without_a_box_is_skipped(monkeypatch):
+    boxless = _FakeAXElement({"AXRole": "AXButton", "AXTitle": "NoBox"})  # no position/size
+    window = _FakeAXElement({
+        "AXRole": "AXWindow",
+        "AXTitle": "App",
+        "AXPosition": _FakeAXValue(_FakePoint(0, 0)),
+        "AXSize": _FakeAXValue(_FakeSize(800, 600)),
+        "AXChildren": [boxless],
+    })
+    app = _FakeAXElement({"AXFocusedWindow": window})
+    fake = _fake_appservices(monkeypatch, _FakeAXElement({"AXFocusedApplication": app}))
+    els = desktop_ax._MacosAxProvider(fake).snapshot()
+    assert [e.name for e in els] == ["App"]  # the boxless button is dropped, walk continues
+
+
+def test_macos_geometry_accepts_the_renamed_value_type_constants(monkeypatch):
+    # Newer pyobjc renamed kAXValueCGPointType -> kAXValueTypeCGPoint; the provider
+    # must resolve either. Drop the old names, provide only the new ones.
+    fake = _fake_appservices(monkeypatch, _macos_focused_window_with_button())
+    del fake.kAXValueCGPointType
+    del fake.kAXValueCGSizeType
+    fake.kAXValueTypeCGPoint = "CGPoint"
+    fake.kAXValueTypeCGSize = "CGSize"
+    els = desktop_ax._MacosAxProvider(fake).snapshot()
+    assert any(e.name == "Save" and e.bounds == (100, 100, 200, 140) for e in els)
+
+
+def test_make_provider_builds_the_macos_provider_on_darwin_when_pyobjc_exists(monkeypatch):
+    if sys.platform != "darwin":
+        return  # the darwin dispatch branch only runs on macOS
+    _fake_appservices(monkeypatch, _macos_focused_window_with_button())
+    provider = desktop_ax.make_desktop_ax_provider()
+    assert isinstance(provider, desktop_ax._MacosAxProvider)
