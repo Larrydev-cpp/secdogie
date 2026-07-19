@@ -482,6 +482,18 @@ unchanged. Perception + resolution are pure and headless-tested
 (`secdogie_agent/elements.py`, `tests/test_elements.py`); only the tree walk is
 on-machine.
 
+**The model decides when to spend a fresh look.** In this mode the *tree* is the
+fresh, authoritative sense re-read every step, so the loop stops re-capturing a
+fresh screenshot each time — it sends the **cached** frame as visual context (the
+model isn't blind) and re-captures only when the model emits a `look` action, on
+the first step, or when the tree comes back empty (nothing to click by identity →
+fall back to real vision). That inverts the default "screenshot every step":
+vision becomes a tool the model reaches for when the pixels actually matter,
+rather than a cost paid on every turn — the same "structured-first, vision on
+demand" shape a personal-assistant harness like OpenClaw uses for desktop
+control. The `look` gating and frame cache are exercised through the real loop in
+`tests/test_loop.py`.
+
 ## Programmable skills: sub-flows, conditions, loops
 
 A recorded macro is a flat, one-shot sequence — no parameters, no reuse, no

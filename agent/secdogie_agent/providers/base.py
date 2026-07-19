@@ -27,6 +27,7 @@ VALID_ACTIONS = {
     "open",
     "wait",
     "screenshot",
+    "look",
     "track_click",
     "click_element",
     "remember",

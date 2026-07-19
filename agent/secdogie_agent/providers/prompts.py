@@ -46,6 +46,12 @@ Action schema (choose exactly one "action"):
            where the target is NOW; optional "seconds" caps the chase. Use ONLY for a
            moving target; for anything stationary use left_click.
   {{"action": "wait", "seconds": number, "reasoning": str}}
+  {{"action": "look", "reasoning": str}}
+        -- request a FRESH screenshot. When an element list is provided, the image
+           you're shown may be a recent (cached) frame while the element list is
+           always current; use "look" when you need to see the pixels as they are
+           right now (the screen changed in a way the element list can't convey, or
+           the target is something the list doesn't name). No effect otherwise.
   {{"action": "done", "text": str}}        -- task is complete, text = summary for the user
   {{"action": "ask_user", "text": str}}    -- you need clarification or explicit permission before continuing
 

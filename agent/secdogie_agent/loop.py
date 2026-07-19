@@ -19,7 +19,7 @@ from .trace import ExecutionTrace
 
 # Benign actions that never need a confirmation prompt -- they don't touch the
 # mouse/keyboard in a way that can do harm.
-_BENIGN = {"wait", "screenshot"}
+_BENIGN = {"wait", "screenshot", "look"}
 
 # Actions that are safe to auto-repeat when they appear to have had no effect:
 # re-clicking an unresponsive spot or re-scrolling is harmless. Deliberately
@@ -201,6 +201,16 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
     prev_exec_frame: bytes | None = None
     stall_count = 0
 
+    # Element-first perception (--desktop-ax with an element-aware backend): the
+    # accessibility tree is the fresh primary sense each step, and the screenshot
+    # rides along as *cached* visual context -- re-captured only when the model
+    # asks for a fresh `look`, on the first step, or when the tree is empty. This
+    # is what puts the model, not the loop, in charge of when to spend a fresh
+    # visual pass. Off (the default), every step prepares a fresh frame as before.
+    element_first = config.desktop_ax and isinstance(backend, ElementAware)
+    cached_frame: tuple | None = None  # (model_png, model_size, scale) reused between looks
+    refresh_view = True  # force a fresh frame on the first step
+
     # Memory: a SQLite-backed store of durable facts the model saves with the
     # `remember` action; recalled into its prompt below. None = stateless.
     memory = Memory(config.memory_path) if config.memory_path else None
@@ -265,12 +275,32 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     replay_steps = None
 
             if action is None:
-                # Downscale to a known size and remember the factor to map the model's
-                # coordinates back to real screen pixels -- this is what keeps clicks
-                # landing on target.
-                model_png, model_size, scale = screen.prepare_for_model(
-                    raw_png, real_size, max_edge=config.max_image_edge, grid=config.grid
-                )
+                # Perception: read the current interactable elements (element-aware
+                # desktop / --desktop-ax) so the model can click one by identity
+                # (click_element) instead of guessing a pixel. Cache THIS step's
+                # targets so the ref the model returns resolves against exactly the
+                # list it was shown, even if the UI shifts meanwhile.
+                step_targets: list = []
+                listing = ""
+                if isinstance(backend, ElementAware):
+                    step_targets = backend.element_targets()
+                    listing = elements.render_for_model(step_targets)
+
+                # Frame: downscale to a known size and remember the factor that maps
+                # the model's coordinates back to real screen pixels. In element-first
+                # mode we reuse the cached frame between `look`s (the fresh element
+                # tree carries the current state); we re-capture only when the model
+                # asked to look, on the first step, or when the tree is empty (no
+                # element help -> real vision). Otherwise every step is fresh, as before.
+                if element_first and cached_frame is not None and not refresh_view and step_targets:
+                    model_png, model_size, scale = cached_frame
+                else:
+                    model_png, model_size, scale = screen.prepare_for_model(
+                        raw_png, real_size, max_edge=config.max_image_edge, grid=config.grid
+                    )
+                    cached_frame = (model_png, model_size, scale)
+                refresh_view = False
+
                 # When planning, carry the plan + progress into the prompt so the
                 # model works the current sub-task and knows where it is (state) --
                 # rather than re-deriving the whole job from the last 10 actions.
@@ -284,18 +314,8 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     recalled = memory.render()
                     if recalled:
                         step_task += f"\n\nWhat you remember from earlier runs:\n{recalled}"
-                # Element-aware desktop (--desktop-ax): offer the model the current
-                # interactable elements so it can click one by identity
-                # (click_element) instead of guessing a pixel. Cache THIS step's
-                # targets so the ref the model returns resolves against exactly the
-                # list it was shown, even if the UI shifts meanwhile. No provider /
-                # nothing interactable -> no listing, and the pixel path is unchanged.
-                step_targets: list = []
-                if isinstance(backend, ElementAware):
-                    step_targets = backend.element_targets()
-                    listing = elements.render_for_model(step_targets)
-                    if listing:
-                        step_task += f"\n\n{listing}"
+                if listing:
+                    step_task += f"\n\n{listing}"
                 try:
                     action = provider.next_action(step_task, model_png, model_size, history)
                 except Exception as e:
@@ -379,6 +399,17 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     except OSError as e:
                         logger.warning("could not save macro %s (%s); the run still succeeded", config.macro_path, e)
                 return 0 if (plan is None or not plan.skipped) else 3
+
+            if action.kind == "look":
+                # The model wants fresh pixels: re-capture the frame on the next
+                # step (in element-first mode the frame is otherwise cached between
+                # looks). No OS action, no confirmation -- it only refreshes what
+                # the model sees, which is exactly the point of letting it decide
+                # when to spend a fresh visual pass.
+                refresh_view = True
+                logger.info("step %d: model requested a fresh look%s", step, f" -- {reasoning}" if reasoning else "")
+                record_result("will capture a fresh screenshot on the next step")
+                continue
 
             if action.kind == "ask_user":
                 question = action.text or action.raw.get("text", "")
