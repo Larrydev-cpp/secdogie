@@ -309,13 +309,16 @@ jobs:
           for f in downloaded/agent-*/*; do
             base="$(basename "$f")"                    # agent-linux-x86_64 | agent-windows-x86_64.exe | agent-macos-arm64
             platform="${base#agent-}"; platform="${platform%.exe}"
+            # `extra` carries any additional launcher assets beyond the main one
+            # (Windows ships menu.ps1, the acrylic selection window open.bat calls).
+            extra=""
             case "$base" in
-              *windows*) inner="secdogie-agent.exe"; launcher="agent/packaging/launchers/open.bat" ;;
+              *windows*) inner="secdogie-agent.exe"; launcher="agent/packaging/launchers/open.bat"; extra="agent/packaging/launchers/menu.ps1" ;;
               *macos*)   inner="secdogie-agent";     launcher="agent/packaging/launchers/open.command" ;;
               *)         inner="secdogie-agent";     launcher="agent/packaging/launchers/run.sh" ;;
             esac
             package "secdogie-agent-${platform}-${version}" "$f" "$inner" \
-              "$launcher" agent/README.md agent/packaging/README.md LICENSE
+              "$launcher" ${extra} agent/README.md agent/packaging/README.md LICENSE
           done
 
           # android/ios/open/scene3d binaries (one per platform each), same

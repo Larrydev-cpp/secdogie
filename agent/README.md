@@ -144,6 +144,15 @@ it is; open that file, paste your Anthropic API key after
 asking what you want it to do** (that's `--gui` mode), shows you the model's
 plan, and asks you to approve before it acts.
 
+**On Windows** `open.bat` first pops a small **frosted-glass selection window**
+(`menu.ps1`, an acrylic WPF panel) to pick how to start — describe a task,
+preview it (`--dry-run`), element/accessibility mode (`--desktop-ax`), unattended
+(`--auto`), or set up the API key — then launches the agent with that choice.
+Keep `menu.ps1` next to `open.bat`; if it's missing or PowerShell can't show the
+window, the launcher falls back to plain `--gui`, so it always works. (The
+acrylic blur + rounded corners need Windows 10 1803+/11; on older builds the
+panel still shows as a translucent dark window.)
+
 ## Run
 
 ```sh
