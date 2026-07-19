@@ -7,10 +7,10 @@ from __future__ import annotations
 import hashlib
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from . import actions, dialog, safety, screen
-from .backend import Backend, DesktopBackend
+from . import actions, dialog, elements, safety, screen
+from .backend import Backend, DesktopBackend, ElementAware
 from .macro import Macro, MacroRecorder, MacroStep, resolve_replay_step
 from .memory import Memory, SecretRefused
 from .plan import Plan
@@ -284,6 +284,18 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     recalled = memory.render()
                     if recalled:
                         step_task += f"\n\nWhat you remember from earlier runs:\n{recalled}"
+                # Element-aware desktop (--desktop-ax): offer the model the current
+                # interactable elements so it can click one by identity
+                # (click_element) instead of guessing a pixel. Cache THIS step's
+                # targets so the ref the model returns resolves against exactly the
+                # list it was shown, even if the UI shifts meanwhile. No provider /
+                # nothing interactable -> no listing, and the pixel path is unchanged.
+                step_targets: list = []
+                if isinstance(backend, ElementAware):
+                    step_targets = backend.element_targets()
+                    listing = elements.render_for_model(step_targets)
+                    if listing:
+                        step_task += f"\n\n{listing}"
                 try:
                     action = provider.next_action(step_task, model_png, model_size, history)
                 except Exception as e:
@@ -295,6 +307,25 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     # back to absolute screen coordinates before anything downstream
                     # (confirmation prompts, execution) sees them.
                     action = action.translated(config.region[0], config.region[1])
+                # Turn an element-targeted click into a concrete left_click at the
+                # element's real-pixel centre. Element bounds are already absolute
+                # screen pixels, so this runs AFTER scale/translate (both no-ops on
+                # a click_element, which carries no x/y). A ref that doesn't resolve
+                # is reported to the model as a miss -- never clicked at a guessed or
+                # zero coordinate.
+                if action.kind == "click_element":
+                    point = elements.point_for_ref(step_targets, action.element)
+                    if point is None:
+                        logger.warning("click_element: unresolved element ref %r", action.element)
+                        history.append(HistoryStep(
+                            action=action,
+                            result=(
+                                f"could not find element {action.element!r} in the listing; "
+                                'use a ref shown there (e.g. "e2") or a coordinate action instead'
+                            ),
+                        ))
+                        continue
+                    action = replace(action, kind="left_click", x=point[0], y=point[1])
 
             reasoning = action.reasoning or action.raw.get("reasoning", "")
 

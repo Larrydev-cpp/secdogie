@@ -456,6 +456,32 @@ anchor — so nothing breaks. The matching logic itself
 (`secdogie_agent/axtree.py`) is pure and unit-tested without a desktop; only the
 live tree walk is machine-specific.
 
+**Click by identity, not by pixel (live loop).** `--desktop-ax` also changes how
+the model drives *live*, not just how macros replay. On each step the current
+interactable elements (buttons, fields, menu items, …) are read from the
+accessibility tree and appended to the prompt as a short list, each with a stable
+ref:
+
+```
+Interactable elements detected on screen (from the accessibility tree)...
+  [e1] Button "Save" (id=saveBtn)
+  [e2] Button "Cancel"
+  [e3] Edit "Filename" (id=fileBox)
+```
+
+The model can then reply `{"action": "click_element", "element": "e2", ...}` and
+the loop resolves that ref to the element's true bounds — a real-pixel click with
+no coordinate-scaling round-off and no near-miss, because the tree *knows* the
+widget is there. It's the non-vision path for desktop control (the same idea as
+reading a game's native state instead of its pixels): the screenshot still goes
+to the model for everything the tree can't name (canvases, custom-drawn UI, a
+remote screen), so vision is the fallback, not the only sense. A ref that no
+longer resolves is reported back as a miss rather than clicked blindly, and with
+no provider the listing is simply absent — the pixel path is byte-for-byte
+unchanged. Perception + resolution are pure and headless-tested
+(`secdogie_agent/elements.py`, `tests/test_elements.py`); only the tree walk is
+on-machine.
+
 ## Programmable skills: sub-flows, conditions, loops
 
 A recorded macro is a flat, one-shot sequence — no parameters, no reuse, no
