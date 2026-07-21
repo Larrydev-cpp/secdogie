@@ -134,7 +134,7 @@ launcher** next to the program — you don't need to touch a terminal:
 
 | Your OS | Double-click this |
 |---------|-------------------|
-| Windows | `open.bat` |
+| Windows | `secdogie-agent.exe` directly (a selection window opens), or `open.bat` for a console alongside it |
 | macOS   | `open.command` (first time: right-click → **Open** to get past Gatekeeper) |
 | Linux   | `run.sh` (from a terminal: `./run.sh`) |
 
@@ -144,14 +144,17 @@ it is; open that file, paste your Anthropic API key after
 asking what you want it to do** (that's `--gui` mode), shows you the model's
 plan, and asks you to approve before it acts.
 
-**On Windows** `open.bat` first pops a small **frosted-glass selection window**
-(`menu.ps1`, an acrylic WPF panel) to pick how to start — describe a task,
-preview it (`--dry-run`), element/accessibility mode (`--desktop-ax`), unattended
-(`--auto`), or set up the API key — then launches the agent with that choice.
-Keep `menu.ps1` next to `open.bat`; if it's missing or PowerShell can't show the
-window, the launcher falls back to plain `--gui`, so it always works. (The
-acrylic blur + rounded corners need Windows 10 1803+/11; on older builds the
-panel still shows as a translucent dark window.)
+**One-file selection window.** Double-clicking `secdogie-agent.exe` itself (no
+launcher, no terminal) pops a small **frosted-glass selection window** built into
+the program — pick how to start: describe a task, preview it (`--dry-run`),
+element/accessibility mode (`--desktop-ax`), unattended (`--auto`), or set up the
+API key — and it runs that choice. It appears **only** on a bare double-click; run
+the exe with any argument (or from a terminal) and the plain CLI is unchanged.
+On Windows the panel gets real acrylic blur + rounded corners from the OS
+compositor (Windows 10 1803+/11); anywhere that can't apply, it's a clean dark
+panel, and with no display at all it falls back to `--gui`, so opening the exe
+always does something. `open.bat` is now just a thin wrapper that opens a console
+alongside the window (so you can read the log and stop the agent by closing it).
 
 ## Run
 

@@ -3,11 +3,22 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import cli_common, dialog
+from . import cli_common, dialog, launcher_menu
 from .loop import AgentConfig, run
 
 
 def main(argv: list[str] | None = None) -> int:
+    # One-file UX: a packaged exe double-clicked with no arguments shows the
+    # frosted-glass chooser and runs whatever card was picked; closing it exits.
+    # Any explicit argument (terminal, script) skips the menu entirely.
+    if argv is None:
+        argv = sys.argv[1:]
+    if launcher_menu.should_offer(argv):
+        chosen = launcher_menu.show_menu()
+        if chosen is None:
+            return 0
+        argv = chosen
+
     parser = argparse.ArgumentParser(
         prog="secdogie-agent",
         description="Vision-LLM computer-control agent: point it at a task, it drives your mouse/keyboard.",
