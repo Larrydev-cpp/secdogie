@@ -4,11 +4,18 @@ import argparse
 import sys
 import webbrowser
 
+from secdogie_agent import dpi
+
 from .controller import Controller
 from .server import build_server
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Declare DPI awareness before any capture/input, same as the agent CLI --
+    # open/ drives the real desktop (mss + pyautogui per window), so a scaled
+    # display would otherwise offset every click. No-op off Windows. See dpi.py.
+    dpi.ensure_dpi_awareness()
+
     parser = argparse.ArgumentParser(
         prog="secdogie-open",
         description="Split the screen by open window and drive one secdogie-agent instance per "

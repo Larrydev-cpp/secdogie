@@ -27,7 +27,9 @@ VALID_ACTIONS = {
     "open",
     "wait",
     "screenshot",
+    "look",
     "track_click",
+    "click_element",
     "remember",
     "done",
     "ask_user",
@@ -47,6 +49,7 @@ class Action:
     dy: int | None = None
     seconds: float | None = None
     path: str | None = None
+    element: str | None = None  # accessibility-tree target ref for click_element (e.g. "e3")
     reasoning: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -67,6 +70,7 @@ class Action:
             dy=d.get("dy"),
             seconds=d.get("seconds"),
             path=d.get("path"),
+            element=(str(d["element"]) if d.get("element") is not None else None),
             reasoning=d.get("reasoning"),
             raw=d,
         )

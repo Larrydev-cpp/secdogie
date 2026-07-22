@@ -17,7 +17,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
-from . import actions, axtree, screen
+from . import actions, axtree, elements, screen
 from .providers.base import Action
 
 
@@ -54,6 +54,26 @@ class Locatable(Protocol):
     def locate(self, selector: ElementSelector) -> tuple[int, int] | None:
         """Best-effort: resolve a previously-recorded selector back to a
         current (x, y). None if it can't be found (the UI changed)."""
+        ...
+
+
+@runtime_checkable
+class ElementAware(Protocol):
+    """Optional Backend capability: expose the target's currently-interactable
+    elements so the model can click one by identity (the `click_element` action)
+    instead of guessing a pixel off the screenshot. Implement it wherever an
+    accessibility tree is available (DesktopBackend with `--desktop-ax`); the
+    loop checks `isinstance(backend, ElementAware)` and, only if the returned
+    list is non-empty, appends a target listing to the model's task. A backend
+    without it -- or one that returns [] -- is simply driven by pixels as before,
+    so this never changes the default path."""
+
+    def element_targets(self) -> list[axtree.AxElement]:
+        """The interactable elements on screen right now (may be empty). Called
+        once per step, not a hot path -- a fresh read each time keeps it current.
+        Real screen-pixel bounds, so a resolved click needs no model-space
+        scaling. The loop caches the returned list for the step and resolves the
+        model's ref against exactly that list (see elements.resolve_ref)."""
         ...
 
 
@@ -139,13 +159,27 @@ class DesktopBackend:
     def locate(self, selector: ElementSelector) -> tuple[int, int] | None:
         if self.ax_provider is None or selector.kind != axtree.SELECTOR_KIND:
             return None
-        elements = self.ax_provider.snapshot()
-        if not elements:
+        snapshot = self.ax_provider.snapshot()
+        if not snapshot:
             return None
         matches = axtree.find_elements(
-            elements,
+            snapshot,
             automation_id=selector.attrs.get("automation_id"),
             name=selector.attrs.get("name"),
             role=selector.attrs.get("role"),
         )
         return matches[0].center if matches else None
+
+    # -- ElementAware (backend.py): the live-loop counterpart to Locatable.
+    # Locatable re-finds a *recorded* click for macro replay; this surfaces the
+    # current interactable elements so the *live* model can pick one by ref. Both
+    # ride the same ax_provider; the filtering/formatting is the tested elements
+    # logic. Empty (no provider, or nothing interactable) => the loop shows no
+    # listing and drives by pixels, unchanged.
+    def element_targets(self) -> list[axtree.AxElement]:
+        if self.ax_provider is None:
+            return []
+        snapshot = self.ax_provider.snapshot()
+        if not snapshot:
+            return []
+        return elements.interactable_targets(snapshot)

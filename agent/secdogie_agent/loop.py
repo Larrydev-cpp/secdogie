@@ -7,10 +7,10 @@ from __future__ import annotations
 import hashlib
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from . import actions, dialog, safety, screen
-from .backend import Backend, DesktopBackend
+from . import actions, dialog, elements, safety, screen
+from .backend import Backend, DesktopBackend, ElementAware
 from .macro import Macro, MacroRecorder, MacroStep, resolve_replay_step
 from .memory import Memory, SecretRefused
 from .plan import Plan
@@ -19,7 +19,7 @@ from .trace import ExecutionTrace
 
 # Benign actions that never need a confirmation prompt -- they don't touch the
 # mouse/keyboard in a way that can do harm.
-_BENIGN = {"wait", "screenshot"}
+_BENIGN = {"wait", "screenshot", "look"}
 
 # Actions that are safe to auto-repeat when they appear to have had no effect:
 # re-clicking an unresponsive spot or re-scrolling is harmless. Deliberately
@@ -100,6 +100,15 @@ class AgentConfig:
     logger_name: str = "secdogie_agent"  # distinct per concurrent run so loggers don't share/race on handlers
     should_stop: Callable[[], bool] | None = None  # checked each step; lets a caller cancel a running loop
     backend: Backend | None = None  # what to drive; None = the local desktop (mss + pyautogui)
+    # Focus (single desktop agent only; ignored when `backend` is set, since a
+    # custom backend like open/'s brings its own focus hook). `activate` is called
+    # before every real action to (re)assert the target window's foreground --
+    # used by --window targeting. `initial_focus` is called ONCE before the first
+    # screenshot to put the intended window in front, so the first frame the model
+    # reasons about (and the click that follows) land on the right window and not
+    # on a leftover of our own menu/dialogs. See osfocus.py / cli.py.
+    activate: Callable[[], bool] | None = None
+    initial_focus: Callable[[], None] | None = None
     # Desktop only (ignored when `backend` is set): attach an accessibility provider so the default
     # DesktopBackend becomes element-aware, letting macros anchor to UI-automation identity (the
     # strongest replay tier). Needs the platform a11y lib; off = visual-anchor/coordinate tiers only.
@@ -148,7 +157,8 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
 
             ax_provider = desktop_ax.make_desktop_ax_provider(logger)
         backend = DesktopBackend(
-            move_duration=config.move_duration, settle=config.settle, ax_provider=ax_provider
+            move_duration=config.move_duration, settle=config.settle, ax_provider=ax_provider,
+            activate=config.activate,
         )
     backend.setup(logger)
 
@@ -201,11 +211,31 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
     prev_exec_frame: bytes | None = None
     stall_count = 0
 
+    # Element-first perception (--desktop-ax with an element-aware backend): the
+    # accessibility tree is the fresh primary sense each step, and the screenshot
+    # rides along as *cached* visual context -- re-captured only when the model
+    # asks for a fresh `look`, on the first step, or when the tree is empty. This
+    # is what puts the model, not the loop, in charge of when to spend a fresh
+    # visual pass. Off (the default), every step prepares a fresh frame as before.
+    element_first = config.desktop_ax and isinstance(backend, ElementAware)
+    cached_frame: tuple | None = None  # (model_png, model_size, scale) reused between looks
+    refresh_view = True  # force a fresh frame on the first step
+
     # Memory: a SQLite-backed store of durable facts the model saves with the
     # `remember` action; recalled into its prompt below. None = stateless.
     memory = Memory(config.memory_path) if config.memory_path else None
     if memory is not None:
         logger.info("memory: reading/writing durable facts at %s", config.memory_path)
+
+    # Assert the target window's foreground ONCE, now -- after any menu/dialog has
+    # closed and BEFORE the first screenshot -- so the frame the model reasons
+    # about (and the action that follows) land on the intended window, not on a
+    # ghost of our own GUI. Best-effort: a failure here never stops the run.
+    if config.initial_focus is not None:
+        try:
+            config.initial_focus()
+        except Exception as e:
+            logger.debug("initial focus assertion failed (proceeding anyway): %s", e)
 
     try:
         for step in range(1, config.max_steps + 1):
@@ -265,12 +295,32 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     replay_steps = None
 
             if action is None:
-                # Downscale to a known size and remember the factor to map the model's
-                # coordinates back to real screen pixels -- this is what keeps clicks
-                # landing on target.
-                model_png, model_size, scale = screen.prepare_for_model(
-                    raw_png, real_size, max_edge=config.max_image_edge, grid=config.grid
-                )
+                # Perception: read the current interactable elements (element-aware
+                # desktop / --desktop-ax) so the model can click one by identity
+                # (click_element) instead of guessing a pixel. Cache THIS step's
+                # targets so the ref the model returns resolves against exactly the
+                # list it was shown, even if the UI shifts meanwhile.
+                step_targets: list = []
+                listing = ""
+                if isinstance(backend, ElementAware):
+                    step_targets = backend.element_targets()
+                    listing = elements.render_for_model(step_targets)
+
+                # Frame: downscale to a known size and remember the factor that maps
+                # the model's coordinates back to real screen pixels. In element-first
+                # mode we reuse the cached frame between `look`s (the fresh element
+                # tree carries the current state); we re-capture only when the model
+                # asked to look, on the first step, or when the tree is empty (no
+                # element help -> real vision). Otherwise every step is fresh, as before.
+                if element_first and cached_frame is not None and not refresh_view and step_targets:
+                    model_png, model_size, scale = cached_frame
+                else:
+                    model_png, model_size, scale = screen.prepare_for_model(
+                        raw_png, real_size, max_edge=config.max_image_edge, grid=config.grid
+                    )
+                    cached_frame = (model_png, model_size, scale)
+                refresh_view = False
+
                 # When planning, carry the plan + progress into the prompt so the
                 # model works the current sub-task and knows where it is (state) --
                 # rather than re-deriving the whole job from the last 10 actions.
@@ -284,6 +334,8 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     recalled = memory.render()
                     if recalled:
                         step_task += f"\n\nWhat you remember from earlier runs:\n{recalled}"
+                if listing:
+                    step_task += f"\n\n{listing}"
                 try:
                     action = provider.next_action(step_task, model_png, model_size, history)
                 except Exception as e:
@@ -295,6 +347,25 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     # back to absolute screen coordinates before anything downstream
                     # (confirmation prompts, execution) sees them.
                     action = action.translated(config.region[0], config.region[1])
+                # Turn an element-targeted click into a concrete left_click at the
+                # element's real-pixel centre. Element bounds are already absolute
+                # screen pixels, so this runs AFTER scale/translate (both no-ops on
+                # a click_element, which carries no x/y). A ref that doesn't resolve
+                # is reported to the model as a miss -- never clicked at a guessed or
+                # zero coordinate.
+                if action.kind == "click_element":
+                    point = elements.point_for_ref(step_targets, action.element)
+                    if point is None:
+                        logger.warning("click_element: unresolved element ref %r", action.element)
+                        history.append(HistoryStep(
+                            action=action,
+                            result=(
+                                f"could not find element {action.element!r} in the listing; "
+                                'use a ref shown there (e.g. "e2") or a coordinate action instead'
+                            ),
+                        ))
+                        continue
+                    action = replace(action, kind="left_click", x=point[0], y=point[1])
 
             reasoning = action.reasoning or action.raw.get("reasoning", "")
 
@@ -348,6 +419,17 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     except OSError as e:
                         logger.warning("could not save macro %s (%s); the run still succeeded", config.macro_path, e)
                 return 0 if (plan is None or not plan.skipped) else 3
+
+            if action.kind == "look":
+                # The model wants fresh pixels: re-capture the frame on the next
+                # step (in element-first mode the frame is otherwise cached between
+                # looks). No OS action, no confirmation -- it only refreshes what
+                # the model sees, which is exactly the point of letting it decide
+                # when to spend a fresh visual pass.
+                refresh_view = True
+                logger.info("step %d: model requested a fresh look%s", step, f" -- {reasoning}" if reasoning else "")
+                record_result("will capture a fresh screenshot on the next step")
+                continue
 
             if action.kind == "ask_user":
                 question = action.text or action.raw.get("text", "")

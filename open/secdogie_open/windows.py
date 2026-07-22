@@ -7,7 +7,6 @@ separate agent loop can be scoped to (see runner.py).
 """
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass
 
 # Windows smaller than this on an edge are almost never something a user
@@ -107,13 +106,24 @@ def focus_window(win: WindowInfo, timeout: float = _FOCUS_TIMEOUT_S, poll_interv
     returning, so a caller acting on it next (a click, typed text) lands there
     and not on whatever window the OS still had focused.
 
-    Best-effort, not a hard gate: some window managers ignore or delay
-    programmatic activation, and a closed/moved window just means we can't
-    find a match. Either way this returns False rather than raising -- the
-    caller is expected to proceed with its action regardless (see
-    runner.py's use as a Backend.activate hook), since refusing to act at all
-    would be worse than acting against whatever currently has focus.
+    This does the *real* raise, not a naive activate() that ForegroundLockTimeout
+    would silently drop (see secdogie_agent.osfocus): on Windows it forces the
+    window past the lock timeout via its HWND; everywhere it then polls until the
+    window is confirmed active (state settle). On Wayland, where a client cannot
+    steal focus at all, it returns False immediately rather than pretending.
+
+    Best-effort, not a hard gate: a closed/moved window, or a compositor that
+    forbids activation, just yields False. The caller proceeds with its action
+    regardless (see runner.py's Backend.activate hook) -- refusing to act would be
+    worse than acting against whatever currently has focus -- but a False is the
+    honest signal that the click may land on the wrong window.
     """
+    from secdogie_agent import osfocus
+
+    # Wayland forbids programmatic focus stealing outright -- don't fake success.
+    if osfocus.display_server() == "wayland":
+        return False
+
     try:
         import pywinctl
     except Exception:
@@ -138,17 +148,31 @@ def focus_window(win: WindowInfo, timeout: float = _FOCUS_TIMEOUT_S, poll_interv
         return False
     target = candidates[0]
 
-    try:
-        target.activate(wait=False)
-    except Exception:
-        return False
-
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
+    # Windows: force it past ForegroundLockTimeout via the real HWND when we can
+    # get one; the confirm loop below still verifies. Elsewhere (X11), pywinctl's
+    # activate is the raise and the settle loop confirms it landed.
+    hwnd = None
+    if osfocus.display_server() == "windows":
         try:
-            if target.isActive:
-                return True
+            hwnd = target.getHandle()
+        except Exception:
+            hwnd = None
+
+    def is_active() -> bool:
+        try:
+            return bool(target.isActive)
         except Exception:
             return False
-        time.sleep(poll_interval)
-    return False
+
+    def raise_once() -> None:
+        if hwnd is not None:
+            osfocus._win_force_foreground(hwnd)
+        else:
+            try:
+                target.activate(wait=False)
+            except Exception:
+                pass
+
+    return osfocus.confirm_foreground(
+        is_active, raise_once, settle_timeout=timeout, poll=poll_interval
+    )

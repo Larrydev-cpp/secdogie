@@ -3,9 +3,10 @@
 axtree.py is the tested brain (find the element under a point, re-find by
 identity). This is the thin, OS-specific glue that can only run on a real
 desktop: it walks the platform's accessibility API -- UI Automation on Windows,
-AT-SPI on Linux, the AX API on macOS -- and flattens the foreground window into
-`axtree.AxElement`s. There is no display or accessibility bus in CI, so this
-half is verified on your machine, exactly like the pyautogui input path.
+AT-SPI on Linux, the AX API on macOS (all three wired) -- and flattens the
+foreground window into `axtree.AxElement`s. There is no display or accessibility
+bus in CI, so this half is verified on your machine, exactly like the pyautogui
+input path.
 
 A DesktopAxProvider is optional. Without one (the default), DesktopBackend isn't
 element-aware and macro replay uses the visual anchor / coordinate tiers. Turn
@@ -42,11 +43,10 @@ def make_desktop_ax_provider(logger=None) -> DesktopAxProvider | None:
         return _make_windows_provider(logger)
     if sys.platform.startswith("linux"):
         return _make_linux_provider(logger)
+    if sys.platform == "darwin":
+        return _make_macos_provider(logger)
     if logger is not None:
-        logger.info(
-            "desktop accessibility: macOS AX API support isn't wired yet -- implement a "
-            "DesktopAxProvider over pyobjc's ApplicationServices against the axtree.AxElement contract."
-        )
+        logger.info("desktop accessibility: no provider for platform %r", sys.platform)
     return None
 
 
@@ -212,3 +212,138 @@ class _AtspiProvider:
             )
         except Exception:
             return None
+
+
+def _make_macos_provider(logger) -> DesktopAxProvider | None:
+    try:
+        import ApplicationServices  # noqa: F401  (probe: is pyobjc's AX framework present?)
+    except Exception as e:
+        if logger is not None:
+            logger.info(
+                "desktop accessibility: pyobjc's ApplicationServices isn't available (%s); "
+                "install it with `pip install pyobjc-framework-ApplicationServices` and grant the "
+                "host app Accessibility permission (System Settings -> Privacy & Security -> "
+                "Accessibility) to enable the semantic tier on macOS",
+                e,
+            )
+        return None
+    return _MacosAxProvider(ApplicationServices)
+
+
+class _MacosAxProvider:
+    """Reads the macOS Accessibility (AX) tree via pyobjc's ApplicationServices.
+
+    On-machine only, and with a second gate the other platforms don't have: the
+    AX API returns nothing unless the *host app* (Terminal, the .app bundle, your
+    IDE) has been granted Accessibility permission in System Settings -> Privacy &
+    Security -> Accessibility. Without it snapshot() comes back empty and the flag
+    quietly degrades, same as a missing library.
+
+    The AXUIElement -> AxElement mapping is isolated in `_element_of`, and every
+    AX call is funnelled through `_attr` (attribute read) and `_geometry`
+    (position/size unwrap) -- the single places to adjust for a pyobjc version.
+    Roles arrive as "AXButton"/"AXTextField"; the "AX" prefix is trimmed so they
+    read as the plain role the selector stores ("Button"), matching Windows.
+    macOS exposes an optional developer-set AXIdentifier used as the
+    automation-id when present, else elements anchor on title+role like AT-SPI.
+
+    `ax` (the ApplicationServices module) is injected so the walk/mapping logic is
+    provable against a fake -- only the real framework binding is machine-specific.
+    """
+
+    def __init__(self, ax):
+        self._ax = ax
+
+    def snapshot(self) -> list[axtree.AxElement] | None:
+        ax = self._ax
+        system = ax.AXUIElementCreateSystemWide()
+        # The focused app, then its focused window -- the same "active window
+        # only" scope the Windows/Linux providers use, so the walk stays bounded.
+        app = self._attr(system, ax.kAXFocusedApplicationAttribute)
+        if app is None:
+            return None
+        window = self._attr(app, ax.kAXFocusedWindowAttribute)
+        if window is None:
+            return None
+        out: list[axtree.AxElement] = []
+        self._walk(window, 0, out)
+        return out
+
+    def _walk(self, element, depth: int, out: list[axtree.AxElement]) -> None:
+        el = self._element_of(element)
+        if el is not None:
+            out.append(el)
+        if depth >= MAX_TREE_DEPTH:
+            return
+        for child in self._children(element):
+            self._walk(child, depth + 1, out)
+
+    def _children(self, element) -> list:
+        kids = self._attr(element, self._ax.kAXChildrenAttribute)
+        return list(kids) if kids else []  # a leaf has no AXChildren -> None -> []
+
+    def _attr(self, element, attribute):
+        """Read one AX attribute value, or None. pyobjc returns (AXError, value);
+        a non-zero error (attribute absent/unreadable) or any exception -> None,
+        so a control that vanishes mid-walk is skipped rather than failing the
+        snapshot."""
+        try:
+            err, value = self._ax.AXUIElementCopyAttributeValue(element, attribute, None)
+        except Exception:
+            return None
+        if err != 0:  # kAXErrorSuccess == 0
+            return None
+        return value
+
+    def _element_of(self, element) -> axtree.AxElement | None:
+        """Map one AXUIElement to an AxElement, or None if it has no role or no
+        on-screen box. Best-effort: any attribute miss drops the element."""
+        ax = self._ax
+        role = self._attr(element, ax.kAXRoleAttribute)
+        if not role:
+            return None
+        geom = self._geometry(element)
+        if geom is None:
+            return None
+        left, top, right, bottom = geom
+        if right <= left or bottom <= top:
+            return None  # zero-area / offscreen elements aren't click targets
+        role = str(role)
+        if role.startswith("AX"):
+            role = role[2:]  # "AXButton" -> "Button", matching the Windows convention
+        name = self._attr(element, ax.kAXTitleAttribute) or self._attr(element, ax.kAXDescriptionAttribute) or ""
+        automation_id = self._attr(element, ax.kAXIdentifierAttribute) or ""
+        return axtree.AxElement(
+            role=role,
+            name=str(name),
+            automation_id=str(automation_id),
+            bounds=(left, top, right, bottom),
+        )
+
+    def _geometry(self, element) -> tuple[int, int, int, int] | None:
+        """(left, top, right, bottom) in screen pixels from AXPosition + AXSize,
+        or None if either is unreadable. Each attribute is an AXValue that must be
+        unwrapped to a CGPoint/CGSize via AXValueGetValue. The CGPoint/CGSize type
+        constants were renamed across pyobjc versions (kAXValueCGPointType ->
+        kAXValueTypeCGPoint), so we accept either -- this is the one place a
+        version difference would surface."""
+        ax = self._ax
+        pos = self._attr(element, ax.kAXPositionAttribute)
+        size = self._attr(element, ax.kAXSizeAttribute)
+        if pos is None or size is None:
+            return None
+        point_type = getattr(ax, "kAXValueCGPointType", None)
+        if point_type is None:
+            point_type = getattr(ax, "kAXValueTypeCGPoint", None)
+        size_type = getattr(ax, "kAXValueCGSizeType", None)
+        if size_type is None:
+            size_type = getattr(ax, "kAXValueTypeCGSize", None)
+        try:
+            ok_p, point = ax.AXValueGetValue(pos, point_type, None)
+            ok_s, dims = ax.AXValueGetValue(size, size_type, None)
+        except Exception:
+            return None
+        if not ok_p or not ok_s:
+            return None
+        left, top = int(point.x), int(point.y)
+        return (left, top, left + int(dims.width), top + int(dims.height))

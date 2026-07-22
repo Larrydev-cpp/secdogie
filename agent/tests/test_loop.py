@@ -1,6 +1,6 @@
 import pytest
-from secdogie_agent import actions, loop, screen
-from secdogie_agent.backend import ElementSelector
+from secdogie_agent import actions, axtree, loop, screen
+from secdogie_agent.backend import DesktopBackend, ElementSelector
 from secdogie_agent.macro import Macro, MacroStep
 from secdogie_agent.providers.base import Action, VisionProvider
 
@@ -112,6 +112,155 @@ def test_loop_scales_model_coordinates_to_screen(monkeypatch):
     assert rc == 0
     assert (executed[0].x, executed[0].y) == (200, 100)  # scaled 2x
     assert executed[0].raw["x"] == 200  # raw updated too, for logs/confirmation
+
+
+# -- element-first perception (--desktop-ax): cached vision + model-gated `look` --
+#
+# With an element-aware backend, the accessibility tree is the fresh sense every
+# step and the screenshot is cached between `look`s -- so the model, not the
+# loop, decides when to spend a fresh visual pass. These drive that through the
+# real loop with a fake accessibility provider, counting frame preparations.
+
+class _FakeAxProvider:
+    def __init__(self, elements):
+        self._elements = elements
+
+    def snapshot(self):
+        return self._elements
+
+
+def _one_button_tree():
+    return [axtree.AxElement(role="Button", name="Go", automation_id="goBtn", bounds=(100, 100, 200, 140))]
+
+
+def _count_prepare(monkeypatch, executed):
+    """Patch capture/execute like _patch_screen_and_actions but COUNT how many
+    times a frame is prepared for the model, to prove the cache is (not) hit."""
+    calls = {"prepare": 0}
+    monkeypatch.setattr(screen, "capture_screenshot", lambda region=None: (b"fake-png", (1920, 1080)))
+
+    def prep(raw, size, **kw):
+        calls["prepare"] += 1
+        return raw, size, 1.0
+
+    monkeypatch.setattr(screen, "prepare_for_model", prep)
+    monkeypatch.setattr(actions, "execute", lambda action, **kw: executed.append(action) or "ok")
+    return calls
+
+
+def _element_backend():
+    return DesktopBackend(ax_provider=_FakeAxProvider(_one_button_tree()))
+
+
+def test_element_first_reuses_the_cached_frame_between_steps(monkeypatch):
+    executed = []
+    calls = _count_prepare(monkeypatch, executed)
+    provider = ScriptedProvider([
+        {"action": "click_element", "element": "e1"},
+        {"action": "click_element", "element": "e1"},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(task="click Go twice", auto=True, max_steps=10,
+                              desktop_ax=True, backend=_element_backend())
+    rc = loop.run(provider, config)
+    assert rc == 0
+    # Three model calls, but the frame is prepared ONCE: fresh on step 1, cached
+    # for the rest (the fresh element tree carries current state each step).
+    assert provider.calls == 3
+    assert calls["prepare"] == 1
+    # Both click_elements resolved to a real-pixel left_click at the button centre.
+    assert [a.kind for a in executed] == ["left_click", "left_click"]
+    assert (executed[0].x, executed[0].y) == (150, 120)
+
+
+def test_look_forces_a_fresh_frame(monkeypatch):
+    executed = []
+    calls = _count_prepare(monkeypatch, executed)
+    provider = ScriptedProvider([
+        {"action": "click_element", "element": "e1"},
+        {"action": "look"},                       # model asks to see fresh pixels
+        {"action": "click_element", "element": "e1"},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(task="click, look, click", auto=True, max_steps=10,
+                              desktop_ax=True, backend=_element_backend())
+    rc = loop.run(provider, config)
+    assert rc == 0
+    # Fresh on step 1, cached on step 2, `look` re-captures for step 3 -> two prepares.
+    assert calls["prepare"] == 2
+    assert [a.kind for a in executed] == ["left_click", "left_click"]  # look never executes
+
+
+def test_unresolved_element_ref_is_reported_not_clicked(monkeypatch):
+    executed = []
+    _count_prepare(monkeypatch, executed)
+    provider = ScriptedProvider([
+        {"action": "click_element", "element": "e9"},  # no such ref in the listing
+        {"action": "done", "text": "gave up"},
+    ])
+    config = loop.AgentConfig(task="click a missing element", auto=True, max_steps=10,
+                              desktop_ax=True, backend=_element_backend())
+    rc = loop.run(provider, config)
+    assert rc == 0
+    assert executed == []  # nothing was clicked -- the miss is fed back to the model instead
+
+
+def test_default_mode_prepares_a_fresh_frame_every_step(monkeypatch):
+    # Without --desktop-ax the cache is off: the pixel path is unchanged, a fresh
+    # frame every step exactly as before.
+    executed = []
+    calls = _count_prepare(monkeypatch, executed)
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "left_click", "x": 2, "y": 2},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(task="two clicks", auto=True, max_steps=10)
+    rc = loop.run(provider, config)
+    assert rc == 0
+    assert calls["prepare"] == 3  # one per model call, no caching
+
+
+def test_initial_focus_runs_once_before_the_first_capture(monkeypatch):
+    # The single agent asserts the target window's foreground ONCE, before the
+    # first screenshot -- so the frame the model reasons about (and the click that
+    # follows) land on the intended window, not a ghost of our menu/dialogs.
+    events = []
+
+    def cap(region=None):
+        events.append("capture")
+        return b"fake-png", (1920, 1080)
+
+    monkeypatch.setattr(screen, "capture_screenshot", cap)
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+    monkeypatch.setattr(actions, "execute", lambda action, **kw: "ok")
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(
+        task="click", auto=True, max_steps=5,
+        initial_focus=lambda: events.append("focus"),
+    )
+    assert loop.run(provider, config) == 0
+    assert events[0] == "focus"          # focus asserted before the very first capture
+    assert events.count("focus") == 1    # one-shot, not once per step
+
+
+def test_initial_focus_failure_never_stops_the_run(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+
+    def boom():
+        raise RuntimeError("window vanished")
+
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(task="click", auto=True, max_steps=5, initial_focus=boom)
+    assert loop.run(provider, config) == 0  # best-effort: a focus failure is swallowed
+    assert executed == ["left_click"]
 
 
 def test_benign_wait_needs_no_confirmation(monkeypatch):

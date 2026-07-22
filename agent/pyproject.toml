@@ -24,6 +24,13 @@ openai = ["openai>=1.0.0"]
 # The local reflex layer (secdogie_agent/reflex.py) needs numpy for its fast
 # FFT template matching; nothing else does, so it stays optional.
 reflex = ["numpy>=1.21"]
+# Desktop accessibility ("--desktop-ax"): element-aware desktop control reads the
+# OS accessibility tree. The reader is platform-specific and opt-in. Linux's
+# pyatspi is a system package (e.g. `apt install python3-pyatspi`), so only the
+# pip-installable readers live here; macOS additionally needs the host app
+# granted Accessibility permission at runtime.
+windows-ax = ["uiautomation>=2.0"]
+macos-ax = ["pyobjc-framework-ApplicationServices>=9.0"]
 
 [project.scripts]
 secdogie-agent = "secdogie_agent.cli:main"

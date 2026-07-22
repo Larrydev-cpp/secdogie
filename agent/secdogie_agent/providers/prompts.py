@@ -18,6 +18,13 @@ Screen resolution: {width}x{height}. Coordinates are pixels from the top-left.
 
 Action schema (choose exactly one "action"):
   {{"action": "left_click", "x": int, "y": int, "reasoning": str}}
+  {{"action": "click_element", "element": str, "reasoning": str}}
+        -- click a listed UI element by its ref (e.g. "e2"). ONLY valid when an
+           "Interactable elements detected on screen" list is included below, and
+           only for a ref shown in it. Prefer this over left_click whenever your
+           target is in that list: it clicks the element's true bounds from the
+           accessibility tree, so it can't miss by a few pixels the way a guessed
+           coordinate can. For anything not in the list, use left_click with x/y.
   {{"action": "right_click", "x": int, "y": int, "reasoning": str}}
   {{"action": "double_click", "x": int, "y": int, "reasoning": str}}
   {{"action": "move", "x": int, "y": int, "reasoning": str}}
@@ -39,6 +46,12 @@ Action schema (choose exactly one "action"):
            where the target is NOW; optional "seconds" caps the chase. Use ONLY for a
            moving target; for anything stationary use left_click.
   {{"action": "wait", "seconds": number, "reasoning": str}}
+  {{"action": "look", "reasoning": str}}
+        -- request a FRESH screenshot. When an element list is provided, the image
+           you're shown may be a recent (cached) frame while the element list is
+           always current; use "look" when you need to see the pixels as they are
+           right now (the screen changed in a way the element list can't convey, or
+           the target is something the list doesn't name). No effect otherwise.
   {{"action": "done", "text": str}}        -- task is complete, text = summary for the user
   {{"action": "ask_user", "text": str}}    -- you need clarification or explicit permission before continuing
 
