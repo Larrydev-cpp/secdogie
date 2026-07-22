@@ -153,8 +153,17 @@ the exe with any argument (or from a terminal) and the plain CLI is unchanged.
 On Windows the panel gets real acrylic blur + rounded corners from the OS
 compositor (Windows 10 1803+/11); anywhere that can't apply, it's a clean dark
 panel, and with no display at all it falls back to `--gui`, so opening the exe
-always does something. `open.bat` is now just a thin wrapper that opens a console
-alongside the window (so you can read the log and stop the agent by closing it).
+always does something.
+
+The Windows exe is built **windowed** (no black console box behind the panel),
+with three safety nets so that's never a silent "blind box"
+(`secdogie_agent/frozen_runtime.py`): every run writes a **`secdogie.log`** next
+to the exe; an uncaught error shows a **native error dialog** with the traceback
+(not just a vanishing window); and launched from a terminal it **reattaches to
+that console**, so `secdogie-agent.exe --help` and other CLI output are visible
+as normal. `open.bat` is a thin wrapper that runs the exe from a cmd window —
+handy because the reattach then streams the live log into that window, and
+closing it stops the agent.
 
 ## Run
 

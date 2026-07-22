@@ -3,11 +3,16 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import cli_common, dialog, launcher_menu
+from . import cli_common, dialog, frozen_runtime, launcher_menu
 from .loop import AgentConfig, run
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windowed (console=False) frozen build safety nets: crash dialog + log to
+    # secdogie.log + reattach to a parent console for terminal/--help use. No-op
+    # from source. Must run before argparse so --help is visible in a terminal.
+    frozen_runtime.bootstrap()
+
     # One-file UX: a packaged exe double-clicked with no arguments shows the
     # frosted-glass chooser and runs whatever card was picked; closing it exits.
     # Any explicit argument (terminal, script) skips the menu entirely.

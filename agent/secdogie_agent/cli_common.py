@@ -136,16 +136,39 @@ def add_loop_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _no_console() -> bool:
+    """True when stdout isn't a terminal -- e.g. the windowed exe, where a
+    printed path/error would only land in secdogie.log, so the user needs a
+    popup to see it."""
+    try:
+        return not (sys.stdout is not None and sys.stdout.isatty())
+    except Exception:
+        return True
+
+
 def handle_init_config(args: argparse.Namespace, prog: str) -> int:
     """Run the --init-config flow: write a template config and print next
-    steps. Returns the process exit code (0 ok, 1 if a config already exists)."""
+    steps. Returns the process exit code (0 ok, 1 if a config already exists).
+    With no console (the windowed exe) the same result is also shown in a popup
+    so it isn't lost to the log file."""
+    from . import dialog
+
     try:
         path = config_mod.write_template(Path(args.config) if args.config else None)
     except FileExistsError as e:
         print(f"error: {e}", file=sys.stderr)
+        if _no_console():
+            dialog.notify("secdogie-agent", f"{e}", error=True)
         return 1
     print(f"wrote config template to {path}")
     print(f'edit it and set your provider\'s API key, then run: {prog} "your task"')
+    if _no_console():
+        dialog.notify(
+            "secdogie-agent — set your API key",
+            f"Created a config file at:\n\n{path}\n\n"
+            "Open it, paste your Anthropic API key after ANTHROPIC_API_KEY=, "
+            "save, then open secdogie-agent again.",
+        )
     return 0
 
 
