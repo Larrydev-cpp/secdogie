@@ -3,11 +3,17 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import cli_common, dialog, frozen_runtime, launcher_menu
+from . import cli_common, dialog, dpi, frozen_runtime, launcher_menu
 from .loop import AgentConfig, run
 
 
 def main(argv: list[str] | None = None) -> int:
+    # FIRST of all: declare DPI awareness, before any window (the tkinter menu),
+    # capture (mss), or input (pyautogui) exists -- otherwise a scaled Windows
+    # display virtualizes the process and every click lands off-target. No-op off
+    # Windows. See dpi.py.
+    dpi.ensure_dpi_awareness()
+
     # Windowed (console=False) frozen build safety nets: crash dialog + log to
     # secdogie.log + reattach to a parent console for terminal/--help use. No-op
     # from source. Must run before argparse so --help is visible in a terminal.

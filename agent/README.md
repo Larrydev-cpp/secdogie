@@ -215,6 +215,17 @@ anyway), tells the model that exact size, and scales the returned
 coordinates back to real screen pixels. This keeps clicks landing where the
 model intends.
 
+That scaling only holds if the whole pipeline shares one coordinate space, which
+on **high-DPI Windows** (125% / 150% scaling, or mixed-DPI multi-monitor) it does
+*not* unless the process declares DPI awareness: an unaware process is virtualized
+by the OS, so mss can capture physical pixels while pyautogui clicks in logical
+ones and the cursor lands at ~2/3 of the target. So the CLI declares
+**Per-Monitor-Aware v2** at process start, before any window/capture/input
+(`secdogie_agent/dpi.py`) — every monitor then reports its own physical pixels
+and the mss→model→pyautogui mapping is exact across monitors and scale factors.
+It's a no-op off Windows (X11/Quartz already hand mss and pyautogui physical
+pixels) and degrades through the older awareness APIs on pre-1703 Windows.
+
 Extra knobs:
 
 | Flag | Effect |
