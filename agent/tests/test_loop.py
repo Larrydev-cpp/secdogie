@@ -221,6 +221,48 @@ def test_default_mode_prepares_a_fresh_frame_every_step(monkeypatch):
     assert calls["prepare"] == 3  # one per model call, no caching
 
 
+def test_initial_focus_runs_once_before_the_first_capture(monkeypatch):
+    # The single agent asserts the target window's foreground ONCE, before the
+    # first screenshot -- so the frame the model reasons about (and the click that
+    # follows) land on the intended window, not a ghost of our menu/dialogs.
+    events = []
+
+    def cap(region=None):
+        events.append("capture")
+        return b"fake-png", (1920, 1080)
+
+    monkeypatch.setattr(screen, "capture_screenshot", cap)
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+    monkeypatch.setattr(actions, "execute", lambda action, **kw: "ok")
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(
+        task="click", auto=True, max_steps=5,
+        initial_focus=lambda: events.append("focus"),
+    )
+    assert loop.run(provider, config) == 0
+    assert events[0] == "focus"          # focus asserted before the very first capture
+    assert events.count("focus") == 1    # one-shot, not once per step
+
+
+def test_initial_focus_failure_never_stops_the_run(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+
+    def boom():
+        raise RuntimeError("window vanished")
+
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(task="click", auto=True, max_steps=5, initial_focus=boom)
+    assert loop.run(provider, config) == 0  # best-effort: a focus failure is swallowed
+    assert executed == ["left_click"]
+
+
 def test_benign_wait_needs_no_confirmation(monkeypatch):
     # Even without --auto, a benign `wait` should execute without prompting.
     executed = []

@@ -226,10 +226,32 @@ and the mss→model→pyautogui mapping is exact across monitors and scale facto
 It's a no-op off Windows (X11/Quartz already hand mss and pyautogui physical
 pixels) and degrades through the older awareness APIs on pre-1703 Windows.
 
+**Window focus.** A click only lands where intended if the right window is
+actually frontmost — but Windows' `ForegroundLockTimeout` silently *refuses*
+`SetForegroundWindow` from a background process (it just flashes the taskbar), so
+naive "activate the window" calls lie. The agent does the real thing
+(`secdogie_agent/osfocus.py`): it forces the target past the lock timeout
+(`AttachThreadInput` + zeroing the timeout) and then *confirms* focus landed
+before acting. Two ways it's used:
+
+- **`--window "Exact Title"`** pins the agent to that window — forced frontmost
+  and confirmed before the first frame *and* before every action, so clicks can't
+  stray onto whatever else grabs focus.
+- **Default** (no `--window`): before the frosted-glass menu or any `--gui` dialog
+  steals focus, the agent remembers what was in front, and restores it once before
+  the first screenshot — so its opening clicks don't land on a leftover of its own
+  windows. (The first screenshot is then of the restored window, so the model
+  reasons about the right thing.)
+
+On **Wayland**, a client cannot steal focus at all (the compositor forbids it);
+the agent detects this and reports it honestly rather than firing blind — focus
+the target window yourself before starting there.
+
 Extra knobs:
 
 | Flag | Effect |
 |------|--------|
+| `--window "Title"` | pin the agent to the window with this exact title: forced frontmost (past Windows' ForegroundLockTimeout) and confirmed focused before every action |
 | `--grid` | overlay a labeled coordinate grid on the screenshot to give the model anchor points (helps on cluttered screens) |
 | `--max-image-edge N` | trade detail vs. speed/cost; higher keeps small text legible, lower is faster/cheaper |
 | `--move-duration S` | seconds to glide the cursor to a target (default 0.15; smoother, triggers hover events) |

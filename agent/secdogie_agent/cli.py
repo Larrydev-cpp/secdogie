@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import cli_common, dialog, dpi, frozen_runtime, launcher_menu
+from . import cli_common, dialog, dpi, frozen_runtime, launcher_menu, osfocus
 from .loop import AgentConfig, run
 
 
@@ -24,7 +24,12 @@ def main(argv: list[str] | None = None) -> int:
     # Any explicit argument (terminal, script) skips the menu entirely.
     if argv is None:
         argv = sys.argv[1:]
+    # Before our own menu/dialogs steal focus, remember what was in front, so we
+    # can restore it before the agent's first action (else the first clicks land
+    # on a ghost of our GUI). Only when we're actually going to pop GUI.
+    pre_launch_fg = None
     if launcher_menu.should_offer(argv):
+        pre_launch_fg = osfocus.current_foreground()
         chosen = launcher_menu.show_menu()
         if chosen is None:
             return 0
@@ -59,6 +64,15 @@ def main(argv: list[str] | None = None) -> int:
     # Desktop-only input tuning + GUI dialogs.
     parser.add_argument("--move-duration", type=float, default=None, help="seconds to glide the cursor to a target")
     parser.add_argument("--settle", type=float, default=None, help="seconds to hover before clicking")
+    parser.add_argument(
+        "--window",
+        default=None,
+        metavar="TITLE",
+        help="pin the agent to the window with this exact title: it's forced to the foreground "
+        "(past Windows' ForegroundLockTimeout) and confirmed focused before every action, so clicks "
+        "land there and not on whatever else has focus. Without it the agent drives whatever window "
+        "is foreground (restoring the one that was in front before any GUI dialog).",
+    )
     parser.add_argument(
         "--desktop-ax",
         action="store_true",
@@ -107,6 +121,10 @@ def main(argv: list[str] | None = None) -> int:
     # If no task was given, prompt for it in a window (GUI) -- otherwise it's required.
     if not args.task:
         if gui:
+            # ask_task pops a window that steals focus; remember the prior
+            # foreground first (if the menu didn't already) so we can restore it.
+            if pre_launch_fg is None:
+                pre_launch_fg = osfocus.current_foreground()
             args.task = dialog.ask_task()
             if not args.task:
                 print("cancelled: no task entered.")
@@ -127,6 +145,18 @@ def main(argv: list[str] | None = None) -> int:
         cfg_kwargs["move_duration"] = args.move_duration
     if args.settle is not None:
         cfg_kwargs["settle"] = args.settle
+
+    # Focus hooks (single desktop agent). --window: force+confirm that window
+    # before the first frame AND before every action. Otherwise, if we popped any
+    # GUI, restore whatever was foreground before our dialogs -- once, before the
+    # first frame -- so the agent's first clicks don't land on a leftover of our
+    # own menu/task/plan windows. See osfocus.py / loop.AgentConfig.
+    if args.window:
+        cfg_kwargs["initial_focus"] = lambda: osfocus.activate_title(args.window)
+        cfg_kwargs["activate"] = lambda: osfocus.activate_title(args.window)
+    elif pre_launch_fg is not None:
+        _fg_token = pre_launch_fg
+        cfg_kwargs["initial_focus"] = lambda: osfocus.restore_foreground(_fg_token)
 
     return run(provider, AgentConfig(**cfg_kwargs))
 

@@ -171,3 +171,98 @@ def force_foreground_hwnd(
         return FOCUSED if landed else TIMEOUT
     except Exception:
         return UNSUPPORTED
+
+
+# -- record / restore the pre-launch foreground window ------------------------
+#
+# For the single desktop agent: before our own menu/dialogs steal focus, remember
+# what was in front; once the agent is about to act, put it back, so the model's
+# first frame -- and the click that follows -- land there and not on a ghost of
+# our GUI. An opaque token (a Windows HWND, or a pywinctl window on X11) hides the
+# per-platform handle from callers.
+
+
+def current_foreground():
+    """An opaque token for whatever window is foreground right now, or None if it
+    can't be determined (Wayland, no backend). Pass it back to
+    restore_foreground() later. Call this BEFORE showing any GUI of our own."""
+    server = display_server()
+    if server == "windows":
+        try:
+            import ctypes
+
+            hwnd = ctypes.windll.user32.GetForegroundWindow()
+            return hwnd or None
+        except Exception:
+            return None
+    if server == "x11":
+        try:
+            import pywinctl
+
+            return pywinctl.getActiveWindow()
+        except Exception:
+            return None
+    return None  # wayland/unknown: nothing we could restore anyway
+
+
+def restore_foreground(token, *, settle_timeout: float = _DEFAULT_SETTLE_S, poll: float = _DEFAULT_POLL_S) -> bool:
+    """Bring a token from current_foreground() back to the front, confirming it
+    landed (state settle). False if there's no token or it can't be raised."""
+    if token is None:
+        return False
+    server = display_server()
+    if server == "windows":
+        return force_foreground_hwnd(token, settle_timeout=settle_timeout, poll=poll) in (FOCUSED, ALREADY)
+    if server == "x11":
+        try:
+            return confirm_foreground(
+                lambda: bool(getattr(token, "isActive", False)),
+                lambda: token.activate(wait=False),
+                settle_timeout=settle_timeout, poll=poll,
+            )
+        except Exception:
+            return False
+    return False
+
+
+def activate_title(title: str, *, settle_timeout: float = _DEFAULT_SETTLE_S, poll: float = _DEFAULT_POLL_S) -> bool:
+    """Find a window by exact title and force it frontmost (confirmed). For the
+    single agent's --window targeting. False on Wayland (can't), if pywinctl is
+    missing, or if no window matches / it won't come forward."""
+    if display_server() == "wayland":
+        return False
+    try:
+        import pywinctl
+    except Exception:
+        return False
+    try:
+        matches = [w for w in pywinctl.getAllWindows() if getattr(w, "title", None) == title]
+    except Exception:
+        return False
+    if not matches:
+        return False
+    target = matches[0]
+
+    hwnd = None
+    if display_server() == "windows":
+        try:
+            hwnd = target.getHandle()
+        except Exception:
+            hwnd = None
+
+    def is_active() -> bool:
+        try:
+            return bool(target.isActive)
+        except Exception:
+            return False
+
+    def raise_once() -> None:
+        if hwnd is not None:
+            _win_force_foreground(hwnd)
+        else:
+            try:
+                target.activate(wait=False)
+            except Exception:
+                pass
+
+    return confirm_foreground(is_active, raise_once, settle_timeout=settle_timeout, poll=poll)

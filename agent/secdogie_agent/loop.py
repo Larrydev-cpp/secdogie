@@ -100,6 +100,15 @@ class AgentConfig:
     logger_name: str = "secdogie_agent"  # distinct per concurrent run so loggers don't share/race on handlers
     should_stop: Callable[[], bool] | None = None  # checked each step; lets a caller cancel a running loop
     backend: Backend | None = None  # what to drive; None = the local desktop (mss + pyautogui)
+    # Focus (single desktop agent only; ignored when `backend` is set, since a
+    # custom backend like open/'s brings its own focus hook). `activate` is called
+    # before every real action to (re)assert the target window's foreground --
+    # used by --window targeting. `initial_focus` is called ONCE before the first
+    # screenshot to put the intended window in front, so the first frame the model
+    # reasons about (and the click that follows) land on the right window and not
+    # on a leftover of our own menu/dialogs. See osfocus.py / cli.py.
+    activate: Callable[[], bool] | None = None
+    initial_focus: Callable[[], None] | None = None
     # Desktop only (ignored when `backend` is set): attach an accessibility provider so the default
     # DesktopBackend becomes element-aware, letting macros anchor to UI-automation identity (the
     # strongest replay tier). Needs the platform a11y lib; off = visual-anchor/coordinate tiers only.
@@ -148,7 +157,8 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
 
             ax_provider = desktop_ax.make_desktop_ax_provider(logger)
         backend = DesktopBackend(
-            move_duration=config.move_duration, settle=config.settle, ax_provider=ax_provider
+            move_duration=config.move_duration, settle=config.settle, ax_provider=ax_provider,
+            activate=config.activate,
         )
     backend.setup(logger)
 
@@ -216,6 +226,16 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
     memory = Memory(config.memory_path) if config.memory_path else None
     if memory is not None:
         logger.info("memory: reading/writing durable facts at %s", config.memory_path)
+
+    # Assert the target window's foreground ONCE, now -- after any menu/dialog has
+    # closed and BEFORE the first screenshot -- so the frame the model reasons
+    # about (and the action that follows) land on the intended window, not on a
+    # ghost of our own GUI. Best-effort: a failure here never stops the run.
+    if config.initial_focus is not None:
+        try:
+            config.initial_focus()
+        except Exception as e:
+            logger.debug("initial focus assertion failed (proceeding anyway): %s", e)
 
     try:
         for step in range(1, config.max_steps + 1):

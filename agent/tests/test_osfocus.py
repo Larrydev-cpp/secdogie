@@ -104,3 +104,42 @@ def test_force_foreground_hwnd_is_honest_off_windows(monkeypatch):
     monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
     monkeypatch.setenv("DISPLAY", ":0")
     assert osfocus.force_foreground_hwnd(1234) == osfocus.UNSUPPORTED
+
+
+# -- record/restore + activate_title dispatch ---------------------------------
+
+def test_current_foreground_is_none_on_wayland(monkeypatch):
+    monkeypatch.setattr(osfocus.sys, "platform", "linux")
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    # Nothing to capture (and nothing we could ever restore) on Wayland.
+    assert osfocus.current_foreground() is None
+
+
+def test_restore_foreground_false_for_no_token():
+    assert osfocus.restore_foreground(None) is False
+
+
+def test_activate_title_false_on_wayland(monkeypatch):
+    monkeypatch.setattr(osfocus.sys, "platform", "linux")
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    assert osfocus.activate_title("Any Window") is False
+
+
+def test_activate_title_false_without_pywinctl(monkeypatch):
+    # X11 but the enumeration backend can't be imported -> honest False, no raise.
+    monkeypatch.setattr(osfocus.sys, "platform", "linux")
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
+    monkeypatch.setenv("DISPLAY", ":0")
+
+    import builtins
+
+    real_import = builtins.__import__
+
+    def no_pywinctl(name, *a, **k):
+        if name == "pywinctl":
+            raise ImportError("no pywinctl")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", no_pywinctl)
+    assert osfocus.activate_title("Editor") is False
