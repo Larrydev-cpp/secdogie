@@ -18,6 +18,10 @@ control.**
   screen by open window and drives one `agent` instance per selected window
   at once, instead of one agent owning the whole screen. See
   [`open/README.md`](open/README.md).
+- [`fleet/`](fleet/) — the next step up from `open/`: one agent per **isolated
+  desktop** (a VM or its own user session), coordinated from the host. Because
+  nothing is shared, several big tasks genuinely act *at the same time* instead
+  of taking turns on one mouse. See [`fleet/README.md`](fleet/README.md).
 - [`android/`](android/) — points the same `agent/` loop at an Android phone
   instead of the desktop: screenshots come from `adb screencap`, taps/typing
   go out through `adb shell input`, so nothing is installed on the phone. See
@@ -140,6 +144,14 @@ flowchart TB
     scene3d["scene3d/ — multi-model<br/>3D scene aggregator"] -. perception .-> prov
     core -. optional, to a remote box .-> tunnel["tunnel/<br/>libsodium VPN"] --> remote[(remote machine)]
 
+    subgraph fleetgrp["fleet/ — one desktop per task"]
+        coord["coordinator (host)<br/>queue · dispatch · requeue"]
+        coord -->|assign / status<br/>JSON over TCP| nodeA["node → its own VM/session<br/>own mouse · own focus"]
+        coord --> nodeB["node → another VM/session"]
+    end
+    nodeA -->|runs a full| core
+    nodeB -->|runs a full| core
+
     subgraph game["game stack — single-player only"]
         commander["commander/<br/>tactician state machine"] -->|baton| handoff["handoff/<br/>input-ownership baton"]
         handoff --> nodeA["Node A: agent macros<br/>2D logistics"]
@@ -185,6 +197,7 @@ vulnerability privately.
 tunnel/   C, libsodium-based VPN tunnel (PROTOCOL.md has the design + limitations)
 agent/    Python vision-LLM computer-control agent (provider-agnostic action schema)
 open/     Python, local web page: split the screen by window, drive several agent instances at once
+fleet/    Python: one agent per isolated desktop (VM/session), coordinated from the host -- true parallelism
 android/  Python: drive an Android phone over adb, reusing the agent loop + action schema
 ios/      Python: drive an iPhone/iPad over WebDriverAgent, reusing the agent loop + action schema
 scene3d/  Python: multi-model 3D scene analysis (per-view workers + an aggregator)

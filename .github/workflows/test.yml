@@ -47,6 +47,8 @@ jobs:
             needs_agent: true
           - dir: scene3d
             needs_agent: true
+          - dir: fleet      # protocol/coordinator are pure; a node needs the agent it drives
+            needs_agent: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

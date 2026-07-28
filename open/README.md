@@ -20,12 +20,20 @@ OpenClaw's own control UI, scaled down to what a one-page picker needs.
 
 `secdogie-agent` alone drives the whole primary monitor with one task at a
 time. This splits the screen by window instead, so several tasks can run
-concurrently against different apps. It's step one toward running each
-window's agent off its own API key (avoiding one key's rate limit under
-higher concurrency); today every window in a run shares the one model and key
-you set on the page (or, as a fallback, whatever `secdogie-agent`'s own config
-resolution finds — `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` or a config file, see
-`agent/README.md`).
+concurrently against different apps. Today every window in a run shares the one
+model and key you set on the page (or, as a fallback, whatever
+`secdogie-agent`'s own config resolution finds — `ANTHROPIC_API_KEY`/
+`OPENAI_API_KEY` or a config file, see `agent/README.md`).
+
+> **Where this hits its limit — and what to use instead.** One machine has one
+> mouse, one keyboard and one foreground window, so the agent's input lock has to
+> serialize every click and keystroke: the agents here *think* in parallel but
+> *act* in a queue, and they compete for focus. That's fine for a handful of
+> windows and a poor fit for several heavy tasks at once. For genuine
+> parallelism, [`fleet/`](../fleet) gives each task its own **desktop** (a VM or
+> its own user session) — separate input queues, no focus fighting, one crashed
+> task can't take the others with it — and each node uses its own API key, which
+> is what spreads the rate limit that a busy `open/` run would otherwise hit.
 
 ## Install
 
