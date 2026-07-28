@@ -221,6 +221,73 @@ def test_default_mode_prepares_a_fresh_frame_every_step(monkeypatch):
     assert calls["prepare"] == 3  # one per model call, no caching
 
 
+# -- rate-limit / overload resilience -----------------------------------------
+# A 429 from a shared quota (several agents at once) must not kill the run: the
+# step backs off and retries. Only a non-transient error, or exhausting the
+# retries, ends it.
+
+class _FlakyProvider(VisionProvider):
+    """Raises `exc` for the first `fail_times` calls, then replays `script`."""
+
+    def __init__(self, exc, fail_times, script):
+        self.exc, self.fail_times, self.script = exc, fail_times, list(script)
+        self.calls = 0
+
+    def next_action(self, task, screenshot_png, screen_size, history):
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise self.exc
+        return Action.from_dict(self.script.pop(0))
+
+
+def _rate_limited(status=429):
+    e = type("RateLimitError", (Exception,), {})("slow down")
+    e.status_code = status
+    return e
+
+
+def test_rate_limit_backs_off_and_the_run_survives(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    slept = []
+    monkeypatch.setattr(loop.time, "sleep", lambda s: slept.append(s))
+
+    provider = _FlakyProvider(_rate_limited(), fail_times=2, script=[
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "done", "text": "done"},
+    ])
+    rc = loop.run(provider, loop.AgentConfig(task="click", auto=True, max_steps=5))
+    assert rc == 0                       # survived the 429s
+    assert provider.calls == 4           # 2 failures + 2 real steps
+    assert executed == ["left_click"]
+    assert slept[:2] == [2.0, 4.0]       # exponential backoff from the default base
+
+
+def test_run_fails_after_exhausting_transient_retries(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    monkeypatch.setattr(loop.time, "sleep", lambda s: None)
+
+    provider = _FlakyProvider(_rate_limited(), fail_times=99, script=[])
+    config = loop.AgentConfig(task="click", auto=True, max_steps=5, max_transient_retries=2)
+    assert loop.run(provider, config) == 1
+    assert provider.calls == 3           # the initial attempt + 2 retries, then give up
+
+
+def test_auth_error_fails_immediately_without_retrying(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    slept = []
+    monkeypatch.setattr(loop.time, "sleep", lambda s: slept.append(s))
+
+    fatal = type("AuthenticationError", (Exception,), {})("bad key")
+    fatal.status_code = 401
+    provider = _FlakyProvider(fatal, fail_times=99, script=[])
+    assert loop.run(provider, loop.AgentConfig(task="click", auto=True, max_steps=5)) == 1
+    assert provider.calls == 1           # no point retrying a bad key
+    assert slept == []
+
+
 def test_initial_focus_runs_once_before_the_first_capture(monkeypatch):
     # The single agent asserts the target window's foreground ONCE, before the
     # first screenshot -- so the frame the model reasons about (and the click that

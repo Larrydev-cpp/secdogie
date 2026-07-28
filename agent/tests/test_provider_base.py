@@ -1,5 +1,57 @@
 import pytest
-from secdogie_agent.providers.base import Action, parse_action_json, parse_plan
+from secdogie_agent.providers.base import Action, is_transient, parse_action_json, parse_plan
+
+# -- is_transient: which model-call failures are worth retrying ----------------
+# Duck-typed on purpose (no SDK import), so these fakes stand in for whichever
+# provider's exceptions actually show up at runtime.
+
+def _exc(name, status=None):
+    """An exception class named `name`, optionally carrying a status_code --
+    mirroring how both SDKs surface HTTP errors."""
+    cls = type(name, (Exception,), {})
+    e = cls("boom")
+    if status is not None:
+        e.status_code = status
+    return e
+
+
+def test_rate_limit_and_overload_are_transient():
+    assert is_transient(_exc("RateLimitError", 429)) is True
+    assert is_transient(_exc("APIStatusError", 529)) is True   # Anthropic "overloaded"
+    assert is_transient(_exc("InternalServerError", 500)) is True
+    assert is_transient(_exc("APIStatusError", 503)) is True
+
+
+def test_auth_and_bad_request_are_fatal_not_retried():
+    # Retrying these only burns time -- they need the user to fix something.
+    assert is_transient(_exc("AuthenticationError", 401)) is False
+    assert is_transient(_exc("PermissionDeniedError", 403)) is False
+    assert is_transient(_exc("BadRequestError", 400)) is False
+    assert is_transient(_exc("NotFoundError", 404)) is False
+
+
+def test_status_code_wins_over_the_class_name():
+    # A generic wrapper name with a 429 is still a rate limit...
+    assert is_transient(_exc("APIStatusError", 429)) is True
+    # ...and an alarming-sounding name with a 401 is still fatal.
+    assert is_transient(_exc("RateLimitError", 401)) is False
+
+
+def test_classifies_by_name_when_there_is_no_status_code():
+    assert is_transient(_exc("RateLimitError")) is True
+    assert is_transient(_exc("APIConnectionError")) is True
+    assert is_transient(_exc("APITimeoutError")) is True
+    assert is_transient(_exc("AuthenticationError")) is False
+
+
+def test_socket_level_failures_are_transient():
+    assert is_transient(TimeoutError("timed out")) is True
+    assert is_transient(ConnectionError("reset by peer")) is True
+
+
+def test_unknown_errors_fail_fast_rather_than_spin():
+    assert is_transient(ValueError("model returned junk")) is False
+    assert is_transient(_exc("SomethingWeird")) is False
 
 
 def test_parse_plan_json_array():

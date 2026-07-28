@@ -14,7 +14,7 @@ from .backend import Backend, DesktopBackend, ElementAware
 from .macro import Macro, MacroRecorder, MacroStep, resolve_replay_step
 from .memory import Memory, SecretRefused
 from .plan import Plan
-from .providers.base import HistoryStep, VisionProvider
+from .providers.base import HistoryStep, VisionProvider, is_transient
 from .trace import ExecutionTrace
 
 # Benign actions that never need a confirmation prompt -- they don't touch the
@@ -93,6 +93,13 @@ class AgentConfig:
     # missed (wrong target, window not focused, blocked UI): retry the
     # idempotent ones, and if still nothing, tell the model so it can change
     # strategy instead of repeating a dead action. 0 disables the whole check.
+    # Rate-limit/overload resilience. A 429 or a 5xx from the model must not end
+    # the run -- with several agents sharing a quota those are routine and clear
+    # on their own. The step is retried this many times with an exponential
+    # backoff (base, base*2, base*4, ... capped at 60s) before giving up; a
+    # non-transient error (auth/config) still fails immediately. 0 disables.
+    max_transient_retries: int = 4
+    transient_backoff_base: float = 2.0  # seconds; 4 retries => 2+4+8+16 = 30s of patience
     verify_actions: bool = True
     verify_threshold: float = 0.005  # changed-pixel fraction at/above which an action "did something"
     action_retries: int = 1  # extra attempts for a no-effect *idempotent* action (clicks/scroll/move)
@@ -336,11 +343,30 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                         step_task += f"\n\nWhat you remember from earlier runs:\n{recalled}"
                 if listing:
                     step_task += f"\n\n{listing}"
-                try:
-                    action = provider.next_action(step_task, model_png, model_size, history)
-                except Exception as e:
-                    logger.error("provider failed to produce an action: %s", e)
-                    return 1
+                # A rate limit or provider overload must NOT kill the run: with
+                # several agents sharing an API quota (see fleet/), 429s are
+                # routine and self-clearing. Retry the step with exponential
+                # backoff; only a non-transient error (auth/config) or exhausting
+                # the retries ends the run. The SDKs retry internally too, so by
+                # the time we see the exception their own attempts are spent.
+                action = None
+                for attempt in range(config.max_transient_retries + 1):
+                    try:
+                        action = provider.next_action(step_task, model_png, model_size, history)
+                        break
+                    except Exception as e:
+                        if attempt >= config.max_transient_retries or not is_transient(e):
+                            logger.error("provider failed to produce an action: %s", e)
+                            return 1
+                        delay = min(config.transient_backoff_base * (2 ** attempt), 60.0)
+                        logger.warning(
+                            "model call failed (%s); backing off %.1fs and retrying (%d/%d)",
+                            e, delay, attempt + 1, config.max_transient_retries,
+                        )
+                        time.sleep(delay)
+                        if config.should_stop is not None and config.should_stop():
+                            logger.info("stopped externally while backing off")
+                            return 5
                 action = action.scaled(scale)
                 if config.region is not None:
                     # Model coordinates are relative to the captured region; shift
