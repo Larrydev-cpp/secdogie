@@ -33,6 +33,12 @@ class WindowInfo:
     top: int
     width: int
     height: int
+    # The OS window handle (an HWND on Windows), when the backend can give us
+    # one. It's what lets a run switch to this window's virtual desktop before
+    # capturing it -- the fix for windows occluding each other's screenshots.
+    # None where the platform/backend doesn't expose it; everything still works,
+    # just without desktop isolation.
+    handle: int | None = None
 
     @property
     def region(self) -> tuple[int, int, int, int]:
@@ -85,6 +91,10 @@ def list_windows() -> list[WindowInfo]:
             title = (w.title or "").strip()
             if not title or w.width < MIN_EDGE or w.height < MIN_EDGE:
                 continue
+            try:
+                handle = int(w.getHandle())
+            except Exception:
+                handle = None  # not every platform/backend exposes one
             out.append(
                 WindowInfo(
                     id=f"{title}:{w.left},{w.top},{w.width},{w.height}",
@@ -93,6 +103,7 @@ def list_windows() -> list[WindowInfo]:
                     top=w.top,
                     width=w.width,
                     height=w.height,
+                    handle=handle,
                 )
             )
         except Exception:

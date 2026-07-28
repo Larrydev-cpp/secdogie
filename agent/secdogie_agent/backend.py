@@ -77,6 +77,29 @@ class ElementAware(Protocol):
         ...
 
 
+@runtime_checkable
+class Presentable(Protocol):
+    """Optional Backend capability: make this backend's target visible before it
+    is captured.
+
+    Only matters when a backend drives ONE window out of several on a shared
+    desktop. `capture(region)` grabs a screen rectangle, so whatever is stacked
+    on top of that rectangle is what lands in the screenshot -- with several
+    agents raising their own windows, each one's frames are routinely a
+    neighbour's pixels, and the model then clicks coordinates derived from the
+    wrong layout. Implementing this lets the loop put the right thing on screen
+    first (switch to its virtual desktop, then raise it).
+
+    Backends that own the whole screen, or drive a phone, simply don't implement
+    it and the loop skips the step.
+    """
+
+    def present(self) -> None:
+        """Best-effort: put this backend's target on screen and unoccluded.
+        Called once per step, immediately before `capture`."""
+        ...
+
+
 class Backend(Protocol):
     """A target the agent can drive. Coordinates handed to `execute` are real
     target pixels (the loop has already mapped them out of model space)."""
@@ -106,9 +129,15 @@ class DesktopBackend:
         settle: float = actions.DEFAULT_SETTLE,
         activate: Callable[[], bool] | None = None,
         ax_provider=None,
+        window_handle=None,
     ):
         self.move_duration = move_duration
         self.settle = settle
+        # Optional HWND of the window this backend is scoped to. With it, the
+        # backend can switch to that window's virtual desktop before a capture
+        # (see present()), which is what stops several windows on one desktop
+        # occluding each other's screenshots. None = whole-screen backend.
+        self.window_handle = window_handle
         # Optional per-instance hook: bring this backend's target window to the
         # foreground (and confirm it took focus) right before each real action.
         # Only open/'s per-window runner needs this (a single-window run has
@@ -133,6 +162,23 @@ class DesktopBackend:
 
     def capture(self, region: tuple[int, int, int, int] | None):
         return screen.capture_screenshot(region=region)
+
+    # -- Presentable (backend.py): only meaningful for a window-scoped backend.
+    def present(self) -> None:
+        """Put this backend's window on screen before it's captured: switch to
+        its virtual desktop if it's on another one, then raise it. Both halves
+        are best-effort and independent -- on a machine without virtual-desktop
+        support the raise alone still un-occludes the window on the single
+        desktop, which is the behaviour this had before."""
+        if self.window_handle is not None:
+            from . import vdesktop
+
+            vdesktop.ensure_visible(self.window_handle)
+        if self.activate is not None:
+            try:
+                self.activate()
+            except Exception:
+                pass  # a failed raise is a degraded capture, not a failed run
 
     def execute(self, action: Action) -> str:
         return actions.execute(

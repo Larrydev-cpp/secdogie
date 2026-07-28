@@ -138,6 +138,24 @@ class AgentConfig:
     memory_path: str | None = None
 
 
+def _present(backend, logger) -> None:
+    """Make the backend's target actually visible before it's captured.
+
+    A backend that drives one window among many implements `present()` (see
+    backend.Presentable): it switches to that window's virtual desktop if it's on
+    another, then raises it. Backends that own the whole screen -- or a phone --
+    don't implement it and this is a no-op. Never raises: failing to raise a
+    window is a degraded capture, not a reason to end the run.
+    """
+    present = getattr(backend, "present", None)
+    if present is None:
+        return
+    try:
+        present()
+    except Exception as e:
+        logger.debug("could not present the target window before capture: %s", e)
+
+
 def run(provider: VisionProvider, config: AgentConfig) -> int:
     """Returns a process-style exit code: 0 done, 1 provider error,
     2 user declined to continue past an ask_user, 3 max_steps exhausted (or a
@@ -253,6 +271,15 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             # In watch mode, pace the polling so we don't hammer the API.
             if config.watch and step > 1:
                 time.sleep(config.watch_interval)
+
+            # Bring the target window up BEFORE the screenshot, not just before
+            # the action. `region` captures a screen rectangle, so anything
+            # sitting on top of that rectangle is what gets captured -- with
+            # several agents driving several windows on one desktop they occlude
+            # each other constantly, and the model would reason about a
+            # neighbour's pixels and then click coordinates that mean nothing in
+            # the window it actually acts on.
+            _present(backend, logger)
 
             try:
                 raw_png, real_size = backend.capture(config.region)

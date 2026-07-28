@@ -221,6 +221,79 @@ def test_default_mode_prepares_a_fresh_frame_every_step(monkeypatch):
     assert calls["prepare"] == 3  # one per model call, no caching
 
 
+# -- occlusion: the target must be presented BEFORE it is captured -------------
+# With several agents driving several windows on one desktop, `capture(region)`
+# grabs a screen rectangle -- so whatever is stacked on top of it is what lands
+# in the screenshot. Raising the window only before the *action* (the old
+# behaviour) means the model reasons about a neighbour's pixels and then clicks
+# coordinates that mean nothing in the window it acts on.
+
+class _PresentingBackend:
+    """A window-scoped backend that records the order of present/capture/execute."""
+
+    def __init__(self, events):
+        self.events = events
+
+    def setup(self, logger):
+        pass
+
+    def present(self):
+        self.events.append("present")
+
+    def capture(self, region):
+        self.events.append("capture")
+        return b"fake-png", (800, 600)
+
+    def execute(self, action):
+        self.events.append(f"execute:{action.kind}")
+        return "ok"
+
+
+def test_the_window_is_presented_before_every_capture(monkeypatch):
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+    events = []
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(task="click", auto=True, max_steps=5, verify_actions=False,
+                              backend=_PresentingBackend(events))
+    assert loop.run(provider, config) == 0
+
+    # Every capture is immediately preceded by a present -- never the other way.
+    assert events[0] == "present"
+    for i, e in enumerate(events):
+        if e == "capture":
+            assert events[i - 1] == "present", f"capture at {i} was not preceded by present: {events}"
+    assert events.count("present") == events.count("capture")
+
+
+def test_a_backend_without_present_is_unaffected(monkeypatch):
+    # Whole-screen and phone backends don't implement it; the loop must skip the
+    # step rather than requiring it.
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "done", "text": "done"},
+    ])
+    assert loop.run(provider, loop.AgentConfig(task="click", auto=True, max_steps=5)) == 0
+    assert executed == ["left_click"]
+
+
+def test_a_failing_present_does_not_end_the_run(monkeypatch):
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+    events = []
+
+    class Broken(_PresentingBackend):
+        def present(self):
+            raise RuntimeError("the window vanished")
+
+    provider = ScriptedProvider([{"action": "done", "text": "done"}])
+    config = loop.AgentConfig(task="x", auto=True, max_steps=5, backend=Broken(events))
+    assert loop.run(provider, config) == 0   # a degraded capture, not a failed run
+
+
 # -- rate-limit / overload resilience -----------------------------------------
 # A 429 from a shared quota (several agents at once) must not kill the run: the
 # step backs off and retries. Only a non-transient error, or exhausting the

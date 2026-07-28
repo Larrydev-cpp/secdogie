@@ -35,6 +35,31 @@ model and key you set on the page (or, as a fallback, whatever
 > task can't take the others with it — and each node uses its own API key, which
 > is what spreads the rate limit that a busy `open/` run would otherwise hit.
 
+## Occlusion, and virtual desktops
+
+Windows on one desktop **overlap**. A screenshot is a grab of a screen
+*rectangle*, so whatever is stacked on top of a window's rectangle is what ends
+up in that window's frame — and with several agents each raising their own
+window, every agent's frames are routinely a neighbour's pixels. The model then
+picks a coordinate from the wrong layout and clicks it in the right window.
+
+Two things fix that here:
+
+1. **The target is raised before every capture**, not just before every action
+   (it used to be only the latter, which is what let an occluded frame reach the
+   model in the first place).
+2. **Virtual desktops (Win+Tab), on Windows.** Put each window you're driving on
+   its own virtual desktop and they cannot overlap at all: the run switches to a
+   window's desktop before capturing it, so every frame is genuinely that window.
+   `pip install 'secdogie-agent[windows-vdesktop]'` enables it.
+
+Note what virtual desktops do *not* buy: they share one input queue and one
+foreground window, so tasks still take turns to act — this is **occlusion
+isolation, not parallelism**. For actual simultaneous action you need separate
+sessions or VMs, which is [`fleet/`](../fleet). Without the feature (or off
+Windows) nothing breaks: the run falls back to raising the window on the single
+desktop before each capture.
+
 ## Install
 
 **Linux/macOS:**

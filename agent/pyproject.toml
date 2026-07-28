@@ -30,6 +30,12 @@ reflex = ["numpy>=1.21"]
 # pip-installable readers live here; macOS additionally needs the host app
 # granted Accessibility permission at runtime.
 windows-ax = ["uiautomation>=2.0"]
+# Windows virtual desktops (secdogie_agent/vdesktop.py): puts each driven window
+# on its own Win+Tab desktop so several windows stop occluding each other's
+# screenshots. Needs comtypes for the documented IVirtualDesktopManager
+# interface; without it the feature no-ops and capture falls back to raising the
+# window on a single desktop.
+windows-vdesktop = ["comtypes>=1.2"]
 macos-ax = ["pyobjc-framework-ApplicationServices>=9.0"]
 
 [project.scripts]
