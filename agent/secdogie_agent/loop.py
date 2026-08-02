@@ -71,6 +71,14 @@ class AgentConfig:
     # outside the screen sandbox without a human ok. Set False (CLI --allow-risky,
     # or a session that already consented like open/) to run those unattended too.
     confirm_high_risk: bool = True
+    # Commands the operator has explicitly allowed the `run_elevated` action to
+    # run as SYSTEM (see cli --allow-elevated-command). This tuple IS the enable
+    # switch AND the safety boundary: empty (the default) means elevation is off,
+    # and the model can only ever escalate a command a human declared here, never
+    # an arbitrary one. Matched exactly (elevate.is_permitted). Needs Windows +
+    # the process already being an Administrator; it acquires SYSTEM from an admin
+    # token, it does not bypass UAC.
+    elevated_allowlist: tuple[str, ...] = ()
     dry_run: bool = False  # still calls the model each step, but never touches mouse/keyboard
     log_path: str | None = None
     max_image_edge: int = screen.DEFAULT_MAX_EDGE  # long-edge cap for the image sent to the model
@@ -528,6 +536,31 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 record_result("skipped (dry-run)")
                 continue
 
+            # Elevation allowlist gate (before the confirm prompt, so we don't
+            # even ask about a command we'll refuse). `run_elevated` runs a
+            # command as SYSTEM, but ONLY one the operator declared at launch --
+            # the model can't escalate an arbitrary command. Empty allowlist =
+            # elevation off. This is the model-facing boundary; the confirm below
+            # and the admin check inside elevate.run_as_system are the rest.
+            if action.kind == "run_elevated":
+                from . import elevate
+
+                cmd = (action.path or "").strip()
+                if not config.elevated_allowlist:
+                    logger.warning("run_elevated ignored: no elevated commands were allowed on this run")
+                    record_result(
+                        "elevation is off: the operator allowed no elevated commands "
+                        "(start with --allow-elevated-command \"<exact command>\" to permit specific ones)"
+                    )
+                    continue
+                if not elevate.is_permitted(cmd, config.elevated_allowlist):
+                    logger.warning("run_elevated refused: %r is not in the allowlist", cmd)
+                    record_result(
+                        f"refused: {cmd!r} is not in this run's elevated allowlist; "
+                        "only operator-declared commands can run as SYSTEM"
+                    )
+                    continue
+
             # Stall guard: the same real action about to run against a screen that
             # hasn't changed since the last one means that last action didn't land.
             if config.stall_limit and action.kind not in _BENIGN:
@@ -565,8 +598,21 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
 
             executed_ok = False
             try:
-                result = backend.execute(action)
-                executed_ok = True
+                if action.kind == "run_elevated":
+                    # Permitted + confirmed by here. Run it as SYSTEM via the
+                    # elevate seam rather than backend.execute -- elevation is a
+                    # desktop-only OS action, not something a backend (a phone,
+                    # say) should have to know about. run_as_system does the final
+                    # admin check and refuses honestly if we aren't elevated.
+                    from . import elevate
+
+                    r = elevate.run_as_system(action.path)
+                    result = f"{r.outcome}: {r.detail}" if r.detail else r.outcome
+                    executed_ok = r.outcome == elevate.LAUNCHED
+                    (logger.info if executed_ok else logger.warning)("run_elevated -> %s", result)
+                else:
+                    result = backend.execute(action)
+                    executed_ok = True
             except Exception as e:
                 result = f"error: {e}"
                 logger.error("action failed: %s", e)

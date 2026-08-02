@@ -221,6 +221,90 @@ def test_default_mode_prepares_a_fresh_frame_every_step(monkeypatch):
     assert calls["prepare"] == 3  # one per model call, no caching
 
 
+# -- run_elevated: confined to the operator's allowlist ------------------------
+# The safety boundary for SYSTEM elevation. The model can only escalate a command
+# the operator declared at launch; with no allowlist, elevation is entirely off.
+# We fake the elevate seam so none of this needs Windows or admin.
+
+def _elevate_calls(monkeypatch):
+    """Record any run_as_system calls, and make it 'succeed' so we can tell
+    execution apart from refusal."""
+    from secdogie_agent import elevate
+    calls = []
+
+    def fake(command, **kw):
+        calls.append(command)
+        return elevate.ElevateResult(elevate.LAUNCHED, pid=1, detail="ok")
+
+    monkeypatch.setattr(elevate, "run_as_system", fake)
+    return calls
+
+
+def test_run_elevated_is_off_with_no_allowlist(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    calls = _elevate_calls(monkeypatch)
+    provider = ScriptedProvider([
+        {"action": "run_elevated", "path": "sc stop Spooler"},
+        {"action": "done", "text": "done"},
+    ])
+    # Default config: elevated_allowlist is empty.
+    rc = loop.run(provider, loop.AgentConfig(task="x", auto=True, max_steps=5))
+    assert rc == 0
+    assert calls == []                  # nothing was ever escalated
+    assert executed == []               # and it wasn't run as a normal action either
+
+
+def test_run_elevated_refuses_a_command_not_in_the_allowlist(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    calls = _elevate_calls(monkeypatch)
+    provider = ScriptedProvider([
+        {"action": "run_elevated", "path": "sc stop Themes"},   # not the allowed one
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(task="x", auto=True, max_steps=5,
+                              elevated_allowlist=("sc stop Spooler",))
+    assert loop.run(provider, config) == 0
+    assert calls == []                  # a near-miss is still refused
+
+
+def test_run_elevated_runs_only_an_allowlisted_command_and_still_confirms(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    calls = _elevate_calls(monkeypatch)
+    # It's HIGH_RISK, so even under --auto it must confirm. Answer yes.
+    monkeypatch.setattr("builtins.input", lambda prompt: "y")
+    provider = ScriptedProvider([
+        {"action": "run_elevated", "path": "sc stop Spooler"},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(task="x", auto=True, max_steps=5,
+                              elevated_allowlist=("sc stop Spooler",))
+    assert loop.run(provider, config) == 0
+    assert calls == ["sc stop Spooler"]   # exactly the allowed command, escalated
+
+
+def test_run_elevated_force_confirms_even_under_auto(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    calls = _elevate_calls(monkeypatch)
+    monkeypatch.setattr("builtins.input", lambda prompt: "n")   # decline
+    provider = ScriptedProvider([
+        {"action": "run_elevated", "path": "sc stop Spooler"},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(task="x", auto=True, max_steps=5,
+                              elevated_allowlist=("sc stop Spooler",))
+    assert loop.run(provider, config) == 0
+    assert calls == []                  # declined at the confirm, so never escalated
+
+
+def test_run_elevated_is_a_high_risk_kind():
+    from secdogie_agent import actions
+    assert "run_elevated" in actions.HIGH_RISK_KINDS
+
+
 # -- occlusion: the target must be presented BEFORE it is captured -------------
 # With several agents driving several windows on one desktop, `capture(region)`
 # grabs a screen rectangle -- so whatever is stacked on top of it is what lands

@@ -133,6 +133,12 @@ network, not a public interface.
 - **A silently dead guest** (paused VM, blackholed network) is only noticed when
   TCP keepalive eventually gives up, which can take minutes. A crashed or
   disconnected guest is detected immediately.
+- **Elevation is node-local, never coordinator-controlled.** A node advertises an
+  `"elevated"` capability if it's already running as admin, but a coordinator
+  **cannot** turn on SYSTEM elevation for a node — `run_elevated`'s allowlist is
+  not among the options a coordinator may set (`ALLOWED_OPTIONS` in `node.py`), so
+  a fleet can never silently escalate a desktop. Enable elevation per machine with
+  the standalone agent's `--allow-elevated-command`.
 
 ## Layout
 

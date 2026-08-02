@@ -38,12 +38,13 @@ _NULL_CTX = contextlib.nullcontext()
 
 # Action kinds that reach OUTSIDE the "move the mouse / type into the focused
 # window" sandbox and can have consequences a screenshot can't undo. `open`
-# hands an arbitrary path/URL to the OS default handler (_open_path below), so
-# it can launch a program, run an installer, or open a link -- unlike every
-# other kind, which only manipulates whatever window already has focus. The
-# loop force-confirms these even under --auto (see loop.confirm_high_risk); keep
-# the set tight -- a kind belongs here only if it can act beyond the screen.
-HIGH_RISK_KINDS = frozenset({"open"})
+# hands a path/URL to the OS default handler (_open_path below); `run_elevated`
+# runs a command as SYSTEM (handled in loop.py, gated by an operator allowlist,
+# never dispatched here) -- both can launch a program or an installer, unlike
+# every other kind, which only manipulates whatever window already has focus.
+# The loop force-confirms these even under --auto (see loop.confirm_high_risk);
+# keep the set tight -- a kind belongs here only if it can act beyond the screen.
+HIGH_RISK_KINDS = frozenset({"open", "run_elevated"})
 
 
 def execute(

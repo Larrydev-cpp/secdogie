@@ -80,13 +80,24 @@ def local_screen_size() -> tuple[int, int] | None:
 
 def local_capabilities() -> tuple[str, ...]:
     """What this node's OS/libraries actually support, so a coordinator can see
-    which desktops can take an element-aware (`desktop_ax`) assignment."""
+    which desktops can take an element-aware (`desktop_ax`) assignment, or which
+    are already elevated. Purely informational -- advertising "elevated" does NOT
+    let a coordinator turn elevation on; that stays node-local (started with
+    --allow-elevated-command), since a coordinator must never be able to silently
+    escalate a node."""
     caps: list[str] = []
     try:
         from secdogie_agent import desktop_ax
 
         if desktop_ax.make_desktop_ax_provider() is not None:
             caps.append("desktop-ax")
+    except Exception:
+        pass
+    try:
+        from secdogie_agent import elevate
+
+        if elevate.is_elevated():
+            caps.append("elevated")
     except Exception:
         pass
     return tuple(caps)

@@ -184,6 +184,38 @@ answer (piped stdin, a service), an unconfirmed high-risk action **fails closed
 — it's skipped, never silently launched.** Pass `--allow-risky` to opt back
 into running those unattended too.
 
+### Running a command as SYSTEM (`run_elevated`, Windows)
+
+Some administrative tasks need **SYSTEM** — install an MSI, manage a service,
+edit a protected system file. The `run_elevated` action runs a command as SYSTEM
+*on the visible desktop* (so if it opens a GUI, the agent can then drive it with
+the normal `--window`/focus machinery). It is off by default and fenced in three
+ways:
+
+1. **An operator allowlist is the only thing the model can escalate.** You
+   declare the exact commands allowed, at launch:
+   ```sh
+   secdogie-agent "install the printer driver" \
+       --allow-elevated-command "msiexec /i C:\drivers\printer.msi /qn" \
+       --allow-elevated-command "sc start Spooler"
+   ```
+   The model may run *only* those exact strings (matched exactly, whitespace
+   aside — no globbing, so `sc stop Spooler` can never become `sc stop Themes`).
+   With **no** `--allow-elevated-command`, elevation is entirely off and every
+   `run_elevated` is refused. The model never gets an arbitrary SYSTEM shell.
+2. **It's high-risk**, so it confirms even under `--auto` (unless `--allow-risky`),
+   the exact command is shown, and on a no-TTY run it fails closed.
+3. **It requires the agent to already be Administrator.** It acquires SYSTEM from
+   an admin token (`DuplicateTokenEx` off `winlogon.exe` → `CreateProcessAsUser`
+   into your session — the same mechanism Sysinternals PsExec's `-s` uses). It is
+   **not a UAC bypass and exploits nothing**: run the agent elevated first (right-
+   click → *Run as administrator*), or it refuses with a clear message.
+
+Windows-only; on any other OS `run_elevated` refuses cleanly. **Point this only
+at machines you own or are the authorized administrator of.** The mechanism lives
+in `secdogie_agent/elevate.py`; the token dance is on-machine, the allowlist and
+launch decision are pure and unit-tested.
+
 ### GUI mode: task dialog + plan briefing
 
 `--gui` opens graphical dialogs instead of using the terminal:
@@ -263,6 +295,7 @@ Extra knobs:
 | `--trace PATH` | write a tamper-evident hash-chained audit trace of every step to `PATH` (JSONL); verify later with `python -m secdogie_agent.trace PATH` (see below). |
 | `--memory PATH` | give the agent persistent cross-run memory in the SQLite file `PATH`: it saves durable facts with a `remember` action and they're recalled into its prompt on later runs (see below). Plaintext — never have it store secrets. |
 | `--allow-risky` | with `--auto`, run high-risk actions (currently `open`, which launches a file/URL) without confirmation; by default those still prompt even under `--auto` (see [Before you run](../README.md#before-you-run-any-of-this)). |
+| `--allow-elevated-command "CMD"` | (Windows) permit the `run_elevated` action to run this **exact** command as SYSTEM; repeatable. This allowlist is the only thing the model can escalate — with none given, elevation is off. The agent must already be Administrator. See [Running a command as SYSTEM](#running-a-command-as-system-run_elevated-windows). |
 
 Cursor movement is intentionally not instantaneous — teleport-and-click can
 miss hover/focus handlers in some apps, so the agent glides to the target

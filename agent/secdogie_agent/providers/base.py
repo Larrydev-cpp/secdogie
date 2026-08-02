@@ -30,6 +30,7 @@ VALID_ACTIONS = {
     "look",
     "track_click",
     "click_element",
+    "run_elevated",
     "remember",
     "done",
     "ask_user",

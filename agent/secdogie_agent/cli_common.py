@@ -81,6 +81,17 @@ def add_loop_args(parser: argparse.ArgumentParser) -> None:
         help="with --auto, also run high-risk actions (currently `open`, which launches a file/URL) "
         "without confirmation; by default those still prompt even under --auto",
     )
+    parser.add_argument(
+        "--allow-elevated-command",
+        action="append",
+        default=[],
+        metavar="COMMAND",
+        help="permit the `run_elevated` action to run this EXACT command as SYSTEM (Windows; the "
+        "agent must already be running as Administrator). Repeatable; this allowlist is the only "
+        "thing the model can escalate -- with none given, elevation is off. Point only at machines "
+        "you own or are the authorized administrator of. It acquires SYSTEM from an admin token; it "
+        "does not bypass UAC.",
+    )
     parser.add_argument("--log-file", default=None, help="also append the run log to this file")
     parser.add_argument(
         "--max-image-edge",
@@ -231,4 +242,7 @@ def loop_config_kwargs(args: argparse.Namespace, *, task: str, backend=None) -> 
         kwargs["confirm_high_risk"] = False
     if getattr(args, "memory", None) is not None:
         kwargs["memory_path"] = args.memory
+    elevated = getattr(args, "allow_elevated_command", None)
+    if elevated:
+        kwargs["elevated_allowlist"] = tuple(elevated)
     return kwargs
