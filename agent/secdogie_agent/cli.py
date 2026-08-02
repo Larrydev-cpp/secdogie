@@ -21,19 +21,21 @@ def main(argv: list[str] | None = None) -> int:
 
     # One-file UX: a packaged exe double-clicked with no arguments shows the
     # frosted-glass chooser and runs whatever card was picked; closing it exits.
-    # Any explicit argument (terminal, script) skips the menu entirely.
+    # Any explicit argument (terminal, script) skips the menu entirely -- except
+    # `--menu`, which explicitly asks for the chooser from a normal CLI run too
+    # (so you can actually see/run the real menu without building the exe).
     if argv is None:
         argv = sys.argv[1:]
     # Before our own menu/dialogs steal focus, remember what was in front, so we
     # can restore it before the agent's first action (else the first clicks land
     # on a ghost of our GUI). Only when we're actually going to pop GUI.
     pre_launch_fg = None
-    if launcher_menu.should_offer(argv):
+    if launcher_menu.should_offer(argv) or "--menu" in argv:
         pre_launch_fg = osfocus.current_foreground()
         chosen = launcher_menu.show_menu()
         if chosen is None:
             return 0
-        argv = chosen
+        argv = chosen  # the picked card's flags REPLACE argv (incl. the --menu that got us here)
 
     parser = argparse.ArgumentParser(
         prog="secdogie-agent",
@@ -85,6 +87,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="use GUI dialogs: enter the task in a window, review the model's plan before it acts, "
         "and answer its questions in a popup (needs tkinter; falls back to the terminal if unavailable)",
+    )
+    parser.add_argument(
+        "--menu",
+        action="store_true",
+        help="show the graphical start menu (the same one a double-clicked exe shows) and run the "
+        "chosen option -- so you can see/use it from a normal install, not only the packaged exe",
     )
     args = parser.parse_args(argv)
 

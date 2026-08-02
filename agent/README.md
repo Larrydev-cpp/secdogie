@@ -148,7 +148,9 @@ plan, and asks you to approve before it acts.
 launcher, no terminal) pops a small **frosted-glass selection window** built into
 the program — pick how to start: describe a task, preview it (`--dry-run`),
 element/accessibility mode (`--desktop-ax`), unattended (`--auto`), or set up the
-API key — and it runs that choice. It appears **only** on a bare double-click; run
+API key — and it runs that choice. Running from a normal (pip) install instead of
+the exe? `secdogie-agent --menu` shows the same window and runs your pick, so you
+can see and use it without building anything. It appears **only** on a bare double-click; run
 the exe with any argument (or from a terminal) and the plain CLI is unchanged.
 On Windows the panel gets real acrylic blur + rounded corners from the OS
 compositor (Windows 10 1803+/11); anywhere that can't apply, it's a clean dark

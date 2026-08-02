@@ -3,6 +3,7 @@ double-clicked exe shows. The window itself needs a display and is on-machine;
 what's proved here is the headless-safe core: the choice->argv table, the
 gating that decides *when* the menu appears, and the no-display fallback."""
 import sys
+from unittest import mock
 
 from secdogie_agent import launcher_menu as m
 
@@ -50,3 +51,29 @@ def test_show_menu_falls_back_to_gui_without_a_display(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", no_tk)
     assert m.show_menu() == ["--gui"]
+
+
+# -- the --menu flag: show the real chooser from a normal CLI run --------------
+
+def test_menu_flag_shows_the_chooser_and_runs_the_choice():
+    # `--menu` lets you see/run the real menu without building the exe. It should
+    # pop the chooser and hand its chosen flags to the rest of the CLI.
+    from secdogie_agent import cli
+
+    with mock.patch.object(m, "show_menu", return_value=["--gui", "--dry-run"]) as sm, \
+         mock.patch.object(cli, "run", return_value=0) as run, \
+         mock.patch("secdogie_agent.cli_common.resolve_provider", return_value=object()), \
+         mock.patch("secdogie_agent.dialog.gui_available", return_value=True), \
+         mock.patch("secdogie_agent.dialog.ask_task", return_value="a task"):
+        assert cli.main(["--menu"]) == 0
+        assert sm.called
+        assert run.call_args.args[1].dry_run is True   # the chosen card's flags took effect
+
+
+def test_menu_flag_cancelled_exits_without_running():
+    from secdogie_agent import cli
+
+    with mock.patch.object(m, "show_menu", return_value=None), \
+         mock.patch.object(cli, "run", return_value=0) as run:
+        assert cli.main(["--menu"]) == 0    # closing the chooser just exits
+        assert not run.called
