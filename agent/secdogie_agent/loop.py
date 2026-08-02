@@ -564,8 +564,12 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             # Stall guard: the same real action about to run against a screen that
             # hasn't changed since the last one means that last action didn't land.
             if config.stall_limit and action.kind not in _BENIGN:
+                # `path` is part of the identity for kinds that carry no coords
+                # (`open`, `run_elevated`); without it two *different* commands
+                # look identical here and would either falsely count as a repeat
+                # or fail to reset the counter when the command actually changed.
                 sig = (action.kind, action.x, action.y, action.to_x, action.to_y,
-                       action.text, tuple(action.keys or ()))
+                       action.text, tuple(action.keys or ()), action.path)
                 if sig == prev_exec_sig and frame_hash == prev_exec_frame:
                     stall_count += 1
                     if stall_count >= config.stall_limit:

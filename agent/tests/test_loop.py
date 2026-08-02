@@ -767,6 +767,24 @@ def test_stall_guard_stops_when_action_repeats_on_unchanged_screen(monkeypatch):
     assert provider.calls == 4  # one baseline + three no-change repeats
 
 
+def test_stall_guard_distinguishes_open_by_path(monkeypatch):
+    # `open` carries no coords, so its identity is the path. Opening two
+    # DIFFERENT paths on an unchanged screen is not a repeat -- the stall guard
+    # must not conflate them (which would falsely stop on the second).
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)   # unchanged screen
+    monkeypatch.setattr("builtins.input", lambda prompt: "y")  # open is high-risk -> confirm
+    provider = ScriptedProvider([
+        {"action": "open", "path": "a.txt"},
+        {"action": "open", "path": "b.txt"},
+        {"action": "open", "path": "c.txt"},
+        {"action": "done", "text": "done"},
+    ])
+    rc = loop.run(provider, loop.AgentConfig(task="t", auto=True, max_steps=10, stall_limit=2, action_pause=0))
+    assert rc == 0                       # never stalled -- each path is distinct
+    assert executed == ["open", "open", "open"]
+
+
 def test_stall_guard_does_not_fire_when_screen_changes(monkeypatch):
     # A repeated action that DOES change the screen each step is progress, not a
     # stall (e.g. pressing Down to move a selection).

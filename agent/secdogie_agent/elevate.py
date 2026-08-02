@@ -204,16 +204,19 @@ def run_as_system(command: str | None, *, show: bool = True,
     `_launcher` seam lets a test drive the decision/plumbing without the real
     Win32 token calls; production uses `_win_launch_as_system`.
     """
+    # Read the environment once and decide from that snapshot, rather than
+    # querying twice (which both wastes calls and risks the session changing
+    # between the check and the launch).
+    session_id = active_console_session()
     decision = plan_launch(
         command,
         elevated=is_elevated(),
-        session_id=active_console_session(),
+        session_id=session_id,
         on_windows=sys.platform.startswith("win"),
     )
     if not decision.ok:
         return ElevateResult(decision.reason, detail=_refusal_detail(decision.reason))
-    session_id = active_console_session()
-    assert session_id is not None  # guaranteed by plan_launch's NO_SESSION check
+    # decision.ok guarantees session_id is not None (plan_launch's NO_SESSION check).
     launcher = _launcher or _win_launch_as_system
     try:
         return launcher(command, session_id, show=show)  # type: ignore[call-arg]
