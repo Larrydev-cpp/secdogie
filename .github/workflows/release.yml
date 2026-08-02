@@ -290,8 +290,20 @@ jobs:
           version="${GITHUB_REF_NAME}"
 
           # package <zip-base-name> <source-binary> <inner-binary-name> <doc-file...>
+          # Publishes TWO assets per binary:
+          #  * the bare binary itself (e.g. secdogie-agent-windows-x86_64-vX.Y.Z.exe)
+          #    -- a one-file download, no unzip, no folder: the exe is fully
+          #    self-contained (built-in menu, config in the user dir, launchers are
+          #    optional), so nothing needs to sit beside it.
+          #  * a .zip with docs + the double-click launcher, for anyone who wants
+          #    the full bundle (a console window on Windows, the macOS Gatekeeper
+          #    right-click-open helper, etc.).
           package() {
             local name="$1"; local binary="$2"; local inner="$3"; shift 3
+            # Bare binary, keeping the extension so Windows still recognizes it.
+            local ext=""; case "$inner" in *.exe) ext=".exe" ;; esac
+            cp "$binary" "release/${name}${ext}"
+            [ -x "$binary" ] && chmod +x "release/${name}${ext}" || true
             local dir="pkg/${name}"
             rm -rf "$dir" && mkdir -p "$dir"
             cp "$binary" "$dir/${inner}"
@@ -387,7 +399,9 @@ jobs:
             echo "release $tag already exists -- deleting it before recreating"
             gh release delete "$tag" --yes
           fi
+          # Everything in release/ is an asset: the bare binaries (one-file
+          # downloads) and the .zip bundles (binary + docs + launcher).
           gh release create "$tag" \
-            release/*.zip \
+            release/* \
             --title "$tag" \
             --generate-notes

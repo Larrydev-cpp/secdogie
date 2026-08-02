@@ -73,9 +73,14 @@ windows at once (`open`), and reaching a remote machine (`tunnel`).
 Pre-built binaries — a single-file executable for `agent`, `android`, `ios`,
 `open`, and `scene3d` on Linux, Windows, and macOS each, plus the
 `secdogie-tunnel` binary for Linux — are published on the
-[Releases](../../releases) page. They're built and attached automatically
-when a `v*` tag is pushed — see [`docs/RELEASING.md`](docs/RELEASING.md).
-Prefer to build from source? Each subdirectory's README has instructions.
+[Releases](../../releases) page. Each is offered two ways: the **bare
+executable** as a direct, one-file download (on Windows, download
+`secdogie-agent-windows-….exe` and just run it — it's fully self-contained,
+nothing needs to sit next to it), and a **`.zip`** that adds the docs and a
+double-click launcher (a console window on Windows, the Gatekeeper right-click
+helper on macOS). They're built and attached automatically when a `v*` tag is
+pushed — see [`docs/RELEASING.md`](docs/RELEASING.md). Prefer to build from
+source? Each subdirectory's README has instructions.
 
 ## Installing the game stack (one command)
 
