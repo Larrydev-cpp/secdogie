@@ -94,9 +94,12 @@ class Presentable(Protocol):
     it and the loop skips the step.
     """
 
-    def present(self) -> None:
+    def present(self) -> bool:
         """Best-effort: put this backend's target on screen and unoccluded.
-        Called once per step, immediately before `capture`."""
+        Called once per step, immediately before `capture`. Return False if
+        that could not be confirmed, so the loop can warn that the frame it is
+        about to take may not be of this backend's window (returning None is
+        read as "didn't check", not as failure)."""
         ...
 
 
@@ -164,21 +167,31 @@ class DesktopBackend:
         return screen.capture_screenshot(region=region)
 
     # -- Presentable (backend.py): only meaningful for a window-scoped backend.
-    def present(self) -> None:
+    def present(self) -> bool:
         """Put this backend's window on screen before it's captured: switch to
         its virtual desktop if it's on another one, then raise it. Both halves
         are best-effort and independent -- on a machine without virtual-desktop
         support the raise alone still un-occludes the window on the single
-        desktop, which is the behaviour this had before."""
+        desktop, which is the behaviour this had before.
+
+        Returns False when the raise could not be confirmed, so the caller can
+        say so out loud: a failed raise is a degraded capture, not a failed
+        run, but the frame that follows may show whatever window is actually in
+        front and the model would reason about the wrong pixels. The
+        virtual-desktop half is deliberately not part of the verdict -- it
+        returns False on every machine without virtual desktops, which is
+        normal, not a problem worth warning about.
+        """
         if self.window_handle is not None:
             from . import vdesktop
 
             vdesktop.ensure_visible(self.window_handle)
-        if self.activate is not None:
-            try:
-                self.activate()
-            except Exception:
-                pass  # a failed raise is a degraded capture, not a failed run
+        if self.activate is None:
+            return True
+        try:
+            return self.activate() is not False
+        except Exception:
+            return False
 
     def execute(self, action: Action) -> str:
         return actions.execute(

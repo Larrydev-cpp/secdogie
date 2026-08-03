@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 from secdogie_agent import actions, axtree, loop, screen
 from secdogie_agent.backend import DesktopBackend, ElementSelector
@@ -376,6 +378,81 @@ def test_a_failing_present_does_not_end_the_run(monkeypatch):
     provider = ScriptedProvider([{"action": "done", "text": "done"}])
     config = loop.AgentConfig(task="x", auto=True, max_steps=5, backend=Broken(events))
     assert loop.run(provider, config) == 0   # a degraded capture, not a failed run
+
+
+# -- focus honesty ------------------------------------------------------------
+# A window that won't come to the front is the one failure a "best-effort" hook
+# must not hide: the run keeps going, screenshots something else, and clicks
+# land in a bystander app. Degraded is fine; degraded and silent is not.
+
+def test_an_unconfirmed_present_warns(monkeypatch, caplog):
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+
+    class Unconfirmed(_PresentingBackend):
+        def present(self):
+            self.events.append("present")
+            return False        # raised it, couldn't confirm it came forward
+
+    provider = ScriptedProvider([{"action": "done", "text": "done"}])
+    config = loop.AgentConfig(task="x", auto=True, max_steps=5, backend=Unconfirmed([]))
+    with caplog.at_level(logging.WARNING):
+        assert loop.run(provider, config) == 0   # still a degraded capture, not a failed run
+    assert any("frontmost" in r.message for r in caplog.records if r.levelno >= logging.WARNING)
+
+
+def test_a_present_that_returns_none_does_not_warn(monkeypatch, caplog):
+    # Backends that raise a window without checking (the common case) aren't
+    # reporting failure -- warning on those would cry wolf every single step.
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+    provider = ScriptedProvider([{"action": "done", "text": "done"}])
+    config = loop.AgentConfig(task="x", auto=True, max_steps=5, backend=_PresentingBackend([]))
+    with caplog.at_level(logging.WARNING):
+        assert loop.run(provider, config) == 0
+    assert not [r for r in caplog.records if "frontmost" in r.message]
+
+
+def test_initial_focus_failure_warns(monkeypatch, caplog):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    provider = ScriptedProvider([{"action": "done", "text": "done"}])
+    config = loop.AgentConfig(task="x", auto=True, max_steps=5, initial_focus=lambda: False)
+    with caplog.at_level(logging.WARNING):
+        assert loop.run(provider, config) == 0   # proceeds anyway
+    assert any("foreground" in r.message for r in caplog.records if r.levelno >= logging.WARNING)
+
+
+def test_initial_focus_that_raises_warns(monkeypatch, caplog):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+
+    def boom():
+        raise RuntimeError("pywinctl missing")
+
+    provider = ScriptedProvider([{"action": "done", "text": "done"}])
+    config = loop.AgentConfig(task="x", auto=True, max_steps=5, initial_focus=boom)
+    with caplog.at_level(logging.WARNING):
+        assert loop.run(provider, config) == 0
+    assert any("initial focus" in r.message for r in caplog.records if r.levelno >= logging.WARNING)
+
+
+def test_an_action_without_confirmed_focus_warns(monkeypatch, caplog):
+    # The note is appended by actions.execute and reaches the model through the
+    # result; the loop re-logs it so the operator sees it too.
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+
+    class Unfocused(_PresentingBackend):
+        def execute(self, action):
+            return "clicked left at (1, 1)" + actions.FOCUS_UNCONFIRMED_NOTE
+
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(task="x", auto=True, max_steps=5, verify_actions=False,
+                              backend=Unfocused([]))
+    with caplog.at_level(logging.WARNING):
+        assert loop.run(provider, config) == 0
+    assert any("without confirmed focus" in r.message for r in caplog.records)
 
 
 # -- rate-limit / overload resilience -----------------------------------------

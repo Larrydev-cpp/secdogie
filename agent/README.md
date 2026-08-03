@@ -281,6 +281,24 @@ On **Wayland**, a client cannot steal focus at all (the compositor forbids it);
 the agent detects this and reports it honestly rather than firing blind — focus
 the target window yourself before starting there.
 
+**When focus can't be confirmed, you hear about it.** Raising a window is
+best-effort — Wayland refuses outright, a window can be gone, a title can be
+wrong — but "best-effort" used to mean *silent*: the run would carry on
+screenshotting whatever was actually in front and clicking into it. Now every
+unconfirmed focus is said out loud:
+
+- before the first frame, a failed `--window` raise logs a `WARNING` naming the
+  likely cause instead of a debug line nobody sees;
+- before each capture, a window that can't be confirmed frontmost warns that the
+  frame may show something else;
+- an action that ran without confirmed focus comes back tagged
+  `[focus unconfirmed: …]`, which goes into the log at `WARNING`, into the
+  model's history (so it can react), and into the `--trace` audit chain.
+
+The run still proceeds in every case — refusing to act would strand it, and
+acting on the frontmost window is usually still right. What changed is that a
+degraded run is now visibly degraded.
+
 Extra knobs:
 
 | Flag | Effect |
@@ -422,7 +440,8 @@ backstop, not a guarantee. Memory is **off by default**; without `--memory` a
 
 Each step the model picks one action: `left_click` / `right_click` /
 `double_click` / `move` / `drag`, `type` (types text — **Chinese/emoji/other
-Unicode is handled automatically via the clipboard**), `key` (a press or
+Unicode is handled automatically via the clipboard, and whatever you had copied
+is put back afterwards**), `key` (a press or
 hotkey; arrow keys are `up`/`down`/`left`/`right`), `hold_key` (**hold key(s)
 down for N seconds** — use for continuous movement like walking in a game or
 panning a map), `scroll`, `open` (**open a file/folder/URL with the OS default
@@ -430,6 +449,15 @@ program**, no mouse needed — this one still asks for confirmation even under
 `--auto`, see [`--allow-risky`](#click-accuracy)), `wait`, `remember` (**save a durable
 fact** to cross-run memory when `--memory` is on, see above), plus `done` and
 `ask_user`.
+
+**The clipboard is borrowed, not taken.** `type` only reaches for it for
+non-ASCII text (ASCII goes through real keystrokes), and it puts your previous
+clipboard contents back after pasting — a run that types one line of Chinese
+won't quietly destroy something you were about to paste yourself. Two honest
+limits: the restore waits ~0.15s for the target app to read the paste, so there
+is a brief window where the clipboard is ours; and a clipboard holding
+something that isn't text (an image, a file list) can't be read back to be
+restored, so it's cleared instead of left holding the agent's text.
 
 ## Watch mode (monitor a screen, act on a trigger)
 

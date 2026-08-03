@@ -122,8 +122,11 @@ class AgentConfig:
     # screenshot to put the intended window in front, so the first frame the model
     # reasons about (and the click that follows) land on the right window and not
     # on a leftover of our own menu/dialogs. See osfocus.py / cli.py.
+    # Both may report failure by returning False (returning None means "raised it,
+    # didn't check"); the loop warns rather than swallowing it, since acting on the
+    # wrong window is exactly the failure a silent best-effort hook hides.
     activate: Callable[[], bool] | None = None
-    initial_focus: Callable[[], None] | None = None
+    initial_focus: Callable[[], bool | None] | None = None
     # Desktop only (ignored when `backend` is set): attach an accessibility provider so the default
     # DesktopBackend becomes element-aware, letting macros anchor to UI-automation identity (the
     # strongest replay tier). Needs the platform a11y lib; off = visual-anchor/coordinate tiers only.
@@ -153,15 +156,22 @@ def _present(backend, logger) -> None:
     backend.Presentable): it switches to that window's virtual desktop if it's on
     another, then raises it. Backends that own the whole screen -- or a phone --
     don't implement it and this is a no-op. Never raises: failing to raise a
-    window is a degraded capture, not a reason to end the run.
+    window is a degraded capture, not a reason to end the run -- but it is said
+    out loud, because the frame that follows may be of the wrong window and a
+    silent wrong frame is how a run ends up clicking in someone else's app.
     """
     present = getattr(backend, "present", None)
     if present is None:
         return
     try:
-        present()
+        if present() is False:
+            logger.warning(
+                "could not confirm the target window is frontmost; this frame may show "
+                "whatever window is actually in front, and actions derived from it may "
+                "land there"
+            )
     except Exception as e:
-        logger.debug("could not present the target window before capture: %s", e)
+        logger.warning("could not present the target window before capture: %s", e)
 
 
 def run(provider: VisionProvider, config: AgentConfig) -> int:
@@ -266,9 +276,14 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
     # ghost of our own GUI. Best-effort: a failure here never stops the run.
     if config.initial_focus is not None:
         try:
-            config.initial_focus()
+            if config.initial_focus() is False:
+                logger.warning(
+                    "could not bring the target window to the foreground; the run will act on "
+                    "whatever window is frontmost instead -- check the --window title, and note "
+                    "that Wayland refuses programmatic focus entirely"
+                )
         except Exception as e:
-            logger.debug("initial focus assertion failed (proceeding anyway): %s", e)
+            logger.warning("initial focus assertion failed (proceeding anyway): %s", e)
 
     try:
         for step in range(1, config.max_steps + 1):
@@ -617,6 +632,16 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 else:
                     result = backend.execute(action)
                     executed_ok = True
+                    # The backend appends this when its focus hook couldn't confirm
+                    # the target window was frontmost. The note already travels to
+                    # the model in the result; re-log it at WARNING so the operator
+                    # sees it too -- an action that may have landed in a different
+                    # app is not something to whisper about at INFO.
+                    if actions.FOCUS_UNCONFIRMED_NOTE in result:
+                        logger.warning(
+                            "'%s' ran without confirmed focus on the target window; it may have "
+                            "acted on whatever window was in front", action.kind
+                        )
             except Exception as e:
                 result = f"error: {e}"
                 logger.error("action failed: %s", e)
