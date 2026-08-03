@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secdogie-fleet"
+version = "0.5.0"
+description = "Run one secdogie-agent per isolated desktop (a VM or its own user session) and coordinate them from the host, so several tasks genuinely act at once."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# The coordinator needs nothing but the standard library -- it only moves JSON
+# lines and never touches a screen, so it runs anywhere (including a headless
+# host). A *node* additionally needs secdogie-agent installed in its own guest,
+# which is a per-machine install rather than a dependency of this package.
+dependencies = []
+
+[project.optional-dependencies]
+# Convenience for setting up a guest: pull the agent in alongside the node.
+node = ["secdogie-agent"]
+
+[project.scripts]
+secdogie-fleet = "secdogie_fleet.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["secdogie_fleet*"]

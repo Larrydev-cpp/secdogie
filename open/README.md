@@ -20,12 +20,45 @@ OpenClaw's own control UI, scaled down to what a one-page picker needs.
 
 `secdogie-agent` alone drives the whole primary monitor with one task at a
 time. This splits the screen by window instead, so several tasks can run
-concurrently against different apps. It's step one toward running each
-window's agent off its own API key (avoiding one key's rate limit under
-higher concurrency); today every window in a run shares the one model and key
-you set on the page (or, as a fallback, whatever `secdogie-agent`'s own config
-resolution finds — `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` or a config file, see
-`agent/README.md`).
+concurrently against different apps. Today every window in a run shares the one
+model and key you set on the page (or, as a fallback, whatever
+`secdogie-agent`'s own config resolution finds — `ANTHROPIC_API_KEY`/
+`OPENAI_API_KEY` or a config file, see `agent/README.md`).
+
+> **Where this hits its limit — and what to use instead.** One machine has one
+> mouse, one keyboard and one foreground window, so the agent's input lock has to
+> serialize every click and keystroke: the agents here *think* in parallel but
+> *act* in a queue, and they compete for focus. That's fine for a handful of
+> windows and a poor fit for several heavy tasks at once. For genuine
+> parallelism, [`fleet/`](../fleet) gives each task its own **desktop** (a VM or
+> its own user session) — separate input queues, no focus fighting, one crashed
+> task can't take the others with it — and each node uses its own API key, which
+> is what spreads the rate limit that a busy `open/` run would otherwise hit.
+
+## Occlusion, and virtual desktops
+
+Windows on one desktop **overlap**. A screenshot is a grab of a screen
+*rectangle*, so whatever is stacked on top of a window's rectangle is what ends
+up in that window's frame — and with several agents each raising their own
+window, every agent's frames are routinely a neighbour's pixels. The model then
+picks a coordinate from the wrong layout and clicks it in the right window.
+
+Two things fix that here:
+
+1. **The target is raised before every capture**, not just before every action
+   (it used to be only the latter, which is what let an occluded frame reach the
+   model in the first place).
+2. **Virtual desktops (Win+Tab), on Windows.** Put each window you're driving on
+   its own virtual desktop and they cannot overlap at all: the run switches to a
+   window's desktop before capturing it, so every frame is genuinely that window.
+   `pip install 'secdogie-agent[windows-vdesktop]'` enables it.
+
+Note what virtual desktops do *not* buy: they share one input queue and one
+foreground window, so tasks still take turns to act — this is **occlusion
+isolation, not parallelism**. For actual simultaneous action you need separate
+sessions or VMs, which is [`fleet/`](../fleet). Without the feature (or off
+Windows) nothing breaks: the run falls back to raising the window on the single
+desktop before each capture.
 
 ## Install
 

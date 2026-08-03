@@ -29,6 +29,15 @@ trusted host/operator boundary:
   and they are never written to the run log. Don't commit them.
 - **The tunnel's static keys are secrets.** `genkey` writes private-key files
   `chmod 600`; keep them that way and never commit them.
+- **SYSTEM elevation is off by default and operator-gated.** The `run_elevated`
+  action (Windows) can run a command as SYSTEM, but *only* commands the operator
+  declares at launch with `--allow-elevated-command` — the vision model can never
+  escalate an arbitrary command, and with none declared, elevation is entirely
+  off. It requires the agent to already be Administrator (it acquires SYSTEM from
+  an admin token — the PsExec `-s` mechanism — and is **not a UAC bypass**). Use
+  it only on machines you own or are the authorized administrator of. It stays
+  high-risk (confirms even under `--auto`), and a `fleet/` coordinator cannot
+  turn it on for a node — elevation is node-local by design.
 
 If multiple, mutually-distrusting people can reach the same running agent or
 the same host, that is outside the model — isolate by OS user / host instead.

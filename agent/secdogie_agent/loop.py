@@ -7,19 +7,19 @@ from __future__ import annotations
 import hashlib
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from . import actions, dialog, safety, screen
-from .backend import Backend, DesktopBackend
+from . import actions, dialog, elements, safety, screen
+from .backend import Backend, DesktopBackend, ElementAware
 from .macro import Macro, MacroRecorder, MacroStep, resolve_replay_step
 from .memory import Memory, SecretRefused
 from .plan import Plan
-from .providers.base import HistoryStep, VisionProvider
+from .providers.base import HistoryStep, VisionProvider, is_transient
 from .trace import ExecutionTrace
 
 # Benign actions that never need a confirmation prompt -- they don't touch the
 # mouse/keyboard in a way that can do harm.
-_BENIGN = {"wait", "screenshot"}
+_BENIGN = {"wait", "screenshot", "look"}
 
 # Actions that are safe to auto-repeat when they appear to have had no effect:
 # re-clicking an unresponsive spot or re-scrolling is harmless. Deliberately
@@ -71,6 +71,14 @@ class AgentConfig:
     # outside the screen sandbox without a human ok. Set False (CLI --allow-risky,
     # or a session that already consented like open/) to run those unattended too.
     confirm_high_risk: bool = True
+    # Commands the operator has explicitly allowed the `run_elevated` action to
+    # run as SYSTEM (see cli --allow-elevated-command). This tuple IS the enable
+    # switch AND the safety boundary: empty (the default) means elevation is off,
+    # and the model can only ever escalate a command a human declared here, never
+    # an arbitrary one. Matched exactly (elevate.is_permitted). Needs Windows +
+    # the process already being an Administrator; it acquires SYSTEM from an admin
+    # token, it does not bypass UAC.
+    elevated_allowlist: tuple[str, ...] = ()
     dry_run: bool = False  # still calls the model each step, but never touches mouse/keyboard
     log_path: str | None = None
     max_image_edge: int = screen.DEFAULT_MAX_EDGE  # long-edge cap for the image sent to the model
@@ -93,6 +101,13 @@ class AgentConfig:
     # missed (wrong target, window not focused, blocked UI): retry the
     # idempotent ones, and if still nothing, tell the model so it can change
     # strategy instead of repeating a dead action. 0 disables the whole check.
+    # Rate-limit/overload resilience. A 429 or a 5xx from the model must not end
+    # the run -- with several agents sharing a quota those are routine and clear
+    # on their own. The step is retried this many times with an exponential
+    # backoff (base, base*2, base*4, ... capped at 60s) before giving up; a
+    # non-transient error (auth/config) still fails immediately. 0 disables.
+    max_transient_retries: int = 4
+    transient_backoff_base: float = 2.0  # seconds; 4 retries => 2+4+8+16 = 30s of patience
     verify_actions: bool = True
     verify_threshold: float = 0.005  # changed-pixel fraction at/above which an action "did something"
     action_retries: int = 1  # extra attempts for a no-effect *idempotent* action (clicks/scroll/move)
@@ -100,6 +115,18 @@ class AgentConfig:
     logger_name: str = "secdogie_agent"  # distinct per concurrent run so loggers don't share/race on handlers
     should_stop: Callable[[], bool] | None = None  # checked each step; lets a caller cancel a running loop
     backend: Backend | None = None  # what to drive; None = the local desktop (mss + pyautogui)
+    # Focus (single desktop agent only; ignored when `backend` is set, since a
+    # custom backend like open/'s brings its own focus hook). `activate` is called
+    # before every real action to (re)assert the target window's foreground --
+    # used by --window targeting. `initial_focus` is called ONCE before the first
+    # screenshot to put the intended window in front, so the first frame the model
+    # reasons about (and the click that follows) land on the right window and not
+    # on a leftover of our own menu/dialogs. See osfocus.py / cli.py.
+    # Both may report failure by returning False (returning None means "raised it,
+    # didn't check"); the loop warns rather than swallowing it, since acting on the
+    # wrong window is exactly the failure a silent best-effort hook hides.
+    activate: Callable[[], bool] | None = None
+    initial_focus: Callable[[], bool | None] | None = None
     # Desktop only (ignored when `backend` is set): attach an accessibility provider so the default
     # DesktopBackend becomes element-aware, letting macros anchor to UI-automation identity (the
     # strongest replay tier). Needs the platform a11y lib; off = visual-anchor/coordinate tiers only.
@@ -120,6 +147,31 @@ class AgentConfig:
     # durable facts with a `remember` action and they're recalled into its prompt on later runs (see
     # memory.py). None = stateless (the default). Plaintext -- never have it store secrets.
     memory_path: str | None = None
+
+
+def _present(backend, logger) -> None:
+    """Make the backend's target actually visible before it's captured.
+
+    A backend that drives one window among many implements `present()` (see
+    backend.Presentable): it switches to that window's virtual desktop if it's on
+    another, then raises it. Backends that own the whole screen -- or a phone --
+    don't implement it and this is a no-op. Never raises: failing to raise a
+    window is a degraded capture, not a reason to end the run -- but it is said
+    out loud, because the frame that follows may be of the wrong window and a
+    silent wrong frame is how a run ends up clicking in someone else's app.
+    """
+    present = getattr(backend, "present", None)
+    if present is None:
+        return
+    try:
+        if present() is False:
+            logger.warning(
+                "could not confirm the target window is frontmost; this frame may show "
+                "whatever window is actually in front, and actions derived from it may "
+                "land there"
+            )
+    except Exception as e:
+        logger.warning("could not present the target window before capture: %s", e)
 
 
 def run(provider: VisionProvider, config: AgentConfig) -> int:
@@ -148,7 +200,8 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
 
             ax_provider = desktop_ax.make_desktop_ax_provider(logger)
         backend = DesktopBackend(
-            move_duration=config.move_duration, settle=config.settle, ax_provider=ax_provider
+            move_duration=config.move_duration, settle=config.settle, ax_provider=ax_provider,
+            activate=config.activate,
         )
     backend.setup(logger)
 
@@ -201,11 +254,36 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
     prev_exec_frame: bytes | None = None
     stall_count = 0
 
+    # Element-first perception (--desktop-ax with an element-aware backend): the
+    # accessibility tree is the fresh primary sense each step, and the screenshot
+    # rides along as *cached* visual context -- re-captured only when the model
+    # asks for a fresh `look`, on the first step, or when the tree is empty. This
+    # is what puts the model, not the loop, in charge of when to spend a fresh
+    # visual pass. Off (the default), every step prepares a fresh frame as before.
+    element_first = config.desktop_ax and isinstance(backend, ElementAware)
+    cached_frame: tuple | None = None  # (model_png, model_size, scale) reused between looks
+    refresh_view = True  # force a fresh frame on the first step
+
     # Memory: a SQLite-backed store of durable facts the model saves with the
     # `remember` action; recalled into its prompt below. None = stateless.
     memory = Memory(config.memory_path) if config.memory_path else None
     if memory is not None:
         logger.info("memory: reading/writing durable facts at %s", config.memory_path)
+
+    # Assert the target window's foreground ONCE, now -- after any menu/dialog has
+    # closed and BEFORE the first screenshot -- so the frame the model reasons
+    # about (and the action that follows) land on the intended window, not on a
+    # ghost of our own GUI. Best-effort: a failure here never stops the run.
+    if config.initial_focus is not None:
+        try:
+            if config.initial_focus() is False:
+                logger.warning(
+                    "could not bring the target window to the foreground; the run will act on "
+                    "whatever window is frontmost instead -- check the --window title, and note "
+                    "that Wayland refuses programmatic focus entirely"
+                )
+        except Exception as e:
+            logger.warning("initial focus assertion failed (proceeding anyway): %s", e)
 
     try:
         for step in range(1, config.max_steps + 1):
@@ -216,6 +294,15 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             # In watch mode, pace the polling so we don't hammer the API.
             if config.watch and step > 1:
                 time.sleep(config.watch_interval)
+
+            # Bring the target window up BEFORE the screenshot, not just before
+            # the action. `region` captures a screen rectangle, so anything
+            # sitting on top of that rectangle is what gets captured -- with
+            # several agents driving several windows on one desktop they occlude
+            # each other constantly, and the model would reason about a
+            # neighbour's pixels and then click coordinates that mean nothing in
+            # the window it actually acts on.
+            _present(backend, logger)
 
             try:
                 raw_png, real_size = backend.capture(config.region)
@@ -265,12 +352,32 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     replay_steps = None
 
             if action is None:
-                # Downscale to a known size and remember the factor to map the model's
-                # coordinates back to real screen pixels -- this is what keeps clicks
-                # landing on target.
-                model_png, model_size, scale = screen.prepare_for_model(
-                    raw_png, real_size, max_edge=config.max_image_edge, grid=config.grid
-                )
+                # Perception: read the current interactable elements (element-aware
+                # desktop / --desktop-ax) so the model can click one by identity
+                # (click_element) instead of guessing a pixel. Cache THIS step's
+                # targets so the ref the model returns resolves against exactly the
+                # list it was shown, even if the UI shifts meanwhile.
+                step_targets: list = []
+                listing = ""
+                if isinstance(backend, ElementAware):
+                    step_targets = backend.element_targets()
+                    listing = elements.render_for_model(step_targets)
+
+                # Frame: downscale to a known size and remember the factor that maps
+                # the model's coordinates back to real screen pixels. In element-first
+                # mode we reuse the cached frame between `look`s (the fresh element
+                # tree carries the current state); we re-capture only when the model
+                # asked to look, on the first step, or when the tree is empty (no
+                # element help -> real vision). Otherwise every step is fresh, as before.
+                if element_first and cached_frame is not None and not refresh_view and step_targets:
+                    model_png, model_size, scale = cached_frame
+                else:
+                    model_png, model_size, scale = screen.prepare_for_model(
+                        raw_png, real_size, max_edge=config.max_image_edge, grid=config.grid
+                    )
+                    cached_frame = (model_png, model_size, scale)
+                refresh_view = False
+
                 # When planning, carry the plan + progress into the prompt so the
                 # model works the current sub-task and knows where it is (state) --
                 # rather than re-deriving the whole job from the last 10 actions.
@@ -284,17 +391,57 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     recalled = memory.render()
                     if recalled:
                         step_task += f"\n\nWhat you remember from earlier runs:\n{recalled}"
-                try:
-                    action = provider.next_action(step_task, model_png, model_size, history)
-                except Exception as e:
-                    logger.error("provider failed to produce an action: %s", e)
-                    return 1
+                if listing:
+                    step_task += f"\n\n{listing}"
+                # A rate limit or provider overload must NOT kill the run: with
+                # several agents sharing an API quota (see fleet/), 429s are
+                # routine and self-clearing. Retry the step with exponential
+                # backoff; only a non-transient error (auth/config) or exhausting
+                # the retries ends the run. The SDKs retry internally too, so by
+                # the time we see the exception their own attempts are spent.
+                action = None
+                for attempt in range(config.max_transient_retries + 1):
+                    try:
+                        action = provider.next_action(step_task, model_png, model_size, history)
+                        break
+                    except Exception as e:
+                        if attempt >= config.max_transient_retries or not is_transient(e):
+                            logger.error("provider failed to produce an action: %s", e)
+                            return 1
+                        delay = min(config.transient_backoff_base * (2 ** attempt), 60.0)
+                        logger.warning(
+                            "model call failed (%s); backing off %.1fs and retrying (%d/%d)",
+                            e, delay, attempt + 1, config.max_transient_retries,
+                        )
+                        time.sleep(delay)
+                        if config.should_stop is not None and config.should_stop():
+                            logger.info("stopped externally while backing off")
+                            return 5
                 action = action.scaled(scale)
                 if config.region is not None:
                     # Model coordinates are relative to the captured region; shift
                     # back to absolute screen coordinates before anything downstream
                     # (confirmation prompts, execution) sees them.
                     action = action.translated(config.region[0], config.region[1])
+                # Turn an element-targeted click into a concrete left_click at the
+                # element's real-pixel centre. Element bounds are already absolute
+                # screen pixels, so this runs AFTER scale/translate (both no-ops on
+                # a click_element, which carries no x/y). A ref that doesn't resolve
+                # is reported to the model as a miss -- never clicked at a guessed or
+                # zero coordinate.
+                if action.kind == "click_element":
+                    point = elements.point_for_ref(step_targets, action.element)
+                    if point is None:
+                        logger.warning("click_element: unresolved element ref %r", action.element)
+                        history.append(HistoryStep(
+                            action=action,
+                            result=(
+                                f"could not find element {action.element!r} in the listing; "
+                                'use a ref shown there (e.g. "e2") or a coordinate action instead'
+                            ),
+                        ))
+                        continue
+                    action = replace(action, kind="left_click", x=point[0], y=point[1])
 
             reasoning = action.reasoning or action.raw.get("reasoning", "")
 
@@ -349,6 +496,17 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                         logger.warning("could not save macro %s (%s); the run still succeeded", config.macro_path, e)
                 return 0 if (plan is None or not plan.skipped) else 3
 
+            if action.kind == "look":
+                # The model wants fresh pixels: re-capture the frame on the next
+                # step (in element-first mode the frame is otherwise cached between
+                # looks). No OS action, no confirmation -- it only refreshes what
+                # the model sees, which is exactly the point of letting it decide
+                # when to spend a fresh visual pass.
+                refresh_view = True
+                logger.info("step %d: model requested a fresh look%s", step, f" -- {reasoning}" if reasoning else "")
+                record_result("will capture a fresh screenshot on the next step")
+                continue
+
             if action.kind == "ask_user":
                 question = action.text or action.raw.get("text", "")
                 logger.info("model is asking: %s", question)
@@ -393,11 +551,40 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 record_result("skipped (dry-run)")
                 continue
 
+            # Elevation allowlist gate (before the confirm prompt, so we don't
+            # even ask about a command we'll refuse). `run_elevated` runs a
+            # command as SYSTEM, but ONLY one the operator declared at launch --
+            # the model can't escalate an arbitrary command. Empty allowlist =
+            # elevation off. This is the model-facing boundary; the confirm below
+            # and the admin check inside elevate.run_as_system are the rest.
+            if action.kind == "run_elevated":
+                from . import elevate
+
+                cmd = (action.path or "").strip()
+                if not config.elevated_allowlist:
+                    logger.warning("run_elevated ignored: no elevated commands were allowed on this run")
+                    record_result(
+                        "elevation is off: the operator allowed no elevated commands "
+                        "(start with --allow-elevated-command \"<exact command>\" to permit specific ones)"
+                    )
+                    continue
+                if not elevate.is_permitted(cmd, config.elevated_allowlist):
+                    logger.warning("run_elevated refused: %r is not in the allowlist", cmd)
+                    record_result(
+                        f"refused: {cmd!r} is not in this run's elevated allowlist; "
+                        "only operator-declared commands can run as SYSTEM"
+                    )
+                    continue
+
             # Stall guard: the same real action about to run against a screen that
             # hasn't changed since the last one means that last action didn't land.
             if config.stall_limit and action.kind not in _BENIGN:
+                # `path` is part of the identity for kinds that carry no coords
+                # (`open`, `run_elevated`); without it two *different* commands
+                # look identical here and would either falsely count as a repeat
+                # or fail to reset the counter when the command actually changed.
                 sig = (action.kind, action.x, action.y, action.to_x, action.to_y,
-                       action.text, tuple(action.keys or ()))
+                       action.text, tuple(action.keys or ()), action.path)
                 if sig == prev_exec_sig and frame_hash == prev_exec_frame:
                     stall_count += 1
                     if stall_count >= config.stall_limit:
@@ -430,8 +617,31 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
 
             executed_ok = False
             try:
-                result = backend.execute(action)
-                executed_ok = True
+                if action.kind == "run_elevated":
+                    # Permitted + confirmed by here. Run it as SYSTEM via the
+                    # elevate seam rather than backend.execute -- elevation is a
+                    # desktop-only OS action, not something a backend (a phone,
+                    # say) should have to know about. run_as_system does the final
+                    # admin check and refuses honestly if we aren't elevated.
+                    from . import elevate
+
+                    r = elevate.run_as_system(action.path)
+                    result = f"{r.outcome}: {r.detail}" if r.detail else r.outcome
+                    executed_ok = r.outcome == elevate.LAUNCHED
+                    (logger.info if executed_ok else logger.warning)("run_elevated -> %s", result)
+                else:
+                    result = backend.execute(action)
+                    executed_ok = True
+                    # The backend appends this when its focus hook couldn't confirm
+                    # the target window was frontmost. The note already travels to
+                    # the model in the result; re-log it at WARNING so the operator
+                    # sees it too -- an action that may have landed in a different
+                    # app is not something to whisper about at INFO.
+                    if actions.FOCUS_UNCONFIRMED_NOTE in result:
+                        logger.warning(
+                            "'%s' ran without confirmed focus on the target window; it may have "
+                            "acted on whatever window was in front", action.kind
+                        )
             except Exception as e:
                 result = f"error: {e}"
                 logger.error("action failed: %s", e)

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "secdogie-handoff"
-version = "0.1.0"
+version = "0.5.0"
 description = "Cross-process input-ownership baton: exactly one node drives the mouse/keyboard at a time, with a safe handoff between separate processes."
 readme = "README.md"
 requires-python = ">=3.10"

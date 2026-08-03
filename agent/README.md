@@ -126,11 +126,53 @@ packaging\build.ps1          # produces packaging\dist\secdogie-agent.exe
 [`docs/RELEASING.md`](../docs/RELEASING.md) — check the
 [Releases](../../releases) page before building your own.)
 
+## Opening it (downloaded binary — no command line needed)
+
+If you downloaded a release zip (from the
+[Releases](../../releases) page), it already contains a **double-click
+launcher** next to the program — you don't need to touch a terminal:
+
+| Your OS | Double-click this |
+|---------|-------------------|
+| Windows | `secdogie-agent.exe` directly (a selection window opens), or `open.bat` for a console alongside it |
+| macOS   | `open.command` (first time: right-click → **Open** to get past Gatekeeper) |
+| Linux   | `run.sh` (from a terminal: `./run.sh`) |
+
+On the **first run** the launcher creates a config file and tells you where
+it is; open that file, paste your Anthropic API key after
+`ANTHROPIC_API_KEY=`, save, and launch again. After that it opens a **window
+asking what you want it to do** (that's `--gui` mode), shows you the model's
+plan, and asks you to approve before it acts.
+
+**One-file selection window.** Double-clicking `secdogie-agent.exe` itself (no
+launcher, no terminal) pops a small **frosted-glass selection window** built into
+the program — pick how to start: describe a task, preview it (`--dry-run`),
+element/accessibility mode (`--desktop-ax`), unattended (`--auto`), or set up the
+API key — and it runs that choice. Running from a normal (pip) install instead of
+the exe? `secdogie-agent --menu` shows the same window and runs your pick, so you
+can see and use it without building anything. It appears **only** on a bare double-click; run
+the exe with any argument (or from a terminal) and the plain CLI is unchanged.
+On Windows the panel gets real acrylic blur + rounded corners from the OS
+compositor (Windows 10 1803+/11); anywhere that can't apply, it's a clean dark
+panel, and with no display at all it falls back to `--gui`, so opening the exe
+always does something.
+
+The Windows exe is built **windowed** (no black console box behind the panel),
+with three safety nets so that's never a silent "blind box"
+(`secdogie_agent/frozen_runtime.py`): every run writes a **`secdogie.log`** next
+to the exe; an uncaught error shows a **native error dialog** with the traceback
+(not just a vanishing window); and launched from a terminal it **reattaches to
+that console**, so `secdogie-agent.exe --help` and other CLI output are visible
+as normal. `open.bat` is a thin wrapper that runs the exe from a cmd window —
+handy because the reattach then streams the live log into that window, and
+closing it stops the agent.
+
 ## Run
 
 ```sh
 secdogie-agent "open a text editor and type 'hello world'" --dry-run   # see what it would do first
 secdogie-agent "open a text editor and type 'hello world'"             # confirms every action (default)
+secdogie-agent --gui                                                    # pops up a task window instead
 secdogie-agent "..." --auto                                             # no confirmations -- see warning above
 secdogie-agent "..." --auto --allow-risky                              # ...not even for high-risk actions
 ```
@@ -143,6 +185,38 @@ launch a program or open a link. That one kind prompts for a `y/N` even under
 answer (piped stdin, a service), an unconfirmed high-risk action **fails closed
 — it's skipped, never silently launched.** Pass `--allow-risky` to opt back
 into running those unattended too.
+
+### Running a command as SYSTEM (`run_elevated`, Windows)
+
+Some administrative tasks need **SYSTEM** — install an MSI, manage a service,
+edit a protected system file. The `run_elevated` action runs a command as SYSTEM
+*on the visible desktop* (so if it opens a GUI, the agent can then drive it with
+the normal `--window`/focus machinery). It is off by default and fenced in three
+ways:
+
+1. **An operator allowlist is the only thing the model can escalate.** You
+   declare the exact commands allowed, at launch:
+   ```sh
+   secdogie-agent "install the printer driver" \
+       --allow-elevated-command "msiexec /i C:\drivers\printer.msi /qn" \
+       --allow-elevated-command "sc start Spooler"
+   ```
+   The model may run *only* those exact strings (matched exactly, whitespace
+   aside — no globbing, so `sc stop Spooler` can never become `sc stop Themes`).
+   With **no** `--allow-elevated-command`, elevation is entirely off and every
+   `run_elevated` is refused. The model never gets an arbitrary SYSTEM shell.
+2. **It's high-risk**, so it confirms even under `--auto` (unless `--allow-risky`),
+   the exact command is shown, and on a no-TTY run it fails closed.
+3. **It requires the agent to already be Administrator.** It acquires SYSTEM from
+   an admin token (`DuplicateTokenEx` off `winlogon.exe` → `CreateProcessAsUser`
+   into your session — the same mechanism Sysinternals PsExec's `-s` uses). It is
+   **not a UAC bypass and exploits nothing**: run the agent elevated first (right-
+   click → *Run as administrator*), or it refuses with a clear message.
+
+Windows-only; on any other OS `run_elevated` refuses cleanly. **Point this only
+at machines you own or are the authorized administrator of.** The mechanism lives
+in `secdogie_agent/elevate.py`; the token dance is on-machine, the allowlist and
+launch decision are pure and unit-tested.
 
 ### GUI mode: task dialog + plan briefing
 
@@ -175,10 +249,61 @@ anyway), tells the model that exact size, and scales the returned
 coordinates back to real screen pixels. This keeps clicks landing where the
 model intends.
 
+That scaling only holds if the whole pipeline shares one coordinate space, which
+on **high-DPI Windows** (125% / 150% scaling, or mixed-DPI multi-monitor) it does
+*not* unless the process declares DPI awareness: an unaware process is virtualized
+by the OS, so mss can capture physical pixels while pyautogui clicks in logical
+ones and the cursor lands at ~2/3 of the target. So the CLI declares
+**Per-Monitor-Aware v2** at process start, before any window/capture/input
+(`secdogie_agent/dpi.py`) — every monitor then reports its own physical pixels
+and the mss→model→pyautogui mapping is exact across monitors and scale factors.
+It's a no-op off Windows (X11/Quartz already hand mss and pyautogui physical
+pixels) and degrades through the older awareness APIs on pre-1703 Windows.
+
+**Window focus.** A click only lands where intended if the right window is
+actually frontmost — but Windows' `ForegroundLockTimeout` silently *refuses*
+`SetForegroundWindow` from a background process (it just flashes the taskbar), so
+naive "activate the window" calls lie. The agent does the real thing
+(`secdogie_agent/osfocus.py`): it forces the target past the lock timeout
+(`AttachThreadInput` + zeroing the timeout) and then *confirms* focus landed
+before acting. Two ways it's used:
+
+- **`--window "Exact Title"`** pins the agent to that window — forced frontmost
+  and confirmed before the first frame *and* before every action, so clicks can't
+  stray onto whatever else grabs focus.
+- **Default** (no `--window`): before the frosted-glass menu or any `--gui` dialog
+  steals focus, the agent remembers what was in front, and restores it once before
+  the first screenshot — so its opening clicks don't land on a leftover of its own
+  windows. (The first screenshot is then of the restored window, so the model
+  reasons about the right thing.)
+
+On **Wayland**, a client cannot steal focus at all (the compositor forbids it);
+the agent detects this and reports it honestly rather than firing blind — focus
+the target window yourself before starting there.
+
+**When focus can't be confirmed, you hear about it.** Raising a window is
+best-effort — Wayland refuses outright, a window can be gone, a title can be
+wrong — but "best-effort" used to mean *silent*: the run would carry on
+screenshotting whatever was actually in front and clicking into it. Now every
+unconfirmed focus is said out loud:
+
+- before the first frame, a failed `--window` raise logs a `WARNING` naming the
+  likely cause instead of a debug line nobody sees;
+- before each capture, a window that can't be confirmed frontmost warns that the
+  frame may show something else;
+- an action that ran without confirmed focus comes back tagged
+  `[focus unconfirmed: …]`, which goes into the log at `WARNING`, into the
+  model's history (so it can react), and into the `--trace` audit chain.
+
+The run still proceeds in every case — refusing to act would strand it, and
+acting on the frontmost window is usually still right. What changed is that a
+degraded run is now visibly degraded.
+
 Extra knobs:
 
 | Flag | Effect |
 |------|--------|
+| `--window "Title"` | pin the agent to the window with this exact title: forced frontmost (past Windows' ForegroundLockTimeout) and confirmed focused before every action |
 | `--grid` | overlay a labeled coordinate grid on the screenshot to give the model anchor points (helps on cluttered screens) |
 | `--max-image-edge N` | trade detail vs. speed/cost; higher keeps small text legible, lower is faster/cheaper |
 | `--move-duration S` | seconds to glide the cursor to a target (default 0.15; smoother, triggers hover events) |
@@ -190,6 +315,7 @@ Extra knobs:
 | `--trace PATH` | write a tamper-evident hash-chained audit trace of every step to `PATH` (JSONL); verify later with `python -m secdogie_agent.trace PATH` (see below). |
 | `--memory PATH` | give the agent persistent cross-run memory in the SQLite file `PATH`: it saves durable facts with a `remember` action and they're recalled into its prompt on later runs (see below). Plaintext — never have it store secrets. |
 | `--allow-risky` | with `--auto`, run high-risk actions (currently `open`, which launches a file/URL) without confirmation; by default those still prompt even under `--auto` (see [Before you run](../README.md#before-you-run-any-of-this)). |
+| `--allow-elevated-command "CMD"` | (Windows) permit the `run_elevated` action to run this **exact** command as SYSTEM; repeatable. This allowlist is the only thing the model can escalate — with none given, elevation is off. The agent must already be Administrator. See [Running a command as SYSTEM](#running-a-command-as-system-run_elevated-windows). |
 
 Cursor movement is intentionally not instantaneous — teleport-and-click can
 miss hover/focus handlers in some apps, so the agent glides to the target
@@ -314,7 +440,8 @@ backstop, not a guarantee. Memory is **off by default**; without `--memory` a
 
 Each step the model picks one action: `left_click` / `right_click` /
 `double_click` / `move` / `drag`, `type` (types text — **Chinese/emoji/other
-Unicode is handled automatically via the clipboard**), `key` (a press or
+Unicode is handled automatically via the clipboard, and whatever you had copied
+is put back afterwards**), `key` (a press or
 hotkey; arrow keys are `up`/`down`/`left`/`right`), `hold_key` (**hold key(s)
 down for N seconds** — use for continuous movement like walking in a game or
 panning a map), `scroll`, `open` (**open a file/folder/URL with the OS default
@@ -322,6 +449,15 @@ program**, no mouse needed — this one still asks for confirmation even under
 `--auto`, see [`--allow-risky`](#click-accuracy)), `wait`, `remember` (**save a durable
 fact** to cross-run memory when `--memory` is on, see above), plus `done` and
 `ask_user`.
+
+**The clipboard is borrowed, not taken.** `type` only reaches for it for
+non-ASCII text (ASCII goes through real keystrokes), and it puts your previous
+clipboard contents back after pasting — a run that types one line of Chinese
+won't quietly destroy something you were about to paste yourself. Two honest
+limits: the restore waits ~0.15s for the target app to read the paste, so there
+is a brief window where the clipboard is ours; and a clipboard holding
+something that isn't text (an image, a file list) can't be read back to be
+restored, so it's cleared instead of left holding the agent's text.
 
 ## Watch mode (monitor a screen, act on a trigger)
 
@@ -341,6 +477,25 @@ secdogie-agent --watch --watch-interval 5 --auto "when the download finishes, do
   `--watch --auto` for fully unattended monitoring).
 - Watch mode runs long by default (up to 100000 frames); cap it with
   `--max-steps`.
+
+## Can it play games?
+
+Only **slow, turn-based ones** — and that's a hard limit, not a tuning issue.
+Every action costs one screenshot → API round-trip → one move, so the agent
+makes roughly one decision every **1–3 seconds**. That's fine for games where
+nothing happens until you move, and hopeless for anything real-time.
+
+- **Works:** Minesweeper, Solitaire and other card games, 2048, Sudoku,
+  chess/checkers/Go, turn-based strategy, point-and-click and text adventures,
+  simple board/puzzle games.
+- **Doesn't work:** platformers, shooters, racing, fighting, rhythm, or any
+  action game needing reactions faster than a second. `hold_key` lets it hold
+  a direction to move, but the *next* decision still waits on the model, so it
+  can't dodge or aim in real time.
+
+Think "a patient assistant taking one considered move at a time", not "a reflex
+bot". For reactive setups, `--watch` fits better (wait for a condition, then
+make one move) than trying to play frame-by-frame.
 
 ## RPA macros: record once, replay for free
 
@@ -403,20 +558,64 @@ the OS accessibility tree and records each click against the widget's identity
 when the window moves or the layout reflows.
 
 ```sh
-pip install uiautomation                  # Windows: the accessibility backend
-sudo apt install python3-pyatspi          # Linux: the AT-SPI bindings (+ enable a11y)
+pip install 'secdogie-agent[windows-ax]'   # Windows: UI Automation (uiautomation)
+sudo apt install python3-pyatspi            # Linux: AT-SPI bindings (+ enable a11y); a system pkg
+pip install 'secdogie-agent[macos-ax]'      # macOS: AX API (pyobjc) — also grant Accessibility
 secdogie-agent "..." --macro flow.json --desktop-ax --auto
 ```
 
 The tree-reading half is on-machine (it needs a real desktop), and its provider
-is platform-specific: **Windows** via UI Automation (the `uiautomation` package)
-and **Linux** via AT-SPI (`pyatspi`) are both wired; **macOS (AX)** is the next
-provider to fill in against the same `axtree.AxElement` contract
-(`secdogie_agent/desktop_ax.py`). If the accessibility library isn't installed
-the flag no-ops with a one-line hint — replay just falls back to the visual
-anchor — so nothing breaks. The matching logic itself
-(`secdogie_agent/axtree.py`) is pure and unit-tested without a desktop; only the
-live tree walk is machine-specific.
+is platform-specific — all three are now wired against the same
+`axtree.AxElement` contract (`secdogie_agent/desktop_ax.py`): **Windows** via UI
+Automation (the `uiautomation` package), **Linux** via AT-SPI (`pyatspi`), and
+**macOS** via the AX API (pyobjc's `ApplicationServices`). macOS has one extra
+gate the others don't: the host app (Terminal, your IDE, the built `.app`) must
+be granted **Accessibility** permission in System Settings → Privacy & Security →
+Accessibility, or the AX API returns nothing. If the accessibility library isn't
+installed — or that permission isn't granted — the flag no-ops with a one-line
+hint (replay falls back to the visual anchor, the live loop to pixels), so
+nothing breaks. The matching logic itself (`secdogie_agent/axtree.py`,
+`elements.py`) is pure and unit-tested without a desktop; only the live tree walk
+is machine-specific, and each provider's walk/mapping is proved against a faked
+platform API in `tests/test_axtree.py`.
+
+**Click by identity, not by pixel (live loop).** `--desktop-ax` also changes how
+the model drives *live*, not just how macros replay. On each step the current
+interactable elements (buttons, fields, menu items, …) are read from the
+accessibility tree and appended to the prompt as a short list, each with a stable
+ref:
+
+```
+Interactable elements detected on screen (from the accessibility tree)...
+  [e1] Button "Save" (id=saveBtn)
+  [e2] Button "Cancel"
+  [e3] Edit "Filename" (id=fileBox)
+```
+
+The model can then reply `{"action": "click_element", "element": "e2", ...}` and
+the loop resolves that ref to the element's true bounds — a real-pixel click with
+no coordinate-scaling round-off and no near-miss, because the tree *knows* the
+widget is there. It's the non-vision path for desktop control (the same idea as
+reading a game's native state instead of its pixels): the screenshot still goes
+to the model for everything the tree can't name (canvases, custom-drawn UI, a
+remote screen), so vision is the fallback, not the only sense. A ref that no
+longer resolves is reported back as a miss rather than clicked blindly, and with
+no provider the listing is simply absent — the pixel path is byte-for-byte
+unchanged. Perception + resolution are pure and headless-tested
+(`secdogie_agent/elements.py`, `tests/test_elements.py`); only the tree walk is
+on-machine.
+
+**The model decides when to spend a fresh look.** In this mode the *tree* is the
+fresh, authoritative sense re-read every step, so the loop stops re-capturing a
+fresh screenshot each time — it sends the **cached** frame as visual context (the
+model isn't blind) and re-captures only when the model emits a `look` action, on
+the first step, or when the tree comes back empty (nothing to click by identity →
+fall back to real vision). That inverts the default "screenshot every step":
+vision becomes a tool the model reaches for when the pixels actually matter,
+rather than a cost paid on every turn — the same "structured-first, vision on
+demand" shape a personal-assistant harness like OpenClaw uses for desktop
+control. The `look` gating and frame cache are exercised through the real loop in
+`tests/test_loop.py`.
 
 ## Programmable skills: sub-flows, conditions, loops
 

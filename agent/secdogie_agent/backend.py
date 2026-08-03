@@ -17,7 +17,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
-from . import actions, axtree, screen
+from . import actions, axtree, elements, screen
 from .providers.base import Action
 
 
@@ -57,6 +57,52 @@ class Locatable(Protocol):
         ...
 
 
+@runtime_checkable
+class ElementAware(Protocol):
+    """Optional Backend capability: expose the target's currently-interactable
+    elements so the model can click one by identity (the `click_element` action)
+    instead of guessing a pixel off the screenshot. Implement it wherever an
+    accessibility tree is available (DesktopBackend with `--desktop-ax`); the
+    loop checks `isinstance(backend, ElementAware)` and, only if the returned
+    list is non-empty, appends a target listing to the model's task. A backend
+    without it -- or one that returns [] -- is simply driven by pixels as before,
+    so this never changes the default path."""
+
+    def element_targets(self) -> list[axtree.AxElement]:
+        """The interactable elements on screen right now (may be empty). Called
+        once per step, not a hot path -- a fresh read each time keeps it current.
+        Real screen-pixel bounds, so a resolved click needs no model-space
+        scaling. The loop caches the returned list for the step and resolves the
+        model's ref against exactly that list (see elements.resolve_ref)."""
+        ...
+
+
+@runtime_checkable
+class Presentable(Protocol):
+    """Optional Backend capability: make this backend's target visible before it
+    is captured.
+
+    Only matters when a backend drives ONE window out of several on a shared
+    desktop. `capture(region)` grabs a screen rectangle, so whatever is stacked
+    on top of that rectangle is what lands in the screenshot -- with several
+    agents raising their own windows, each one's frames are routinely a
+    neighbour's pixels, and the model then clicks coordinates derived from the
+    wrong layout. Implementing this lets the loop put the right thing on screen
+    first (switch to its virtual desktop, then raise it).
+
+    Backends that own the whole screen, or drive a phone, simply don't implement
+    it and the loop skips the step.
+    """
+
+    def present(self) -> bool:
+        """Best-effort: put this backend's target on screen and unoccluded.
+        Called once per step, immediately before `capture`. Return False if
+        that could not be confirmed, so the loop can warn that the frame it is
+        about to take may not be of this backend's window (returning None is
+        read as "didn't check", not as failure)."""
+        ...
+
+
 class Backend(Protocol):
     """A target the agent can drive. Coordinates handed to `execute` are real
     target pixels (the loop has already mapped them out of model space)."""
@@ -86,9 +132,15 @@ class DesktopBackend:
         settle: float = actions.DEFAULT_SETTLE,
         activate: Callable[[], bool] | None = None,
         ax_provider=None,
+        window_handle=None,
     ):
         self.move_duration = move_duration
         self.settle = settle
+        # Optional HWND of the window this backend is scoped to. With it, the
+        # backend can switch to that window's virtual desktop before a capture
+        # (see present()), which is what stops several windows on one desktop
+        # occluding each other's screenshots. None = whole-screen backend.
+        self.window_handle = window_handle
         # Optional per-instance hook: bring this backend's target window to the
         # foreground (and confirm it took focus) right before each real action.
         # Only open/'s per-window runner needs this (a single-window run has
@@ -113,6 +165,33 @@ class DesktopBackend:
 
     def capture(self, region: tuple[int, int, int, int] | None):
         return screen.capture_screenshot(region=region)
+
+    # -- Presentable (backend.py): only meaningful for a window-scoped backend.
+    def present(self) -> bool:
+        """Put this backend's window on screen before it's captured: switch to
+        its virtual desktop if it's on another one, then raise it. Both halves
+        are best-effort and independent -- on a machine without virtual-desktop
+        support the raise alone still un-occludes the window on the single
+        desktop, which is the behaviour this had before.
+
+        Returns False when the raise could not be confirmed, so the caller can
+        say so out loud: a failed raise is a degraded capture, not a failed
+        run, but the frame that follows may show whatever window is actually in
+        front and the model would reason about the wrong pixels. The
+        virtual-desktop half is deliberately not part of the verdict -- it
+        returns False on every machine without virtual desktops, which is
+        normal, not a problem worth warning about.
+        """
+        if self.window_handle is not None:
+            from . import vdesktop
+
+            vdesktop.ensure_visible(self.window_handle)
+        if self.activate is None:
+            return True
+        try:
+            return self.activate() is not False
+        except Exception:
+            return False
 
     def execute(self, action: Action) -> str:
         return actions.execute(
@@ -139,13 +218,27 @@ class DesktopBackend:
     def locate(self, selector: ElementSelector) -> tuple[int, int] | None:
         if self.ax_provider is None or selector.kind != axtree.SELECTOR_KIND:
             return None
-        elements = self.ax_provider.snapshot()
-        if not elements:
+        snapshot = self.ax_provider.snapshot()
+        if not snapshot:
             return None
         matches = axtree.find_elements(
-            elements,
+            snapshot,
             automation_id=selector.attrs.get("automation_id"),
             name=selector.attrs.get("name"),
             role=selector.attrs.get("role"),
         )
         return matches[0].center if matches else None
+
+    # -- ElementAware (backend.py): the live-loop counterpart to Locatable.
+    # Locatable re-finds a *recorded* click for macro replay; this surfaces the
+    # current interactable elements so the *live* model can pick one by ref. Both
+    # ride the same ax_provider; the filtering/formatting is the tested elements
+    # logic. Empty (no provider, or nothing interactable) => the loop shows no
+    # listing and drives by pixels, unchanged.
+    def element_targets(self) -> list[axtree.AxElement]:
+        if self.ax_provider is None:
+            return []
+        snapshot = self.ax_provider.snapshot()
+        if not snapshot:
+            return []
+        return elements.interactable_targets(snapshot)

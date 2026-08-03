@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "secdogie-open"
-version = "0.1.0"
+version = "0.5.0"
 description = "Local web page that splits the screen by open window and drives one secdogie-agent instance per selected window at once."
 readme = "README.md"
 requires-python = ">=3.10"

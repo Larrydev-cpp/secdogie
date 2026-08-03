@@ -24,6 +24,17 @@ from .providers.base import Action
 DEFAULT_MOVE_DURATION = 0.15
 DEFAULT_SETTLE = 0.05
 
+# Seconds to wait after Ctrl+V before restoring the user's clipboard, so the
+# target app has actually read our text out of it first (see _paste_text).
+CLIPBOARD_SETTLE = 0.15
+
+_CLIPBOARD_HELP = (
+    "typing non-ASCII text (e.g. Chinese) needs clipboard access. Install "
+    "the pyperclip backend for your OS: on Linux `sudo apt install xclip` "
+    "(or xsel); pyperclip is bundled and works out of the box on Windows/macOS. "
+    "underlying error: {error}"
+)
+
 # There is exactly one physical cursor/keyboard, and a click is a non-atomic
 # move -> settle -> press sequence. When several desktop actors run at once in
 # one process (open/ drives one agent per window), two concurrent clicks would
@@ -36,14 +47,23 @@ _INPUT_LOCK = threading.Lock()
 _NON_INPUT_KINDS = frozenset({"wait", "screenshot", "open"})
 _NULL_CTX = contextlib.nullcontext()
 
+# Appended to an action's result when the pre-action focus hook could not
+# confirm the target window was frontmost. The action still runs (see execute),
+# but a click that may have landed on whatever window WAS in front must not be
+# reported as a plain success: the note rides the result string back into the
+# log, the model's history, and the audit trace. loop.py matches on this exact
+# constant to re-log it at WARNING -- import it, don't retype the text.
+FOCUS_UNCONFIRMED_NOTE = " [focus unconfirmed: the target window may not have been frontmost]"
+
 # Action kinds that reach OUTSIDE the "move the mouse / type into the focused
 # window" sandbox and can have consequences a screenshot can't undo. `open`
-# hands an arbitrary path/URL to the OS default handler (_open_path below), so
-# it can launch a program, run an installer, or open a link -- unlike every
-# other kind, which only manipulates whatever window already has focus. The
-# loop force-confirms these even under --auto (see loop.confirm_high_risk); keep
-# the set tight -- a kind belongs here only if it can act beyond the screen.
-HIGH_RISK_KINDS = frozenset({"open"})
+# hands a path/URL to the OS default handler (_open_path below); `run_elevated`
+# runs a command as SYSTEM (handled in loop.py, gated by an operator allowlist,
+# never dispatched here) -- both can launch a program or an installer, unlike
+# every other kind, which only manipulates whatever window already has focus.
+# The loop force-confirms these even under --auto (see loop.confirm_high_risk);
+# keep the set tight -- a kind belongs here only if it can act beyond the screen.
+HIGH_RISK_KINDS = frozenset({"open", "run_elevated"})
 
 
 def execute(
@@ -67,16 +87,28 @@ def execute(
     so the earlier actor's window is guaranteed to have already lost focus by
     the time the next one runs. No separate "confirm focus released" check is
     needed; gaining focus for the next window IS that confirmation. A failed
-    activation is swallowed (best-effort) -- the action still runs rather than
-    silently doing nothing."""
+    activation does not block the action (best-effort) -- the action still runs
+    rather than silently doing nothing -- but it is no longer swallowed either:
+    the result comes back carrying FOCUS_UNCONFIRMED_NOTE so the caller, the
+    model, and the trace all learn the click may have gone somewhere else."""
     guard = _NULL_CTX if action.kind in _NON_INPUT_KINDS else _INPUT_LOCK
     with guard:
+        confirmed = True
         if activate is not None and action.kind not in _NON_INPUT_KINDS:
-            try:
-                activate()
-            except Exception:
-                pass  # best-effort: the action still executes even if activation failed
-        return _dispatch(action, move_duration, settle)
+            confirmed = _activated(activate)
+        result = _dispatch(action, move_duration, settle)
+        return result if confirmed else result + FOCUS_UNCONFIRMED_NOTE
+
+
+def _activated(activate: Callable[[], bool]) -> bool:
+    """Run the focus hook and report whether it confirmed focus. A hook that
+    returns None isn't claiming anything (plenty of them just raise a window
+    and don't check), so only an explicit False -- or an exception -- counts as
+    "not confirmed"."""
+    try:
+        return activate() is not False
+    except Exception:
+        return False
 
 
 def _dispatch(action: Action, move_duration: float, settle: float) -> str:
@@ -164,22 +196,49 @@ def _dispatch(action: Action, move_duration: float, settle: float) -> str:
 
 
 def _paste_text(text: str) -> None:
-    """Type arbitrary Unicode by putting it on the clipboard and pasting."""
+    """Type arbitrary Unicode by putting it on the clipboard and pasting.
+
+    The clipboard belongs to the user, not to us: whatever they had copied is
+    read back first and put there again afterwards, so automating one line of
+    Chinese doesn't quietly destroy something they were in the middle of
+    pasting themselves.
+
+    Two honest limits. The restore waits CLIPBOARD_SETTLE seconds first,
+    because Ctrl+V is asynchronous -- the target app reads the clipboard while
+    handling the keystroke, and putting the old contents back too early makes
+    it paste the wrong thing. And a clipboard holding something that isn't text
+    (an image, a file list) can't be read back through pyperclip, so there is
+    nothing to restore; we clear it rather than leave our text sitting there
+    masquerading as theirs.
+    """
     import pyautogui
 
     try:
         import pyperclip
+    except Exception as e:
+        raise RuntimeError(_CLIPBOARD_HELP.format(error=e)) from e
 
+    try:
+        previous = pyperclip.paste()
+    except Exception:
+        previous = None  # non-text or unreadable clipboard: nothing to put back
+
+    try:
         pyperclip.copy(text)
     except Exception as e:
-        raise RuntimeError(
-            "typing non-ASCII text (e.g. Chinese) needs clipboard access. Install "
-            "the pyperclip backend for your OS: on Linux `sudo apt install xclip` "
-            "(or xsel); pyperclip is bundled and works out of the box on Windows/macOS. "
-            f"underlying error: {e}"
-        ) from e
+        # Raised here rather than on import: on Linux pyperclip imports fine
+        # and only fails once it looks for xclip/xsel to actually copy.
+        raise RuntimeError(_CLIPBOARD_HELP.format(error=e)) from e
+
     modifier = "command" if sys.platform == "darwin" else "ctrl"
-    pyautogui.hotkey(modifier, "v")
+    try:
+        pyautogui.hotkey(modifier, "v")
+        time.sleep(CLIPBOARD_SETTLE)
+    finally:
+        try:
+            pyperclip.copy(previous if previous is not None else "")
+        except Exception:
+            pass  # best-effort: failing to restore must not fail the typing itself
 
 
 def _open_path(path: str | None) -> str:

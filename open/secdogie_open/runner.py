@@ -83,7 +83,15 @@ def launch(
         # that call happens inside the process-wide input lock, so one window's
         # click+type always completes (and hands focus to whichever window acts
         # next) before another window's action can start.
-        backend = DesktopBackend(activate=lambda: windows.focus_window(window))
+        # `window_handle` lets the backend switch to this window's virtual
+        # desktop before each capture, so windows on a shared desktop stop
+        # occluding each other's screenshots (see backend.Presentable and
+        # secdogie_agent/vdesktop.py). Put each selected window on its own
+        # virtual desktop and every frame is genuinely that window.
+        backend = DesktopBackend(
+            activate=lambda: windows.focus_window(window),
+            window_handle=window.handle,
+        )
 
         config = AgentConfig(
             task=task,

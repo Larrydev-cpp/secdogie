@@ -1,6 +1,8 @@
+import logging
+
 import pytest
-from secdogie_agent import actions, loop, screen
-from secdogie_agent.backend import ElementSelector
+from secdogie_agent import actions, axtree, loop, screen
+from secdogie_agent.backend import DesktopBackend, ElementSelector
 from secdogie_agent.macro import Macro, MacroStep
 from secdogie_agent.providers.base import Action, VisionProvider
 
@@ -112,6 +114,454 @@ def test_loop_scales_model_coordinates_to_screen(monkeypatch):
     assert rc == 0
     assert (executed[0].x, executed[0].y) == (200, 100)  # scaled 2x
     assert executed[0].raw["x"] == 200  # raw updated too, for logs/confirmation
+
+
+# -- element-first perception (--desktop-ax): cached vision + model-gated `look` --
+#
+# With an element-aware backend, the accessibility tree is the fresh sense every
+# step and the screenshot is cached between `look`s -- so the model, not the
+# loop, decides when to spend a fresh visual pass. These drive that through the
+# real loop with a fake accessibility provider, counting frame preparations.
+
+class _FakeAxProvider:
+    def __init__(self, elements):
+        self._elements = elements
+
+    def snapshot(self):
+        return self._elements
+
+
+def _one_button_tree():
+    return [axtree.AxElement(role="Button", name="Go", automation_id="goBtn", bounds=(100, 100, 200, 140))]
+
+
+def _count_prepare(monkeypatch, executed):
+    """Patch capture/execute like _patch_screen_and_actions but COUNT how many
+    times a frame is prepared for the model, to prove the cache is (not) hit."""
+    calls = {"prepare": 0}
+    monkeypatch.setattr(screen, "capture_screenshot", lambda region=None: (b"fake-png", (1920, 1080)))
+
+    def prep(raw, size, **kw):
+        calls["prepare"] += 1
+        return raw, size, 1.0
+
+    monkeypatch.setattr(screen, "prepare_for_model", prep)
+    monkeypatch.setattr(actions, "execute", lambda action, **kw: executed.append(action) or "ok")
+    return calls
+
+
+def _element_backend():
+    return DesktopBackend(ax_provider=_FakeAxProvider(_one_button_tree()))
+
+
+def test_element_first_reuses_the_cached_frame_between_steps(monkeypatch):
+    executed = []
+    calls = _count_prepare(monkeypatch, executed)
+    provider = ScriptedProvider([
+        {"action": "click_element", "element": "e1"},
+        {"action": "click_element", "element": "e1"},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(task="click Go twice", auto=True, max_steps=10,
+                              desktop_ax=True, backend=_element_backend())
+    rc = loop.run(provider, config)
+    assert rc == 0
+    # Three model calls, but the frame is prepared ONCE: fresh on step 1, cached
+    # for the rest (the fresh element tree carries current state each step).
+    assert provider.calls == 3
+    assert calls["prepare"] == 1
+    # Both click_elements resolved to a real-pixel left_click at the button centre.
+    assert [a.kind for a in executed] == ["left_click", "left_click"]
+    assert (executed[0].x, executed[0].y) == (150, 120)
+
+
+def test_look_forces_a_fresh_frame(monkeypatch):
+    executed = []
+    calls = _count_prepare(monkeypatch, executed)
+    provider = ScriptedProvider([
+        {"action": "click_element", "element": "e1"},
+        {"action": "look"},                       # model asks to see fresh pixels
+        {"action": "click_element", "element": "e1"},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(task="click, look, click", auto=True, max_steps=10,
+                              desktop_ax=True, backend=_element_backend())
+    rc = loop.run(provider, config)
+    assert rc == 0
+    # Fresh on step 1, cached on step 2, `look` re-captures for step 3 -> two prepares.
+    assert calls["prepare"] == 2
+    assert [a.kind for a in executed] == ["left_click", "left_click"]  # look never executes
+
+
+def test_unresolved_element_ref_is_reported_not_clicked(monkeypatch):
+    executed = []
+    _count_prepare(monkeypatch, executed)
+    provider = ScriptedProvider([
+        {"action": "click_element", "element": "e9"},  # no such ref in the listing
+        {"action": "done", "text": "gave up"},
+    ])
+    config = loop.AgentConfig(task="click a missing element", auto=True, max_steps=10,
+                              desktop_ax=True, backend=_element_backend())
+    rc = loop.run(provider, config)
+    assert rc == 0
+    assert executed == []  # nothing was clicked -- the miss is fed back to the model instead
+
+
+def test_default_mode_prepares_a_fresh_frame_every_step(monkeypatch):
+    # Without --desktop-ax the cache is off: the pixel path is unchanged, a fresh
+    # frame every step exactly as before.
+    executed = []
+    calls = _count_prepare(monkeypatch, executed)
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "left_click", "x": 2, "y": 2},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(task="two clicks", auto=True, max_steps=10)
+    rc = loop.run(provider, config)
+    assert rc == 0
+    assert calls["prepare"] == 3  # one per model call, no caching
+
+
+# -- run_elevated: confined to the operator's allowlist ------------------------
+# The safety boundary for SYSTEM elevation. The model can only escalate a command
+# the operator declared at launch; with no allowlist, elevation is entirely off.
+# We fake the elevate seam so none of this needs Windows or admin.
+
+def _elevate_calls(monkeypatch):
+    """Record any run_as_system calls, and make it 'succeed' so we can tell
+    execution apart from refusal."""
+    from secdogie_agent import elevate
+    calls = []
+
+    def fake(command, **kw):
+        calls.append(command)
+        return elevate.ElevateResult(elevate.LAUNCHED, pid=1, detail="ok")
+
+    monkeypatch.setattr(elevate, "run_as_system", fake)
+    return calls
+
+
+def test_run_elevated_is_off_with_no_allowlist(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    calls = _elevate_calls(monkeypatch)
+    provider = ScriptedProvider([
+        {"action": "run_elevated", "path": "sc stop Spooler"},
+        {"action": "done", "text": "done"},
+    ])
+    # Default config: elevated_allowlist is empty.
+    rc = loop.run(provider, loop.AgentConfig(task="x", auto=True, max_steps=5))
+    assert rc == 0
+    assert calls == []                  # nothing was ever escalated
+    assert executed == []               # and it wasn't run as a normal action either
+
+
+def test_run_elevated_refuses_a_command_not_in_the_allowlist(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    calls = _elevate_calls(monkeypatch)
+    provider = ScriptedProvider([
+        {"action": "run_elevated", "path": "sc stop Themes"},   # not the allowed one
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(task="x", auto=True, max_steps=5,
+                              elevated_allowlist=("sc stop Spooler",))
+    assert loop.run(provider, config) == 0
+    assert calls == []                  # a near-miss is still refused
+
+
+def test_run_elevated_runs_only_an_allowlisted_command_and_still_confirms(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    calls = _elevate_calls(monkeypatch)
+    # It's HIGH_RISK, so even under --auto it must confirm. Answer yes.
+    monkeypatch.setattr("builtins.input", lambda prompt: "y")
+    provider = ScriptedProvider([
+        {"action": "run_elevated", "path": "sc stop Spooler"},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(task="x", auto=True, max_steps=5,
+                              elevated_allowlist=("sc stop Spooler",))
+    assert loop.run(provider, config) == 0
+    assert calls == ["sc stop Spooler"]   # exactly the allowed command, escalated
+
+
+def test_run_elevated_force_confirms_even_under_auto(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    calls = _elevate_calls(monkeypatch)
+    monkeypatch.setattr("builtins.input", lambda prompt: "n")   # decline
+    provider = ScriptedProvider([
+        {"action": "run_elevated", "path": "sc stop Spooler"},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(task="x", auto=True, max_steps=5,
+                              elevated_allowlist=("sc stop Spooler",))
+    assert loop.run(provider, config) == 0
+    assert calls == []                  # declined at the confirm, so never escalated
+
+
+def test_run_elevated_is_a_high_risk_kind():
+    from secdogie_agent import actions
+    assert "run_elevated" in actions.HIGH_RISK_KINDS
+
+
+# -- occlusion: the target must be presented BEFORE it is captured -------------
+# With several agents driving several windows on one desktop, `capture(region)`
+# grabs a screen rectangle -- so whatever is stacked on top of it is what lands
+# in the screenshot. Raising the window only before the *action* (the old
+# behaviour) means the model reasons about a neighbour's pixels and then clicks
+# coordinates that mean nothing in the window it acts on.
+
+class _PresentingBackend:
+    """A window-scoped backend that records the order of present/capture/execute."""
+
+    def __init__(self, events):
+        self.events = events
+
+    def setup(self, logger):
+        pass
+
+    def present(self):
+        self.events.append("present")
+
+    def capture(self, region):
+        self.events.append("capture")
+        return b"fake-png", (800, 600)
+
+    def execute(self, action):
+        self.events.append(f"execute:{action.kind}")
+        return "ok"
+
+
+def test_the_window_is_presented_before_every_capture(monkeypatch):
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+    events = []
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(task="click", auto=True, max_steps=5, verify_actions=False,
+                              backend=_PresentingBackend(events))
+    assert loop.run(provider, config) == 0
+
+    # Every capture is immediately preceded by a present -- never the other way.
+    assert events[0] == "present"
+    for i, e in enumerate(events):
+        if e == "capture":
+            assert events[i - 1] == "present", f"capture at {i} was not preceded by present: {events}"
+    assert events.count("present") == events.count("capture")
+
+
+def test_a_backend_without_present_is_unaffected(monkeypatch):
+    # Whole-screen and phone backends don't implement it; the loop must skip the
+    # step rather than requiring it.
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "done", "text": "done"},
+    ])
+    assert loop.run(provider, loop.AgentConfig(task="click", auto=True, max_steps=5)) == 0
+    assert executed == ["left_click"]
+
+
+def test_a_failing_present_does_not_end_the_run(monkeypatch):
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+    events = []
+
+    class Broken(_PresentingBackend):
+        def present(self):
+            raise RuntimeError("the window vanished")
+
+    provider = ScriptedProvider([{"action": "done", "text": "done"}])
+    config = loop.AgentConfig(task="x", auto=True, max_steps=5, backend=Broken(events))
+    assert loop.run(provider, config) == 0   # a degraded capture, not a failed run
+
+
+# -- focus honesty ------------------------------------------------------------
+# A window that won't come to the front is the one failure a "best-effort" hook
+# must not hide: the run keeps going, screenshots something else, and clicks
+# land in a bystander app. Degraded is fine; degraded and silent is not.
+
+def test_an_unconfirmed_present_warns(monkeypatch, caplog):
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+
+    class Unconfirmed(_PresentingBackend):
+        def present(self):
+            self.events.append("present")
+            return False        # raised it, couldn't confirm it came forward
+
+    provider = ScriptedProvider([{"action": "done", "text": "done"}])
+    config = loop.AgentConfig(task="x", auto=True, max_steps=5, backend=Unconfirmed([]))
+    with caplog.at_level(logging.WARNING):
+        assert loop.run(provider, config) == 0   # still a degraded capture, not a failed run
+    assert any("frontmost" in r.message for r in caplog.records if r.levelno >= logging.WARNING)
+
+
+def test_a_present_that_returns_none_does_not_warn(monkeypatch, caplog):
+    # Backends that raise a window without checking (the common case) aren't
+    # reporting failure -- warning on those would cry wolf every single step.
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+    provider = ScriptedProvider([{"action": "done", "text": "done"}])
+    config = loop.AgentConfig(task="x", auto=True, max_steps=5, backend=_PresentingBackend([]))
+    with caplog.at_level(logging.WARNING):
+        assert loop.run(provider, config) == 0
+    assert not [r for r in caplog.records if "frontmost" in r.message]
+
+
+def test_initial_focus_failure_warns(monkeypatch, caplog):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    provider = ScriptedProvider([{"action": "done", "text": "done"}])
+    config = loop.AgentConfig(task="x", auto=True, max_steps=5, initial_focus=lambda: False)
+    with caplog.at_level(logging.WARNING):
+        assert loop.run(provider, config) == 0   # proceeds anyway
+    assert any("foreground" in r.message for r in caplog.records if r.levelno >= logging.WARNING)
+
+
+def test_initial_focus_that_raises_warns(monkeypatch, caplog):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+
+    def boom():
+        raise RuntimeError("pywinctl missing")
+
+    provider = ScriptedProvider([{"action": "done", "text": "done"}])
+    config = loop.AgentConfig(task="x", auto=True, max_steps=5, initial_focus=boom)
+    with caplog.at_level(logging.WARNING):
+        assert loop.run(provider, config) == 0
+    assert any("initial focus" in r.message for r in caplog.records if r.levelno >= logging.WARNING)
+
+
+def test_an_action_without_confirmed_focus_warns(monkeypatch, caplog):
+    # The note is appended by actions.execute and reaches the model through the
+    # result; the loop re-logs it so the operator sees it too.
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+
+    class Unfocused(_PresentingBackend):
+        def execute(self, action):
+            return "clicked left at (1, 1)" + actions.FOCUS_UNCONFIRMED_NOTE
+
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(task="x", auto=True, max_steps=5, verify_actions=False,
+                              backend=Unfocused([]))
+    with caplog.at_level(logging.WARNING):
+        assert loop.run(provider, config) == 0
+    assert any("without confirmed focus" in r.message for r in caplog.records)
+
+
+# -- rate-limit / overload resilience -----------------------------------------
+# A 429 from a shared quota (several agents at once) must not kill the run: the
+# step backs off and retries. Only a non-transient error, or exhausting the
+# retries, ends it.
+
+class _FlakyProvider(VisionProvider):
+    """Raises `exc` for the first `fail_times` calls, then replays `script`."""
+
+    def __init__(self, exc, fail_times, script):
+        self.exc, self.fail_times, self.script = exc, fail_times, list(script)
+        self.calls = 0
+
+    def next_action(self, task, screenshot_png, screen_size, history):
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise self.exc
+        return Action.from_dict(self.script.pop(0))
+
+
+def _rate_limited(status=429):
+    e = type("RateLimitError", (Exception,), {})("slow down")
+    e.status_code = status
+    return e
+
+
+def test_rate_limit_backs_off_and_the_run_survives(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    slept = []
+    monkeypatch.setattr(loop.time, "sleep", lambda s: slept.append(s))
+
+    provider = _FlakyProvider(_rate_limited(), fail_times=2, script=[
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "done", "text": "done"},
+    ])
+    rc = loop.run(provider, loop.AgentConfig(task="click", auto=True, max_steps=5))
+    assert rc == 0                       # survived the 429s
+    assert provider.calls == 4           # 2 failures + 2 real steps
+    assert executed == ["left_click"]
+    assert slept[:2] == [2.0, 4.0]       # exponential backoff from the default base
+
+
+def test_run_fails_after_exhausting_transient_retries(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    monkeypatch.setattr(loop.time, "sleep", lambda s: None)
+
+    provider = _FlakyProvider(_rate_limited(), fail_times=99, script=[])
+    config = loop.AgentConfig(task="click", auto=True, max_steps=5, max_transient_retries=2)
+    assert loop.run(provider, config) == 1
+    assert provider.calls == 3           # the initial attempt + 2 retries, then give up
+
+
+def test_auth_error_fails_immediately_without_retrying(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    slept = []
+    monkeypatch.setattr(loop.time, "sleep", lambda s: slept.append(s))
+
+    fatal = type("AuthenticationError", (Exception,), {})("bad key")
+    fatal.status_code = 401
+    provider = _FlakyProvider(fatal, fail_times=99, script=[])
+    assert loop.run(provider, loop.AgentConfig(task="click", auto=True, max_steps=5)) == 1
+    assert provider.calls == 1           # no point retrying a bad key
+    assert slept == []
+
+
+def test_initial_focus_runs_once_before_the_first_capture(monkeypatch):
+    # The single agent asserts the target window's foreground ONCE, before the
+    # first screenshot -- so the frame the model reasons about (and the click that
+    # follows) land on the intended window, not a ghost of our menu/dialogs.
+    events = []
+
+    def cap(region=None):
+        events.append("capture")
+        return b"fake-png", (1920, 1080)
+
+    monkeypatch.setattr(screen, "capture_screenshot", cap)
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+    monkeypatch.setattr(actions, "execute", lambda action, **kw: "ok")
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(
+        task="click", auto=True, max_steps=5,
+        initial_focus=lambda: events.append("focus"),
+    )
+    assert loop.run(provider, config) == 0
+    assert events[0] == "focus"          # focus asserted before the very first capture
+    assert events.count("focus") == 1    # one-shot, not once per step
+
+
+def test_initial_focus_failure_never_stops_the_run(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+
+    def boom():
+        raise RuntimeError("window vanished")
+
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(task="click", auto=True, max_steps=5, initial_focus=boom)
+    assert loop.run(provider, config) == 0  # best-effort: a focus failure is swallowed
+    assert executed == ["left_click"]
 
 
 def test_benign_wait_needs_no_confirmation(monkeypatch):
@@ -392,6 +842,24 @@ def test_stall_guard_stops_when_action_repeats_on_unchanged_screen(monkeypatch):
     rc = loop.run(provider, loop.AgentConfig(task="t", auto=True, max_steps=20, stall_limit=3, action_pause=0))
     assert rc == 6  # stalled
     assert provider.calls == 4  # one baseline + three no-change repeats
+
+
+def test_stall_guard_distinguishes_open_by_path(monkeypatch):
+    # `open` carries no coords, so its identity is the path. Opening two
+    # DIFFERENT paths on an unchanged screen is not a repeat -- the stall guard
+    # must not conflate them (which would falsely stop on the second).
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)   # unchanged screen
+    monkeypatch.setattr("builtins.input", lambda prompt: "y")  # open is high-risk -> confirm
+    provider = ScriptedProvider([
+        {"action": "open", "path": "a.txt"},
+        {"action": "open", "path": "b.txt"},
+        {"action": "open", "path": "c.txt"},
+        {"action": "done", "text": "done"},
+    ])
+    rc = loop.run(provider, loop.AgentConfig(task="t", auto=True, max_steps=10, stall_limit=2, action_pause=0))
+    assert rc == 0                       # never stalled -- each path is distinct
+    assert executed == ["open", "open", "open"]
 
 
 def test_stall_guard_does_not_fire_when_screen_changes(monkeypatch):

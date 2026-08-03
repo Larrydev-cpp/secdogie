@@ -141,3 +141,19 @@ def ask_user(question: str) -> bool:
     answer = messagebox.askyesno("secdogie-agent — the model is asking", question, parent=root)
     root.destroy()
     return bool(answer)
+
+
+def notify(title: str, message: str, *, error: bool = False) -> bool:
+    """Best-effort popup for a message the user must see when there's no console
+    to print it to (the windowed exe). Returns True if a dialog was actually
+    shown, False if no GUI was available -- so the caller can rely on its own
+    print() having gone somewhere too. Never raises."""
+    try:
+        tk, _, messagebox = _import_tk()
+        root = _new_root(tk)
+        root.withdraw()
+        (messagebox.showerror if error else messagebox.showinfo)(title, message, parent=root)
+        root.destroy()
+        return True
+    except Exception:
+        return False

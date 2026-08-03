@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "secdogie-agent"
-version = "0.1.0"
+version = "0.5.0"
 description = "Vision-LLM computer-control agent: plug in an API key, it drives your mouse/keyboard toward a stated task."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,6 +24,19 @@ openai = ["openai>=1.0.0"]
 # The local reflex layer (secdogie_agent/reflex.py) needs numpy for its fast
 # FFT template matching; nothing else does, so it stays optional.
 reflex = ["numpy>=1.21"]
+# Desktop accessibility ("--desktop-ax"): element-aware desktop control reads the
+# OS accessibility tree. The reader is platform-specific and opt-in. Linux's
+# pyatspi is a system package (e.g. `apt install python3-pyatspi`), so only the
+# pip-installable readers live here; macOS additionally needs the host app
+# granted Accessibility permission at runtime.
+windows-ax = ["uiautomation>=2.0"]
+# Windows virtual desktops (secdogie_agent/vdesktop.py): puts each driven window
+# on its own Win+Tab desktop so several windows stop occluding each other's
+# screenshots. Needs comtypes for the documented IVirtualDesktopManager
+# interface; without it the feature no-ops and capture falls back to raising the
+# window on a single desktop.
+windows-vdesktop = ["comtypes>=1.2"]
+macos-ax = ["pyobjc-framework-ApplicationServices>=9.0"]
 
 [project.scripts]
 secdogie-agent = "secdogie_agent.cli:main"

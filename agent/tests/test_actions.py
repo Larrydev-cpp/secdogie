@@ -57,24 +57,88 @@ def test_type_ascii_uses_typewrite(monkeypatch):
     assert [c[0] for c in calls] == ["typewrite"]
 
 
+def _fake_clipboard(monkeypatch, initial="", paste_raises=False, copy_raises=False):
+    """A stand-in clipboard that records every copy in order, so tests can see
+    both what was pasted and what was put back afterwards."""
+    state = {"content": initial, "copies": []}
+
+    def copy(t):
+        if copy_raises:
+            raise RuntimeError("no copy/paste mechanism found (install xclip)")
+        state["copies"].append(t)
+        state["content"] = t
+
+    def paste():
+        if paste_raises:
+            raise RuntimeError("clipboard holds a non-text payload")
+        return state["content"]
+
+    monkeypatch.setitem(sys.modules, "pyperclip", types.SimpleNamespace(copy=copy, paste=paste))
+    monkeypatch.setattr(actions, "CLIPBOARD_SETTLE", 0)  # don't really wait in tests
+    return state
+
+
 def test_type_unicode_uses_clipboard(monkeypatch):
     calls = _fake_pyautogui(monkeypatch)
-    copied = {}
-    fake_clip = types.SimpleNamespace(copy=lambda t: copied.setdefault("text", t))
-    monkeypatch.setitem(sys.modules, "pyperclip", fake_clip)
+    clip = _fake_clipboard(monkeypatch)
     monkeypatch.setattr(actions.sys, "platform", "linux")
     res = _run({"action": "type", "text": "你好"})
-    assert copied["text"] == "你好"           # went to clipboard
+    assert clip["copies"][0] == "你好"             # went to clipboard first
     assert ("hotkey", ("ctrl", "v"), {}) in calls  # pasted
     assert "clipboard" in res
 
 
 def test_type_unicode_uses_cmd_v_on_mac(monkeypatch):
     calls = _fake_pyautogui(monkeypatch)
-    monkeypatch.setitem(sys.modules, "pyperclip", types.SimpleNamespace(copy=lambda t: None))
+    _fake_clipboard(monkeypatch)
     monkeypatch.setattr(actions.sys, "platform", "darwin")
     _run({"action": "type", "text": "café"})
     assert ("hotkey", ("command", "v"), {}) in calls
+
+
+def test_type_unicode_restores_the_users_clipboard(monkeypatch):
+    # The clipboard is the user's: typing one line of Chinese must not eat
+    # whatever they had copied and were about to paste themselves.
+    _fake_pyautogui(monkeypatch)
+    clip = _fake_clipboard(monkeypatch, initial="something the user copied")
+    monkeypatch.setattr(actions.sys, "platform", "linux")
+    _run({"action": "type", "text": "你好"})
+    assert clip["copies"] == ["你好", "something the user copied"]  # ours, then theirs back
+    assert clip["content"] == "something the user copied"
+
+
+def test_type_unicode_restores_clipboard_even_if_the_paste_keystroke_fails(monkeypatch):
+    _fake_pyautogui(monkeypatch)
+    clip = _fake_clipboard(monkeypatch, initial="theirs")
+    monkeypatch.setattr(actions.sys, "platform", "linux")
+
+    def boom(*a, **k):
+        raise RuntimeError("hotkey failed")
+
+    monkeypatch.setattr(sys.modules["pyautogui"], "hotkey", boom)
+    with pytest.raises(RuntimeError):
+        _run({"action": "type", "text": "你好"})
+    assert clip["content"] == "theirs"  # restored on the way out, not left as ours
+
+
+def test_type_unicode_clears_a_clipboard_it_could_not_read_back(monkeypatch):
+    # An image/file-list clipboard can't be read through pyperclip, so there is
+    # nothing to restore. Clearing is the honest end state -- leaving our text
+    # there would have it masquerade as something the user copied.
+    _fake_pyautogui(monkeypatch)
+    clip = _fake_clipboard(monkeypatch, initial="<an image>", paste_raises=True)
+    monkeypatch.setattr(actions.sys, "platform", "linux")
+    _run({"action": "type", "text": "你好"})
+    assert clip["copies"] == ["你好", ""]
+    assert clip["content"] == ""
+
+
+def test_type_unicode_without_a_clipboard_backend_explains_the_fix(monkeypatch):
+    _fake_pyautogui(monkeypatch)
+    _fake_clipboard(monkeypatch, copy_raises=True)
+    monkeypatch.setattr(actions.sys, "platform", "linux")
+    with pytest.raises(RuntimeError, match="xclip"):
+        _run({"action": "type", "text": "你好"})
 
 
 def test_open_uses_xdg_open_on_linux(monkeypatch):
@@ -222,6 +286,42 @@ def test_activate_failure_does_not_block_the_action(monkeypatch):
     result = _run({"action": "left_click", "x": 1, "y": 1}, activate=boom)
     assert "clicked" in result
     assert [c[0] for c in calls] == ["moveTo", "click"]
+
+
+def test_activate_failure_is_reported_in_the_result(monkeypatch):
+    # ...but it is not swallowed either: the click may have landed in another
+    # app, and the result is what the model and the trace see.
+    _fake_pyautogui(monkeypatch)
+
+    def boom():
+        raise RuntimeError("no window manager support")
+
+    assert actions.FOCUS_UNCONFIRMED_NOTE in _run({"action": "left_click", "x": 1, "y": 1}, activate=boom)
+
+
+def test_activate_returning_false_is_reported_in_the_result(monkeypatch):
+    # The common real case: the hook ran fine and honestly reports it could not
+    # confirm focus (Wayland, or a window that won't come forward).
+    _fake_pyautogui(monkeypatch)
+    result = _run({"action": "left_click", "x": 1, "y": 1}, activate=lambda: False)
+    assert actions.FOCUS_UNCONFIRMED_NOTE in result
+    assert "clicked" in result  # the action still ran
+
+
+def test_confirmed_activation_leaves_the_result_clean(monkeypatch):
+    _fake_pyautogui(monkeypatch)
+    assert actions.FOCUS_UNCONFIRMED_NOTE not in _run(
+        {"action": "left_click", "x": 1, "y": 1}, activate=lambda: True
+    )
+
+
+def test_activate_returning_none_is_not_treated_as_failure(monkeypatch):
+    # A hook that just raises a window without checking isn't claiming failure;
+    # only an explicit False (or an exception) is.
+    _fake_pyautogui(monkeypatch)
+    assert actions.FOCUS_UNCONFIRMED_NOTE not in _run(
+        {"action": "left_click", "x": 1, "y": 1}, activate=lambda: None
+    )
 
 
 def test_activate_runs_inside_the_input_lock(monkeypatch):

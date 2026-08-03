@@ -1,0 +1,19 @@
+# Python build/run artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.build-venv/
+
+# Test/tool caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+
+# Local secrets -- the agent's config file holds an API key
+secdogie.env
+secdogie.log
