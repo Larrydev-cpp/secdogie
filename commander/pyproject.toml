@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "secdogie-commander"
-version = "0.1.0"
+version = "0.5.0"
 description = "The tactician: decide the dragon fight's phases and sequence Node A (logistics) and Node B (combat)."
 readme = "README.md"
 requires-python = ">=3.10"
