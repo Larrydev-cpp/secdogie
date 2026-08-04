@@ -54,6 +54,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.init_config:
         return cli_common.handle_init_config(args, "secdogie-android")
+    if args.init_model_dir:
+        return cli_common.handle_init_model_dir(args, "secdogie-android")
 
     if not args.task:
         parser.error("the following arguments are required: task")

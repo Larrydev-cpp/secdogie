@@ -40,6 +40,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.init_config:
         return cli_common.handle_init_config(args, "secdogie-ios")
+    if args.init_model_dir:
+        return cli_common.handle_init_model_dir(args, "secdogie-ios")
 
     if not args.task:
         parser.error("the following arguments are required: task")

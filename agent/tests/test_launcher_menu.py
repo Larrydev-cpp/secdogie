@@ -77,3 +77,37 @@ def test_menu_flag_cancelled_exits_without_running():
          mock.patch.object(cli, "run", return_value=0) as run:
         assert cli.main(["--menu"]) == 0    # closing the chooser just exits
         assert not run.called
+
+
+# -- the model row: the slot the exe leaves empty for the model/ folder --------
+
+def test_no_model_folder_means_no_model_row():
+    assert m.model_options([]) == []
+
+
+def test_one_preset_is_not_a_choice():
+    # It is simply used. Asking someone to "choose" from one item is the
+    # ceremony the folder exists to remove.
+    assert m.model_options(["fast"]) == []
+
+
+def test_several_presets_become_the_row():
+    assert m.model_options(["careful", "fast"]) == ["careful", "fast"]
+
+
+def test_the_chosen_model_is_appended_to_the_cards_argv():
+    assert m.args_with_model(["--gui", "--dry-run"], "fast") == ["--gui", "--dry-run", "--model", "fast"]
+
+
+def test_no_chosen_model_leaves_the_argv_alone():
+    assert m.args_with_model(["--gui"], None) == ["--gui"]
+
+
+def test_setup_cards_take_no_model():
+    # --init-config / --init-model-dir aren't runs; a model on them is noise.
+    assert m.args_with_model(["--init-config"], "fast") == ["--init-config"]
+    assert m.args_with_model(["--init-model-dir"], "fast") == ["--init-model-dir"]
+
+
+def test_the_menu_offers_making_the_model_folder():
+    assert m.args_for("modeldir") == ["--init-model-dir"]

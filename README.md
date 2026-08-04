@@ -76,9 +76,12 @@ Pre-built binaries — a single-file executable for `agent`, `android`, `ios`,
 [Releases](../../releases) page. Each is offered two ways: the **bare
 executable** as a direct, one-file download (on Windows, download
 `secdogie-agent-windows-….exe` and just run it — it's fully self-contained,
-nothing needs to sit next to it), and a **`.zip`** that adds the docs and a
+nothing needs to sit next to it), and a **`.zip`** that adds the docs, a
 double-click launcher (a console window on Windows, the Gatekeeper right-click
-helper on macOS). They're built and attached automatically when a `v*` tag is
+helper on macOS), and a ready-made **`model/` folder** — drop a file named after
+a model into it and that's the model, no flags (the bare exe makes the same
+folder on request; see
+[Choosing a model](agent/README.md#choosing-a-model-the-model-folder)). They're built and attached automatically when a `v*` tag is
 pushed — see [`docs/RELEASING.md`](docs/RELEASING.md). Prefer to build from
 source? Each subdirectory's README has instructions.
 

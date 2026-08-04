@@ -60,12 +60,12 @@ def test_attach_parent_console_is_false_off_windows():
 
 
 def test_log_path_sits_next_to_the_exe_when_frozen(monkeypatch, tmp_path):
-    monkeypatch.setattr(fr, "_exe_dir", lambda: tmp_path)
+    monkeypatch.setattr(fr, "exe_dir", lambda: tmp_path)
     assert fr.log_path() == tmp_path / "secdogie.log"
 
 
 def test_log_path_falls_back_when_theres_no_exe_dir(monkeypatch, tmp_path):
-    monkeypatch.setattr(fr, "_exe_dir", lambda: None)
+    monkeypatch.setattr(fr, "exe_dir", lambda: None)
     monkeypatch.setattr(fr.Path, "home", lambda: tmp_path)
     p = fr.log_path()
     assert p == tmp_path / ".secdogie" / "secdogie.log"

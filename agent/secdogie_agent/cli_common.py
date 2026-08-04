@@ -28,7 +28,8 @@ def add_provider_args(parser: argparse.ArgumentParser) -> None:
         "--model",
         default=None,
         help=f"vision model to use (default: {DEFAULT_MODEL}); the prefix picks the provider "
-        "(claude-* -> Anthropic, gpt-*/o-series -> OpenAI), or use a provider/model ref like openai/gpt-5.5",
+        "(claude-* -> Anthropic, gpt-*/o-series -> OpenAI), or use a provider/model ref like openai/gpt-5.5. "
+        "May also name a preset in the model/ folder (see --init-model-dir)",
     )
     parser.add_argument(
         "--provider",
@@ -42,6 +43,18 @@ def add_provider_args(parser: argparse.ArgumentParser) -> None:
         "--init-config",
         action="store_true",
         help="write a template config file you can fill in with your API key, then exit",
+    )
+    parser.add_argument(
+        "--model-dir",
+        default=None,
+        help="folder of model presets to read (default: model/ next to the executable, then ./model, "
+        "then ~/.config/secdogie/model)",
+    )
+    parser.add_argument(
+        "--init-model-dir",
+        action="store_true",
+        help="create the model/ folder (with a README and an example preset) and exit; drop a file "
+        "in it to choose the model instead of passing --model every time",
     )
 
 
@@ -183,16 +196,58 @@ def handle_init_config(args: argparse.Namespace, prog: str) -> int:
     return 0
 
 
+def handle_init_model_dir(args: argparse.Namespace, prog: str) -> int:
+    """Run the --init-model-dir flow: create the model folder so choosing a
+    model is dropping a file in it. Existing files are left alone, so running
+    this twice is safe."""
+    from . import dialog, frozen_runtime, modelbank
+
+    explicit = getattr(args, "model_dir", None)
+    if explicit:
+        target = Path(explicit)
+    else:
+        exe_dir = frozen_runtime.exe_dir()
+        target = (exe_dir / modelbank.DIR_NAME) if exe_dir else Path(modelbank.DIR_NAME)
+    try:
+        created = modelbank.write_example_dir(target)
+    except OSError as e:
+        print(f"error: could not create {target}: {e}", file=sys.stderr)
+        if _no_console():
+            dialog.notify(prog, f"Could not create the model folder:\n\n{target}\n\n{e}", error=True)
+        return 1
+    resolved = created.resolve()
+    print(f"model folder ready at {resolved}")
+    print("put a file in it named for the model (e.g. claude-opus-4-8) -- see its README.md")
+    if _no_console():
+        dialog.notify(
+            f"{prog} — model folder",
+            f"Created:\n\n{resolved}\n\n"
+            "Put a file in it named after the model you want (for example "
+            "claude-opus-4-8), then open the app again. With one file in there, "
+            "that model is simply used; with several, you get to pick at startup.",
+        )
+    return 0
+
+
 def resolve_provider(args: argparse.Namespace, prog: str) -> VisionProvider | None:
     """Resolve the provider/model/key from args + env + config and build the
     provider. On any failure, print an actionable error naming `prog` and
     return None so the caller can exit 1."""
-    resolved = config_mod.resolve(
-        cli_api_key=args.api_key,
-        cli_model=args.model,
-        config_path=args.config,
-        cli_provider=args.provider,
-    )
+    from . import frozen_runtime, modelbank
+
+    try:
+        resolved = config_mod.resolve(
+            cli_api_key=args.api_key,
+            cli_model=args.model,
+            config_path=args.config,
+            cli_provider=args.provider,
+            model_dir=getattr(args, "model_dir", None),
+            exe_dir=frozen_runtime.exe_dir(),
+        )
+    except modelbank.AmbiguousModel as e:
+        # Several presets and nothing said which: name them instead of guessing.
+        print(f"error: {e}", file=sys.stderr)
+        return None
     if not resolved.api_key:
         print(
             f"error: no API key found for the {resolved.provider} provider. Provide one via "

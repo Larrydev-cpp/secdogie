@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import cli_common, dialog, dpi, frozen_runtime, launcher_menu, osfocus
+from . import cli_common, dialog, dpi, frozen_runtime, launcher_menu, modelbank, osfocus
 from .loop import AgentConfig, run
 
 
@@ -32,7 +32,11 @@ def main(argv: list[str] | None = None) -> int:
     pre_launch_fg = None
     if launcher_menu.should_offer(argv) or "--menu" in argv:
         pre_launch_fg = osfocus.current_foreground()
-        chosen = launcher_menu.show_menu()
+        # Fill the menu's model slot from the model/ folder beside the exe. It
+        # is read here rather than inside the menu so the window stays a pure
+        # chooser over data handed to it.
+        presets = modelbank.usable(modelbank.load(exe_dir=frozen_runtime.exe_dir()))
+        chosen = launcher_menu.show_menu(modelbank.names(presets))
         if chosen is None:
             return 0
         argv = chosen  # the picked card's flags REPLACE argv (incl. the --menu that got us here)
@@ -98,6 +102,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.init_config:
         return cli_common.handle_init_config(args, "secdogie-agent")
+    if args.init_model_dir:
+        return cli_common.handle_init_model_dir(args, "secdogie-agent")
 
     # Programmable skills run their own interpreter instead of the task loop.
     if args.skill:

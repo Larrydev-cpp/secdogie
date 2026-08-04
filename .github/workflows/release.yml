@@ -289,7 +289,18 @@ jobs:
           mkdir -p release
           version="${GITHUB_REF_NAME}"
 
+          # The `model/` folder that ships inside the agent-family zips: put a
+          # file in it and that's the model, no flags (see modelbank.py). It is
+          # generated from the code rather than kept as a copy in the repo, so
+          # its README can't drift from what the loader actually accepts.
+          PYTHONPATH=agent python3 -c "
+          from pathlib import Path
+          from secdogie_agent import modelbank
+          modelbank.write_example_dir(Path('pkg/seed-model'))
+          "
+
           # package <zip-base-name> <source-binary> <inner-binary-name> <doc-file...>
+          # Set WITH_MODEL_DIR=1 to also drop the model/ folder into the zip.
           # Publishes TWO assets per binary:
           #  * the bare binary itself (e.g. secdogie-agent-windows-x86_64-vX.Y.Z.exe)
           #    -- a one-file download, no unzip, no folder: the exe is fully
@@ -309,10 +320,14 @@ jobs:
             cp "$binary" "$dir/${inner}"
             [ -f "$dir/${inner}" ] && [ -x "$binary" ] && chmod +x "$dir/${inner}" || true
             for d in "$@"; do cp "$d" "$dir/"; done
+            if [ "${WITH_MODEL_DIR:-0}" = "1" ]; then cp -r pkg/seed-model "$dir/model"; fi
             # keep shell launchers executable inside the zip
             chmod +x "$dir"/*.command "$dir"/*.sh 2>/dev/null || true
             (cd pkg && zip -r "../release/${name}.zip" "${name}")
           }
+
+          # The agent family reads the model/ folder, so their zips carry one.
+          WITH_MODEL_DIR=1
 
           # Agent binaries (one per platform). Keep .exe on Windows so it runs;
           # give it a clean inner name regardless of the artifact's own name.
@@ -353,6 +368,9 @@ jobs:
             package "secdogie-ios-${platform}-${version}" "$f" "$inner" \
               ios/README.md LICENSE
           done
+
+          # open/ and scene3d/ choose models their own way; no folder for them.
+          WITH_MODEL_DIR=0
 
           for f in downloaded/open-*/*; do
             base="$(basename "$f")"

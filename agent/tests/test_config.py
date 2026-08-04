@@ -108,3 +108,61 @@ def test_write_template_refuses_to_clobber(tmp_path):
     with pytest.raises(FileExistsError):
         config_mod.write_template(target)
     assert target.read_text() == "existing"  # untouched
+
+
+# -- the model/ folder (see modelbank.py) -------------------------------------
+
+def _model_dir(tmp_path, **files):
+    d = tmp_path / "model"
+    d.mkdir()
+    for name, text in files.items():
+        (d / name).write_text(text, encoding="utf-8")
+    return str(d)
+
+
+def test_a_single_file_in_the_model_folder_chooses_the_model(tmp_path, monkeypatch):
+    monkeypatch.delenv("SECDOGIE_MODEL", raising=False)
+    d = _model_dir(tmp_path, **{"claude-opus-4-8": ""})
+    assert config_mod.resolve(model_dir=d).model == "claude-opus-4-8"
+
+
+def test_model_names_a_preset_before_a_model_id(tmp_path, monkeypatch):
+    monkeypatch.delenv("SECDOGIE_MODEL", raising=False)
+    d = _model_dir(tmp_path, **{"fast.txt": "claude-haiku-4-5"})
+    assert config_mod.resolve(cli_model="fast", model_dir=d).model == "claude-haiku-4-5"
+
+
+def test_a_model_id_that_matches_no_preset_still_works(tmp_path, monkeypatch):
+    monkeypatch.delenv("SECDOGIE_MODEL", raising=False)
+    d = _model_dir(tmp_path, **{"fast.txt": "claude-haiku-4-5"})
+    assert config_mod.resolve(cli_model="claude-sonnet-5", model_dir=d).model == "claude-sonnet-5"
+
+
+def test_a_preset_supplies_its_own_api_key(tmp_path, monkeypatch):
+    # Switching to another provider is one file, not also a key hunt.
+    monkeypatch.delenv("SECDOGIE_MODEL", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    d = _model_dir(tmp_path, **{"openai.txt": "SECDOGIE_MODEL=gpt-5.5\nOPENAI_API_KEY=sk-preset\n"})
+    r = config_mod.resolve(model_dir=d)
+    assert (r.model, r.provider, r.api_key) == ("gpt-5.5", "openai", "sk-preset")
+    assert "model preset" in r.api_key_source
+
+
+def test_an_explicit_api_key_still_beats_a_preset(tmp_path, monkeypatch):
+    monkeypatch.delenv("SECDOGIE_MODEL", raising=False)
+    d = _model_dir(tmp_path, **{"openai.txt": "SECDOGIE_MODEL=gpt-5.5\nOPENAI_API_KEY=sk-preset\n"})
+    assert config_mod.resolve(cli_api_key="sk-cli", model_dir=d).api_key == "sk-cli"
+
+
+def test_two_presets_and_no_choice_is_an_honest_error(tmp_path, monkeypatch):
+    from secdogie_agent import modelbank
+
+    monkeypatch.delenv("SECDOGIE_MODEL", raising=False)
+    d = _model_dir(tmp_path, **{"fast.txt": "claude-haiku-4-5", "careful.txt": "claude-opus-4-8"})
+    with pytest.raises(modelbank.AmbiguousModel):
+        config_mod.resolve(model_dir=d)
+
+
+def test_no_model_folder_leaves_everything_as_it_was(tmp_path, monkeypatch):
+    monkeypatch.delenv("SECDOGIE_MODEL", raising=False)
+    assert config_mod.resolve(model_dir=str(tmp_path / "nope")).model is None

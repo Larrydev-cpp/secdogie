@@ -6,7 +6,10 @@ order, highest priority first:
 
   1. an explicit value passed on the command line (--api-key / --model)
   2. environment variables (ANTHROPIC_API_KEY / OPENAI_API_KEY / SECDOGIE_MODEL)
-  3. a config file (--config PATH, else the first default location found)
+  3. the `model/` folder next to the executable (see modelbank.py) -- for the
+     model this is the *first* thing consulted when `--model` names one of its
+     presets, since a preset is an explicit choice the user filed there
+  4. a config file (--config PATH, else the first default location found)
 
 Which API-key name is used depends on the resolved provider: the model (or an
 explicit --provider) selects the provider, and each provider owns its key name
@@ -21,6 +24,7 @@ import os
 from pathlib import Path
 from typing import NamedTuple
 
+from . import modelbank
 from .providers import API_KEY_ENV, resolve_model_provider
 
 # Searched in order; the first that exists wins. `secdogie.env` in the current
@@ -96,16 +100,27 @@ def resolve(
     cli_model: str | None = None,
     config_path: str | None = None,
     cli_provider: str | None = None,
+    model_dir: str | None = None,
+    exe_dir: Path | None = None,
 ) -> ResolvedConfig:
-    """Resolves the provider, API key, and model from CLI args, env, and file."""
+    """Resolves the provider, API key, and model from CLI args, env, the
+    `model/` folder, and the config file."""
     # Parse the config file up front: it can supply both the model and (as the
     # lowest-priority fallback) the provider's API key.
     chosen = Path(config_path) if config_path else _first_existing(DEFAULT_CONFIG_PATHS)
     file_values = parse_config_file(chosen) if chosen is not None else {}
 
-    # Model: CLI wins, then env, then config file, else leave None.
+    # The `model/` folder (see modelbank.py): dropping a file in it is the
+    # no-flags way to choose a model. `--model` names a preset before it names a
+    # model id, so a short handle you chose ("fast") beats an id you'd have to
+    # remember -- and when it does match, the preset's own API key comes with it.
+    presets = modelbank.load(model_dir, exe_dir)
+    preset = modelbank.pick(presets, cli_model) if presets else None
+
+    # Model: CLI wins, then env, then the model folder, then the config file.
     model = (
-        cli_model
+        (preset.model if preset else None)
+        or cli_model
         or os.environ.get("SECDOGIE_MODEL")
         or file_values.get("SECDOGIE_MODEL")
         or None
@@ -122,6 +137,11 @@ def resolve(
     elif os.environ.get(env_var):
         api_key = os.environ[env_var]
         source = f"{env_var} environment variable"
+    elif preset is not None and preset.api_keys.get(env_var):
+        # A preset that names a model on another provider can carry that
+        # provider's key, so switching providers stays a one-file change.
+        api_key = preset.api_keys[env_var]
+        source = f"model preset {preset.path or preset.name}"
     elif file_values.get(env_var):
         api_key = file_values[env_var]
         source = f"config file {chosen}"

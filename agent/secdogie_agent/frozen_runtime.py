@@ -61,7 +61,7 @@ class _Tee:
         return False
 
 
-def _exe_dir() -> Path | None:
+def exe_dir() -> Path | None:
     """Directory of the actual running executable for a frozen build (PyInstaller
     points sys.executable at the real .exe), or None from source. Self-contained
     so this safety net has no import dependencies that could themselves fail."""
@@ -78,9 +78,9 @@ def log_path() -> Path:
     the log stays with the app), falling back to ~/.secdogie then the temp dir if
     that folder isn't writable (e.g. the exe sits in Program Files)."""
     candidates: list[Path] = []
-    exe_dir = _exe_dir()
-    if exe_dir is not None:
-        candidates.append(exe_dir / "secdogie.log")
+    here = exe_dir()
+    if here is not None:
+        candidates.append(here / "secdogie.log")
     candidates.append(Path.home() / ".secdogie" / "secdogie.log")
     import tempfile
 

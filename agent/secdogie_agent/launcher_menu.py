@@ -62,6 +62,12 @@ MENU_CHOICES: tuple[MenuChoice, ...] = (
         "Create or locate the config file to paste your key into.",
         ("--init-config",),
     ),
+    MenuChoice(
+        "modeldir",
+        "Choose the model (folder)",
+        "Make the model/ folder next to this app -- drop a file in it to pick the model.",
+        ("--init-model-dir",),
+    ),
 )
 
 
@@ -71,6 +77,30 @@ def args_for(key: str) -> list[str] | None:
         if c.key == key:
             return list(c.args)
     return None
+
+
+# -- the model row (pure: which models to offer, and how a pick becomes argv) --
+
+
+def model_options(preset_names: list[str]) -> list[str]:
+    """Which models the menu should offer as a row of chips.
+
+    Empty when there is nothing to choose -- no model folder, or a single
+    preset that is simply used. Offering a one-item "choice" would be exactly
+    the ceremony the folder exists to remove.
+    """
+    return list(preset_names) if len(preset_names) > 1 else []
+
+
+def args_with_model(args: list[str], model: str | None) -> list[str]:
+    """Add the chosen model to a card's argv. A card that is itself about
+    setup (--init-config, --init-model-dir) takes no model: passing one would
+    be meaningless and argparse would just carry dead weight."""
+    if not model:
+        return list(args)
+    if any(a.startswith("--init-") for a in args):
+        return list(args)
+    return [*args, "--model", model]
 
 
 def should_offer(argv: list[str]) -> bool:
@@ -139,10 +169,18 @@ def _apply_windows_glass(root) -> None:
         pass
 
 
-def show_menu() -> list[str] | None:
+def show_menu(preset_names: list[str] | None = None) -> list[str] | None:
     """Show the chooser; return the picked argv, or None if closed/cancelled.
     Raises nothing: any failure to build the window returns ["--gui"] so a
-    double-clicked exe always does *something* useful."""
+    double-clicked exe always does *something* useful.
+
+    `preset_names` are the models found in the model/ folder. Two or more and a
+    row of chips appears above the cards, and whichever is lit gets appended to
+    the chosen card's argv -- that row is the model slot the exe deliberately
+    leaves empty for the folder to fill.
+    """
+    options = model_options(preset_names or [])
+    chosen_model: list[str | None] = [options[0] if options else None]
     try:
         import tkinter as tk
 
@@ -155,7 +193,7 @@ def show_menu() -> list[str] | None:
         result: list = [None]
 
         def choose(args: tuple[str, ...]) -> None:
-            result[0] = list(args)
+            result[0] = args_with_model(list(args), chosen_model[0])
             root.destroy()
 
         def cancel(_event=None) -> None:
@@ -175,6 +213,28 @@ def show_menu() -> list[str] | None:
         close.bind("<Button-1>", cancel)
         tk.Label(pad, text="What should it do?", bg=_BG, fg=_FG_DIM,
                  font=("Segoe UI", 10)).pack(anchor="w", pady=(0, 12))
+
+        # The model row, only when the folder actually holds a choice.
+        if options:
+            row = tk.Frame(pad, bg=_BG)
+            row.pack(fill="x", pady=(0, 12))
+            tk.Label(row, text="Model", bg=_BG, fg=_FG_DIM,
+                     font=("Segoe UI", 9)).pack(side="left", padx=(0, 8))
+            chips: dict[str, tk.Label] = {}
+
+            def light(name: str) -> None:
+                chosen_model[0] = name
+                for n, chip in chips.items():
+                    on = n == name
+                    chip.configure(bg=_CARD_HOVER if on else _CARD, fg=_FG if on else _FG_DIM)
+
+            for name in options:
+                chip = tk.Label(row, text=name, bg=_CARD, fg=_FG_DIM, cursor="hand2",
+                                font=("Segoe UI", 9), padx=10, pady=3)
+                chip.pack(side="left", padx=(0, 6))
+                chip.bind("<Button-1>", lambda _e, n=name: light(n))
+                chips[name] = chip
+            light(options[0])
 
         for choice in MENU_CHOICES:
             card = tk.Frame(pad, bg=_CARD, cursor="hand2")

@@ -104,6 +104,51 @@ plain text file named `secdogie.env` **in the same folder you're running
 from** (Notepad is fine) with the `ANTHROPIC_API_KEY=sk-...` line — no
 special path needed at all.
 
+### Choosing a model: the `model/` folder
+
+Typing `--model claude-…` every run, or editing a dotenv file to change it, is
+a lot of ceremony for a one-word decision. So the model slot is left **empty
+for a folder to fill**: put a file in `model/` and that's the model.
+
+```sh
+secdogie-agent --init-model-dir     # creates model/ with a README + example
+touch model/claude-opus-4-8         # the filename IS the model -- that's it
+secdogie-agent "your task"          # runs on claude-opus-4-8, no flags
+```
+
+The folder is looked for next to the executable first (so the one you see
+beside the download is the one that counts), then `./model`, then
+`~/.config/secdogie/model`; `--model-dir PATH` overrides all of it.
+
+The file format is forgiving on purpose — all four of these work:
+
+| File | Contents | Means |
+|------|----------|-------|
+| `claude-opus-4-8` | *(empty)* | that model — the name is the id |
+| `fast.txt` | `claude-haiku-4-5` | a nickname you can pass as `--model fast` |
+| `careful.txt` | `SECDOGIE_MODEL=claude-opus-4-8` | the same, dotenv-style |
+| `openai.txt` | `SECDOGIE_MODEL=gpt-5.5`<br>`OPENAI_API_KEY=sk-…` | model **and** the key its provider needs |
+
+The filename (minus extension) is a real handle: `--model fast` finds that
+preset before it's treated as a model id, so short names you chose beat ids
+you'd have to remember. A preset can carry its provider's API key so switching
+*across* providers is one file rather than also a key hunt — which does mean
+such a file is a secret; the shipped example is created chmod 600 and anything
+you add deserves the same care.
+
+How many files you keep in there decides how much you're asked:
+
+- **none** — nothing changes; the built-in default (`claude-sonnet-5`) runs.
+- **one** — it's simply used. No prompt, no flag. This is the point.
+- **several** — a double-clicked exe shows them as a row of chips above the
+  start menu (that row *is* the empty model slot). From a terminal, pass
+  `--model <name>`, or name one of the files `default`. It will not silently
+  guess: running the wrong model costs the wrong money.
+
+Files named `README.md`, or starting with `.` or `_`, are notes rather than
+presets — which is why the example that ships in the folder never counts as a
+choice you made.
+
 ### Or: a single-file executable (no Python needed)
 
 To hand someone a program they can run without installing Python at all,
@@ -147,8 +192,10 @@ plan, and asks you to approve before it acts.
 **One-file selection window.** Double-clicking `secdogie-agent.exe` itself (no
 launcher, no terminal) pops a small **frosted-glass selection window** built into
 the program — pick how to start: describe a task, preview it (`--dry-run`),
-element/accessibility mode (`--desktop-ax`), unattended (`--auto`), or set up the
-API key — and it runs that choice. Running from a normal (pip) install instead of
+element/accessibility mode (`--desktop-ax`), unattended (`--auto`), set up the
+API key, or make the [`model/` folder](#choosing-a-model-the-model-folder) — and
+it runs that choice. If that folder holds more than one model, a row of chips
+across the top lets you pick which one this run uses. Running from a normal (pip) install instead of
 the exe? `secdogie-agent --menu` shows the same window and runs your pick, so you
 can see and use it without building anything. It appears **only** on a bare double-click; run
 the exe with any argument (or from a terminal) and the plain CLI is unchanged.
