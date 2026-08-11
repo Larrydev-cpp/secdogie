@@ -29,6 +29,7 @@ class MenuChoice:
     title: str
     blurb: str
     args: tuple[str, ...]  # the secdogie-agent argv this card stands for
+    # Special: "config" is handled by the GUI key dialog, not by returning args.
 
 
 MENU_CHOICES: tuple[MenuChoice, ...] = (
@@ -59,8 +60,8 @@ MENU_CHOICES: tuple[MenuChoice, ...] = (
     MenuChoice(
         "config",
         "Set up / edit API key",
-        "Create or locate the config file to paste your key into.",
-        ("--init-config",),
+        "Paste your Anthropic or OpenAI key here. No text editor needed.",
+        (),  # handled specially by show_key_dialog
     ),
 )
 
@@ -91,6 +92,7 @@ _CARD = "#332d38"        # card at rest
 _CARD_HOVER = "#4a4252"  # card under the pointer
 _FG = "#ffffff"
 _FG_DIM = "#b9b3c0"
+_ACCENT = "#7c6aef"      # soft purple for the save button
 
 
 def _apply_windows_glass(root) -> None:
@@ -139,6 +141,132 @@ def _apply_windows_glass(root) -> None:
         pass
 
 
+def show_key_dialog() -> None:
+    """A proper dialog for pasting an API key. Writes next to the exe (or the
+    portable location) and shows clear success/failure feedback."""
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+
+        from . import config as config_mod
+
+        root = tk.Tk()
+        root.title("secdogie-agent — API key")
+        root.configure(bg=_BG)
+        root.resizable(False, False)
+        root.attributes("-topmost", True)
+
+        pad = tk.Frame(root, bg=_BG)
+        pad.pack(padx=24, pady=20, fill="both", expand=True)
+
+        tk.Label(
+            pad, text="Paste your API key",
+            bg=_BG, fg=_FG, font=("Segoe UI", 14, "bold"),
+        ).pack(anchor="w")
+
+        tk.Label(
+            pad,
+            text="Anthropic (claude-*) or OpenAI (gpt-*).\n"
+                 "The key is saved next to the program — nothing goes to the cloud.",
+            bg=_BG, fg=_FG_DIM, font=("Segoe UI", 9), justify="left",
+        ).pack(anchor="w", pady=(4, 14))
+
+        # Provider choice
+        provider_var = tk.StringVar(value="anthropic")
+        prov_row = tk.Frame(pad, bg=_BG)
+        prov_row.pack(fill="x", pady=(0, 8))
+        tk.Radiobutton(
+            prov_row, text="Anthropic", variable=provider_var, value="anthropic",
+            bg=_BG, fg=_FG, selectcolor=_CARD, activebackground=_BG,
+            activeforeground=_FG, font=("Segoe UI", 9),
+        ).pack(side="left", padx=(0, 16))
+        tk.Radiobutton(
+            prov_row, text="OpenAI", variable=provider_var, value="openai",
+            bg=_BG, fg=_FG, selectcolor=_CARD, activebackground=_BG,
+            activeforeground=_FG, font=("Segoe UI", 9),
+        ).pack(side="left")
+
+        # Key entry
+        key_var = tk.StringVar()
+        entry = tk.Entry(
+            pad, textvariable=key_var, width=48, show="•",
+            font=("Consolas", 11), bg=_CARD, fg=_FG, insertbackground=_FG,
+            relief="flat", highlightthickness=1, highlightcolor=_ACCENT,
+            highlightbackground="#4a4252",
+        )
+        entry.pack(fill="x", ipady=8, pady=(0, 6))
+        entry.focus_set()
+
+        # Show/hide toggle
+        show_var = tk.BooleanVar(value=False)
+
+        def toggle_show():
+            entry.config(show="" if show_var.get() else "•")
+
+        tk.Checkbutton(
+            pad, text="Show key", variable=show_var, command=toggle_show,
+            bg=_BG, fg=_FG_DIM, selectcolor=_CARD, activebackground=_BG,
+            activeforeground=_FG_DIM, font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(0, 12))
+
+        status = tk.Label(pad, text="", bg=_BG, fg=_FG_DIM, font=("Segoe UI", 9))
+        status.pack(anchor="w", pady=(0, 10))
+
+        def save():
+            key = key_var.get().strip()
+            if not key:
+                status.config(text="Please paste a key first.", fg="#e07070")
+                return
+            if len(key) < 20:
+                status.config(text="That looks too short for an API key.", fg="#e07070")
+                return
+            try:
+                path = config_mod.write_api_key(key, provider=provider_var.get())
+                status.config(
+                    text=f"Saved to:\n{path}",
+                    fg="#6ecf8e",
+                )
+                # Give the user a moment to read, then close.
+                root.after(1800, root.destroy)
+            except Exception as e:
+                status.config(text=f"Failed: {e}", fg="#e07070")
+
+        btn_row = tk.Frame(pad, bg=_BG)
+        btn_row.pack(fill="x")
+
+        save_btn = tk.Label(
+            btn_row, text="  Save key  ", bg=_ACCENT, fg=_FG,
+            font=("Segoe UI", 10, "bold"), cursor="hand2", padx=12, pady=6,
+        )
+        save_btn.pack(side="left")
+        save_btn.bind("<Button-1>", lambda e: save())
+
+        cancel_btn = tk.Label(
+            btn_row, text="  Cancel  ", bg=_CARD, fg=_FG_DIM,
+            font=("Segoe UI", 10), cursor="hand2", padx=12, pady=6,
+        )
+        cancel_btn.pack(side="left", padx=(10, 0))
+        cancel_btn.bind("<Button-1>", lambda e: root.destroy())
+
+        root.bind("<Return>", lambda e: save())
+        root.bind("<Escape>", lambda e: root.destroy())
+
+        root.update_idletasks()
+        w, h = root.winfo_reqwidth(), root.winfo_reqheight()
+        x = (root.winfo_screenwidth() - w) // 2
+        y = (root.winfo_screenheight() - h) // 2
+        root.geometry(f"+{x}+{y}")
+        _apply_windows_glass(root)
+        root.mainloop()
+    except Exception as e:
+        # Last resort: fall back to the old --init-config behaviour.
+        try:
+            from tkinter import messagebox
+            messagebox.showerror("secdogie-agent", f"Could not open key dialog:\n{e}")
+        except Exception:
+            pass
+
+
 def show_menu() -> list[str] | None:
     """Show the chooser; return the picked argv, or None if closed/cancelled.
     Raises nothing: any failure to build the window returns ["--gui"] so a
@@ -161,6 +289,14 @@ def show_menu() -> list[str] | None:
         def cancel(_event=None) -> None:
             result[0] = None
             root.destroy()
+
+        def open_key_dialog(_event=None) -> None:
+            root.withdraw()  # hide the menu while the key dialog is open
+            root.update()
+            show_key_dialog()
+            root.deiconify()
+            # After saving a key the user usually wants to start a task.
+            # We just re-show the menu so they can pick "Describe a task".
 
         pad = tk.Frame(root, bg=_BG)
         pad.pack(padx=22, pady=18, fill="both", expand=True)
@@ -197,8 +333,12 @@ def show_menu() -> list[str] | None:
                 for w in ws:
                     w.configure(bg=_CARD)
 
-            def on_click(_e, args=choice.args):
-                choose(args)
+            if choice.key == "config":
+                def on_click(_e):
+                    open_key_dialog()
+            else:
+                def on_click(_e, args=choice.args):
+                    choose(args)
 
             for w in widgets:
                 w.bind("<Enter>", on_enter)
