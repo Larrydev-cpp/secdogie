@@ -90,14 +90,19 @@ def make_provider(
     model: str | None,
     api_key: str | None,
     max_tokens: int = 1024,
+    proxy: str | None = None,
 ) -> VisionProvider:
     """Instantiate the provider, defaulting the model when none was given."""
     resolved_model = model or DEFAULT_MODELS[provider_id]
     if provider_id == OPENAI_PROVIDER_ID:
         from .openai_provider import OpenAIProvider
 
-        return OpenAIProvider(model=resolved_model, api_key=api_key, max_tokens=max_tokens)
-    return AnthropicProvider(model=resolved_model, api_key=api_key, max_tokens=max_tokens)
+        return OpenAIProvider(
+            model=resolved_model, api_key=api_key, max_tokens=max_tokens, proxy=proxy
+        )
+    return AnthropicProvider(
+        model=resolved_model, api_key=api_key, max_tokens=max_tokens, proxy=proxy
+    )
 
 
 __all__ = [

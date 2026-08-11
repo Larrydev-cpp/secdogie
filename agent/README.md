@@ -11,7 +11,7 @@ screenshot -> model -> action -> repeat until the model says it's done.
 > are explicitly authorized to control. Start with `--dry-run`, keep the
 > default per-step confirmation on until you trust it, and never run
 > `--auto` unattended against a machine you can't immediately reach to stop
-> it. Slamming the mouse cursor into any screen corner triggers pyautogui's
+> it. The mouse cursor into any screen corner triggers pyautogui's
 > built-in fail-safe and aborts in-flight actions.
 
 ## Why not the vendor's "computer use" tool directly?
@@ -46,6 +46,23 @@ The OpenAI provider needs the `openai` package, installed as an extra:
 ```sh
 pip install -e '.[openai]'      # or: pip install openai
 ```
+
+### Routing model API calls through a proxy (TOR)
+
+All LLM API traffic can be sent through an HTTP or SOCKS5 proxy with `--proxy`:
+
+```sh
+# TOR (daemon on 9050, or Tor Browser on 9150)
+pip install 'httpx[socks]'          # once, for SOCKS support
+secdogie-agent "..." --proxy socks5://127.0.0.1:9050
+
+# or any HTTP proxy
+secdogie-agent "..." --proxy http://127.0.0.1:7890
+```
+
+This only affects the model API calls (Anthropic / OpenAI). Local screen capture
+and mouse/keyboard actions stay on the machine; they are never routed through
+the proxy.
 
 ## Install
 
@@ -316,6 +333,7 @@ Extra knobs:
 | `--memory PATH` | give the agent persistent cross-run memory in the SQLite file `PATH`: it saves durable facts with a `remember` action and they're recalled into its prompt on later runs (see below). Plaintext — never have it store secrets. |
 | `--allow-risky` | with `--auto`, run high-risk actions (currently `open`, which launches a file/URL) without confirmation; by default those still prompt even under `--auto` (see [Before you run](../README.md#before-you-run-any-of-this)). |
 | `--allow-elevated-command "CMD"` | (Windows) permit the `run_elevated` action to run this **exact** command as SYSTEM; repeatable. This allowlist is the only thing the model can escalate — with none given, elevation is off. The agent must already be Administrator. See [Running a command as SYSTEM](#running-a-command-as-system-run_elevated-windows). |
+| `--proxy URL` | route all model API calls through this proxy (HTTP or SOCKS5). For TOR: `socks5://127.0.0.1:9050`. Requires `pip install httpx[socks]` for SOCKS. |
 
 Cursor movement is intentionally not instantaneous — teleport-and-click can
 miss hover/focus handlers in some apps, so the agent glides to the target

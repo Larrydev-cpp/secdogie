@@ -14,6 +14,21 @@ from .base import VALID_ACTIONS, Action, HistoryStep, VisionProvider, parse_acti
 from .prompts import BRIEFING_PROMPT, CHECK_PROMPT, PLAN_PROMPT, SYSTEM_PROMPT
 
 
+def _make_http_client(proxy: str | None):
+    """Build an httpx client that routes through `proxy` (HTTP or SOCKS5).
+
+    For TOR use socks5://127.0.0.1:9050 (or 9150 for Tor Browser).
+    Requires `httpx[socks]` / `socksio` when using a socks:// URL.
+    """
+    if not proxy:
+        return None
+    try:
+        import httpx
+    except ImportError as e:
+        raise RuntimeError("httpx is required for proxy support") from e
+    return httpx.Client(proxy=proxy, timeout=60.0)
+
+
 class OpenAIProvider(VisionProvider):
     def __init__(
         self,
@@ -21,6 +36,7 @@ class OpenAIProvider(VisionProvider):
         api_key: str | None = None,
         max_tokens: int = 1024,
         client=None,
+        proxy: str | None = None,
     ):
         # `client` lets tests inject a fake; production builds one from the SDK.
         if client is not None:
@@ -33,7 +49,13 @@ class OpenAIProvider(VisionProvider):
                     "the 'openai' package is required for OpenAIProvider: "
                     "pip install 'secdogie-agent[openai]' (or: pip install openai)"
                 ) from e
-            self._client = openai.OpenAI(api_key=api_key) if api_key else openai.OpenAI()
+            http_client = _make_http_client(proxy)
+            kwargs = {}
+            if api_key:
+                kwargs["api_key"] = api_key
+            if http_client is not None:
+                kwargs["http_client"] = http_client
+            self._client = openai.OpenAI(**kwargs)
         self.model = model
         self.max_tokens = max_tokens
 

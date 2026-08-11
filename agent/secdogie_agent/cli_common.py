@@ -43,6 +43,14 @@ def add_provider_args(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="write a template config file you can fill in with your API key, then exit",
     )
+    parser.add_argument(
+        "--proxy",
+        default=None,
+        metavar="URL",
+        help="route all model API calls through this proxy (HTTP or SOCKS5). "
+        "For TOR: socks5://127.0.0.1:9050 (or 9150 for Tor Browser). "
+        "Requires `pip install httpx[socks]` for SOCKS support.",
+    )
 
 
 def add_loop_args(parser: argparse.ArgumentParser) -> None:
@@ -201,8 +209,11 @@ def resolve_provider(args: argparse.Namespace, prog: str) -> VisionProvider | No
             file=sys.stderr,
         )
         return None
+    proxy = getattr(args, "proxy", None)
     try:
-        return make_provider(resolved.provider, resolved.model, resolved.api_key)
+        return make_provider(
+            resolved.provider, resolved.model, resolved.api_key, proxy=proxy
+        )
     except RuntimeError as e:
         print(f"error: {e}", file=sys.stderr)
         return None
