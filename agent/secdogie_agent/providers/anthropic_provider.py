@@ -13,15 +13,42 @@ from .base import VALID_ACTIONS, Action, HistoryStep, VisionProvider, parse_acti
 from .prompts import BRIEFING_PROMPT, CHECK_PROMPT, PLAN_PROMPT, SYSTEM_PROMPT
 
 
+def _make_http_client(proxy: str | None):
+    """Build an httpx client that routes through `proxy` (HTTP or SOCKS5).
+
+    For TOR use socks5://127.0.0.1:9050 (or 9150 for Tor Browser).
+    Requires `httpx[socks]` / `socksio` when using a socks:// URL.
+    """
+    if not proxy:
+        return None
+    try:
+        import httpx
+    except ImportError as e:
+        raise RuntimeError("httpx is required for proxy support") from e
+    return httpx.Client(proxy=proxy, timeout=60.0)
+
+
 class AnthropicProvider(VisionProvider):
-    def __init__(self, model: str = "claude-sonnet-5", api_key: str | None = None, max_tokens: int = 1024):
+    def __init__(
+        self,
+        model: str = "claude-sonnet-5",
+        api_key: str | None = None,
+        max_tokens: int = 1024,
+        proxy: str | None = None,
+    ):
         try:
             import anthropic
         except ImportError as e:
             raise RuntimeError(
                 "the 'anthropic' package is required for AnthropicProvider: pip install anthropic"
             ) from e
-        self._client = anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
+        http_client = _make_http_client(proxy)
+        kwargs = {}
+        if api_key:
+            kwargs["api_key"] = api_key
+        if http_client is not None:
+            kwargs["http_client"] = http_client
+        self._client = anthropic.Anthropic(**kwargs)
         self.model = model
         self.max_tokens = max_tokens
 
