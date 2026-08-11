@@ -4,38 +4,6 @@ Small, from-scratch pieces that combine into one idea: **let a
 cloud vision-LLM control a computer you own, reached over a tunnel you
 control.**
 
-## 🪟 Windows：直接用 `.exe`（推荐）
-
-不需要装 Python、不需要懂 PowerShell 语法。两种方式：
-
-### 1. 下载现成的（最快）
-
-打开 **[Releases](../../releases)** → 下载 `secdogie-agent-windows-….exe` → 双击。
-
-- 第一次会弹出菜单 → 点 **Set up / edit API key** → 粘贴任意厂商的 key（Anthropic / OpenAI / DeepSeek / Groq / 自定义…）→ Save
-- 然后选 **Describe a task** 开始
-
-配置文件会写在 **exe 旁边** 的 `secdogie.env`，跟着程序走，不依赖当前目录。
-
-### 2. 自己从源码打包
-
-仓库根目录已经放好了一键脚本（不用钻进子目录）：
-
-```powershell
-# 若提示“无法运行脚本”，先执行这一行（只影响当前窗口）
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-
-.\build-agent.ps1
-```
-
-生成文件：
-
-```
-agent\packaging\dist\secdogie-agent.exe
-```
-
-双击即可。细节见 [`agent/packaging/README.md`](agent/packaging/README.md)。
-
 ---
 
 - [`tunnel/`](tunnel/) — a minimal encrypted VPN tunnel, written from scratch
