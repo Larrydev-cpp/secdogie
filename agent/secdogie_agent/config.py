@@ -14,6 +14,8 @@ explicit --provider) selects the provider, and each provider owns its key name
 
 The config file is dotenv-style: `KEY=VALUE` lines, `#` comments, blanks
 ignored. Recognized keys: ANTHROPIC_API_KEY, OPENAI_API_KEY, SECDOGIE_MODEL.
+Arbitrary extra KEY=VALUE lines are preserved (for custom/OpenAI-compatible
+keys written by the GUI dialog).
 
 **Portable builds (PyInstaller):** when frozen, the first place we look (and
 where `--init-config` writes by default) is *next to the .exe*, so a single
@@ -79,8 +81,9 @@ _TEMPLATE = """\
 # claude-* models -- the default provider.
 ANTHROPIC_API_KEY=
 
-# OpenAI API key (get one at https://platform.openai.com/). Used for gpt-* /
-# o-series models. Leave blank if you only use Anthropic.
+# OpenAI API key (get one at https://platform.openai.com/). Also used for
+# OpenAI-compatible endpoints (DeepSeek, Groq, local vLLM, etc.) when you pass
+# --provider openai and a custom base URL via the SDK / env.
 # OPENAI_API_KEY=
 
 # Optional: default model to use (overridable with --model). The model prefix
@@ -187,36 +190,61 @@ def write_template(path: Path | None = None) -> Path:
     return target
 
 
-def write_api_key(api_key: str, *, provider: str = "anthropic", path: Path | None = None) -> Path:
+def _upsert_line(lines: list[str], env_var: str, value: str) -> list[str]:
+    """Replace or append `ENV=value` in a list of config lines."""
+    key_line = f"{env_var}={value}"
+    found = False
+    new_lines: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith(f"{env_var}=") or stripped.startswith(f"#{env_var}="):
+            new_lines.append(key_line)
+            found = True
+        else:
+            new_lines.append(line)
+    if not found:
+        new_lines.append(key_line)
+    return new_lines
+
+
+def write_api_key(
+    api_key: str,
+    *,
+    env_var: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    path: Path | None = None,
+) -> Path:
     """Write (or update) an API key into the config file.
 
     Used by the GUI key dialog so the user never has to open a text editor.
-    Creates the file if missing, otherwise updates the relevant key line.
+    Accepts either a known `provider` (anthropic/openai) or an arbitrary
+    `env_var` name (for custom / OpenAI-compatible keys). Optionally also
+    writes SECDOGIE_MODEL.
     """
     target = path or default_write_target()
     target.parent.mkdir(parents=True, exist_ok=True)
 
-    env_var = API_KEY_ENV.get(provider, "ANTHROPIC_API_KEY")
-    key_line = f"{env_var}={api_key.strip()}"
+    if env_var:
+        key_name = env_var.strip()
+    elif provider:
+        key_name = API_KEY_ENV.get(provider, "ANTHROPIC_API_KEY")
+    else:
+        key_name = "ANTHROPIC_API_KEY"
+
+    if not key_name or "=" in key_name or " " in key_name:
+        raise ValueError(f"invalid env var name: {key_name!r}")
 
     if target.exists():
         lines = target.read_text(encoding="utf-8").splitlines()
-        found = False
-        new_lines = []
-        for line in lines:
-            stripped = line.strip()
-            if stripped.startswith(f"{env_var}=") or stripped.startswith(f"#{env_var}="):
-                new_lines.append(key_line)
-                found = True
-            else:
-                new_lines.append(line)
-        if not found:
-            new_lines.append(key_line)
-        target.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
     else:
-        content = _TEMPLATE.replace(f"{env_var}=", key_line)
-        target.write_text(content, encoding="utf-8")
+        lines = _TEMPLATE.splitlines()
 
+    lines = _upsert_line(lines, key_name, api_key.strip())
+    if model and model.strip():
+        lines = _upsert_line(lines, "SECDOGIE_MODEL", model.strip())
+
+    target.write_text("\n".join(lines) + "\n", encoding="utf-8")
     try:
         os.chmod(target, 0o600)
     except (OSError, NotImplementedError):

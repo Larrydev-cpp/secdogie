@@ -4,6 +4,40 @@ Small, from-scratch pieces that combine into one idea: **let a
 cloud vision-LLM control a computer you own, reached over a tunnel you
 control.**
 
+## 🪟 Windows：直接用 `.exe`（推荐）
+
+不需要装 Python、不需要懂 PowerShell 语法。两种方式：
+
+### 1. 下载现成的（最快）
+
+打开 **[Releases](../../releases)** → 下载 `secdogie-agent-windows-….exe` → 双击。
+
+- 第一次会弹出菜单 → 点 **Set up / edit API key** → 粘贴任意厂商的 key（Anthropic / OpenAI / DeepSeek / Groq / 自定义…）→ Save
+- 然后选 **Describe a task** 开始
+
+配置文件会写在 **exe 旁边** 的 `secdogie.env`，跟着程序走，不依赖当前目录。
+
+### 2. 自己从源码打包
+
+仓库根目录已经放好了一键脚本（不用钻进子目录）：
+
+```powershell
+# 若提示“无法运行脚本”，先执行这一行（只影响当前窗口）
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+.\build-agent.ps1
+```
+
+生成文件：
+
+```
+agent\packaging\dist\secdogie-agent.exe
+```
+
+双击即可。细节见 [`agent/packaging/README.md`](agent/packaging/README.md)。
+
+---
+
 - [`tunnel/`](tunnel/) — a minimal encrypted VPN tunnel, written from scratch
   in C on libsodium primitives (X25519 + BLAKE2b + XChaCha20-Poly1305).
   Point-to-point by default, with an optional **hub mode** that terminates
@@ -43,14 +77,14 @@ and a machine across the network, with the exact commands and the output you
 should see at each step, plus a troubleshooting table.
 
 The 60-second version (control your own desktop; **bash** shown — Windows
-PowerShell/cmd commands differ, see below):
+users: prefer the `.exe` section at the top of this README):
 
 ```sh
 # 1. install
 cd agent && python3 -m venv .venv && source .venv/bin/activate && pip install -e .
 
-# 2. add your API key (Anthropic for claude-* models, OpenAI for gpt-*)
-secdogie-agent --init-config        # then edit ~/.config/secdogie/config
+# 2. add your API key (any provider)
+secdogie-agent --init-config        # then edit the config file it prints
 
 # 3. see what it WOULD do — touches nothing
 secdogie-agent "open a text editor and type 'hello world'" --dry-run
@@ -58,12 +92,6 @@ secdogie-agent "open a text editor and type 'hello world'" --dry-run
 # 4. do it for real — approves each action with a y/N prompt
 secdogie-agent "open a text editor and type 'hello world'"
 ```
-
-**🪟 On Windows:** don't hand-translate the above — `venv`/`export`/`~` all
-need different syntax in cmd vs. PowerShell, and [`TUTORIAL.md`](TUTORIAL.md)'s
-Part 0 has the full command table plus the fastest path (build
-`secdogie-agent.exe` with `agent\packaging\build.ps1`, no venv or shell-syntax
-juggling at all — see [`agent/packaging/README.md`](agent/packaging/README.md)).
 
 Then follow [`TUTORIAL.md`](TUTORIAL.md) for phones (`android`/`ios`), several
 windows at once (`open`), and reaching a remote machine (`tunnel`).
@@ -75,12 +103,17 @@ Pre-built binaries — a single-file executable for `agent`, `android`, `ios`,
 `secdogie-tunnel` binary for Linux — are published on the
 [Releases](../../releases) page. Each is offered two ways: the **bare
 executable** as a direct, one-file download (on Windows, download
-`secdogie-agent-windows-….exe` and just run it — it's fully self-contained,
-nothing needs to sit next to it), and a **`.zip`** that adds the docs and a
-double-click launcher (a console window on Windows, the Gatekeeper right-click
-helper on macOS). They're built and attached automatically when a `v*` tag is
-pushed — see [`docs/RELEASING.md`](docs/RELEASING.md). Prefer to build from
-source? Each subdirectory's README has instructions.
+`secdogie-agent-windows-….exe` and just run it — it's fully self-contained),
+and a **`.zip`** that adds the docs and a double-click launcher. They're built
+and attached automatically when a `v*` tag is pushed — see
+[`docs/RELEASING.md`](docs/RELEASING.md).
+
+**Windows from source (one command from repo root):**
+
+```powershell
+.\build-agent.ps1
+# → agent\packaging\dist\secdogie-agent.exe
+```
 
 ## Installing the game stack (one command)
 
