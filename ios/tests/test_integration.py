@@ -7,7 +7,7 @@ the backend -- the full two-step coordinate path.
 from secdogie_agent.loop import AgentConfig, run
 from secdogie_agent.providers.base import Action, VisionProvider
 from secdogie_ios.backend import IosBackend
-from tests.test_backend import FakeWda
+from test_backend import FakeWda
 
 
 class ScriptedProvider(VisionProvider):

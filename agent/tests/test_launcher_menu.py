@@ -12,13 +12,18 @@ def test_every_choice_maps_to_argv_and_keys_are_unique():
     keys = [c.key for c in m.MENU_CHOICES]
     assert len(keys) == len(set(keys))  # no duplicate keys
     for c in m.MENU_CHOICES:
-        assert c.args and all(a.startswith("-") for a in c.args)  # real flags
-        assert m.args_for(c.key) == list(c.args)
+        if c.key == "config":
+            # Special: opens the GUI key dialog; does not return CLI flags.
+            assert c.args == ()
+            assert m.args_for(c.key) == []
+        else:
+            assert c.args and all(a.startswith("-") for a in c.args)  # real flags
+            assert m.args_for(c.key) == list(c.args)
 
 
 def test_args_for_known_and_unknown():
     assert m.args_for("ax") == ["--gui", "--desktop-ax"]
-    assert m.args_for("config") == ["--init-config"]
+    assert m.args_for("config") == []  # GUI dialog, not --init-config
     assert m.args_for("nope") is None
 
 
