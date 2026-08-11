@@ -14,26 +14,59 @@ explicit --provider) selects the provider, and each provider owns its key name
 
 The config file is dotenv-style: `KEY=VALUE` lines, `#` comments, blanks
 ignored. Recognized keys: ANTHROPIC_API_KEY, OPENAI_API_KEY, SECDOGIE_MODEL.
+
+**Portable builds (PyInstaller):** when frozen, the first place we look (and
+where `--init-config` writes by default) is *next to the .exe*, so a single
+folder is fully self-contained no matter what the current working directory is.
 """
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import NamedTuple
 
 from .providers import API_KEY_ENV, resolve_model_provider
 
-# Searched in order; the first that exists wins. `secdogie.env` in the current
-# directory is handy next to a downloaded single-file binary; the ~/.config
-# path is the conventional per-user location.
-DEFAULT_CONFIG_PATHS = [
-    Path("secdogie.env"),
-    Path.home() / ".config" / "secdogie" / "config",
-    Path.home() / ".secdogie" / "config",
-]
 
-# Where --init-config writes its template.
-USER_CONFIG_PATH = Path.home() / ".config" / "secdogie" / "config"
+def _exe_dir() -> Path | None:
+    """Directory containing the frozen executable, or None when running from source."""
+    if getattr(sys, "frozen", False):
+        # PyInstaller sets sys.executable to the real .exe path.
+        return Path(sys.executable).resolve().parent
+    return None
+
+
+def default_config_paths() -> list[Path]:
+    """Search order for config files. Frozen builds put the exe-adjacent
+    `secdogie.env` first so a portable install works regardless of CWD."""
+    paths: list[Path] = []
+    exe = _exe_dir()
+    if exe is not None:
+        paths.append(exe / "secdogie.env")
+    # Always also check CWD (useful for source runs and when the user puts a
+    # file next to where they launched from).
+    paths.append(Path("secdogie.env"))
+    paths.append(Path.home() / ".config" / "secdogie" / "config")
+    paths.append(Path.home() / ".secdogie" / "config")
+    return paths
+
+
+def default_write_target() -> Path:
+    """Where `--init-config` (and the GUI key dialog) should write by default.
+
+    Frozen → next to the exe (portable).
+    Source → ~/.config/secdogie/config (conventional).
+    """
+    exe = _exe_dir()
+    if exe is not None:
+        return exe / "secdogie.env"
+    return Path.home() / ".config" / "secdogie" / "config"
+
+
+# Kept for backward-compatible imports; prefer the functions above.
+DEFAULT_CONFIG_PATHS = default_config_paths()
+USER_CONFIG_PATH = default_write_target()
 
 _TEMPLATE = """\
 # secdogie-agent configuration
@@ -100,7 +133,7 @@ def resolve(
     """Resolves the provider, API key, and model from CLI args, env, and file."""
     # Parse the config file up front: it can supply both the model and (as the
     # lowest-priority fallback) the provider's API key.
-    chosen = Path(config_path) if config_path else _first_existing(DEFAULT_CONFIG_PATHS)
+    chosen = Path(config_path) if config_path else _first_existing(default_config_paths())
     file_values = parse_config_file(chosen) if chosen is not None else {}
 
     # Model: CLI wins, then env, then config file, else leave None.
@@ -139,16 +172,53 @@ def resolve(
 
 
 def write_template(path: Path | None = None) -> Path:
-    """Writes the config template to `path` (default USER_CONFIG_PATH) with
+    """Writes the config template to `path` (default: portable location) with
     owner-only permissions. Refuses to clobber an existing file. Returns the
     path written."""
-    target = path or USER_CONFIG_PATH
+    target = path or default_write_target()
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         raise FileExistsError(f"{target} already exists; edit it directly or delete it first")
     target.write_text(_TEMPLATE, encoding="utf-8")
     try:
         os.chmod(target, 0o600)  # it will hold a secret; best-effort on POSIX
+    except (OSError, NotImplementedError):
+        pass
+    return target
+
+
+def write_api_key(api_key: str, *, provider: str = "anthropic", path: Path | None = None) -> Path:
+    """Write (or update) an API key into the config file.
+
+    Used by the GUI key dialog so the user never has to open a text editor.
+    Creates the file if missing, otherwise updates the relevant key line.
+    """
+    target = path or default_write_target()
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    env_var = API_KEY_ENV.get(provider, "ANTHROPIC_API_KEY")
+    key_line = f"{env_var}={api_key.strip()}"
+
+    if target.exists():
+        lines = target.read_text(encoding="utf-8").splitlines()
+        found = False
+        new_lines = []
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith(f"{env_var}=") or stripped.startswith(f"#{env_var}="):
+                new_lines.append(key_line)
+                found = True
+            else:
+                new_lines.append(line)
+        if not found:
+            new_lines.append(key_line)
+        target.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    else:
+        content = _TEMPLATE.replace(f"{env_var}=", key_line)
+        target.write_text(content, encoding="utf-8")
+
+    try:
+        os.chmod(target, 0o600)
     except (OSError, NotImplementedError):
         pass
     return target
