@@ -105,3 +105,9 @@ def test_cli_falls_back_to_terminal_when_gui_unavailable(monkeypatch, capsys):
 def test_gui_available_returns_bool():
     # Whatever the environment, this must not raise and must return a bool.
     assert isinstance(dialog.gui_available(), bool)
+
+
+def test_example_tasks_are_nonempty_pairs():
+    assert len(dialog.EXAMPLE_TASKS) >= 2
+    for label, full in dialog.EXAMPLE_TASKS:
+        assert label and full and len(full) > len(label)

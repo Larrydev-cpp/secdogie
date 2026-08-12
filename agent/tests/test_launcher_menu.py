@@ -45,6 +45,7 @@ def test_show_menu_falls_back_to_gui_without_a_display(monkeypatch):
     # With no usable display/tkinter the chooser can't build; it must return a
     # sensible argv rather than raise, so a double-clicked exe still does
     # something. Force the tkinter import to fail to simulate that deterministically.
+    # Also stub the key gate so we reach the window path.
     import builtins
 
     real_import = builtins.__import__
@@ -54,8 +55,32 @@ def test_show_menu_falls_back_to_gui_without_a_display(monkeypatch):
             raise ImportError("no tkinter")
         return real_import(name, *a, **k)
 
+    monkeypatch.setattr(m, "ensure_api_key_or_prompt", lambda: True)
     monkeypatch.setattr(builtins, "__import__", no_tk)
     assert m.show_menu() == ["--gui"]
+
+
+def test_show_menu_exits_when_first_run_key_cancelled(monkeypatch):
+    monkeypatch.setattr(m, "ensure_api_key_or_prompt", lambda: False)
+    assert m.show_menu() is None
+
+
+def test_ensure_api_key_or_prompt_short_circuits_when_present(monkeypatch):
+    from secdogie_agent import config as config_mod
+
+    monkeypatch.setattr(config_mod, "has_configured_api_key", lambda: True)
+    with mock.patch.object(m, "show_key_dialog") as dlg:
+        assert m.ensure_api_key_or_prompt() is True
+        assert not dlg.called
+
+
+def test_ensure_api_key_or_prompt_opens_dialog_when_missing(monkeypatch):
+    from secdogie_agent import config as config_mod
+
+    monkeypatch.setattr(config_mod, "has_configured_api_key", lambda: False)
+    with mock.patch.object(m, "show_key_dialog", return_value=True) as dlg:
+        assert m.ensure_api_key_or_prompt() is True
+        dlg.assert_called_once_with(first_run=True)
 
 
 # -- the --menu flag: show the real chooser from a normal CLI run --------------
@@ -69,7 +94,8 @@ def test_menu_flag_shows_the_chooser_and_runs_the_choice():
          mock.patch.object(cli, "run", return_value=0) as run, \
          mock.patch("secdogie_agent.cli_common.resolve_provider", return_value=object()), \
          mock.patch("secdogie_agent.dialog.gui_available", return_value=True), \
-         mock.patch("secdogie_agent.dialog.ask_task", return_value="a task"):
+         mock.patch("secdogie_agent.dialog.ask_task", return_value="a task"), \
+         mock.patch("secdogie_agent.config.has_configured_api_key", return_value=True):
         assert cli.main(["--menu"]) == 0
         assert sm.called
         assert run.call_args.args[1].dry_run is True   # the chosen card's flags took effect
