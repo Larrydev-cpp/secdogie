@@ -39,25 +39,25 @@ MENU_CHOICES: tuple[MenuChoice, ...] = (
     MenuChoice(
         "task",
         "Do a task",
-        "Type what you want. It shows a plan first and asks before every step.",
+        "CAD or desktop task in plain language. Plan first; asks before every step.",
         ("--gui",),
     ),
     MenuChoice(
         "dry",
         "Preview only (safe)",
-        "See what it would do — nothing is clicked or typed on your machine.",
+        "See the plan and intended clicks — nothing is changed on your machine.",
         ("--gui", "--dry-run"),
     ),
     MenuChoice(
         "ax",
         "Smarter clicks (recommended)",
-        "Uses accessibility labels when possible — steadier on real apps.",
+        "Uses accessibility labels when the app exposes them — often better on CAD toolbars.",
         ("--gui", "--desktop-ax"),
     ),
     MenuChoice(
         "auto",
         "Run without asking (careful)",
-        "No per-step confirmation. High-risk actions still ask.",
+        "No per-step confirmation. Do not use on drawings you cannot afford to damage.",
         ("--gui", "--auto"),
     ),
     MenuChoice(
@@ -176,7 +176,7 @@ def show_key_dialog(*, first_run: bool = False) -> bool:
         ).pack(anchor="w")
 
         intro = (
-            "Before it can control your screen, paste an API key from any vision model provider.\n"
+            "Before it can control CAD or other apps on screen, paste an API key.\n"
             "Key stays on disk next to the program — nothing is uploaded."
             if first_run
             else "Any provider: Anthropic, OpenAI, DeepSeek, Groq, local models…\n"
@@ -301,7 +301,7 @@ def show_key_dialog(*, first_run: bool = False) -> bool:
                 path = config_mod.write_api_key(key, model=model, **kwargs)
                 saved["ok"] = True
                 tip = (
-                    "\nYou can try a safe example next — it asks before every step."
+                    "\nNext: open your CAD/viewer, then try Preview or a zoom/read example."
                     if first_run
                     else ""
                 )
@@ -413,8 +413,8 @@ def show_menu() -> list[str] | None:
 
         tk.Label(
             pad,
-            text="An AI that can see your screen and use the mouse & keyboard.\n"
-                 "It asks before each step. Your key stays on this machine.",
+            text="Experimental: vision control for CAD and desktop apps.\n"
+                 "Asks before each step. Not production-ready — use Preview on real drawings.",
             bg=_BG, fg=_FG_DIM, font=("Segoe UI", 9), justify="left",
         ).pack(anchor="w", pady=(4, 12))
 

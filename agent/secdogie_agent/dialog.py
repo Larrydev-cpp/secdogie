@@ -10,20 +10,20 @@ to the terminal.
 """
 from __future__ import annotations
 
-# One-click starters shown in the task dialog. Keep them short, safe, and
-# obviously reversible so a first-time user can try without fear.
+# One-click starters shown in the task dialog. CAD / professional-app oriented:
+# assume the target app may already be open; prefer read/zoom/export over destructive edits.
 EXAMPLE_TASKS: tuple[tuple[str, str], ...] = (
     (
-        "Open Notepad",
-        "Open Notepad and type: Hello from secdogie",
+        "Zoom drawing",
+        "In the already-open CAD or drawing viewer, zoom to fit the whole drawing on screen",
     ),
     (
-        "Desktop folder",
-        "Create a new folder on the desktop named secdogie-demo",
+        "Read dimension",
+        "In the open drawing, find the overall length or width dimension and type that number into Notepad",
     ),
     (
-        "Screenshot tip",
-        "Open the default browser and go to example.com",
+        "Export PDF",
+        "In the open CAD or viewer, export or Save As PDF to the Desktop; if a name is required use secdogie-export.pdf and do not overwrite without asking",
     ),
 )
 
@@ -85,14 +85,17 @@ def ask_task(default: str = "") -> str | None:
     tk.Label(pad, text="What should it do?", font=("", 13, "bold")).pack(anchor="w")
     tk.Label(
         pad,
-        text="Describe the task in plain language. It will show a plan first and ask before each step.",
+        text="Describe a CAD or desktop task in plain language. "
+             "It shows a plan first and asks before each step. Leave the target app open.",
         wraplength=480,
         justify="left",
         fg="#555",
     ).pack(anchor="w", pady=(4, 8))
 
     # Example chips
-    tk.Label(pad, text="Try an example:", font=("", 9), fg="#666").pack(anchor="w")
+    tk.Label(pad, text="Try an example (app should already be open):", font=("", 9), fg="#666").pack(
+        anchor="w"
+    )
     chips = tk.Frame(pad)
     chips.pack(anchor="w", pady=(2, 10))
 
@@ -152,7 +155,7 @@ def confirm_plan(task: str, plan: str) -> bool:
     tk.Label(pad, text="Ready to start?", font=("", 13, "bold")).pack(anchor="w")
     tk.Label(
         pad,
-        text="Review what it understood. Nothing has been clicked yet.",
+        text="Review the plan. Nothing has been clicked yet — cancel if this would change a drawing you care about.",
         fg="#555",
         wraplength=520,
         justify="left",
