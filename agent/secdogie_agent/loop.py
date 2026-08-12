@@ -65,11 +65,12 @@ class AgentConfig:
     task: str
     max_steps: int = 50
     auto: bool = False  # if False (default), every action needs a y/N confirmation
-    # High-risk kinds (actions.HIGH_RISK_KINDS -- e.g. `open`, which launches an
-    # arbitrary file/URL) require a confirmation *even under --auto*. Default on:
-    # --auto trusts the model to click/type unattended, but not to launch things
-    # outside the screen sandbox without a human ok. Set False (CLI --allow-risky,
-    # or a session that already consented like open/) to run those unattended too.
+    # High-risk actions (actions.is_high_risk -- e.g. `open`, Ctrl+S, Delete)
+    # require a confirmation *even under --auto*. Default on: --auto trusts the
+    # model to click/type unattended, but not to save/close/delete or launch
+    # things outside the screen sandbox without a human ok. Set False (CLI
+    # --allow-risky, or a session that already consented like open/) to run those
+    # unattended too.
     confirm_high_risk: bool = True
     # Commands the operator has explicitly allowed the `run_elevated` action to
     # run as SYSTEM (see cli --allow-elevated-command). This tuple IS the enable
@@ -597,13 +598,13 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     stall_count = 0
                 prev_exec_sig, prev_exec_frame = sig, frame_hash
 
-            # Risk gate: high-risk kinds (actions.HIGH_RISK_KINDS -- `open` launches
-            # a program/URL outside the screen sandbox) still confirm under --auto
-            # unless confirm_high_risk was turned off; everything else confirms only
-            # when --auto is off. On an unattended run (no TTY) safety.confirm returns
-            # False on EOF, so an unconfirmed high-risk action fails closed (skipped),
-            # not silently executed.
-            is_high_risk = action.kind in actions.HIGH_RISK_KINDS
+            # Risk gate: high-risk actions (actions.is_high_risk -- `open`, Ctrl+S,
+            # Delete, ...) still confirm under --auto unless confirm_high_risk was
+            # turned off; everything else confirms only when --auto is off. On an
+            # unattended run (no TTY) safety.confirm returns False on EOF, so an
+            # unconfirmed high-risk action fails closed (skipped), not silently
+            # executed.
+            is_high_risk = actions.is_high_risk(action)
             force_confirm = is_high_risk and config.confirm_high_risk
             needs_confirm = action.kind not in _BENIGN and (not config.auto or force_confirm)
             if needs_confirm:
