@@ -1,235 +1,167 @@
 # secdogie
 
-Small, from-scratch pieces that combine into one idea: **let a
-cloud vision-LLM control a computer you own, reached over a tunnel you
-control.**
+**An AI that can see your screen and use the mouse and keyboard — on a machine you own.**
+
+Point it at a task in plain language. It screenshots the desktop, asks a vision model what to do next, and acts one step at a time. By default it shows a plan first and asks before every click.
+
+Your API key stays on disk next to the program. Optional: route model traffic through a proxy (including TOR) or reach a remote machine over a tunnel you control.
 
 ---
 
-- [`tunnel/`](tunnel/) — a minimal encrypted VPN tunnel, written from scratch
-  in C on libsodium primitives (X25519 + BLAKE2b + XChaCha20-Poly1305).
-  Point-to-point by default, with an optional **hub mode** that terminates
-  many client tunnels on one public node and routes between them. See
-  [`tunnel/PROTOCOL.md`](tunnel/PROTOCOL.md) for the handshake design and
-  [`tunnel/README.md`](tunnel/README.md) to build and run it.
-- [`agent/`](agent/) — a vision-LLM computer-control agent: point it at a
-  task in plain language, it screenshots your screen, asks a vision model
-  what to do next, and executes one action at a time (click, type, scroll,
-  ...) until the task is done. See [`agent/README.md`](agent/README.md).
-- [`open/`](open/) — a local web page on top of `agent/` that splits the
-  screen by open window and drives one `agent` instance per selected window
-  at once, instead of one agent owning the whole screen. See
-  [`open/README.md`](open/README.md).
-- [`fleet/`](fleet/) — the next step up from `open/`: one agent per **isolated
-  desktop** (a VM or its own user session), coordinated from the host. Because
-  nothing is shared, several big tasks genuinely act *at the same time* instead
-  of taking turns on one mouse. See [`fleet/README.md`](fleet/README.md).
-- [`android/`](android/) — points the same `agent/` loop at an Android phone
-  instead of the desktop: screenshots come from `adb screencap`, taps/typing
-  go out through `adb shell input`, so nothing is installed on the phone. See
-  [`android/README.md`](android/README.md).
-- [`ios/`](ios/) — points the same `agent/` loop at an iPhone/iPad through
-  [WebDriverAgent](https://github.com/appium/WebDriverAgent) (built once with
-  Xcode): screenshots and taps/typing go over WDA's HTTP API. See
-  [`ios/README.md`](ios/README.md).
-- [`scene3d/`](scene3d/) — multi-model 3D scene analysis: several workers each
-  analyze a different **view** of one 3D scene (concurrently, spread over a
-  pool of API keys), then an aggregator fuses their observations into a single
-  consolidated 3D understanding. See [`scene3d/README.md`](scene3d/README.md).
+## Windows: download the `.exe` (recommended)
 
-## Tutorial
+No Python. No terminal required.
 
-New here? **[`TUTORIAL.md`](TUTORIAL.md) is a full, follow-along walkthrough** —
-from a fresh clone to a model driving your desktop, a phone, several windows,
-and a machine across the network, with the exact commands and the output you
-should see at each step, plus a troubleshooting table.
+1. Open **[Releases](../../releases)** → download `secdogie-agent-windows-….exe`
+2. Double-click it
+3. If it’s the first run, paste any vision-model API key (Anthropic, OpenAI, DeepSeek, Groq, custom…)
+4. Pick **Do a task** or **Preview only (safe)**
+5. Use an example task or type your own — it asks before each step
 
-The 60-second version (control your own desktop; **bash** shown — Windows
-users: prefer the `.exe` section at the top of this README):
+Key and config are saved next to the `.exe` so the whole folder is portable.
 
-```sh
-# 1. install
-cd agent && python3 -m venv .venv && source .venv/bin/activate && pip install -e .
-
-# 2. add your API key (any provider)
-secdogie-agent --init-config        # then edit the config file it prints
-
-# 3. see what it WOULD do — touches nothing
-secdogie-agent "open a text editor and type 'hello world'" --dry-run
-
-# 4. do it for real — approves each action with a y/N prompt
-secdogie-agent "open a text editor and type 'hello world'"
-```
-
-Then follow [`TUTORIAL.md`](TUTORIAL.md) for phones (`android`/`ios`), several
-windows at once (`open`), and reaching a remote machine (`tunnel`).
-
-## Downloads
-
-Pre-built binaries — a single-file executable for `agent`, `android`, `ios`,
-`open`, and `scene3d` on Linux, Windows, and macOS each, plus the
-`secdogie-tunnel` binary for Linux — are published on the
-[Releases](../../releases) page. Each is offered two ways: the **bare
-executable** as a direct, one-file download (on Windows, download
-`secdogie-agent-windows-….exe` and just run it — it's fully self-contained),
-and a **`.zip`** that adds the docs and a double-click launcher. They're built
-and attached automatically when a `v*` tag is pushed — see
-[`docs/RELEASING.md`](docs/RELEASING.md).
-
-**Windows from source (one command from repo root):**
+**Build from source (one command from repo root):**
 
 ```powershell
 .\build-agent.ps1
 # → agent\packaging\dist\secdogie-agent.exe
 ```
 
-## Installing the game stack (one command)
+---
 
-The game packages (`agent`, `aim`, `carjack`, `gta`, `commander`, `handoff`)
-live in this repo and depend on each other but aren't on PyPI, so
-`pip install secdogie-carjack` alone fails — it can't find `secdogie-aim`. Set
-them all up in one venv, in the right order, with:
+## 60-second start (any platform)
 
 ```sh
-./install.sh            # Linux/macOS   (--yolo adds the YOLO detector, --all adds the non-game packages)
+cd agent && python3 -m venv .venv && source .venv/bin/activate && pip install -e .
+
+# GUI: menu + task box + example tasks (same flow as the Windows exe)
+secdogie-agent --menu
+# or
+secdogie-agent --gui
+
+# Terminal: dry-run first, then real actions with y/N each step
+secdogie-agent "open a text editor and type hello world" --dry-run
+secdogie-agent "open a text editor and type hello world"
 ```
-```powershell
-.\install.ps1           # Windows       (-Yolo / -All)
-```
 
-Then, for single-player games only:
+Full walkthrough (desktop, phone, multi-window, remote): **[`TUTORIAL.md`](TUTORIAL.md)**.
 
-```sh
-secdogie-carjack --weights yolov8n.pt --label car --enter-key f   # walk to a car and get in
-```
+---
 
-Some setup is irreducible and stays manual: a GPU for real-time YOLO, the game
-itself, and (for GTA V's plugin path) ScriptHookV.
+## What it is / isn’t
 
-## How they fit together
+| It is | It isn’t |
+|-------|----------|
+| A vision-model loop that drives **real GUI** (apps without APIs) | A chat bot that only answers questions |
+| Single-file / portable on Windows | A hosted cloud service |
+| Operator-owned machines only | Multi-tenant or unattended SaaS |
+| Optional self-built encrypted tunnel | Dependent on Tailscale / Cloudflare Tunnel |
 
-`agent/` only needs *some* screen and input device to drive — normally the
-machine it's running on. If you want a cloud-hosted model to control a
-*different* machine (e.g. your home desktop, reached from elsewhere), route
-the agent's traffic to that machine through `secdogie-tunnel`: bring up the
-tunnel between the two machines, then run the agent so its screenshots/
-input calls target the remote box (e.g. over the tunnel's virtual network,
-via VNC/RDP/X11-forwarding carried inside the tunnel, or by running the
-agent directly on the remote machine and only using the tunnel to reach it
-for setup/monitoring). The tunnel and the agent are independent, composable
-pieces on purpose — neither hard-depends on the other.
+**Only run it against computers (or phones) you own or are explicitly authorized to control.**
 
-## Architecture
+Start with **Preview only** / `--dry-run`. Keep per-step confirmation on until you trust a task. Nothing here has been independently security-audited — see [`SECURITY.md`](SECURITY.md).
 
-The heart is `agent/`'s two-tier loop: a slow cloud vision-model (~1 Hz)
-decides *what* to do, a fast local reflex layer (frame-rate NCC template
-matching) handles *where* precisely. Every action goes through one closed
-schema and is verified by a pixel diff before the loop moves on. The other
-components either reuse that loop against a different backend
-(`android`/`ios`), fan it out (`open`), carry it to another machine
-(`tunnel`), or bolt a fast controller onto it for games (the game stack).
+---
+
+## Downloads
+
+Pre-built binaries for `agent`, `android`, `ios`, `open`, and `scene3d` (Linux, Windows, macOS) plus `secdogie-tunnel` (Linux) are on the **[Releases](../../releases)** page — bare executable or `.zip` with docs. Built automatically on `v*` / `V*` tags; see [`docs/RELEASING.md`](docs/RELEASING.md).
+
+---
+
+## Components
+
+Small, composable pieces. Use only what you need.
+
+| Piece | Role |
+|-------|------|
+| [`agent/`](agent/) | Vision-LLM computer-control loop (desktop) |
+| [`open/`](open/) | Local web UI: one agent instance per selected window |
+| [`fleet/`](fleet/) | One agent per isolated desktop (VM/session), true parallelism |
+| [`android/`](android/) | Same loop over `adb` (nothing installed on the phone) |
+| [`ios/`](ios/) | Same loop over [WebDriverAgent](https://github.com/appium/WebDriverAgent) |
+| [`tunnel/`](tunnel/) | From-scratch encrypted VPN (C + libsodium): point-to-point + hub mode |
+| [`scene3d/`](scene3d/) | Multi-model 3D scene analysis (per-view workers + aggregator) |
+| Game stack (`aim/`, `carjack`, `gta/`, `commander/`, `handoff/`) | Single-player game helpers — see install below |
+
+### How they fit together
+
+`agent/` only needs a screen and input device — usually the machine it runs on. To control a *different* machine, put `secdogie-tunnel` between them (or run the agent on the remote box and use the tunnel for access). Tunnel and agent are independent on purpose.
+
+Architecture sketch:
 
 ```mermaid
 flowchart TB
     subgraph core["agent/ — two-tier control loop"]
         cap["screen: capture screenshot"] --> prov["provider: vision-LLM<br/>(~1 Hz) picks next action"]
-        prov --> plan["plan / skill / trace<br/>planning · macros · audit chain"]
-        plan --> act["actions: closed VALID_ACTIONS schema<br/>(the sandbox boundary)"]
+        prov --> plan["plan / skill / trace"]
+        plan --> act["actions: closed schema"]
         act --> backend{{backend}}
-        backend --> verify["verify: screen.changed_ratio<br/>no visible change → retry"]
+        backend --> verify["verify: pixel change"]
         verify --> cap
-        act -. fast local .-> reflex["reflex: NCC template match<br/>track_click · refine_point"]
+        act -. fast local .-> reflex["reflex: NCC match"]
         reflex --> cap
     end
 
-    backend --> desktop["desktop<br/>pyautogui"]
-    backend --> android["android/<br/>adb"]
-    backend --> ios["ios/<br/>WebDriverAgent"]
+    backend --> desktop["desktop"]
+    backend --> android["android/ adb"]
+    backend --> ios["ios/ WDA"]
 
-    open["open/ — multi-window web GUI"] -->|drives N instances| core
-    scene3d["scene3d/ — multi-model<br/>3D scene aggregator"] -. perception .-> prov
-    core -. optional, to a remote box .-> tunnel["tunnel/<br/>libsodium VPN"] --> remote[(remote machine)]
-
-    subgraph fleetgrp["fleet/ — one desktop per task"]
-        coord["coordinator (host)<br/>queue · dispatch · requeue"]
-        coord -->|assign / status<br/>JSON over TCP| nodeA["node → its own VM/session<br/>own mouse · own focus"]
-        coord --> nodeB["node → another VM/session"]
-    end
-    nodeA -->|runs a full| core
-    nodeB -->|runs a full| core
-
-    subgraph game["game stack — single-player only"]
-        commander["commander/<br/>tactician state machine"] -->|baton| handoff["handoff/<br/>input-ownership baton"]
-        handoff --> nodeA["Node A: agent macros<br/>2D logistics"]
-        handoff --> nodeB["aim/ — Node B<br/>relative mouse-look + P-aim"]
-        gta["gta/ — steering control law<br/>→ ScriptHookV bridge"]
-    end
-    commander -. sequences .-> core
+    open["open/ multi-window"] -->|N instances| core
+    core -. optional .-> tunnel["tunnel/"] --> remote[(remote machine)]
 ```
 
-Solid arrows are the per-frame data path; dotted arrows are optional or
-out-of-band seams. The game stack, `gta/`, and the on-machine halves of
-`aim/` need a real GPU/game and are documented as on-machine interfaces —
-the headless-testable cores (control laws, protocols, the loop itself) are
-what the test suite proves.
+---
 
-## Before you run any of this
+## Game stack (optional)
 
-These pieces execute real, consequential actions: the tunnel moves real
-network traffic, `agent` moves a real mouse and types on a real keyboard,
-`open` does that across several windows at once, and `android`/`ios` tap and
-type on a real phone.
+Packages live in-repo and aren’t on PyPI as a single install. One command sets up the venv in order:
 
-- **Only point the agent(s) at a computer you own or are explicitly
-  authorized to control.** They are meant to automate your own machine, the
-  same way you would use TeamViewer/VNC on yourself — not to be installed on
-  someone else's computer without their knowledge or consent.
-- Start with `agent`'s `--dry-run` flag (in `open`, leave **Enable real
-  actions** off) and keep per-step confirmation on until you trust a given
-  task; `open` runs unattended across every selected window once real
-  actions are on, since a per-step prompt doesn't make sense across several
-  windows sharing one browser tab.
-- None of these components has been independently security-audited. Read the
-  "Known limitations" sections in each subproject's docs before relying on
-  them for anything sensitive.
+```sh
+./install.sh            # Linux/macOS   (--yolo, --all)
+```
+```powershell
+.\install.ps1           # Windows       (-Yolo / -All)
+```
 
-See [`SECURITY.md`](SECURITY.md) for the full trust model (what secdogie
-assumes about the operator and the machines it drives) and how to report a
-vulnerability privately.
+Example (single-player only):
+
+```sh
+secdogie-carjack --weights yolov8n.pt --label car --enter-key f
+```
+
+You still need a GPU for real-time YOLO, the game itself, and (for GTA V) ScriptHookV.
+
+---
 
 ## Layout
 
 ```
-tunnel/   C, libsodium-based VPN tunnel (PROTOCOL.md has the design + limitations)
-agent/    Python vision-LLM computer-control agent (provider-agnostic action schema)
-open/     Python, local web page: split the screen by window, drive several agent instances at once
-fleet/    Python: one agent per isolated desktop (VM/session), coordinated from the host -- true parallelism
-android/  Python: drive an Android phone over adb, reusing the agent loop + action schema
-ios/      Python: drive an iPhone/iPad over WebDriverAgent, reusing the agent loop + action schema
-scene3d/  Python: multi-model 3D scene analysis (per-view workers + an aggregator)
-handoff/  Python: cross-process input-ownership baton (one node drives the mouse/keyboard at a time)
-aim/      Python: real-time combat controller -- relative mouse-look + P-control aim onto a detected target
-commander/ Python: tactician state machine -- decides fight phases and sequences the logistics/combat nodes
-gta/      Python: drive GTA V single-player via a ScriptHookV plugin -- JSON bridge protocol + a steering control law
+tunnel/    C, libsodium VPN (see PROTOCOL.md)
+agent/     vision-LLM computer-control agent
+open/      multi-window local web UI
+fleet/     one agent per isolated desktop
+android/   phone control via adb
+ios/       phone/tablet control via WebDriverAgent
+scene3d/   multi-model 3D scene analysis
+handoff/   input-ownership baton (game stack)
+aim/       real-time aim helper
+commander/ tactician state machine
+gta/       GTA V single-player bridge
 ```
 
-Each subdirectory has its own README with build/install/run instructions
-and its own test suite.
+Each subdirectory has its own README, tests, and limitations.
+
+---
 
 ## Development
 
-Every push and pull request runs [`.github/workflows/test.yml`](.github/workflows/test.yml):
-each Python component's `pytest` suite (headless), the C tunnel's `ctest`, and a
-single `ruff` lint pass over all the Python code. To run the same checks locally:
+Every push/PR runs [`.github/workflows/test.yml`](.github/workflows/test.yml): Python `pytest` (headless), tunnel `ctest`, and `ruff`.
 
 ```sh
 pip install ruff
-ruff check .            # lint config lives in ruff.toml at the repo root
-# then each component's own tests, e.g.:
+ruff check .
 cd agent && pip install -e . pytest && pytest tests/ -q
 ```
 
-The `agent/` package owns the shared pieces — the loop, providers, config, and
-the CLI front door (`secdogie_agent/cli_common.py`) that `android`, `ios`, and
-the desktop `agent` all reuse for their `--model`/`--api-key`/loop flags — so a
-change there is picked up by every tool.
+Shared loop, providers, and CLI flags live under `agent/secdogie_agent/` and are reused by `android` and `ios`.
