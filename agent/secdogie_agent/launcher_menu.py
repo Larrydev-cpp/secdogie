@@ -7,6 +7,9 @@ stands for -- so `secdogie-agent.exe` alone is the whole install: one file,
 open it, pick what to do. Launched *with* arguments (a terminal user, the
 macro/skill flags, scripts), the menu never appears and the CLI is untouched.
 
+First-run: if no API key is configured yet, the key dialog is shown before the
+menu so the user never hits a silent failure after picking a task.
+
 The glass: tkinter draws the panel, and on Windows the real acrylic blur comes
 from the OS compositor -- the same SetWindowCompositionAttribute call native
 apps use, applied to tkinter's HWND -- plus DWM rounded corners on Windows 11.
@@ -35,25 +38,25 @@ class MenuChoice:
 MENU_CHOICES: tuple[MenuChoice, ...] = (
     MenuChoice(
         "task",
-        "Describe a task",
-        "Type what you want done; it asks before every step.",
+        "Do a task",
+        "Type what you want. It shows a plan first and asks before every step.",
         ("--gui",),
     ),
     MenuChoice(
         "dry",
-        "Preview first (dry run)",
-        "See what it would do -- touches nothing on your machine.",
+        "Preview only (safe)",
+        "See what it would do — nothing is clicked or typed on your machine.",
         ("--gui", "--dry-run"),
     ),
     MenuChoice(
         "ax",
-        "Element mode (accessibility)",
-        "Clicks UI elements by identity, not by pixel -- steadier on real apps.",
+        "Smarter clicks (recommended)",
+        "Uses accessibility labels when possible — steadier on real apps.",
         ("--gui", "--desktop-ax"),
     ),
     MenuChoice(
         "auto",
-        "Unattended (careful)",
+        "Run without asking (careful)",
         "No per-step confirmation. High-risk actions still ask.",
         ("--gui", "--auto"),
     ),
@@ -93,6 +96,7 @@ _CARD_HOVER = "#4a4252"  # card under the pointer
 _FG = "#ffffff"
 _FG_DIM = "#b9b3c0"
 _ACCENT = "#7c6aef"      # soft purple for the save button
+_WARN = "#e0b060"
 
 
 def _apply_windows_glass(root) -> None:
@@ -141,11 +145,13 @@ def _apply_windows_glass(root) -> None:
         pass
 
 
-def show_key_dialog() -> None:
+def show_key_dialog(*, first_run: bool = False) -> bool:
     """A proper dialog for pasting an API key from any vendor.
 
     Supports Anthropic, OpenAI, and any OpenAI-compatible / custom key name.
     Writes next to the exe (or the portable location) with clear feedback.
+
+    Returns True if a key was saved, False if the user cancelled / closed.
     """
     try:
         import tkinter as tk
@@ -158,18 +164,27 @@ def show_key_dialog() -> None:
         root.resizable(False, False)
         root.attributes("-topmost", True)
 
+        saved = {"ok": False}
+
         pad = tk.Frame(root, bg=_BG)
         pad.pack(padx=24, pady=20, fill="both", expand=True)
 
+        title = "One quick setup" if first_run else "Paste your API key"
         tk.Label(
-            pad, text="Paste your API key",
+            pad, text=title,
             bg=_BG, fg=_FG, font=("Segoe UI", 14, "bold"),
         ).pack(anchor="w")
 
+        intro = (
+            "Before it can control your screen, paste an API key from any vision model provider.\n"
+            "Key stays on disk next to the program — nothing is uploaded."
+            if first_run
+            else "Any provider: Anthropic, OpenAI, DeepSeek, Groq, local models…\n"
+                 "Key stays on disk next to the program — nothing is uploaded."
+        )
         tk.Label(
             pad,
-            text="Any provider: Anthropic, OpenAI, DeepSeek, Groq, local models…\n"
-                 "Key stays on disk next to the program — nothing is uploaded.",
+            text=intro,
             bg=_BG, fg=_FG_DIM, font=("Segoe UI", 9), justify="left",
         ).pack(anchor="w", pady=(4, 12))
 
@@ -219,7 +234,7 @@ def show_key_dialog() -> None:
         ).pack(anchor="w")
         key_var = tk.StringVar()
         entry = tk.Entry(
-            pad, textvariable=key_var, width=52, show="•",
+            pad, textvariable=key_var, width=52, show="\u2022",
             font=("Consolas", 11), bg=_CARD, fg=_FG, insertbackground=_FG,
             relief="flat", highlightthickness=1, highlightcolor=_ACCENT,
             highlightbackground="#4a4252",
@@ -241,7 +256,7 @@ def show_key_dialog() -> None:
         model_entry.pack(fill="x", ipady=6, pady=(2, 4))
         tk.Label(
             pad,
-            text="e.g. claude-sonnet-5 · gpt-5.5 · deepseek-chat · openai/gpt-5.5",
+            text="e.g. claude-sonnet-5 \u00b7 gpt-5.5 \u00b7 deepseek-chat \u00b7 openai/gpt-5.5",
             bg=_BG, fg=_FG_DIM, font=("Segoe UI", 8),
         ).pack(anchor="w", pady=(0, 8))
 
@@ -249,7 +264,7 @@ def show_key_dialog() -> None:
         show_var = tk.BooleanVar(value=False)
 
         def toggle_show():
-            entry.config(show="" if show_var.get() else "•")
+            entry.config(show="" if show_var.get() else "\u2022")
 
         tk.Checkbutton(
             pad, text="Show key", variable=show_var, command=toggle_show,
@@ -284,8 +299,14 @@ def show_key_dialog() -> None:
             model = model_var.get().strip() or None
             try:
                 path = config_mod.write_api_key(key, model=model, **kwargs)
-                status.config(text=f"Saved to:\n{path}", fg="#6ecf8e")
-                root.after(1800, root.destroy)
+                saved["ok"] = True
+                tip = (
+                    "\nYou can try a safe example next — it asks before every step."
+                    if first_run
+                    else ""
+                )
+                status.config(text=f"Saved to:\n{path}{tip}", fg="#6ecf8e")
+                root.after(1600, root.destroy)
             except Exception as e:
                 status.config(text=f"Failed: {e}", fg="#e07070")
 
@@ -316,20 +337,45 @@ def show_key_dialog() -> None:
         root.geometry(f"+{x}+{y}")
         _apply_windows_glass(root)
         root.mainloop()
+        return saved["ok"]
     except Exception as e:
         try:
             from tkinter import messagebox
             messagebox.showerror("secdogie-agent", f"Could not open key dialog:\n{e}")
         except Exception:
             pass
+        return False
+
+
+def ensure_api_key_or_prompt() -> bool:
+    """If no API key is configured, show the first-run key dialog.
+
+    Returns True if a key is available afterward (already was, or user saved
+    one). Returns False if the user cancelled without saving.
+    """
+    from . import config as config_mod
+
+    if config_mod.has_configured_api_key():
+        return True
+    return show_key_dialog(first_run=True)
 
 
 def show_menu() -> list[str] | None:
     """Show the chooser; return the picked argv, or None if closed/cancelled.
     Raises nothing: any failure to build the window returns ["--gui"] so a
-    double-clicked exe always does *something* useful."""
+    double-clicked exe always does *something* useful.
+
+    First-run: if no API key is present, the key dialog is shown first. Closing
+    it without saving exits (returns None) so we don't start a doomed run.
+    """
     try:
+        # Gate on key before building the menu window.
+        if not ensure_api_key_or_prompt():
+            return None
+
         import tkinter as tk
+
+        from . import config as config_mod
 
         root = tk.Tk()
         root.title("secdogie-agent")
@@ -350,7 +396,7 @@ def show_menu() -> list[str] | None:
         def open_key_dialog(_event=None) -> None:
             root.withdraw()
             root.update()
-            show_key_dialog()
+            show_key_dialog(first_run=False)
             root.deiconify()
 
         pad = tk.Frame(root, bg=_BG)
@@ -360,12 +406,25 @@ def show_menu() -> list[str] | None:
         header.pack(fill="x")
         tk.Label(header, text="secdogie-agent", bg=_BG, fg=_FG,
                  font=("Segoe UI", 15, "bold")).pack(side="left")
-        close = tk.Label(header, text="✕", bg=_BG, fg=_FG_DIM,
+        close = tk.Label(header, text="\u2715", bg=_BG, fg=_FG_DIM,
                          font=("Segoe UI", 11), cursor="hand2", padx=8)
         close.pack(side="right")
         close.bind("<Button-1>", cancel)
-        tk.Label(pad, text="What should it do?", bg=_BG, fg=_FG_DIM,
-                 font=("Segoe UI", 10)).pack(anchor="w", pady=(0, 12))
+
+        tk.Label(
+            pad,
+            text="An AI that can see your screen and use the mouse & keyboard.\n"
+                 "It asks before each step. Your key stays on this machine.",
+            bg=_BG, fg=_FG_DIM, font=("Segoe UI", 9), justify="left",
+        ).pack(anchor="w", pady=(4, 12))
+
+        if not config_mod.has_configured_api_key():
+            # Should be rare (we gated above), but keep a visible hint.
+            tk.Label(
+                pad,
+                text="No API key yet — open Set up / edit API key first.",
+                bg=_BG, fg=_WARN, font=("Segoe UI", 9),
+            ).pack(anchor="w", pady=(0, 8))
 
         for choice in MENU_CHOICES:
             card = tk.Frame(pad, bg=_CARD, cursor="hand2")

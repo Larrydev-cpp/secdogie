@@ -108,3 +108,47 @@ def test_write_template_refuses_to_clobber(tmp_path):
     with pytest.raises(FileExistsError):
         config_mod.write_template(target)
     assert target.read_text() == "existing"  # untouched
+
+
+def test_has_configured_api_key_false_when_empty(monkeypatch, tmp_path):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(config_mod, "default_config_paths", lambda: [tmp_path / "missing.env"])
+    assert config_mod.has_configured_api_key() is False
+
+
+def test_has_configured_api_key_true_from_env(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-present")
+    assert config_mod.has_configured_api_key() is True
+
+
+def test_has_configured_api_key_true_from_file(monkeypatch, tmp_path):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    p = tmp_path / "secdogie.env"
+    p.write_text("OPENAI_API_KEY=sk-file\n", encoding="utf-8")
+    monkeypatch.setattr(config_mod, "default_config_paths", lambda: [p])
+    assert config_mod.has_configured_api_key() is True
+
+
+def test_has_configured_api_key_custom_suffix(monkeypatch, tmp_path):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    p = tmp_path / "secdogie.env"
+    p.write_text("DEEPSEEK_API_KEY=sk-ds\n", encoding="utf-8")
+    monkeypatch.setattr(config_mod, "default_config_paths", lambda: [p])
+    assert config_mod.has_configured_api_key() is True
+
+
+def test_write_api_key_creates_and_updates(tmp_path):
+    target = tmp_path / "secdogie.env"
+    path = config_mod.write_api_key("sk-aaa", provider="anthropic", path=target)
+    assert path == target
+    text = target.read_text(encoding="utf-8")
+    assert "ANTHROPIC_API_KEY=sk-aaa" in text
+
+    config_mod.write_api_key("sk-bbb", provider="anthropic", model="claude-x", path=target)
+    text = target.read_text(encoding="utf-8")
+    assert "ANTHROPIC_API_KEY=sk-bbb" in text
+    assert "SECDOGIE_MODEL=claude-x" in text
+    assert text.count("ANTHROPIC_API_KEY=") == 1
