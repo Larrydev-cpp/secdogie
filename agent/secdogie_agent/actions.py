@@ -65,6 +65,75 @@ FOCUS_UNCONFIRMED_NOTE = " [focus unconfirmed: the target window may not have be
 # keep the set tight -- a kind belongs here only if it can act beyond the screen.
 HIGH_RISK_KINDS = frozenset({"open", "run_elevated"})
 
+# Normalized key tokens that, alone or with modifiers, are treated as high-risk
+# for CAD / document workflows (save, close, delete). Matched case-insensitively
+# against action.keys after stripping whitespace.
+_SAVE_KEYS = frozenset({"s"})
+_CLOSE_KEYS = frozenset({"w", "f4"})
+_DELETE_KEYS = frozenset({"delete", "del", "backspace"})
+_MODIFIERS = frozenset({"ctrl", "control", "cmd", "command", "alt", "shift", "win", "meta"})
+
+
+def _norm_keys(keys: list[str] | tuple[str, ...] | None) -> list[str]:
+    return [str(k).strip().lower() for k in (keys or ()) if str(k).strip()]
+
+
+def is_high_risk(action: Action) -> bool:
+    """True if this action must still be confirmed under --auto.
+
+    Covers:
+    - kinds in HIGH_RISK_KINDS (open, run_elevated)
+    - keyboard chords that commonly save, save-as, close a document, quit the
+      app, or delete content in CAD / office apps (Ctrl+S, Ctrl+Shift+S,
+      Ctrl+W, Alt+F4, Delete, ...)
+
+    Clicks are not classified high-risk by coordinates alone (too many false
+    positives); rely on per-step confirm or window pinning for those.
+    """
+    if action.kind in HIGH_RISK_KINDS:
+        return True
+
+    if action.kind not in ("key", "hold_key"):
+        return False
+
+    keys = _norm_keys(action.keys)
+    if not keys:
+        return False
+
+    mods = {k for k in keys if k in _MODIFIERS}
+    mains = [k for k in keys if k not in _MODIFIERS]
+    if not mains:
+        return False
+    main = mains[-1]  # chord primary is usually last (ctrl+s -> s)
+
+    ctrl = bool(mods & {"ctrl", "control", "cmd", "command"})
+    alt = "alt" in mods
+    shift = "shift" in mods
+
+    # Save / Save As
+    if ctrl and main in _SAVE_KEYS:
+        return True
+    # Close document / window / quit
+    if ctrl and main in {"w"}:
+        return True
+    if alt and main in {"f4"}:
+        return True
+    if ctrl and main in {"q"}:
+        return True
+    # Print often triggers device/network side effects
+    if ctrl and main in {"p"}:
+        return True
+    # Delete / backspace alone: destructive in editors; still gate under --auto
+    if not mods and main in _DELETE_KEYS:
+        return True
+    if ctrl and main in _DELETE_KEYS:
+        return True
+    # Ctrl+Shift+S already covered by ctrl+s; Ctrl+Shift+E etc. left alone
+    if ctrl and shift and main in _SAVE_KEYS:
+        return True
+
+    return False
+
 
 def execute(
     action: Action,
