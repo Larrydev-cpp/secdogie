@@ -10,6 +10,23 @@ to the terminal.
 """
 from __future__ import annotations
 
+# One-click starters shown in the task dialog. Keep them short, safe, and
+# obviously reversible so a first-time user can try without fear.
+EXAMPLE_TASKS: tuple[tuple[str, str], ...] = (
+    (
+        "Open Notepad",
+        "Open Notepad and type: Hello from secdogie",
+    ),
+    (
+        "Desktop folder",
+        "Create a new folder on the desktop named secdogie-demo",
+    ),
+    (
+        "Screenshot tip",
+        "Open the default browser and go to example.com",
+    ),
+)
+
 
 class GuiUnavailableError(RuntimeError):
     """tkinter is missing, or there is no display to show a window on."""
@@ -53,26 +70,51 @@ def _new_root(tk):
 
 def ask_task(default: str = "") -> str | None:
     """Pop up a window asking what the agent should do. Returns the entered
-    task, or None if the user cancelled/closed the window."""
+    task, or None if the user cancelled/closed the window.
+
+    Includes one-click example tasks so a first-time user can try something
+    safe without inventing a prompt.
+    """
     tk, scrolledtext, _ = _import_tk()
     root = _new_root(tk)
     result: dict[str, str | None] = {"task": None}
 
-    tk.Label(root, text="What should secdogie-agent do?", font=("", 12, "bold")).pack(
-        padx=16, pady=(14, 6), anchor="w"
-    )
+    pad = tk.Frame(root)
+    pad.pack(padx=16, pady=14, fill="both", expand=True)
+
+    tk.Label(pad, text="What should it do?", font=("", 13, "bold")).pack(anchor="w")
     tk.Label(
-        root,
-        text="Describe the task in plain language. The model will show its plan before acting.",
-        wraplength=440,
+        pad,
+        text="Describe the task in plain language. It will show a plan first and ask before each step.",
+        wraplength=480,
         justify="left",
         fg="#555",
-    ).pack(padx=16, anchor="w")
+    ).pack(anchor="w", pady=(4, 8))
 
-    entry = scrolledtext.ScrolledText(root, width=56, height=6, wrap="word")
+    # Example chips
+    tk.Label(pad, text="Try an example:", font=("", 9), fg="#666").pack(anchor="w")
+    chips = tk.Frame(pad)
+    chips.pack(anchor="w", pady=(2, 10))
+
+    entry = scrolledtext.ScrolledText(pad, width=58, height=6, wrap="word")
     entry.insert("1.0", default)
-    entry.pack(padx=16, pady=10)
+    entry.pack(fill="both", expand=True, pady=(0, 10))
     entry.focus_set()
+
+    def use_example(text: str) -> None:
+        entry.delete("1.0", "end")
+        entry.insert("1.0", text)
+        entry.focus_set()
+
+    for label, full in EXAMPLE_TASKS:
+        btn = tk.Button(
+            chips,
+            text=label,
+            command=lambda t=full: use_example(t),
+            padx=8,
+            pady=2,
+        )
+        btn.pack(side="left", padx=(0, 6))
 
     def submit() -> None:
         result["task"] = entry.get("1.0", "end").strip()
@@ -82,13 +124,15 @@ def ask_task(default: str = "") -> str | None:
         result["task"] = None
         root.destroy()
 
-    buttons = tk.Frame(root)
-    buttons.pack(padx=16, pady=(0, 14), anchor="e")
+    buttons = tk.Frame(pad)
+    buttons.pack(anchor="e")
     tk.Button(buttons, text="Cancel", command=cancel, width=10).pack(side="right", padx=(6, 0))
     tk.Button(buttons, text="Start", command=submit, width=10, default="active").pack(side="right")
 
     root.protocol("WM_DELETE_WINDOW", cancel)
     root.bind("<Escape>", lambda _e: cancel())
+    # Ctrl+Enter to submit (plain Enter adds a newline in the text box)
+    root.bind("<Control-Return>", lambda _e: submit())
     root.mainloop()
 
     task = result["task"]
@@ -102,16 +146,26 @@ def confirm_plan(task: str, plan: str) -> bool:
     root = _new_root(tk)
     result = {"ok": False}
 
-    tk.Label(root, text="Task", font=("", 11, "bold")).pack(padx=16, pady=(14, 2), anchor="w")
-    tk.Label(root, text=task, wraplength=520, justify="left").pack(padx=16, anchor="w")
+    pad = tk.Frame(root)
+    pad.pack(padx=16, pady=14, fill="both", expand=True)
 
-    tk.Label(root, text="The model's plan", font=("", 11, "bold")).pack(
-        padx=16, pady=(12, 2), anchor="w"
-    )
-    box = scrolledtext.ScrolledText(root, width=68, height=14, wrap="word")
+    tk.Label(pad, text="Ready to start?", font=("", 13, "bold")).pack(anchor="w")
+    tk.Label(
+        pad,
+        text="Review what it understood. Nothing has been clicked yet.",
+        fg="#555",
+        wraplength=520,
+        justify="left",
+    ).pack(anchor="w", pady=(2, 10))
+
+    tk.Label(pad, text="Your task", font=("", 10, "bold")).pack(anchor="w")
+    tk.Label(pad, text=task, wraplength=520, justify="left").pack(anchor="w", pady=(0, 8))
+
+    tk.Label(pad, text="Its plan", font=("", 10, "bold")).pack(anchor="w")
+    box = scrolledtext.ScrolledText(pad, width=68, height=12, wrap="word")
     box.insert("1.0", plan)
     box.configure(state="disabled")
-    box.pack(padx=16, pady=(0, 10))
+    box.pack(fill="both", expand=True, pady=(0, 10))
 
     def proceed() -> None:
         result["ok"] = True
@@ -121,10 +175,12 @@ def confirm_plan(task: str, plan: str) -> bool:
         result["ok"] = False
         root.destroy()
 
-    buttons = tk.Frame(root)
-    buttons.pack(padx=16, pady=(0, 14), anchor="e")
+    buttons = tk.Frame(pad)
+    buttons.pack(anchor="e")
     tk.Button(buttons, text="Cancel", command=cancel, width=12).pack(side="right", padx=(6, 0))
-    tk.Button(buttons, text="Proceed", command=proceed, width=12, default="active").pack(side="right")
+    tk.Button(buttons, text="Looks good — go", command=proceed, width=16, default="active").pack(
+        side="right"
+    )
 
     root.protocol("WM_DELETE_WINDOW", cancel)
     root.bind("<Escape>", lambda _e: cancel())
@@ -138,7 +194,7 @@ def ask_user(question: str) -> bool:
     tk, _, messagebox = _import_tk()
     root = _new_root(tk)
     root.withdraw()
-    answer = messagebox.askyesno("secdogie-agent — the model is asking", question, parent=root)
+    answer = messagebox.askyesno("secdogie-agent is asking", question, parent=root)
     root.destroy()
     return bool(answer)
 

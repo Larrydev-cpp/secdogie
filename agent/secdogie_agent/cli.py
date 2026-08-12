@@ -126,6 +126,18 @@ def main(argv: list[str] | None = None) -> int:
         )
         gui = False
 
+    # GUI path without a key yet: prompt once here too (covers `--gui` from a
+    # terminal, not only the double-click menu which already gated).
+    if gui and not args.api_key:
+        from . import config as config_mod
+
+        if not config_mod.has_configured_api_key():
+            if pre_launch_fg is None:
+                pre_launch_fg = osfocus.current_foreground()
+            if not launcher_menu.ensure_api_key_or_prompt():
+                print("cancelled: no API key configured.")
+                return 0
+
     # If no task was given, prompt for it in a window (GUI) -- otherwise it's required.
     if not args.task:
         if gui:

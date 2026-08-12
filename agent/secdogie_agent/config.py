@@ -127,6 +127,34 @@ def _first_existing(paths: list[Path]) -> Path | None:
     return None
 
 
+def has_configured_api_key() -> bool:
+    """True if *any* usable API key is available (env or config file).
+
+    Used by the first-run GUI path: if this is False, we force the key dialog
+    before offering a task, instead of failing later with a terminal-only error.
+    Checks known provider env vars plus any non-empty *API_KEY* line in config.
+    """
+    for env_var in API_KEY_ENV.values():
+        if os.environ.get(env_var, "").strip():
+            return True
+    # Also accept a custom env the user may have exported for OpenAI-compat.
+    if os.environ.get("OPENAI_API_KEY", "").strip():
+        return True
+
+    chosen = _first_existing(default_config_paths())
+    if chosen is None:
+        return False
+    values = parse_config_file(chosen)
+    for env_var in API_KEY_ENV.values():
+        if values.get(env_var, "").strip():
+            return True
+    # Custom keys written by the GUI (e.g. DEEPSEEK_API_KEY=...)
+    for k, v in values.items():
+        if k.endswith("_API_KEY") and v.strip():
+            return True
+    return False
+
+
 def resolve(
     cli_api_key: str | None = None,
     cli_model: str | None = None,
