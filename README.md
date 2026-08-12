@@ -1,10 +1,12 @@
 # secdogie
 
-**Experimental.** A vision model that can see your screen and drive the mouse and keyboard — aimed at **CAD viewing/editing and other professional desktop apps** that have weak or no APIs.
+**Product:** secdogie — a vision model that can see your screen and drive the mouse and keyboard, focused on **CAD viewing/editing and other professional desktop apps** with weak or no APIs.
 
-This is **not production software**. No security audit, no warranty, operator-owned machines only. Use Preview / dry-run first; keep per-step confirmation on when changing drawings or files.
+We are building toward **commercial readiness** (measurable scenarios, forced confirmation on save/delete/close, audit trail, install path). Track progress in **[`ROADMAP.md`](ROADMAP.md)**. Baseline tasks: **[`docs/SCENARIOS.md`](docs/SCENARIOS.md)**.
 
-Point it at a task in plain language. It screenshots the desktop, asks a vision model what to do next, and acts one step at a time. By default it shows a plan first and asks before every click. Your API key stays on disk next to the program.
+Current builds are **not yet a supported commercial release** — no independent security audit, operator-owned machines only. Use Preview / dry-run first; keep confirmation on when changing drawings.
+
+Point it at a task in plain language. It screenshots the desktop, asks a vision model what to do next, and acts one step at a time. By default it shows a plan first and asks before every click. Save / export / close / delete-class shortcuts still require confirmation even under `--auto`. Your API key stays on disk next to the program.
 
 ---
 
@@ -16,11 +18,11 @@ Point it at a task in plain language. It screenshots the desktop, asks a vision 
 | Apps where plugins are missing, locked, or too heavy | Pixel + accessibility clicks |
 | You stay at the machine and approve steps | Confirmation is the safety model |
 
-| Not a fit yet | Why |
+| Not ready yet | Why |
 |---------------|-----|
-| Unattended batch on production vaults | No hardened policy engine |
+| Unattended batch on production vaults | Policy engine still thin |
 | Multi-user / SaaS | Single-operator trust model |
-| “Install and forget” commercial CAD AI | Still experimental |
+| Fully hands-off commercial CAD AI | Golden-set reliability still in progress — see ROADMAP |
 
 Game-control helpers exist in-repo for experiments; they are **not** the product focus.
 
@@ -66,14 +68,14 @@ Full walkthrough: **[`TUTORIAL.md`](TUTORIAL.md)**.
 
 ## Example tasks (CAD-oriented)
 
-These are prompts, not guarantees — success depends on the app UI and model:
+These map to the baseline scenarios in [`docs/SCENARIOS.md`](docs/SCENARIOS.md):
 
-- *In the already-open drawing viewer, zoom to fit and scroll so the title block is visible.*
-- *Read the overall length dimension shown on the main view and type it into Notepad.*
+- *In the already-open drawing viewer, zoom to fit the whole drawing on screen.*
+- *Read the overall length dimension and type that number into Notepad.*
+- *Pan/zoom so the title block is fully visible.*
 - *Export or Save As PDF to the Desktop; do not overwrite without asking.*
-- *Turn off the layer named HATCH if the layer list is visible; otherwise stop and ask.*
 
-Start with **Preview only**. Never point `--auto` at drawings you cannot afford to damage.
+Start with **Preview only**. Never point `--auto` at drawings you cannot afford to damage — save/close/delete chords still prompt, but clicks can still mis-hit.
 
 ---
 
@@ -82,9 +84,9 @@ Start with **Preview only**. Never point `--auto` at drawings you cannot afford 
 | It is | It isn’t |
 |-------|----------|
 | A vision loop on **real GUI** (CAD, viewers, office apps without APIs) | A native CAD plugin or DWG parser |
-| Step-confirmed, local-first | Unattended production automation |
+| Step-confirmed, local-first, high-risk key gate | Silent unattended production automation |
 | Single-file Windows agent + optional tunnel | A hosted cloud CAD service |
-| Experimental toolkit | A commercial, supported product |
+| Product under active commercial hardening | A finished, supported enterprise release |
 
 **Only run it against computers you own or are explicitly authorized to control.** See [`SECURITY.md`](SECURITY.md).
 
@@ -158,4 +160,4 @@ pip install ruff && ruff check .
 cd agent && pip install -e . pytest && pytest tests/ -q
 ```
 
-CI: [`.github/workflows/test.yml`](.github/workflows/test.yml).
+CI: [`.github/workflows/test.yml`](.github/workflows/test.yml). Commercial checklist: [`ROADMAP.md`](ROADMAP.md).
