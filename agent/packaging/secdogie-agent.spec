@@ -65,7 +65,10 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    # UPX is off on purpose: packed binaries are a common antivirus false
+    # positive and can get silently killed on first launch (looks like a
+    # flash-exit with no log and no dialog). Size cost is acceptable.
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=not WINDOWED,
