@@ -74,7 +74,20 @@ def main(argv: list[str] | None = None) -> int:
         help="pin the agent to the window with this exact title: it's forced to the foreground "
         "(past Windows' ForegroundLockTimeout) and confirmed focused before every action, so clicks "
         "land there and not on whatever else has focus. Without it the agent drives whatever window "
-        "is foreground (restoring the one that was in front before any GUI dialog).",
+        "is foreground (restoring the one that was in front before any GUI dialog). "
+        "Implies --require-focus unless --no-require-focus is set.",
+    )
+    parser.add_argument(
+        "--require-focus",
+        action="store_true",
+        default=None,
+        help="abort the run (exit 7) if the target window cannot be confirmed frontmost — "
+        "safer for CAD work than clicking a bystander app. Default on when --window is set.",
+    )
+    parser.add_argument(
+        "--no-require-focus",
+        action="store_true",
+        help="allow the run to continue even when focus cannot be confirmed (overrides --window default)",
     )
     parser.add_argument(
         "--desktop-ax",
@@ -185,7 +198,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.window:
         cfg_kwargs["initial_focus"] = lambda: osfocus.activate_title(args.window)
         cfg_kwargs["activate"] = lambda: osfocus.activate_title(args.window)
-    elif pre_launch_fg is not None:
+
+    # require_focus: explicit flag wins; else on by default when --window pins a target.
+    if args.no_require_focus:
+        cfg_kwargs["require_focus"] = False
+    elif args.require_focus or args.window:
+        cfg_kwargs["require_focus"] = True
+
+    if not args.window and pre_launch_fg is not None:
         _fg_token = pre_launch_fg
         cfg_kwargs["initial_focus"] = lambda: osfocus.restore_foreground(_fg_token)
 
