@@ -86,8 +86,9 @@ def add_loop_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--allow-risky",
         action="store_true",
-        help="with --auto, also run high-risk actions (currently `open`, which launches a file/URL) "
-        "without confirmation; by default those still prompt even under --auto",
+        help="with --auto, also run high-risk actions without confirmation: `open`/`run_elevated`, "
+        "and keyboard chords such as Ctrl+S, Ctrl+W, Alt+F4, Delete. By default those still prompt "
+        "even under --auto",
     )
     parser.add_argument(
         "--allow-elevated-command",
@@ -143,7 +144,8 @@ def add_loop_args(parser: argparse.ArgumentParser) -> None:
         default=None,
         metavar="PATH",
         help="write a tamper-evident hash-chained audit trace (frame hash + decision + result per step) "
-        "to this JSONL file; verify later with `python -m secdogie_agent.trace <path>`",
+        "to this JSONL file; verify later with `python -m secdogie_agent.trace <path>`. "
+        "GUI mode enables a default path automatically if this flag is omitted",
     )
     parser.add_argument(
         "--memory",

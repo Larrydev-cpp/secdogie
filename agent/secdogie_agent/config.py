@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import NamedTuple
 
@@ -64,6 +65,23 @@ def default_write_target() -> Path:
     if exe is not None:
         return exe / "secdogie.env"
     return Path.home() / ".config" / "secdogie" / "config"
+
+
+def default_trace_path() -> Path:
+    """Where a GUI run writes its audit trace when the user did not pass --trace.
+
+    Frozen → next to the exe (same portable folder as secdogie.env).
+    Source → ~/.local/share/secdogie/traces/ (XDG-ish; created on demand).
+
+    Filename includes a UTC timestamp so consecutive runs do not overwrite.
+    """
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    name = f"secdogie-trace-{stamp}.jsonl"
+    exe = _exe_dir()
+    if exe is not None:
+        return exe / name
+    base = Path.home() / ".local" / "share" / "secdogie" / "traces"
+    return base / name
 
 
 # Kept for backward-compatible imports; prefer the functions above.

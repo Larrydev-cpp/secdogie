@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
-from . import cli_common, dialog, dpi, frozen_runtime, launcher_menu, osfocus
+from . import cli_common, config as config_mod, dialog, dpi, frozen_runtime, launcher_menu, osfocus
 from .loop import AgentConfig, run
 
 
@@ -86,7 +87,8 @@ def main(argv: list[str] | None = None) -> int:
         "--gui",
         action="store_true",
         help="use GUI dialogs: enter the task in a window, review the model's plan before it acts, "
-        "and answer its questions in a popup (needs tkinter; falls back to the terminal if unavailable)",
+        "and answer its questions in a popup (needs tkinter; falls back to the terminal if unavailable). "
+        "Also writes an audit trace automatically unless --trace is set.",
     )
     parser.add_argument(
         "--menu",
@@ -129,14 +131,23 @@ def main(argv: list[str] | None = None) -> int:
     # GUI path without a key yet: prompt once here too (covers `--gui` from a
     # terminal, not only the double-click menu which already gated).
     if gui and not args.api_key:
-        from . import config as config_mod
-
         if not config_mod.has_configured_api_key():
             if pre_launch_fg is None:
                 pre_launch_fg = osfocus.current_foreground()
             if not launcher_menu.ensure_api_key_or_prompt():
                 print("cancelled: no API key configured.")
                 return 0
+
+    # Commercial default: GUI runs always leave an audit trail unless the
+    # operator picked an explicit --trace path (or disabled by passing a
+    # dedicated empty path is not supported -- use CLI without --gui).
+    if gui and not args.trace:
+        trace_path = config_mod.default_trace_path()
+        try:
+            trace_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+        args.trace = str(trace_path)
 
     # If no task was given, prompt for it in a window (GUI) -- otherwise it's required.
     if not args.task:
