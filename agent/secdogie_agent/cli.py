@@ -76,6 +76,18 @@ def main(argv: list[str] | None = None) -> int:
         "is foreground (restoring the one that was in front before any GUI dialog).",
     )
     parser.add_argument(
+        "--require-focus",
+        action="store_true",
+        default=None,
+        help="abort (exit 7) if the target window cannot be confirmed focused; "
+        "auto-enabled when --window is used. Use --no-require-focus to override.",
+    )
+    parser.add_argument(
+        "--no-require-focus",
+        action="store_true",
+        help="never abort on focus failure (overrides the auto-enable that --window turns on)",
+    )
+    parser.add_argument(
         "--desktop-ax",
         action="store_true",
         help="make the desktop element-aware via the OS accessibility tree (UI Automation on Windows), "
@@ -177,6 +189,13 @@ def main(argv: list[str] | None = None) -> int:
     elif pre_launch_fg is not None:
         _fg_token = pre_launch_fg
         cfg_kwargs["initial_focus"] = lambda: osfocus.restore_foreground(_fg_token)
+
+    # require-focus: abort on unconfirmed focus. Auto-on with --window unless
+    # the operator explicitly passes --no-require-focus.
+    if args.no_require_focus:
+        cfg_kwargs["require_focus"] = False
+    elif args.require_focus or args.window:
+        cfg_kwargs["require_focus"] = True
 
     return run(provider, AgentConfig(**cfg_kwargs))
 
