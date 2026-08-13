@@ -55,7 +55,7 @@ Not required for v1 commercial: multi-tenant SaaS, phone backends, game stack, f
 |----|------|--------|
 | P1.1 | Force confirm on high-risk **kinds and keys** | Done |
 | P1.2 | Audit trail easy path (GUI auto `--trace`) | Done — `config.default_trace_path()` |
-| P1.3 | Hard window/process lock (abort if focus lost) | Partial — focus note exists; abort policy **Todo** |
+| P1.3 | Hard window/process lock (abort if focus lost) | Done — `require_focus` / `--window` default |
 | P1.4 | Pre-edit “save a copy” prompt for edit-class tasks | **Todo** |
 | P1.5 | Clear stop reasons (stall / no window / user decline) | Partial |
 | P1.6 | Golden-set runner script + reported success rate | **Todo** |
@@ -109,7 +109,7 @@ Not required for v1 commercial: multi-tenant SaaS, phone backends, game stack, f
 1. ~~High-risk keyboard classification~~  
 2. ~~GUI profile: auto `--trace` + recommend `--desktop-ax`~~  
 3. `fixtures/` + scenario runner  
-4. Abort-on-focus-loss policy  
+4. ~~Abort-on-focus-loss policy~~  
 5. Read-only mode flag  
 
 Track progress by editing the Status column in this file in the same PR that implements the item.
