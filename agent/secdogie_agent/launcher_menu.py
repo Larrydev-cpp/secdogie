@@ -35,13 +35,8 @@ class MenuChoice:
     # Special: "config" is handled by the GUI key dialog, not by returning args.
 
 
+# Order is product UX: safest first, then recommended CAD path, then general.
 MENU_CHOICES: tuple[MenuChoice, ...] = (
-    MenuChoice(
-        "task",
-        "Do a task",
-        "CAD or desktop task in plain language. Plan first; asks before every step.",
-        ("--gui",),
-    ),
     MenuChoice(
         "dry",
         "Preview only (safe)",
@@ -50,14 +45,20 @@ MENU_CHOICES: tuple[MenuChoice, ...] = (
     ),
     MenuChoice(
         "ax",
-        "Smarter clicks (recommended)",
-        "Uses accessibility labels when the app exposes them — often better on CAD toolbars.",
+        "Recommended (CAD)",
+        "Accessibility clicks when the app exposes them — steadier on toolbars. Asks before each step.",
         ("--gui", "--desktop-ax"),
+    ),
+    MenuChoice(
+        "task",
+        "Do a task",
+        "CAD or desktop task in plain language. Plan first; asks before every step.",
+        ("--gui",),
     ),
     MenuChoice(
         "auto",
         "Run without asking (careful)",
-        "No per-step confirmation. Do not use on drawings you cannot afford to damage.",
+        "No per-step confirmation. Save/close/delete still ask. Do not use on critical drawings.",
         ("--gui", "--auto"),
     ),
     MenuChoice(
@@ -301,7 +302,7 @@ def show_key_dialog(*, first_run: bool = False) -> bool:
                 path = config_mod.write_api_key(key, model=model, **kwargs)
                 saved["ok"] = True
                 tip = (
-                    "\nNext: open your CAD/viewer, then try Preview or a zoom/read example."
+                    "\nNext: open your CAD/viewer, then try Preview or Recommended (CAD)."
                     if first_run
                     else ""
                 )
@@ -413,8 +414,8 @@ def show_menu() -> list[str] | None:
 
         tk.Label(
             pad,
-            text="Experimental: vision control for CAD and desktop apps.\n"
-                 "Asks before each step. Not production-ready — use Preview on real drawings.",
+            text="secdogie — vision control for CAD and desktop apps.\n"
+                 "GUI runs write an audit trace automatically. Prefer Preview on real drawings.",
             bg=_BG, fg=_FG_DIM, font=("Segoe UI", 9), justify="left",
         ).pack(anchor="w", pady=(4, 12))
 

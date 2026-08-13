@@ -38,12 +38,12 @@ Not required for v1 commercial: multi-tenant SaaS, phone backends, game stack, f
 | ID | Item | Status |
 |----|------|--------|
 | P0.1 | Product focus = CAD view/edit (not games) | Done (README + examples) |
-| P0.2 | First-run key + example tasks | Done (PR path) |
-| P0.3 | Five baseline scenarios documented | Done — see [`docs/SCENARIOS.md`](docs/SCENARIOS.md) |
+| P0.2 | First-run key + example tasks | Done |
+| P0.3 | Five baseline scenarios documented | Done — [`docs/SCENARIOS.md`](docs/SCENARIOS.md) |
 | P0.4 | High-risk gate includes save/delete/close shortcuts | Done — `actions.is_high_risk()` |
-| P0.5 | Default UX prefers Preview / confirm | Partial — menu copy done; defaults still operator-chosen |
+| P0.5 | Default UX prefers Preview / confirm | Done — menu order Preview → Recommended (CAD) |
 | P0.6 | Golden fixtures (sample drawings + pass criteria) | **Todo** — needs real sample files in `fixtures/` |
-| P0.7 | Pin window + AX recommended in flow | **Todo** — menu preset or post-key tip |
+| P0.7 | Pin window + AX recommended in flow | Done — Recommended (CAD) = `--gui --desktop-ax` |
 
 **P0 exit:** scenarios written; destructive shortcuts cannot run silent under `--auto`; installer path exists.
 
@@ -53,8 +53,8 @@ Not required for v1 commercial: multi-tenant SaaS, phone backends, game stack, f
 
 | ID | Item | Status |
 |----|------|--------|
-| P1.1 | Force confirm on high-risk **kinds and keys** | Done for kinds+keys |
-| P1.2 | Audit trail easy path (`--trace` default in GUI profile) | **Todo** |
+| P1.1 | Force confirm on high-risk **kinds and keys** | Done |
+| P1.2 | Audit trail easy path (GUI auto `--trace`) | Done — `config.default_trace_path()` |
 | P1.3 | Hard window/process lock (abort if focus lost) | Partial — focus note exists; abort policy **Todo** |
 | P1.4 | Pre-edit “save a copy” prompt for edit-class tasks | **Todo** |
 | P1.5 | Clear stop reasons (stall / no window / user decline) | Partial |
@@ -107,7 +107,7 @@ Not required for v1 commercial: multi-tenant SaaS, phone backends, game stack, f
 ## Next engineering slice (ordered)
 
 1. ~~High-risk keyboard classification~~  
-2. GUI profile: optional auto `--trace` + recommend `--desktop-ax`  
+2. ~~GUI profile: auto `--trace` + recommend `--desktop-ax`~~  
 3. `fixtures/` + scenario runner  
 4. Abort-on-focus-loss policy  
 5. Read-only mode flag  
