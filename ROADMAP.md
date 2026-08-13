@@ -17,9 +17,9 @@ Constraints (non-negotiable):
 - [x] Hash-chained audit trace (`--trace`)
 - [x] Portable config next to the exe + first-run key dialog
 - [x] GUI task examples + plan briefing
-- [ ] **require-focus** abort (exit 7) when pinned window cannot be confirmed
-- [ ] Expand high-risk to common save / delete / close key combos
-- [ ] Golden scenarios documented and runnable
+- [x] **require-focus** abort (exit 7) when pinned window cannot be confirmed
+- [x] Expand high-risk to common save / delete / close key combos (Ctrl+S, Delete, Alt+F4, Ctrl+W)
+- [x] Golden scenarios documented (`docs/SCENARIOS.md`)
 
 ## P1 — CAD daily-driver reliability
 
