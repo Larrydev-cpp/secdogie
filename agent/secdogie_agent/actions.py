@@ -66,6 +66,29 @@ FOCUS_UNCONFIRMED_NOTE = " [focus unconfirmed: the target window may not have be
 HIGH_RISK_KINDS = frozenset({"open", "run_elevated"})
 
 
+def is_high_risk(action: Action) -> bool:
+    """True for actions that can permanently change files or close apps.
+
+    Used by the loop to force a confirmation even under --auto. Covers the
+    explicit HIGH_RISK_KINDS plus common save / delete / close key combos that
+    CAD and document apps use (Ctrl+S, Delete, Alt+F4, Ctrl+W).
+    """
+    if action.kind in HIGH_RISK_KINDS:
+        return True
+    if action.kind == "key" and action.keys:
+        keys_lower = {k.lower() for k in action.keys}
+        has_mod = bool(keys_lower & {"ctrl", "control", "command", "cmd", "alt", "option"})
+        if "s" in keys_lower and has_mod:
+            return True  # Ctrl/Cmd+S → save
+        if keys_lower & {"delete", "backspace"}:
+            return True
+        if "f4" in keys_lower and bool(keys_lower & {"alt", "option"}):
+            return True  # Alt+F4 → close
+        if "w" in keys_lower and bool(keys_lower & {"ctrl", "control", "command", "cmd"}):
+            return True  # Ctrl/Cmd+W → close tab/window
+    return False
+
+
 def execute(
     action: Action,
     move_duration: float = DEFAULT_MOVE_DURATION,
