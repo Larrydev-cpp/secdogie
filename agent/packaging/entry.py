@@ -38,7 +38,7 @@ def _report_fatal(text: str) -> None:
     """
     where = None
     try:
-        from secdogie_agent.frozen_runtime import log_path, _show_error_box
+        from secdogie_agent.frozen_runtime import _show_error_box, log_path
 
         where = log_path()
         with open(where, "a", encoding="utf-8", errors="replace") as f:
