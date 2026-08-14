@@ -10,20 +10,23 @@ to the terminal.
 """
 from __future__ import annotations
 
-# One-click starters shown in the task dialog. Keep them short, safe, and
-# obviously reversible so a first-time user can try without fear.
+# One-click starters shown in the task dialog. CAD-first (commercial focus).
 EXAMPLE_TASKS: tuple[tuple[str, str], ...] = (
     (
-        "Open Notepad",
+        "CAD: zoom fit",
+        "Zoom the current drawing so the whole model fits in the view",
+    ),
+    (
+        "CAD: read dimension",
+        "Read the highlighted dimension (or selected edge length) and report the value — do not change the drawing",
+    ),
+    (
+        "CAD: export PDF",
+        "Export the current drawing to a PDF on the Desktop named secdogie-export.pdf",
+    ),
+    (
+        "Preview: Notepad",
         "Open Notepad and type: Hello from secdogie",
-    ),
-    (
-        "Desktop folder",
-        "Create a new folder on the desktop named secdogie-demo",
-    ),
-    (
-        "Screenshot tip",
-        "Open the default browser and go to example.com",
     ),
 )
 
@@ -33,8 +36,6 @@ class GuiUnavailableError(RuntimeError):
 
 
 def gui_available() -> bool:
-    """True if we can actually open a window right now (tkinter importable AND
-    a usable display). Creates and tears down a hidden root to verify both."""
     try:
         import tkinter as tk
 
@@ -52,7 +53,7 @@ def _import_tk():
         from tkinter import messagebox, scrolledtext
 
         return tk, scrolledtext, messagebox
-    except Exception as e:  # pragma: no cover - environment dependent
+    except Exception as e:  # pragma: no cover
         raise GuiUnavailableError(
             "GUI mode needs tkinter, which isn't available here. On Linux "
             "install it (e.g. `sudo apt install python3-tk`); on Windows/macOS "
@@ -63,18 +64,12 @@ def _import_tk():
 def _new_root(tk):
     root = tk.Tk()
     root.title("secdogie-agent")
-    root.attributes("-topmost", True)  # surface above the app being controlled
+    root.attributes("-topmost", True)
     root.lift()
     return root
 
 
 def ask_task(default: str = "") -> str | None:
-    """Pop up a window asking what the agent should do. Returns the entered
-    task, or None if the user cancelled/closed the window.
-
-    Includes one-click example tasks so a first-time user can try something
-    safe without inventing a prompt.
-    """
     tk, scrolledtext, _ = _import_tk()
     root = _new_root(tk)
     result: dict[str, str | None] = {"task": None}
@@ -91,7 +86,6 @@ def ask_task(default: str = "") -> str | None:
         fg="#555",
     ).pack(anchor="w", pady=(4, 8))
 
-    # Example chips
     tk.Label(pad, text="Try an example:", font=("", 9), fg="#666").pack(anchor="w")
     chips = tk.Frame(pad)
     chips.pack(anchor="w", pady=(2, 10))
@@ -131,7 +125,6 @@ def ask_task(default: str = "") -> str | None:
 
     root.protocol("WM_DELETE_WINDOW", cancel)
     root.bind("<Escape>", lambda _e: cancel())
-    # Ctrl+Enter to submit (plain Enter adds a newline in the text box)
     root.bind("<Control-Return>", lambda _e: submit())
     root.mainloop()
 
@@ -140,8 +133,6 @@ def ask_task(default: str = "") -> str | None:
 
 
 def confirm_plan(task: str, plan: str) -> bool:
-    """Show the model's restated task + plan and ask the user to proceed.
-    Returns True to proceed, False to cancel."""
     tk, scrolledtext, _ = _import_tk()
     root = _new_root(tk)
     result = {"ok": False}
@@ -190,7 +181,6 @@ def confirm_plan(task: str, plan: str) -> bool:
 
 
 def ask_user(question: str) -> bool:
-    """Yes/No dialog for the model's ask_user step. Returns True to continue."""
     tk, _, messagebox = _import_tk()
     root = _new_root(tk)
     root.withdraw()
@@ -200,10 +190,6 @@ def ask_user(question: str) -> bool:
 
 
 def notify(title: str, message: str, *, error: bool = False) -> bool:
-    """Best-effort popup for a message the user must see when there's no console
-    to print it to (the windowed exe). Returns True if a dialog was actually
-    shown, False if no GUI was available -- so the caller can rely on its own
-    print() having gone somewhere too. Never raises."""
     try:
         tk, _, messagebox = _import_tk()
         root = _new_root(tk)
