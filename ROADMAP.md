@@ -24,7 +24,7 @@ Constraints (non-negotiable):
 ## P1 — CAD daily-driver reliability
 
 - [x] `--read-only` mode (blocks type/key/drag/open; clicks & scroll allowed for viewing)
-- [ ] Pre-edit confirmation prompt for any action that can modify a document
+- [x] Pre-edit confirmation prompt for any action that can modify a document
 - [x] Known-limitations section for CAD apps (`docs/CAD.md`)
 - [x] Compatibility matrix (AutoCAD / SolidWorks / FreeCAD / DraftSight / …) in `docs/CAD.md`
 - [x] Menu / example tasks reordered with CAD recommended first
@@ -32,8 +32,8 @@ Constraints (non-negotiable):
 
 ## P2 — Scenario fixtures & runner
 
-- [ ] `fixtures/` with reference screenshots / expected outcomes for the 5 baseline scenarios
-- [ ] Scenario runner that can replay or score a run against a golden set
+- [x] `fixtures/` with expected outcomes for the 5 baseline scenarios (screenshots later)
+- [x] Scenario runner that can score a `--trace` JSONL against a golden set (dry-run offline)
 - [ ] CI job that runs dry-run scenarios (no real mouse) and fails on regression
 
 ## P3 — Install & ops polish
