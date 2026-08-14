@@ -74,6 +74,13 @@ jobs:
         working-directory: ${{ matrix.dir }}
         run: pytest tests/ -q
 
+      # P2 commercial gate: offline CAD golden-scenario fixtures must load cleanly.
+      # No real mouse / model; just validates expected.json presence + schema.
+      - name: CAD scenario fixtures (offline)
+        if: matrix.dir == 'agent'
+        working-directory: agent
+        run: python -m secdogie_agent.scenario_runner ../fixtures/cad --all
+
   # --- C tunnel: build + its own unit test binary ----------------------------
   tunnel-tests:
     runs-on: ubuntu-latest
