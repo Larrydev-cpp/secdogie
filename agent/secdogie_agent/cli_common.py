@@ -22,8 +22,6 @@ DEFAULT_MODEL = "claude-sonnet-5"
 
 
 def add_provider_args(parser: argparse.ArgumentParser) -> None:
-    """Add the provider / model / api-key / config / init-config flags every
-    agent front-end shares."""
     parser.add_argument(
         "--model",
         default=None,
@@ -54,8 +52,6 @@ def add_provider_args(parser: argparse.ArgumentParser) -> None:
 
 
 def add_loop_args(parser: argparse.ArgumentParser) -> None:
-    """Add the agent-loop flags shared across the desktop/Android/iOS tools.
-    Tool-specific extras (--macro, --gui, backend targeting) stay in each CLI."""
     parser.add_argument(
         "--max-steps",
         type=int,
@@ -82,6 +78,12 @@ def add_loop_args(parser: argparse.ArgumentParser) -> None:
         "--dry-run",
         action="store_true",
         help="ask the model for actions and log them, but never touch the machine/device",
+    )
+    parser.add_argument(
+        "--read-only",
+        action="store_true",
+        help="allow navigation (click/scroll/move) but block mutating actions "
+        "(type, keys, drag, open, save/delete/close) — safe for CAD viewing and measuring",
     )
     parser.add_argument(
         "--allow-risky",
@@ -156,9 +158,6 @@ def add_loop_args(parser: argparse.ArgumentParser) -> None:
 
 
 def _no_console() -> bool:
-    """True when stdout isn't a terminal -- e.g. the windowed exe, where a
-    printed path/error would only land in secdogie.log, so the user needs a
-    popup to see it."""
     try:
         return not (sys.stdout is not None and sys.stdout.isatty())
     except Exception:
@@ -166,10 +165,6 @@ def _no_console() -> bool:
 
 
 def handle_init_config(args: argparse.Namespace, prog: str) -> int:
-    """Run the --init-config flow: write a template config and print next
-    steps. Returns the process exit code (0 ok, 1 if a config already exists).
-    With no console (the windowed exe) the same result is also shown in a popup
-    so it isn't lost to the log file."""
     from . import dialog
 
     try:
@@ -192,9 +187,6 @@ def handle_init_config(args: argparse.Namespace, prog: str) -> int:
 
 
 def resolve_provider(args: argparse.Namespace, prog: str) -> VisionProvider | None:
-    """Resolve the provider/model/key from args + env + config and build the
-    provider. On any failure, print an actionable error naming `prog` and
-    return None so the caller can exit 1."""
     resolved = config_mod.resolve(
         cli_api_key=args.api_key,
         cli_model=args.model,
@@ -220,16 +212,13 @@ def resolve_provider(args: argparse.Namespace, prog: str) -> VisionProvider | No
 
 
 def loop_config_kwargs(args: argparse.Namespace, *, task: str, backend=None) -> dict:
-    """Build the AgentConfig kwargs shared by every tool from the loop flags.
-    `backend` stays None for the desktop tool (the loop builds the desktop
-    backend itself); Android/iOS pass their own. Tool-specific fields
-    (macro_path, gui, ...) are added by the caller."""
     max_steps = args.max_steps if args.max_steps is not None else (100000 if args.watch else 50)
     kwargs: dict = dict(
         task=task,
         max_steps=max_steps,
         auto=args.auto,
         dry_run=args.dry_run,
+        read_only=bool(getattr(args, "read_only", False)),
         log_path=args.log_file,
         grid=args.grid,
         watch=args.watch,
