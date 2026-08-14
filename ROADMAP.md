@@ -23,12 +23,12 @@ Constraints (non-negotiable):
 
 ## P1 — CAD daily-driver reliability
 
-- [ ] `--read-only` mode (blocks any mutating action: type, key that changes state, open that writes, etc.)
+- [x] `--read-only` mode (blocks type/key/drag/open; clicks & scroll allowed for viewing)
 - [ ] Pre-edit confirmation prompt for any action that can modify a document
-- [ ] Known-limitations section for CAD apps (focus, DPI, overlay dialogs)
-- [ ] Compatibility matrix (AutoCAD / SolidWorks / FreeCAD / DraftSight / …)
-- [ ] Menu / example tasks reordered with CAD recommended first
-- [ ] Auto-enable `--trace` when running under `--gui` for internal audit
+- [x] Known-limitations section for CAD apps (`docs/CAD.md`)
+- [x] Compatibility matrix (AutoCAD / SolidWorks / FreeCAD / DraftSight / …) in `docs/CAD.md`
+- [x] Menu / example tasks reordered with CAD recommended first
+- [x] Auto-enable `--trace` when running under `--gui` for internal audit
 
 ## P2 — Scenario fixtures & runner
 
