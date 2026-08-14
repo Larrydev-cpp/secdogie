@@ -11,7 +11,7 @@ Constraints (non-negotiable):
 - No independent security audit claimed
 - Primary focus: CAD viewing / editing (games demoted)
 
-## P0 — Baseline safety & measurability (done / in progress)
+## P0 — Baseline safety & measurability (done)
 
 - [x] High-risk gate for `open` / `run_elevated` (still confirms under `--auto`)
 - [x] Hash-chained audit trace (`--trace`)
@@ -21,7 +21,7 @@ Constraints (non-negotiable):
 - [x] Expand high-risk to common save / delete / close key combos (Ctrl+S, Delete, Alt+F4, Ctrl+W)
 - [x] Golden scenarios documented (`docs/SCENARIOS.md`)
 
-## P1 — CAD daily-driver reliability
+## P1 — CAD daily-driver reliability (done)
 
 - [x] `--read-only` mode (blocks type/key/drag/open; clicks & scroll allowed for viewing)
 - [x] Pre-edit confirmation prompt for any action that can modify a document
@@ -30,11 +30,11 @@ Constraints (non-negotiable):
 - [x] Menu / example tasks reordered with CAD recommended first
 - [x] Auto-enable `--trace` when running under `--gui` for internal audit
 
-## P2 — Scenario fixtures & runner
+## P2 — Scenario fixtures & runner (done)
 
 - [x] `fixtures/` with expected outcomes for the 5 baseline scenarios (screenshots later)
 - [x] Scenario runner that can score a `--trace` JSONL against a golden set (dry-run offline)
-- [ ] CI job that runs dry-run scenarios (no real mouse) and fails on regression
+- [x] CI job that runs dry-run scenarios (no real mouse) and fails on regression
 
 ## P3 — Install & ops polish
 
