@@ -1,0 +1,1 @@
+{"id":"01_zoom_extents","task":"Zoom the current drawing to fit the whole model in the view","allowed_kinds":["left_click","right_click","double_click","move","scroll","key","wait","look","done","ask_user"],"forbidden_kinds":["type","drag","open","run_elevated"],"must_end_with":"done","max_mutating":0,"notes":"Prefer a single zoom-extents / fit action."}

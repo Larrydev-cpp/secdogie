@@ -1,0 +1,1 @@
+{"id":"04_toggle_layer","task":"Turn off the layer named 'Dimensions' (or the currently selected layer)","allowed_kinds":["left_click","right_click","double_click","move","scroll","type","key","wait","look","done","ask_user"],"forbidden_kinds":["open","run_elevated"],"must_end_with":"done","notes":"Only the intended layer should change."}
