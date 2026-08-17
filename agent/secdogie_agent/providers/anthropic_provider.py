@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 
+from ..screen import media_type_for
 from .base import VALID_ACTIONS, Action, HistoryStep, VisionProvider, parse_action_json, parse_plan
 from .prompts import BRIEFING_PROMPT, CHECK_PROMPT, PLAN_PROMPT, SYSTEM_PROMPT
 
@@ -71,6 +72,7 @@ class AnthropicProvider(VisionProvider):
         user_text += "\nHere is the current screenshot. Respond with the next action's JSON only."
 
         b64 = base64.b64encode(screenshot_png).decode("ascii")
+        media = media_type_for(screenshot_png)
         response = self._client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
@@ -81,7 +83,7 @@ class AnthropicProvider(VisionProvider):
                     "content": [
                         {
                             "type": "image",
-                            "source": {"type": "base64", "media_type": "image/png", "data": b64},
+                            "source": {"type": "base64", "media_type": media, "data": b64},
                         },
                         {"type": "text", "text": user_text},
                     ],
@@ -101,6 +103,7 @@ class AnthropicProvider(VisionProvider):
         screen_size: tuple[int, int],
     ) -> str | None:
         b64 = base64.b64encode(screenshot_png).decode("ascii")
+        media = media_type_for(screenshot_png)
         response = self._client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
@@ -111,7 +114,7 @@ class AnthropicProvider(VisionProvider):
                     "content": [
                         {
                             "type": "image",
-                            "source": {"type": "base64", "media_type": "image/png", "data": b64},
+                            "source": {"type": "base64", "media_type": media, "data": b64},
                         },
                         {"type": "text", "text": f"Task: {task}"},
                     ],
@@ -127,6 +130,7 @@ class AnthropicProvider(VisionProvider):
         screen_size: tuple[int, int],
     ) -> list[str] | None:
         b64 = base64.b64encode(screenshot_png).decode("ascii")
+        media = media_type_for(screenshot_png)
         response = self._client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
@@ -137,7 +141,7 @@ class AnthropicProvider(VisionProvider):
                     "content": [
                         {
                             "type": "image",
-                            "source": {"type": "base64", "media_type": "image/png", "data": b64},
+                            "source": {"type": "base64", "media_type": media, "data": b64},
                         },
                         {"type": "text", "text": f"Task: {task}"},
                     ],
@@ -154,6 +158,7 @@ class AnthropicProvider(VisionProvider):
         screen_size: tuple[int, int],
     ) -> bool:
         b64 = base64.b64encode(screenshot_png).decode("ascii")
+        media = media_type_for(screenshot_png)
         response = self._client.messages.create(
             model=self.model,
             max_tokens=8,
@@ -164,7 +169,7 @@ class AnthropicProvider(VisionProvider):
                     "content": [
                         {
                             "type": "image",
-                            "source": {"type": "base64", "media_type": "image/png", "data": b64},
+                            "source": {"type": "base64", "media_type": media, "data": b64},
                         },
                         {"type": "text", "text": f"Question: {question}"},
                     ],
