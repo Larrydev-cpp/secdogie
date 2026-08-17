@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 
+from ..screen import media_type_for
 from .base import VALID_ACTIONS, Action, HistoryStep, VisionProvider, parse_action_json, parse_plan
 from .prompts import BRIEFING_PROMPT, CHECK_PROMPT, PLAN_PROMPT, SYSTEM_PROMPT
 
@@ -62,6 +63,7 @@ class OpenAIProvider(VisionProvider):
     def _complete(self, system: str, user_text: str, screenshot_png: bytes) -> str:
         """One vision turn: system + (text, image) -> assistant text."""
         b64 = base64.b64encode(screenshot_png).decode("ascii")
+        media = media_type_for(screenshot_png)
         response = self._client.chat.completions.create(
             model=self.model,
             # Reasoning/GPT-5-era models require max_completion_tokens; max_tokens
@@ -75,7 +77,7 @@ class OpenAIProvider(VisionProvider):
                         {"type": "text", "text": user_text},
                         {
                             "type": "image_url",
-                            "image_url": {"url": f"data:image/png;base64,{b64}"},
+                            "image_url": {"url": f"data:{media};base64,{b64}"},
                         },
                     ],
                 },
