@@ -6,20 +6,27 @@ with the real screen if we control the scaling ourselves. `prepare_for_model`
 resizes the capture to a known size, and `scale` is the exact factor to map
 the model's coordinates back to real screen pixels (see loop.py).
 
-Latency note: the image sent to the model is JPEG by default (~5–15× smaller
+Latency note: the image sent to the model is JPEG by default (~5–15	imes smaller
 than PNG at the same resolution). Capture for verification / macros stays PNG.
+Default long-edge is 1536 (was 1280) so dense UI / CAD detail remains usable;
+raise further with --max-image-edge when a region truly needs magnification.
 """
 from __future__ import annotations
 
 import io
 
-# Long-edge cap for the image sent to the model. 1280 is enough for most UI
-# chrome while cutting tokens and upload time vs the previous 1568 default.
-DEFAULT_MAX_EDGE = 1280
+# Long-edge cap for the image sent to the model.
+# 1536 balances detail (CAD labels, dense UI, fine click targets) against
+# token/upload cost. JPEG keeps payloads small even at this size; for extreme
+# magnification / dense engineering drawings raise further with
+# --max-image-edge 1920 (or higher). Previous defaults were 1568 then 1280.
+DEFAULT_MAX_EDGE = 1536
 
-# JPEG quality for model-bound frames. 80 keeps text/icons readable for UI
-# control while staying small; raise via prepare_for_model(quality=...) if needed.
-DEFAULT_JPEG_QUALITY = 80
+# JPEG quality for model-bound frames. 85 keeps small text/icons and CAD
+# annotations readable while remaining compact; raise via
+# prepare_for_model(quality=...) or a higher --max-image-edge when a region
+# truly needs more magnification.
+DEFAULT_JPEG_QUALITY = 85
 
 
 class CaptureError(RuntimeError):
@@ -171,9 +178,10 @@ def prepare_for_model(
         real_x = round(model_x * scale)
     Aspect ratio is preserved, so a single scalar is exact for both axes.
 
-    Default `format` is JPEG (quality 80): much smaller than PNG for the same
+    Default `format` is JPEG (quality 85): much smaller than PNG for the same
     resolution, which dominates end-to-end latency on vision API calls. Use
-    format="png" when lossless is required (tests, grid debugging).
+    format="png" when lossless is required (tests, grid debugging). For parts
+    that need extra magnification, pass a larger max_edge (e.g. 1920).
     """
     from PIL import Image
 
@@ -198,7 +206,7 @@ def prepare_for_model(
     out = io.BytesIO()
     fmt = (format or "jpeg").lower()
     if fmt in ("jpg", "jpeg"):
-        # Grid overlays stay readable at quality 80; avoid progressive JPEG so
+        # Grid overlays stay readable at quality 85; avoid progressive JPEG so
         # providers that only accept baseline images keep working.
         img.save(out, format="JPEG", quality=max(40, min(95, int(quality))), optimize=True)
     else:
