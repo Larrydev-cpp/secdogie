@@ -4,15 +4,22 @@ The key accuracy trick lives here: vision models reason about a *downscaled*
 copy of any large screenshot, so the pixel coordinates they emit only line up
 with the real screen if we control the scaling ourselves. `prepare_for_model`
 resizes the capture to a known size, and `scale` is the exact factor to map
-the model's coordinates back to real screen pixels (see loop.py)."""
+the model's coordinates back to real screen pixels (see loop.py).
+
+Latency note: the image sent to the model is JPEG by default (~5–15× smaller
+than PNG at the same resolution). Capture for verification / macros stays PNG.
+"""
 from __future__ import annotations
 
 import io
 
-# Long-edge cap for the image sent to the model. ~1568 matches the size large
-# images get internally reduced to anyway, so we lose no detail the model would
-# have kept, while gaining an exact, known coordinate mapping.
-DEFAULT_MAX_EDGE = 1568
+# Long-edge cap for the image sent to the model. 1280 is enough for most UI
+# chrome while cutting tokens and upload time vs the previous 1568 default.
+DEFAULT_MAX_EDGE = 1280
+
+# JPEG quality for model-bound frames. 80 keeps text/icons readable for UI
+# control while staying small; raise via prepare_for_model(quality=...) if needed.
+DEFAULT_JPEG_QUALITY = 80
 
 
 class CaptureError(RuntimeError):
@@ -75,6 +82,13 @@ def primary_size() -> tuple[int, int]:
     with mss.mss() as sct:
         m = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
         return m["width"], m["height"]
+
+
+def media_type_for(image_bytes: bytes) -> str:
+    """Sniff JPEG vs PNG so providers set the correct content-type / media_type."""
+    if image_bytes[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    return "image/png"
 
 
 def changed_ratio(before_png: bytes, after_png: bytes, max_edge: int = 256, tol: int = 16) -> float:
@@ -146,14 +160,20 @@ def prepare_for_model(
     real_size: tuple[int, int],
     max_edge: int = DEFAULT_MAX_EDGE,
     grid: bool = False,
+    format: str = "jpeg",
+    quality: int = DEFAULT_JPEG_QUALITY,
 ) -> tuple[bytes, tuple[int, int], float]:
     """Resize the screenshot so its longest edge is at most `max_edge`,
     optionally draw a labeled reference grid, and return
-    (model_png, model_size, scale).
+    (model_image_bytes, model_size, scale).
 
     `scale` maps model-space coordinates back to real screen pixels:
         real_x = round(model_x * scale)
     Aspect ratio is preserved, so a single scalar is exact for both axes.
+
+    Default `format` is JPEG (quality 80): much smaller than PNG for the same
+    resolution, which dominates end-to-end latency on vision API calls. Use
+    format="png" when lossless is required (tests, grid debugging).
     """
     from PIL import Image
 
@@ -176,7 +196,13 @@ def prepare_for_model(
     # resize can't desync the mapping.
     scale = real_w / img.width
     out = io.BytesIO()
-    img.save(out, format="PNG")
+    fmt = (format or "jpeg").lower()
+    if fmt in ("jpg", "jpeg"):
+        # Grid overlays stay readable at quality 80; avoid progressive JPEG so
+        # providers that only accept baseline images keep working.
+        img.save(out, format="JPEG", quality=max(40, min(95, int(quality))), optimize=True)
+    else:
+        img.save(out, format="PNG")
     return out.getvalue(), (img.width, img.height), scale
 
 
