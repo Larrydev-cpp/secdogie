@@ -9,7 +9,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
-from . import actions, dialog, elements, safety, screen
+from . import actions, dialog, elements, harness, safety, screen
 from .backend import Backend, DesktopBackend, ElementAware
 from .macro import Macro, MacroRecorder, MacroStep, resolve_replay_step
 from .memory import Memory, SecretRefused
@@ -256,6 +256,8 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     )
                     replay_steps = None
 
+            harness_el = None
+            omitted_image = False
             if action is None:
                 step_targets: list = []
                 listing = ""
@@ -270,7 +272,15 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     and not refresh_view
                 )
 
-                if element_first and cached_frame is not None and not refresh_view and step_targets:
+                omit_image = element_first and harness.should_omit_screenshot(
+                    step_targets, refresh_view=refresh_view, boost_detail=boost_detail
+                )
+                if omit_image:
+                    # Structured-first: the listing is the live UI. Don't spend
+                    # image tokens; the model can `look` the moment pixels matter.
+                    model_png, model_size, scale = None, real_size, 1.0
+                    omitted_image = True
+                elif element_first and cached_frame is not None and not refresh_view and step_targets:
                     model_png, model_size, scale = cached_frame
                 elif screen_unchanged:
                     # Biggest token win: do not re-encode / re-upload an identical frame.
@@ -301,6 +311,8 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                         step_task += f"\n\nWhat you remember from earlier runs:\n{recalled}"
                 if listing:
                     step_task += f"\n\n{listing}"
+                if omitted_image:
+                    step_task += f"\n\n{harness.OMIT_IMAGE_NOTE}"
                 if screen_unchanged:
                     step_task += (
                         "\n\nNOTE: the screen is visually identical to the previous frame "
@@ -328,10 +340,30 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 action = action.scaled(scale)
                 if config.region is not None:
                     action = action.translated(config.region[0], config.region[1])
-                if action.kind == "click_element":
-                    point = elements.point_for_ref(step_targets, action.element)
-                    if point is None:
-                        logger.warning("click_element: unresolved element ref %r", action.element)
+                if omitted_image and action.kind in harness.PIXEL_KINDS:
+                    # Model guessed coordinates of an image it was never shown.
+                    # Don't click blindly -- ask it to use a listed ref or look.
+                    logger.info(
+                        "harness: refusing pixel action '%s' on an accessibility-only turn",
+                        action.kind,
+                    )
+                    history.append(HistoryStep(
+                        action=action,
+                        result=(
+                            "no screenshot was sent this step; use click_element / type "
+                            "with a listed ref, or look if you need pixels"
+                        ),
+                    ))
+                    if len(history) > HISTORY_KEEP:
+                        del history[:-HISTORY_KEEP]
+                    refresh_view = True
+                    continue
+                if action.kind == "click_element" or (action.kind == "type" and action.element):
+                    el = elements.resolve_ref(step_targets, action.element)
+                    if el is None:
+                        logger.warning(
+                            "%s: unresolved element ref %r", action.kind, action.element
+                        )
                         history.append(HistoryStep(
                             action=action,
                             result=(
@@ -342,7 +374,11 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                         if len(history) > HISTORY_KEEP:
                             del history[:-HISTORY_KEEP]
                         continue
-                    action = replace(action, kind="left_click", x=point[0], y=point[1])
+                    harness_el = el
+                    if action.kind == "click_element":
+                        # Keep kind=click_element so execute can Invoke; stash
+                        # the real-pixel centre for the mouse fallback / trace.
+                        action = replace(action, x=el.center[0], y=el.center[1])
 
             reasoning = action.reasoning or action.raw.get("reasoning", "")
 
@@ -491,6 +527,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     continue
 
             executed_ok = False
+            exec_kind = action.kind
             try:
                 if action.kind == "run_elevated":
                     from . import elevate
@@ -499,8 +536,18 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     executed_ok = r.outcome == elevate.LAUNCHED
                     (logger.info if executed_ok else logger.warning)("run_elevated -> %s", result)
                 else:
-                    result = backend.execute(action)
-                    executed_ok = True
+                    harnessed = _try_harness(backend, action, harness_el)
+                    if harnessed is not None:
+                        result = harnessed
+                        executed_ok = True
+                        logger.info("harness: %s", result)
+                    else:
+                        exec_action = action
+                        if action.kind == "click_element":
+                            exec_action = replace(action, kind="left_click")
+                        exec_kind = exec_action.kind
+                        result = backend.execute(exec_action)
+                        executed_ok = True
                     if actions.FOCUS_UNCONFIRMED_NOTE in result:
                         logger.warning(
                             "'%s' ran without confirmed focus on the target window; it may have "
@@ -522,7 +569,11 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             # Only run the extra post-action capture+diff for click-like actions.
             # Type/key/open/drag change the UI less predictably (or not at all in
             # the short window) and were the main source of screenshot pile-up.
-            if executed_ok and config.verify_actions and action.kind in _RETRY_SAFE:
+            if executed_ok and config.verify_actions and exec_kind in _RETRY_SAFE:
+                result = _verify_and_maybe_retry(backend, action, raw_png, result, config, logger)
+                if _NO_CHANGE_NOTE in result:
+                    # Next frame needs more detail so the model can re-aim.
+                    boost_detail = True
                 result = _verify_and_maybe_retry(backend, action, raw_png, result, config, logger)
                 if _NO_CHANGE_NOTE in result:
                     # Next frame needs more detail so the model can re-aim.
@@ -540,6 +591,24 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
     finally:
         if memory is not None:
             memory.close()
+
+
+def _try_harness(backend: Backend, action, el) -> str | None:
+    """Deliver click_element / typed-into-a-listed-field via accessibility.
+
+    Returns the result string on success, or None so the caller falls back to
+    the mouse/keyboard path. A successful Invoke does not call activate() and
+    does not move the cursor -- that's the less-invasive half.
+    """
+    if el is None:
+        return None
+    if action.kind == "click_element":
+        invoker = getattr(backend, "invoke_element", None)
+        return invoker(el) if callable(invoker) else None
+    if action.kind == "type":
+        setter = getattr(backend, "set_element_value", None)
+        return setter(el, action.text or "") if callable(setter) else None
+    return None
 
 
 def _build_plan(provider: VisionProvider, config: AgentConfig, logger, backend: Backend) -> Plan | None:

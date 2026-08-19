@@ -149,8 +149,10 @@ class DesktopBackend:
         self.activate = activate
         # Optional desktop_ax.DesktopAxProvider: when set, this backend becomes
         # element-aware (Locatable below) so macros anchor to accessibility
-        # identity instead of pixels. None = not element-aware, and the methods
-        # below no-op so the macro recorder falls back to a visual anchor.
+        # identity instead of pixels, and the live loop can Invoke/SetValue a
+        # listed widget without moving the cursor. None = not element-aware, and
+        # the methods below no-op so the macro recorder falls back to a visual
+        # anchor / the live loop to pixels.
         self.ax_provider = ax_provider
 
     def setup(self, logger) -> None:
@@ -228,6 +230,45 @@ class DesktopBackend:
             role=selector.attrs.get("role"),
         )
         return matches[0].center if matches else None
+
+    def invoke_element(self, el: axtree.AxElement) -> str | None:
+        """Native accessibility action (Invoke / AXPress / AT-SPI click) for
+        `el`, without moving the real cursor. None if the provider can't (no
+        press(), press returned False, nothing identifiable) -- the loop then
+        falls back to a pixel click at the element's centre."""
+        press = getattr(self.ax_provider, "press", None)
+        if self.ax_provider is None or not callable(press):
+            return None
+        attrs = axtree.selector_for(el)
+        if not attrs:
+            return None
+        try:
+            ok = press(**attrs)
+        except Exception:
+            return None
+        if not ok:
+            return None
+        label = el.name or el.automation_id or el.role
+        return f"invoked {el.role} {label!r} via accessibility (cursor not moved)"
+
+    def set_element_value(self, el: axtree.AxElement, text: str) -> str | None:
+        """Native SetValue / AXValue / AT-SPI setTextContents for `el`. None if
+        the provider can't -- the loop then falls back to synthesized typing."""
+        setter = getattr(self.ax_provider, "set_value", None)
+        if self.ax_provider is None or not callable(setter):
+            return None
+        attrs = axtree.selector_for(el)
+        if not attrs:
+            return None
+        try:
+            ok = setter(text, **attrs)
+        except Exception:
+            return None
+        if not ok:
+            return None
+        label = el.name or el.automation_id or el.role
+        return f"set {el.role} {label!r} to {text!r} via accessibility (cursor not moved)"
+
 
     # -- ElementAware (backend.py): the live-loop counterpart to Locatable.
     # Locatable re-finds a *recorded* click for macro replay; this surfaces the

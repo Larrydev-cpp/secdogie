@@ -60,10 +60,18 @@ class OpenAIProvider(VisionProvider):
         self.model = model
         self.max_tokens = max_tokens
 
-    def _complete(self, system: str, user_text: str, screenshot_png: bytes) -> str:
-        """One vision turn: system + (text, image) -> assistant text."""
-        b64 = base64.b64encode(screenshot_png).decode("ascii")
-        media = media_type_for(screenshot_png)
+    def _complete(self, system: str, user_text: str, screenshot_png: bytes | None) -> str:
+        """One turn: system + (text, optional image) -> assistant text."""
+        content: list[dict] = [{"type": "text", "text": user_text}]
+        if screenshot_png:
+            b64 = base64.b64encode(screenshot_png).decode("ascii")
+            media = media_type_for(screenshot_png)
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{media};base64,{b64}"},
+                }
+            )
         response = self._client.chat.completions.create(
             model=self.model,
             # Reasoning/GPT-5-era models require max_completion_tokens; max_tokens
@@ -71,16 +79,7 @@ class OpenAIProvider(VisionProvider):
             max_completion_tokens=self.max_tokens,
             messages=[
                 {"role": "system", "content": system},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": user_text},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:{media};base64,{b64}"},
-                        },
-                    ],
-                },
+                {"role": "user", "content": content},
             ],
         )
         return response.choices[0].message.content or ""
@@ -88,7 +87,7 @@ class OpenAIProvider(VisionProvider):
     def next_action(
         self,
         task: str,
-        screenshot_png: bytes,
+        screenshot_png: bytes | None,
         screen_size: tuple[int, int],
         history: list[HistoryStep],
     ) -> Action:
@@ -101,7 +100,10 @@ class OpenAIProvider(VisionProvider):
         user_text = f"Task: {task}\n"
         if history_text:
             user_text += f"\nActions so far:\n{history_text}\n"
-        user_text += "\nHere is the current screenshot. Respond with the next action's JSON only."
+        if screenshot_png:
+            user_text += "\nHere is the current screenshot. Respond with the next action's JSON only."
+        else:
+            user_text += "\nNo screenshot this step. Respond with the next action's JSON only."
 
         text = self._complete(system, user_text, screenshot_png)
         data = parse_action_json(text)

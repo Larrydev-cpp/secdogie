@@ -145,10 +145,36 @@ class _FakeState:
         return self._active and state == "STATE_ACTIVE"
 
 
+class _FakeAction:
+    def __init__(self, names=("click",)):
+        self._names = list(names)
+        self.calls: list[int] = []
+
+    @property
+    def nActions(self):
+        return len(self._names)
+
+    def getName(self, i):
+        return self._names[i]
+
+    def doAction(self, i):
+        self.calls.append(i)
+
+
+class _FakeEditable:
+    def __init__(self):
+        self.contents: list[str] = []
+
+    def setTextContents(self, text):
+        self.contents.append(text)
+
+
 class _FakeAccessible:
-    def __init__(self, role="", name="", extents=None, active=False, children=()):
+    def __init__(self, role="", name="", extents=None, active=False, children=(),
+                 action=None, editable=None):
         self._role, self.name, self._extents = role, name, extents
         self._active, self._children = active, list(children)
+        self._action, self._editable = action, editable
 
     def getRoleName(self):
         return self._role
@@ -166,6 +192,16 @@ class _FakeAccessible:
         if self._extents is None:
             raise LookupError("this accessible has no Component interface")
         return _FakeComponent(self._extents)
+
+    def queryAction(self):
+        if self._action is None:
+            raise LookupError("this accessible has no Action interface")
+        return self._action
+
+    def queryEditableText(self):
+        if self._editable is None:
+            raise LookupError("this accessible has no EditableText interface")
+        return self._editable
 
 
 def _fake_pyatspi(monkeypatch, desktop):
@@ -201,6 +237,39 @@ def test_atspi_snapshot_walks_the_active_frame(monkeypatch):
     assert all(e.role != "application" for e in els)
     # And the pure query re-finds the button at its center.
     assert axtree.element_at(els, 150, 120).name == "Save"
+
+
+def test_atspi_press_does_click_without_a_mouse(monkeypatch):
+    action = _FakeAction(("click",))
+    button = _FakeAccessible(role="push button", name="Save",
+                             extents=_FakeExtents(100, 100, 100, 40), action=action)
+    frame = _FakeAccessible(role="frame", name="App", extents=_FakeExtents(0, 0, 800, 600),
+                            active=True, children=[button])
+    app = _FakeAccessible(role="application", children=[frame])
+    desktop = _FakeAccessible(role="desktop frame", children=[app])
+    _fake_pyatspi(monkeypatch, desktop)
+
+    from secdogie_agent.desktop_ax import _AtspiProvider
+
+    assert _AtspiProvider().press(name="Save", role="push button") is True
+    assert action.calls == [0]
+    assert _AtspiProvider().press(name="NoSuch") is False
+
+
+def test_atspi_set_value_writes_editable_text(monkeypatch):
+    editable = _FakeEditable()
+    field = _FakeAccessible(role="entry", name="Filename",
+                            extents=_FakeExtents(100, 200, 200, 30), editable=editable)
+    frame = _FakeAccessible(role="frame", name="App", extents=_FakeExtents(0, 0, 800, 600),
+                            active=True, children=[field])
+    app = _FakeAccessible(role="application", children=[frame])
+    desktop = _FakeAccessible(role="desktop frame", children=[app])
+    _fake_pyatspi(monkeypatch, desktop)
+
+    from secdogie_agent.desktop_ax import _AtspiProvider
+
+    assert _AtspiProvider().set_value("part.dwg", name="Filename", role="entry") is True
+    assert editable.contents == ["part.dwg"]
 
 
 def test_atspi_snapshot_is_none_when_no_window_is_active(monkeypatch):
@@ -257,6 +326,9 @@ class _FakeAXElement:
 def _fake_appservices(monkeypatch, system_element):
     import types as _types
 
+    perform_calls: list = []
+    set_calls: list = []
+
     def copy_attr(element, attribute, _none):
         if attribute in element.attrs:
             return (0, element.attrs[attribute])   # kAXErrorSuccess == 0
@@ -280,7 +352,13 @@ def _fake_appservices(monkeypatch, system_element):
         AXUIElementCreateSystemWide=lambda: system_element,
         AXUIElementCopyAttributeValue=copy_attr,
         AXValueGetValue=get_value,
+        kAXPressAction="AXPress",
+        kAXValueAttribute="AXValue",
+        AXUIElementPerformAction=lambda element, action: perform_calls.append((element, action)) or 0,
+        AXUIElementSetAttributeValue=lambda element, attribute, value: set_calls.append((element, attribute, value)) or 0,
     )
+    fake._perform_calls = perform_calls
+    fake._set_calls = set_calls
     monkeypatch.setitem(sys.modules, "ApplicationServices", fake)
     return fake
 
@@ -356,3 +434,33 @@ def test_make_provider_builds_the_macos_provider_on_darwin_when_pyobjc_exists(mo
     _fake_appservices(monkeypatch, _macos_focused_window_with_button())
     provider = desktop_ax.make_desktop_ax_provider()
     assert isinstance(provider, desktop_ax._MacosAxProvider)
+
+
+def test_macos_press_performs_axpress_without_a_mouse(monkeypatch):
+    fake = _fake_appservices(monkeypatch, _macos_focused_window_with_button())
+    provider = desktop_ax._MacosAxProvider(fake)
+    assert provider.press(automation_id="saveBtn", role="Button") is True
+    assert fake._perform_calls and fake._perform_calls[0][1] == "AXPress"
+    assert provider.press(name="NoSuch") is False
+
+
+def test_macos_set_value_writes_axvalue(monkeypatch):
+    field = _FakeAXElement({
+        "AXRole": "AXTextField",
+        "AXTitle": "Filename",
+        "AXIdentifier": "fileBox",
+        "AXPosition": _FakeAXValue(_FakePoint(100, 200)),
+        "AXSize": _FakeAXValue(_FakeSize(200, 30)),
+    })
+    window = _FakeAXElement({
+        "AXRole": "AXWindow",
+        "AXTitle": "App",
+        "AXPosition": _FakeAXValue(_FakePoint(0, 0)),
+        "AXSize": _FakeAXValue(_FakeSize(800, 600)),
+        "AXChildren": [field],
+    })
+    app = _FakeAXElement({"AXFocusedWindow": window})
+    fake = _fake_appservices(monkeypatch, _FakeAXElement({"AXFocusedApplication": app}))
+    provider = desktop_ax._MacosAxProvider(fake)
+    assert provider.set_value("part.dwg", automation_id="fileBox", role="TextField") is True
+    assert fake._set_calls == [(field, "AXValue", "part.dwg")]

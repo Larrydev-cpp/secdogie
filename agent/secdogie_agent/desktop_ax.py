@@ -14,6 +14,13 @@ it on with `secdogie-agent --desktop-ax`, which builds the provider for your
 platform via `make_desktop_ax_provider`; if the platform library isn't
 installed, that logs a one-line hint and returns None, so nothing breaks -- you
 just don't get the semantic tier.
+
+`snapshot` is the required method (the listing / macro-replay half). Providers
+also expose optional `press` / `set_value`: native Invoke/AXPress/AT-SPI click
+and SetValue, so the live loop can drive a listed widget without moving the
+real cursor. A provider that only implements snapshot still works -- the loop
+falls back to a pixel click at the element's centre.
+
 """
 from __future__ import annotations
 
@@ -24,6 +31,28 @@ from . import axtree
 
 # A live tree can be large; cap the walk so a pathological app can't hang replay.
 MAX_TREE_DEPTH = 40
+
+
+def _match_kwargs(
+    automation_id: str | None = None,
+    name: str | None = None,
+    role: str | None = None,
+) -> dict[str, str]:
+    """Kwargs for axtree.find_elements, dropping blanks so an omitted field
+    does not force an exact match on "". """
+    out: dict[str, str] = {}
+    if automation_id:
+        out["automation_id"] = automation_id
+    if name:
+        out["name"] = name
+    if role:
+        out["role"] = role
+    return out
+
+
+def _matches(el: axtree.AxElement | None, **attrs: str) -> bool:
+    return bool(el is not None and attrs and axtree.find_elements([el], **attrs))
+
 
 
 @runtime_checkable
@@ -120,6 +149,71 @@ class _WindowsUiaProvider:
         except Exception:
             return None
 
+    def press(self, automation_id: str | None = None, name: str | None = None, role: str | None = None) -> bool:
+        """Invoke/Toggle the matching UIA control without moving the cursor."""
+        control = self._find(automation_id=automation_id, name=name, role=role)
+        if control is None:
+            return False
+        for method_name in ("Invoke", "Toggle"):
+            fn = getattr(control, method_name, None)
+            if not callable(fn):
+                continue
+            try:
+                if fn() is False:
+                    continue
+                return True
+            except Exception:
+                continue
+        return False
+
+    def set_value(
+        self,
+        text: str,
+        automation_id: str | None = None,
+        name: str | None = None,
+        role: str | None = None,
+    ) -> bool:
+        """Set a UIA ValuePattern without synthesizing keystrokes."""
+        control = self._find(automation_id=automation_id, name=name, role=role)
+        if control is None:
+            return False
+        try:
+            pattern = control.GetValuePattern()
+            if pattern is None:
+                return False
+            pattern.SetValue(text)
+            return True
+        except Exception:
+            return False
+
+    def _find(self, automation_id: str | None = None, name: str | None = None, role: str | None = None):
+        import uiautomation as auto
+
+        root = auto.GetForegroundControl()
+        if root is None:
+            return None
+        attrs = _match_kwargs(automation_id, name, role)
+        if not attrs:
+            return None
+        hits: list = []
+        self._find_walk(root, 0, attrs, hits)
+        return hits[0] if hits else None
+
+    def _find_walk(self, control, depth: int, attrs: dict[str, str], hits: list) -> None:
+        if _matches(self._element_of(control), **attrs):
+            hits.append(control)
+            return
+        if depth >= MAX_TREE_DEPTH:
+            return
+        try:
+            children = control.GetChildren()
+        except Exception:
+            return
+        for child in children:
+            if hits:
+                return
+            self._find_walk(child, depth + 1, attrs, hits)
+
 
 def _make_linux_provider(logger) -> DesktopAxProvider | None:
     try:
@@ -212,6 +306,77 @@ class _AtspiProvider:
             )
         except Exception:
             return None
+
+    def press(self, automation_id: str | None = None, name: str | None = None, role: str | None = None) -> bool:
+        """doAction('click'/'press'/first action) on the matching AT-SPI node."""
+        node = self._find(automation_id=automation_id, name=name, role=role)
+        if node is None:
+            return False
+        try:
+            action = node.queryAction()
+        except Exception:
+            return False
+        try:
+            n = int(action.nActions)
+            pick = 0
+            for i in range(n):
+                try:
+                    an = (action.getName(i) or "").lower()
+                except Exception:
+                    continue
+                if an in {"click", "press", "activate", "toggle"}:
+                    pick = i
+                    break
+            action.doAction(pick)
+            return True
+        except Exception:
+            return False
+
+    def set_value(
+        self,
+        text: str,
+        automation_id: str | None = None,
+        name: str | None = None,
+        role: str | None = None,
+    ) -> bool:
+        """Replace an AT-SPI editable field's contents without typing."""
+        node = self._find(automation_id=automation_id, name=name, role=role)
+        if node is None:
+            return False
+        try:
+            editable = node.queryEditableText()
+            editable.setTextContents(text)
+            return True
+        except Exception:
+            return False
+
+    def _find(self, automation_id: str | None = None, name: str | None = None, role: str | None = None):
+        import pyatspi
+
+        try:
+            desktop = pyatspi.Registry.getDesktop(0)
+        except Exception:
+            return None
+        frame = self._active_frame(pyatspi, desktop)
+        if frame is None:
+            return None
+        attrs = _match_kwargs(automation_id, name, role)
+        if not attrs:
+            return None
+        hits: list = []
+        self._find_walk(pyatspi, frame, 0, attrs, hits)
+        return hits[0] if hits else None
+
+    def _find_walk(self, pyatspi, node, depth: int, attrs: dict[str, str], hits: list) -> None:
+        if _matches(self._element_of(pyatspi, node), **attrs):
+            hits.append(node)
+            return
+        if depth >= MAX_TREE_DEPTH:
+            return
+        for child in self._children(node):
+            if hits:
+                return
+            self._find_walk(pyatspi, child, depth + 1, attrs, hits)
 
 
 def _make_macos_provider(logger) -> DesktopAxProvider | None:
@@ -347,3 +512,61 @@ class _MacosAxProvider:
             return None
         left, top = int(point.x), int(point.y)
         return (left, top, left + int(dims.width), top + int(dims.height))
+
+    def press(self, automation_id: str | None = None, name: str | None = None, role: str | None = None) -> bool:
+        """AXPress the matching element without moving the cursor."""
+        element = self._find(automation_id=automation_id, name=name, role=role)
+        if element is None:
+            return False
+        action = getattr(self._ax, "kAXPressAction", "AXPress")
+        try:
+            err = self._ax.AXUIElementPerformAction(element, action)
+            return err == 0
+        except Exception:
+            return False
+
+    def set_value(
+        self,
+        text: str,
+        automation_id: str | None = None,
+        name: str | None = None,
+        role: str | None = None,
+    ) -> bool:
+        """Write kAXValueAttribute on a text field without typing."""
+        element = self._find(automation_id=automation_id, name=name, role=role)
+        if element is None:
+            return False
+        attr = getattr(self._ax, "kAXValueAttribute", "AXValue")
+        try:
+            err = self._ax.AXUIElementSetAttributeValue(element, attr, text)
+            return err == 0
+        except Exception:
+            return False
+
+    def _find(self, automation_id: str | None = None, name: str | None = None, role: str | None = None):
+        ax = self._ax
+        system = ax.AXUIElementCreateSystemWide()
+        app = self._attr(system, ax.kAXFocusedApplicationAttribute)
+        if app is None:
+            return None
+        window = self._attr(app, ax.kAXFocusedWindowAttribute)
+        if window is None:
+            return None
+        attrs = _match_kwargs(automation_id, name, role)
+        if not attrs:
+            return None
+        hits: list = []
+        self._find_walk(window, 0, attrs, hits)
+        return hits[0] if hits else None
+
+    def _find_walk(self, element, depth: int, attrs: dict[str, str], hits: list) -> None:
+        if _matches(self._element_of(element), **attrs):
+            hits.append(element)
+            return
+        if depth >= MAX_TREE_DEPTH:
+            return
+        for child in self._children(element):
+            if hits:
+                return
+            self._find_walk(child, depth + 1, attrs, hits)
+

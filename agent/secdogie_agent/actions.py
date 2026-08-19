@@ -67,6 +67,7 @@ def is_high_risk(action: Action) -> bool:
 _READ_ONLY_SAFE_KINDS = frozenset({
     "wait", "screenshot", "look", "done", "ask_user", "remember",
     "left_click", "right_click", "double_click", "move", "scroll", "track_click",
+    "click_element",
 })
 
 

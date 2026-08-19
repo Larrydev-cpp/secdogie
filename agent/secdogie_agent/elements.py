@@ -6,8 +6,10 @@ brain used by macro **replay** (find the element under a recorded point, re-find
 it later by identity). Here the model isn't replaying anything -- it's deciding
 live -- so instead of guessing a pixel from the screenshot it can be handed the
 foreground window's interactable elements, each with a stable ref like ``e3``,
-and reply with ``{"action": "click_element", "element": "e3"}``. We turn that ref
-back into the element's centre (real screen pixels, ready for a left_click).
+and reply with ``{"action": "click_element", "element": "e3"}``. The loop
+prefers delivering that through the accessibility API (no mouse); if the
+native action is refused it falls back to a left_click at the element's
+centre.
 
 That's the "don't go pure vision" path for desktop control: the accessibility
 tree *knows* a button is there with exact bounds, so clicking it by identity is
@@ -113,8 +115,10 @@ def render_for_model(targets: list[AxElement]) -> str:
     return (
         "Interactable elements detected on screen (from the accessibility tree). "
         'To click one, reply {"action": "click_element", "element": "eN", ...} '
-        "using its ref below -- this hits the element's true bounds, so prefer it "
-        "over guessing a pixel when your target is listed:\n" + "\n".join(lines)
+        "using its ref below -- this is delivered through the accessibility API "
+        "(the real cursor is not moved). To type into a listed field, reply "
+        '{"action": "type", "element": "eN", "text": "..."}. Prefer these over '
+        "guessing a pixel when your target is listed:\n" + "\n".join(lines)
     )
 
 
