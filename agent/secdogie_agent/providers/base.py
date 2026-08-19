@@ -258,7 +258,7 @@ class VisionProvider:
     def next_action(
         self,
         task: str,
-        screenshot_png: bytes,
+        screenshot_png: bytes | None,
         screen_size: tuple[int, int],
         history: list[HistoryStep],
     ) -> Action:

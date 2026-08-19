@@ -56,7 +56,7 @@ class AnthropicProvider(VisionProvider):
     def next_action(
         self,
         task: str,
-        screenshot_png: bytes,
+        screenshot_png: bytes | None,
         screen_size: tuple[int, int],
         history: list[HistoryStep],
     ) -> Action:
@@ -69,26 +69,27 @@ class AnthropicProvider(VisionProvider):
         user_text = f"Task: {task}\n"
         if history_text:
             user_text += f"\nActions so far:\n{history_text}\n"
-        user_text += "\nHere is the current screenshot. Respond with the next action's JSON only."
+        if screenshot_png:
+            user_text += "\nHere is the current screenshot. Respond with the next action's JSON only."
+        else:
+            user_text += "\nNo screenshot this step. Respond with the next action's JSON only."
 
-        b64 = base64.b64encode(screenshot_png).decode("ascii")
-        media = media_type_for(screenshot_png)
+        content: list[dict] = []
+        if screenshot_png:
+            b64 = base64.b64encode(screenshot_png).decode("ascii")
+            media = media_type_for(screenshot_png)
+            content.append(
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": media, "data": b64},
+                }
+            )
+        content.append({"type": "text", "text": user_text})
         response = self._client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
             system=system,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {"type": "base64", "media_type": media, "data": b64},
-                        },
-                        {"type": "text", "text": user_text},
-                    ],
-                }
-            ],
+            messages=[{"role": "user", "content": content}],
         )
         text = "".join(block.text for block in response.content if block.type == "text")
         data = parse_action_json(text)

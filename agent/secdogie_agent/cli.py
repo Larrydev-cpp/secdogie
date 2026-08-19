@@ -90,9 +90,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--desktop-ax",
         action="store_true",
-        help="make the desktop element-aware via the OS accessibility tree (UI Automation on Windows), "
-        "so --macro can anchor clicks to a widget's identity instead of pixels; needs the platform "
-        "accessibility library (Windows: `pip install uiautomation`), and no-ops with a hint without it",
+        help="drive listed widgets through the OS accessibility tree (UI Automation / AT-SPI / AX) "
+        "instead of guessing pixels: click_element Invokes without moving the cursor, and after the "
+        "first frame the screenshot is omitted (the tree is the live UI). Needs the platform "
+        "accessibility library (Windows: `pip install uiautomation`); no-ops with a hint without it",
     )
     parser.add_argument(
         "--gui",

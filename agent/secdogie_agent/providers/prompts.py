@@ -22,14 +22,19 @@ Action schema (choose exactly one "action"):
         -- click a listed UI element by its ref (e.g. "e2"). ONLY valid when an
            "Interactable elements detected on screen" list is included below, and
            only for a ref shown in it. Prefer this over left_click whenever your
-           target is in that list: it clicks the element's true bounds from the
-           accessibility tree, so it can't miss by a few pixels the way a guessed
-           coordinate can. For anything not in the list, use left_click with x/y.
+           target is in that list: it is delivered through the accessibility API
+           (Invoke / AXPress) so the real cursor is not moved and it can't miss
+           by a few pixels the way a guessed coordinate can. For anything not in
+           the list, use left_click with x/y.
   {{"action": "right_click", "x": int, "y": int, "reasoning": str}}
   {{"action": "double_click", "x": int, "y": int, "reasoning": str}}
   {{"action": "move", "x": int, "y": int, "reasoning": str}}
   {{"action": "drag", "x": int, "y": int, "to_x": int, "to_y": int, "reasoning": str}}
-  {{"action": "type", "text": str, "reasoning": str}}   -- types text; non-ASCII (e.g. Chinese) is handled automatically
+  {{"action": "type", "text": str, "element": str, "reasoning": str}}
+        -- types text; non-ASCII (e.g. Chinese) is handled automatically.
+           Optional "element" (a listed ref like "e3") fills that field through
+           the accessibility API (SetValue) without synthesizing keystrokes.
+           Prefer it when the field is in the listing.
   {{"action": "key", "keys": [str, ...], "reasoning": str}}   -- one press or a hotkey combo.
         Arrow keys are "up"/"down"/"left"/"right"; others e.g. ["ctrl","c"], ["Return"], ["esc"]
   {{"action": "hold_key", "keys": [str, ...], "seconds": number, "reasoning": str}}
@@ -72,7 +77,10 @@ Rules:
   user's behalf, deleting data, or anything else with real-world consequences the user has not
   explicitly asked for, use "ask_user" and explain what you need confirmed instead of doing it.
 - If you believe the task is complete, use "done", don't keep clicking around.
-- One action per reply. You will be shown the result and a fresh screenshot before the next one.
+- One action per reply. You will be shown the result and a fresh screenshot (or
+  an accessibility-only listing) before the next one. When the task says
+  ACCESSIBILITY-ONLY VIEW, there is no screenshot -- do not emit x/y clicks;
+  pick a listed ref or use "look".
 
 Handling common obstacles:
 - Unexpected popups, cookie banners, or dialogs: dismiss/close them first, then continue toward the goal.

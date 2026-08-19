@@ -610,30 +610,33 @@ Interactable elements detected on screen (from the accessibility tree)...
   [e3] Edit "Filename" (id=fileBox)
 ```
 
-The model can then reply `{"action": "click_element", "element": "e2", ...}` and
-the loop resolves that ref to the element's true bounds — a real-pixel click with
-no coordinate-scaling round-off and no near-miss, because the tree *knows* the
-widget is there. It's the non-vision path for desktop control (the same idea as
-reading a game's native state instead of its pixels): the screenshot still goes
-to the model for everything the tree can't name (canvases, custom-drawn UI, a
-remote screen), so vision is the fallback, not the only sense. A ref that no
-longer resolves is reported back as a miss rather than clicked blindly, and with
-no provider the listing is simply absent — the pixel path is byte-for-byte
-unchanged. Perception + resolution are pure and headless-tested
-(`secdogie_agent/elements.py`, `tests/test_elements.py`); only the tree walk is
+The model can then reply `{"action": "click_element", "element": "e2", ...}` -- or
+`{"action": "type", "element": "e3", "text": "..."}` to fill a listed field --
+and the **desktop harness** delivers that through the accessibility API
+(Invoke / AXPress / AT-SPI click, SetValue). The real cursor is not moved and
+the window does not have to steal focus. If the native action is refused (a
+control with no Invoke pattern), the loop falls back to a pixel click at the
+element's centre, same as before.
+
+That's the non-vision path for desktop *chrome* (menus, dialogs, ribbons, named
+buttons). CAD canvases, games, and custom-drawn UI have no named widgets -- the
+tree comes back empty, or the model emits `look` -- and vision is the fallback,
+not the only sense. A ref that no longer resolves is reported back as a miss
+rather than clicked blindly, and with no provider the listing is simply absent
+— the pixel path is byte-for-byte unchanged. Perception + resolution + the
+omit/invoke policy are pure and headless-tested (`secdogie_agent/elements.py`,
+`harness.py`, `tests/test_harness.py`); only the tree walk / Invoke is
 on-machine.
 
 **The model decides when to spend a fresh look.** In this mode the *tree* is the
-fresh, authoritative sense re-read every step, so the loop stops re-capturing a
-fresh screenshot each time — it sends the **cached** frame as visual context (the
-model isn't blind) and re-captures only when the model emits a `look` action, on
-the first step, or when the tree comes back empty (nothing to click by identity →
-fall back to real vision). That inverts the default "screenshot every step":
-vision becomes a tool the model reaches for when the pixels actually matter,
-rather than a cost paid on every turn — the same "structured-first, vision on
-demand" shape a personal-assistant harness like OpenClaw uses for desktop
-control. The `look` gating and frame cache are exercised through the real loop in
-`tests/test_loop.py`.
+fresh, authoritative sense re-read every step, so after the first frame the loop
+**omits the screenshot entirely** whenever the listing is non-empty. Image tokens
+go to zero on those turns. A `look` (or a miss / empty tree) brings pixels back
+-- vision becomes a tool the model reaches for when the pixels actually matter,
+rather than a cost paid on every turn. Guessing an `(x, y)` click on an
+accessibility-only turn is refused rather than delivered blindly. The
+omit-image / Invoke path is exercised through the real loop in
+`tests/test_harness.py`.
 
 ## Programmable skills: sub-flows, conditions, loops
 
@@ -755,6 +758,7 @@ secdogie_agent/
   macro.py                RPA macro record/replay: Macro, MacroRecorder, resolve_replay_step (selector/anchor/coord tiers)
   axtree.py               pure desktop accessibility-tree model + queries (element_at / find / selector_for) -- tested
   desktop_ax.py           on-machine seam: read the live OS accessibility tree (UI Automation) into AxElements
+  harness.py              policy: omit the screenshot / Invoke without moving the cursor when the tree is healthy
   skill.py                programmable skill interpreter (call/if/while/repeat/params) -- pure, tested
   skill_runner.py         wires skills to a real backend + a model yes/no for conditions (--skill)
   plan.py                 task decomposition + sub-task progress tracking (used with --plan)

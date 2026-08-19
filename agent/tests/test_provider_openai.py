@@ -51,6 +51,16 @@ def test_next_action_parses_json_and_builds_vision_message():
     assert "do the thing" in parts["text"]["text"]
 
 
+def test_next_action_omits_the_image_block_when_screenshot_is_none():
+    client = FakeClient('{"action": "click_element", "element": "e1", "reasoning": "Save"}')
+    provider = OpenAIProvider(model="gpt-5.5", client=client)
+    action = provider.next_action("save it", None, (1280, 720), [])
+    assert action.kind == "click_element" and action.element == "e1"
+    parts = {block["type"]: block for block in client.calls[0]["messages"][1]["content"]}
+    assert "image_url" not in parts
+    assert "No screenshot this step" in parts["text"]["text"]
+
+
 def test_next_action_rejects_unknown_action():
     client = FakeClient('{"action": "format_hard_drive"}')
     provider = OpenAIProvider(model="gpt-5.5", client=client)
