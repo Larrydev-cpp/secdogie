@@ -261,10 +261,17 @@ anything useful over SSH to a headless box with no display.
 Vision models reason about a *downscaled* copy of large screenshots, so raw
 pixel coordinates they emit drift off-target. The agent controls this
 itself: it resizes each screenshot to a known size (`--max-image-edge`,
-default 1568px long edge — the size large images are reduced to internally
-anyway), tells the model that exact size, and scales the returned
-coordinates back to real screen pixels. This keeps clicks landing where the
-model intends.
+default 1536px long edge), tells the model that exact size, and scales the
+returned coordinates back to real screen pixels. This keeps clicks landing
+where the model intends.
+
+When a click produces no visible change, or the model emits `look` with an
+`(x, y)`, the next frame is a **foveated crop**: a native-resolution
+`--fovea-edge` (default 768) patch around that point, not a whole-frame
+boost to 1920. CAD dimension text and dense icons stay readable, and the
+token cost stays near a 768² JPEG instead of a 1920-long-edge desktop.
+Coordinates the model emits are in the crop; the loop maps them back
+(`Action.translated`). `--fovea-edge 0` restores the old whole-frame boost.
 
 That scaling only holds if the whole pipeline shares one coordinate space, which
 on **high-DPI Windows** (125% / 150% scaling, or mixed-DPI multi-monitor) it does
@@ -323,6 +330,7 @@ Extra knobs:
 | `--window "Title"` | pin the agent to the window with this exact title: forced frontmost (past Windows' ForegroundLockTimeout) and confirmed focused before every action |
 | `--grid` | overlay a labeled coordinate grid on the screenshot to give the model anchor points (helps on cluttered screens) |
 | `--max-image-edge N` | trade detail vs. speed/cost; higher keeps small text legible, lower is faster/cheaper |
+| `--fovea-edge N` | native-res crop side (px) sent after a miss or `look x,y` (default 768; `0` disables) |
 | `--move-duration S` | seconds to glide the cursor to a target (default 0.15; smoother, triggers hover events) |
 | `--settle S` | seconds to hover before clicking (default 0.05; lets the UI react) |
 | `--action-pause S` | seconds to wait *after* each action before the next screenshot (default 0.4). This is the timing safeguard: without it a fast model takes the next screenshot before a slow-animating app has updated, sees a stale frame, and repeats itself. Lower is faster but riskier; `0` disables. |

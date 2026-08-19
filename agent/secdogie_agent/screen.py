@@ -6,7 +6,11 @@ with the real screen if we control the scaling ourselves. `prepare_for_model`
 resizes the capture to a known size, and `scale` is the exact factor to map
 the model's coordinates back to real screen pixels (see loop.py).
 
-Latency note: the image sent to the model is JPEG by default (~5–15	imes smaller
+When a click misses or the model asks for a closer look, `prepare_fovea`
+sends a native-resolution crop around the miss instead of upscaling the whole
+frame -- same local precision, far fewer tokens.
+
+Latency note: the image sent to the model is JPEG by default (~5–15× smaller
 than PNG at the same resolution). Capture for verification / macros stays PNG.
 Default long-edge is 1536 (was 1280) so dense UI / CAD detail remains usable;
 raise further with --max-image-edge when a region truly needs magnification.
@@ -14,6 +18,7 @@ raise further with --max-image-edge when a region truly needs magnification.
 from __future__ import annotations
 
 import io
+from dataclasses import dataclass
 
 # Long-edge cap for the image sent to the model.
 # 1536 balances detail (CAD labels, dense UI, fine click targets) against
@@ -27,6 +32,11 @@ DEFAULT_MAX_EDGE = 1536
 # prepare_for_model(quality=...) or a higher --max-image-edge when a region
 # truly needs more magnification.
 DEFAULT_JPEG_QUALITY = 85
+
+# Side length of a foveated (native-res) crop sent instead of boosting the
+# whole frame. 768 px is enough for CAD dimension text / dense icons; drop
+# to 512 via --fovea-edge when token budget is the tighter constraint.
+DEFAULT_FOVEA_EDGE = 768
 
 
 class CaptureError(RuntimeError):
@@ -160,6 +170,102 @@ def crop_anchor(frame_png: bytes, cx: int, cy: int, box: int = 64) -> tuple[byte
         out = io.BytesIO()
         patch.save(out, format="PNG")
         return out.getvalue(), cx - left, cy - top
+
+
+@dataclass(frozen=True)
+class Fovea:
+    """A native-resolution crop sent to the model instead of a downscaled frame.
+
+    `image` / `model_size` / `scale` are what `prepare_for_model` would return
+    for the crop alone. `origin` is the crop's top-left in the *capture*
+    (so `Action.translated(*origin)` maps model coords back to capture space).
+    `size` is the crop in capture pixels; `anchor` is the requested center.
+    """
+
+    image: bytes
+    model_size: tuple[int, int]
+    scale: float
+    origin: tuple[int, int]
+    size: tuple[int, int]
+    anchor: tuple[int, int]
+
+
+def fovea_box(
+    cx: int,
+    cy: int,
+    frame_w: int,
+    frame_h: int,
+    edge: int = DEFAULT_FOVEA_EDGE,
+) -> tuple[int, int, int, int]:
+    """Clamp a box of side `edge` around `(cx, cy)` inside the frame.
+
+    Returns `(left, top, width, height)`. A frame smaller than `edge` yields
+    the whole frame -- the same clamp `crop_anchor` uses.
+    """
+    if frame_w < 1 or frame_h < 1:
+        return 0, 0, max(1, frame_w), max(1, frame_h)
+    bw = min(max(1, int(edge)), frame_w)
+    bh = min(max(1, int(edge)), frame_h)
+    left = max(0, min(int(cx) - bw // 2, frame_w - bw))
+    top = max(0, min(int(cy) - bh // 2, frame_h - bh))
+    return left, top, bw, bh
+
+
+def prepare_fovea(
+    png_bytes: bytes,
+    real_size: tuple[int, int],
+    cx: int,
+    cy: int,
+    edge: int = DEFAULT_FOVEA_EDGE,
+    *,
+    grid: bool = False,
+    format: str = "jpeg",
+    quality: int = DEFAULT_JPEG_QUALITY,
+) -> Fovea:
+    """Crop a native-resolution patch around `(cx, cy)` and prepare it for the model.
+
+    This is the token-cheap alternative to raising the whole-frame `max_edge`:
+    a 768×768 native crop of a 2560×1440 CAD view is far fewer pixels than a
+    1920-long-edge full frame, and the model sees the *actual* pixels around
+    the miss instead of a still-downscaled whole screen.
+
+    The crop itself is never downscaled (native pixels are the point).
+    Coordinates the model emits are in the crop's own space; add `origin`
+    (`Action.translated`) to map them back to the capture.
+    """
+    from PIL import Image
+
+    real_w, real_h = real_size
+    left, top, bw, bh = fovea_box(cx, cy, real_w, real_h, edge)
+    with Image.open(io.BytesIO(png_bytes)) as img:
+        # If the PNG size disagrees with real_size (shouldn't), prefer the
+        # actual image so the crop stays in-bounds.
+        iw, ih = img.size
+        if (iw, ih) != (real_w, real_h):
+            left, top, bw, bh = fovea_box(cx, cy, iw, ih, edge)
+        crop = img.convert("RGB").crop((left, top, left + bw, top + bh))
+        buf = io.BytesIO()
+        crop.save(buf, format="PNG")
+        crop_png = buf.getvalue()
+        crop_size = crop.size
+
+    # Never downscale the fovea -- native pixels are the whole point.
+    model_bytes, model_size, scale = prepare_for_model(
+        crop_png,
+        crop_size,
+        max_edge=max(crop_size),
+        grid=grid,
+        format=format,
+        quality=quality,
+    )
+    return Fovea(
+        image=model_bytes,
+        model_size=model_size,
+        scale=scale,
+        origin=(left, top),
+        size=crop_size,
+        anchor=(int(cx), int(cy)),
+    )
 
 
 def prepare_for_model(

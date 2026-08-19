@@ -224,3 +224,51 @@ def test_crop_anchor_shrinks_the_box_to_a_small_frame():
     with Image.open(io.BytesIO(patch)) as img:
         assert img.size == (40, 30)     # whole frame
     assert (ox, oy) == (20, 15)
+
+
+# -- fovea (native-res crop for a miss / look, instead of boosting the frame) -
+
+def test_fovea_box_centers_and_clamps():
+    assert screen.fovea_box(1280, 720, 2560, 1440, edge=768) == (896, 336, 768, 768)
+    # Near the origin: pinned to (0, 0), still full edge.
+    assert screen.fovea_box(10, 8, 2560, 1440, edge=768) == (0, 0, 768, 768)
+    # Near the far corner: pinned to the opposite edge.
+    left, top, w, h = screen.fovea_box(2550, 1430, 2560, 1440, edge=768)
+    assert (w, h) == (768, 768)
+    assert left + w == 2560
+    assert top + h == 1440
+
+
+def test_fovea_box_shrinks_to_a_small_frame():
+    assert screen.fovea_box(20, 15, 40, 30, edge=768) == (0, 0, 40, 30)
+
+
+def test_prepare_fovea_is_native_res_and_maps_back():
+    # Distinct pixel at (1000, 400) so we can check the crop actually contains it.
+    img = Image.new("RGB", (2560, 1440), (10, 20, 30))
+    img.putpixel((1000, 400), (255, 0, 0))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    png = buf.getvalue()
+
+    fovea = screen.prepare_fovea(png, (2560, 1440), 1000, 400, edge=768)
+    assert fovea.size == (768, 768)
+    assert fovea.scale == 1.0                    # never downscaled
+    assert fovea.model_size == (768, 768)
+    assert fovea.anchor == (1000, 400)
+    left, top = fovea.origin
+    assert left <= 1000 < left + 768
+    assert top <= 400 < top + 768
+    # Local coord of the red pixel + origin == global.
+    local_x, local_y = 1000 - left, 400 - top
+    assert (left + local_x, top + local_y) == (1000, 400)
+    assert screen.media_type_for(fovea.image) == "image/jpeg"
+
+
+def test_prepare_fovea_token_cost_is_far_below_a_boosted_frame():
+    png = _png(2560, 1440)
+    fovea = screen.prepare_fovea(png, (2560, 1440), 1280, 720, edge=768)
+    boosted, *_ = screen.prepare_for_model(png, (2560, 1440), max_edge=1920)
+    # A 768² JPEG should be well under a 1920-long-edge whole-frame JPEG.
+    assert len(fovea.image) < len(boosted)
+    assert fovea.model_size[0] * fovea.model_size[1] < 1920 * 1080

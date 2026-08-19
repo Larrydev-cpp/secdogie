@@ -26,6 +26,41 @@ jobs:
       - name: Lint
         run: ruff check .
 
+      # Files accidentally overwritten as the literal stub "PLACEHOLDER" have
+      # twice taken down the Windows exe (import-time SyntaxError / flash-exit)
+      # and wiped fleet/coordinator.py. Catch that class of stub, not the word
+      # "PLACEHOLDER" in comments or skill.py's {param} regex.
+      - name: Reject stub PLACEHOLDER files
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          stubs = []
+          roots = ["agent", "fleet", "tunnel", "android", "ios", "open",
+                   "aim", "commander", "gta", "handoff", "scene3d"]
+          for root in roots:
+              base = Path(root)
+              if not base.exists():
+                  continue
+              for p in base.rglob("*"):
+                  if not p.is_file() or p.suffix.lower() not in {".py", ".c", ".h"}:
+                      continue
+                  text = p.read_text(encoding="utf-8", errors="replace").strip()
+                  if not text:
+                      continue
+                  first = text.splitlines()[0].strip()
+                  if first in {"PLACEHOLDER", "PLACEHOLDER_ACTIONS"} or (
+                      text.startswith("PLACEHOLDER") and len(text) < 80
+                  ):
+                      stubs.append(str(p))
+          if stubs:
+              print("stub PLACEHOLDER files (would flash-exit / break imports):")
+              for s in stubs:
+                  print(" ", s)
+              raise SystemExit(1)
+          print("no stub PLACEHOLDER files")
+          PY
+
   # --- Python components: one job per package, same shape for each ----------
   python-tests:
     strategy:

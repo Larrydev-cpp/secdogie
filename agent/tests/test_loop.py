@@ -186,3 +186,106 @@ def test_require_focus_false_continues_on_failure(monkeypatch):
     rc = loop.run(provider, config)
     assert rc == 0
     assert executed == ["left_click"]
+
+
+def test_look_with_point_sends_a_fovea_and_translates_coords(monkeypatch):
+    executed = []
+    prepares = []
+
+    monkeypatch.setattr(screen, "capture_screenshot", lambda region=None: (b"fake-png", (1920, 1080)))
+    monkeypatch.setattr(
+        screen, "prepare_for_model",
+        lambda raw, size, **kw: prepares.append(("full", size)) or (raw, size, 1.0),
+    )
+
+    def fake_fovea(png, size, cx, cy, **kw):
+        prepares.append(("fovea", (cx, cy)))
+        return screen.Fovea(
+            image=b"crop",
+            model_size=(768, 768),
+            scale=1.0,
+            origin=(100, 200),
+            size=(768, 768),
+            anchor=(cx, cy),
+        )
+
+    monkeypatch.setattr(screen, "prepare_fovea", fake_fovea)
+    monkeypatch.setattr(actions, "execute", lambda action, **kw: executed.append(action) or "ok")
+
+    provider = ScriptedProvider([
+        {"action": "look", "x": 400, "y": 500},
+        {"action": "left_click", "x": 50, "y": 60},
+        {"action": "done", "text": "ok"},
+    ])
+    config = loop.AgentConfig(task="t", auto=True, max_steps=10, verify_actions=False)
+    rc = loop.run(provider, config)
+    assert rc == 0
+    assert prepares[0][0] == "full"
+    assert prepares[1] == ("fovea", (400, 500))
+    click = executed[0]
+    assert (click.x, click.y) == (150, 260)  # crop-local + origin
+
+
+def test_no_change_click_foveates_the_next_frame(monkeypatch):
+    executed = []
+    prepares = []
+
+    monkeypatch.setattr(screen, "capture_screenshot", lambda region=None: (b"fake-png", (1920, 1080)))
+    monkeypatch.setattr(
+        screen, "prepare_for_model",
+        lambda raw, size, **kw: prepares.append("full") or (raw, size, 1.0),
+    )
+    monkeypatch.setattr(
+        screen, "prepare_fovea",
+        lambda png, size, cx, cy, **kw: prepares.append(("fovea", cx, cy)) or screen.Fovea(
+            image=b"crop", model_size=(768, 768), scale=1.0,
+            origin=(0, 0), size=(768, 768), anchor=(cx, cy),
+        ),
+    )
+    monkeypatch.setattr(screen, "changed_ratio", lambda *a, **k: 0.0)
+    monkeypatch.setattr(actions, "execute", lambda action, **kw: executed.append(action.kind) or "ok")
+
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 300, "y": 400},
+        {"action": "left_click", "x": 10, "y": 10},
+        {"action": "done", "text": "ok"},
+    ])
+    config = loop.AgentConfig(
+        task="t", auto=True, max_steps=10, verify_actions=True, action_retries=0,
+    )
+    rc = loop.run(provider, config)
+    assert rc == 0
+    assert prepares[0] == "full"
+    assert prepares[1] == ("fovea", 300, 400)
+    assert executed == ["left_click", "left_click"]
+
+
+def test_fovea_edge_zero_falls_back_to_whole_frame_boost(monkeypatch):
+    prepares = []
+    monkeypatch.setattr(screen, "capture_screenshot", lambda region=None: (b"fake-png", (1920, 1080)))
+
+    def fake_prepare(raw, size, **kw):
+        prepares.append(kw.get("max_edge"))
+        return raw, size, 1.0
+
+    monkeypatch.setattr(screen, "prepare_for_model", fake_prepare)
+
+    def _no_fovea(*a, **k):
+        raise AssertionError("fovea must stay off when fovea_edge=0")
+
+    monkeypatch.setattr(screen, "prepare_fovea", _no_fovea)
+    monkeypatch.setattr(actions, "execute", lambda action, **kw: "ok")
+
+    provider = ScriptedProvider([
+        {"action": "look", "x": 10, "y": 10},
+        {"action": "done", "text": "ok"},
+    ])
+    config = loop.AgentConfig(
+        task="t", auto=True, max_steps=5, verify_actions=False,
+        fovea_edge=0, max_image_edge=1536,
+    )
+    rc = loop.run(provider, config)
+    assert rc == 0
+    # First frame is a normal prepare; second is a whole-frame boost (1.25x, capped).
+    assert prepares[0] == 1536
+    assert prepares[1] == max(1536, min(1920, int(1536 * 1.25)))

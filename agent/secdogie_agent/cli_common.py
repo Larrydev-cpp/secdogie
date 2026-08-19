@@ -110,6 +110,13 @@ def add_loop_args(parser: argparse.ArgumentParser) -> None:
         help="longest edge (px) of the screenshot sent to the model; lower = faster/cheaper, higher = more detail",
     )
     parser.add_argument(
+        "--fovea-edge",
+        type=int,
+        default=None,
+        help="side length (px) of the native-resolution crop sent after a miss or look "
+        "(default 768; 0 disables and falls back to boosting the whole frame)",
+    )
+    parser.add_argument(
         "--grid",
         action="store_true",
         help="overlay a labeled coordinate grid on the screenshot to help the model aim",
@@ -228,6 +235,8 @@ def loop_config_kwargs(args: argparse.Namespace, *, task: str, backend=None) -> 
         kwargs["backend"] = backend
     if args.max_image_edge is not None:
         kwargs["max_image_edge"] = args.max_image_edge
+    if getattr(args, "fovea_edge", None) is not None:
+        kwargs["fovea_edge"] = args.fovea_edge
     if args.action_pause is not None:
         kwargs["action_pause"] = args.action_pause
     if args.stall_limit is not None:

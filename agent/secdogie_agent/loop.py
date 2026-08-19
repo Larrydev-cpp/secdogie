@@ -85,6 +85,9 @@ class AgentConfig:
     trace_path: str | None = None
     memory_path: str | None = None
     require_focus: bool = False
+    # Side length of the native-res crop sent on a miss / look. 0 disables
+    # foveation and falls back to the old whole-frame max_edge boost.
+    fovea_edge: int = screen.DEFAULT_FOVEA_EDGE
 
 
 def _present(backend, logger) -> None:
@@ -179,6 +182,10 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
     last_sent_hash: bytes | None = None
     last_model_frame: tuple | None = None  # (model_png, model_size, scale)
     boost_detail = False
+    # Capture-space point to crop around on the next boost (last click / look).
+    last_capture_point: tuple[int, int] | None = None
+    last_was_fovea = False
+    fovea_origin: tuple[int, int] | None = None
 
     memory = Memory(config.memory_path) if config.memory_path else None
     if memory is not None:
@@ -268,17 +275,49 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     and frame_hash == last_sent_hash
                     and last_model_frame is not None
                     and not refresh_view
+                    and not last_was_fovea
+                    and not boost_detail  # a miss / look must not reuse the blurry frame
                 )
 
+                fovea_origin = None
+                used_fovea = False
                 if element_first and cached_frame is not None and not refresh_view and step_targets:
                     model_png, model_size, scale = cached_frame
                 elif screen_unchanged:
                     # Biggest token win: do not re-encode / re-upload an identical frame.
                     model_png, model_size, scale = last_model_frame
+                elif (
+                    boost_detail
+                    and last_capture_point is not None
+                    and config.fovea_edge > 0
+                ):
+                    # Native-res crop around the miss / look point -- not a
+                    # whole-frame 1920 boost. Token cost stays near a 768²
+                    # JPEG; CAD labels stay readable.
+                    fovea = screen.prepare_fovea(
+                        raw_png,
+                        real_size,
+                        last_capture_point[0],
+                        last_capture_point[1],
+                        edge=config.fovea_edge,
+                        grid=config.grid,
+                    )
+                    model_png, model_size, scale = fovea.image, fovea.model_size, fovea.scale
+                    fovea_origin = fovea.origin
+                    used_fovea = True
+                    last_was_fovea = True
+                    last_model_frame = None  # a crop must not be reused as a full view
+                    last_sent_hash = frame_hash
+                    boost_detail = False
+                    logger.info(
+                        "fovea: native %dx%d crop at (%d, %d) around (%d, %d)",
+                        fovea.size[0], fovea.size[1],
+                        fovea.origin[0], fovea.origin[1],
+                        fovea.anchor[0], fovea.anchor[1],
+                    )
                 else:
-                    # Adaptive resolution: boost only when the model asked for a
-                    # fresh look or the previous action produced no visible change
-                    # (i.e. we likely need more detail to aim correctly).
+                    # Adaptive resolution: only when fovea has no anchor (first
+                    # look with no prior point) do we still boost the whole frame.
                     edge = config.max_image_edge
                     if boost_detail:
                         edge = max(edge, min(1920, int(edge * 1.25)))
@@ -288,6 +327,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     cached_frame = (model_png, model_size, scale)
                     last_model_frame = (model_png, model_size, scale)
                     last_sent_hash = frame_hash
+                    last_was_fovea = False
                     boost_detail = False
                 refresh_view = False
 
@@ -306,6 +346,15 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                         "\n\nNOTE: the screen is visually identical to the previous frame "
                         "(no pixel change detected). Prefer wait / look / a different "
                         "target rather than repeating the same click."
+                    )
+                if used_fovea and fovea_origin is not None:
+                    step_task += (
+                        f"\n\nFOVEATED VIEW: this image is a native-resolution crop "
+                        f"({model_size[0]}x{model_size[1]} px) of the screen, not the "
+                        f"full desktop. The crop's top-left is at ({fovea_origin[0]}, "
+                        f"{fovea_origin[1]}) in the full capture. Emit coordinates in "
+                        f"THIS image's space (0,0 is the crop's top-left); the loop "
+                        f"maps them back to the full screen."
                     )
                 action = None
                 for attempt in range(config.max_transient_retries + 1):
@@ -326,6 +375,12 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                             logger.info("stopped externally while backing off")
                             return 5
                 action = action.scaled(scale)
+                if fovea_origin is not None:
+                    action = action.translated(fovea_origin[0], fovea_origin[1])
+                # Capture-space point (before a desktop --region offset) so the
+                # next fovea crop lands on the same pixels the model just aimed at.
+                if action.x is not None and action.y is not None:
+                    last_capture_point = (int(action.x), int(action.y))
                 if config.region is not None:
                     action = action.translated(config.region[0], config.region[1])
                 if action.kind == "click_element":
@@ -391,9 +446,23 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
 
             if action.kind == "look":
                 refresh_view = True
-                boost_detail = True  # next prepare uses higher max_edge for the detail the model asked for
-                logger.info("step %d: model requested a fresh look%s", step, f" -- {reasoning}" if reasoning else "")
-                record_result("will capture a fresh screenshot on the next step")
+                boost_detail = True  # next prepare uses a fovea crop (or whole-frame boost if no point)
+                if action.x is not None and action.y is not None:
+                    logger.info(
+                        "step %d: model requested a foveated look at (%d, %d)%s",
+                        step, action.x, action.y,
+                        f" -- {reasoning}" if reasoning else "",
+                    )
+                    record_result(
+                        f"will capture a native-resolution crop around ({action.x}, {action.y}) "
+                        "on the next step"
+                    )
+                else:
+                    logger.info(
+                        "step %d: model requested a fresh look%s",
+                        step, f" -- {reasoning}" if reasoning else "",
+                    )
+                    record_result("will capture a fresh screenshot on the next step")
                 continue
 
             if action.kind == "ask_user":
