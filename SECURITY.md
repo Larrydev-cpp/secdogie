@@ -38,6 +38,15 @@ trusted host/operator boundary:
   it only on machines you own or are the authorized administrator of. It stays
   high-risk (confirms even under `--auto`), and a `fleet/` coordinator cannot
   turn it on for a node — elevation is node-local by design.
+- **TrustedInstaller impersonation is refused.** `NT SERVICE\TrustedInstaller`
+  is a Windows servicing identity, not an application privilege. secdogie will
+  not steal that token, impersonate it, or use it to read PPL / protected
+  processes. `elevate.try_impersonate_trusted_installer()` and the Atlas native
+  `PrivilegeManager` always return `refused-identity`. The same wall covers
+  anti-EDR (unhooking, handle-hiding, foreign-process memory scans): not
+  implemented, documented refusal. Process handles opened for perception are
+  strictly `PROCESS_VM_READ | PROCESS_QUERY_INFORMATION` — write / VM-op /
+  thread-create / `PROCESS_ALL_ACCESS` are refused, not silently narrowed.
 
 If multiple, mutually-distrusting people can reach the same running agent or
 the same host, that is outside the model — isolate by OS user / host instead.
@@ -48,8 +57,10 @@ the same host, that is outside the model — isolate by OS user / host instead.
 handshake, XChaCha20-Poly1305 AEAD, a per-session replay window). It was built
 to learn and to serve this toolkit, and it has **not** had an independent
 cryptographic audit. For anything where a real adversary is on the wire, prefer
-a reviewed implementation such as WireGuard. Crypto/protocol bug reports here
-are very welcome (see in-scope below).
+a reviewed implementation such as WireGuard or a **named Cloudflare Tunnel**
+(`tunnel/cloudflare/`, outbound-only `cloudflared`, TLS at the edge, Cloudflare
+Access in front of the hostname). Crypto/protocol bug reports here are very
+welcome (see in-scope below).
 
 ## Reporting a Vulnerability
 

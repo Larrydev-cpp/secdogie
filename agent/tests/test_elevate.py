@@ -129,3 +129,21 @@ def test_real_detection_never_raises_on_this_box():
         return
     assert e.is_elevated() is False
     assert e.active_console_session() is None
+
+
+# -- the wall above SYSTEM: TrustedInstaller / anti-EDR -----------------------
+
+def test_trusted_installer_impersonation_is_refused():
+    r = e.try_impersonate_trusted_installer()
+    assert r.outcome == e.REFUSED_IDENTITY
+    assert r.pid is None
+    assert "TrustedInstaller" in r.detail
+    # Asking twice is still a refusal -- there is no 'try harder' branch.
+    r2 = e.try_impersonate_trusted_installer()
+    assert r2.outcome == e.REFUSED_IDENTITY
+
+
+def test_anti_edr_is_refused():
+    r = e.try_edr_evasion()
+    assert r.outcome == e.REFUSED_IDENTITY
+    assert "Anti-EDR" in r.detail

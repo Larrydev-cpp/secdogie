@@ -35,6 +35,8 @@ def test_find_elements_matches_exactly_not_by_substring():
     assert [e.name for e in axtree.find_elements(tree, name="Cancel", role="Button")] == ["Cancel"]
     assert axtree.find_elements(tree, name="Sav") == []       # exact, not prefix/substring
     assert axtree.find_elements(tree, automation_id="save") == []
+    assert [e.name for e in axtree.find_elements(tree, name="cancel")] == ["Cancel"]
+    assert [e.name for e in axtree.find_elements(tree, automation_id="SAVEBTN")] == ["Save"]
 
 
 def test_selector_for_prefers_automation_id_then_name():

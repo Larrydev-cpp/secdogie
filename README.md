@@ -11,11 +11,17 @@ control.**
   Point-to-point by default, with an optional **hub mode** that terminates
   many client tunnels on one public node and routes between them. See
   [`tunnel/PROTOCOL.md`](tunnel/PROTOCOL.md) for the handshake design and
-  [`tunnel/README.md`](tunnel/README.md) to build and run it.
+  [`tunnel/README.md`](tunnel/README.md) to build and run it. For production
+  reachability prefer a named [Cloudflare Tunnel](tunnel/cloudflare/) (TLS at
+  the edge; the custom tunnel stays for air-gapped labs).
 - [`agent/`](agent/) — a vision-LLM computer-control agent: point it at a
   task in plain language, it screenshots your screen, asks a vision model
   what to do next, and executes one action at a time (click, type, scroll,
-  ...) until the task is done. See [`agent/README.md`](agent/README.md).
+  ...) until the task is done. On Windows, `--desktop-ax` makes UI Automation
+  the primary targeting path and a pixel-diff verifies every mutating click
+  (the Atlas dual-tier loop — see [`docs/ATLAS.md`](docs/ATLAS.md) /
+  [`docs/ATLAS.zh.md`](docs/ATLAS.zh.md)). See
+  [`agent/README.md`](agent/README.md).
 - [`open/`](open/) — a local web page on top of `agent/` that splits the
   screen by open window and drives one `agent` instance per selected window
   at once, instead of one agent owning the whole screen. See
@@ -200,17 +206,19 @@ vulnerability privately.
 ## Layout
 
 ```
-tunnel/   C, libsodium-based VPN tunnel (PROTOCOL.md has the design + limitations)
-agent/    Python vision-LLM computer-control agent (provider-agnostic action schema)
-open/     Python, local web page: split the screen by window, drive several agent instances at once
-fleet/    Python: one agent per isolated desktop (VM/session), coordinated from the host -- true parallelism
-android/  Python: drive an Android phone over adb, reusing the agent loop + action schema
-ios/      Python: drive an iPhone/iPad over WebDriverAgent, reusing the agent loop + action schema
-scene3d/  Python: multi-model 3D scene analysis (per-view workers + an aggregator)
-handoff/  Python: cross-process input-ownership baton (one node drives the mouse/keyboard at a time)
-aim/      Python: real-time combat controller -- relative mouse-look + P-control aim onto a detected target
-commander/ Python: tactician state machine -- decides fight phases and sequences the logistics/combat nodes
-gta/      Python: drive GTA V single-player via a ScriptHookV plugin -- JSON bridge protocol + a steering control law
+tunnel/        C, libsodium-based VPN tunnel (PROTOCOL.md has the design + limitations)
+tunnel/cloudflare/  named Cloudflare Tunnel config (production reachability)
+native/atlas/  C++ dual-tier loop: UIA targeting, read-only handles, pixel-diff
+agent/         Python vision-LLM computer-control agent (provider-agnostic action schema)
+open/          Python, local web page: split the screen by window, drive several agent instances at once
+fleet/         Python: one agent per isolated desktop (VM/session), coordinated from the host -- true parallelism
+android/       Python: drive an Android phone over adb, reusing the agent loop + action schema
+ios/           Python: drive an iPhone/iPad over WebDriverAgent, reusing the agent loop + action schema
+scene3d/       Python: multi-model 3D scene analysis (per-view workers + an aggregator)
+handoff/       Python: cross-process input-ownership baton (one node drives the mouse/keyboard at a time)
+aim/           Python: real-time combat controller -- relative mouse-look + P-control aim onto a detected target
+commander/     Python: tactician state machine -- decides fight phases and sequences the logistics/combat nodes
+gta/           Python: drive GTA V single-player via a ScriptHookV plugin -- JSON bridge protocol + a steering control law
 ```
 
 Each subdirectory has its own README with build/install/run instructions

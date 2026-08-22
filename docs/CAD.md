@@ -17,7 +17,10 @@ secdogie-agent "Export current drawing to Desktop as secdogie-export.pdf" \
   --desktop-ax --gui
 ```
 
-- `--window` pins focus; **require-focus is auto-on** with `--window` (exit 7 if focus fails).
+- `--window` pins focus (exact, then prefix, then substring; case-insensitive);
+  **require-focus is auto-on** with `--window` (exit 7 if focus fails).
+- `--desktop-ax` makes the accessibility tree the primary targeting path;
+  a pixel-diff still verifies every mutating click (see [`ATLAS.md`](ATLAS.md)).
 - `--read-only` blocks type / keys / drag / open / elevated; clicks and scroll stay allowed.
 - High-risk keys (Ctrl+S, Delete, Alt+F4, Ctrl+W) and `open` still force confirmation under `--auto`.
 
@@ -25,7 +28,7 @@ secdogie-agent "Export current drawing to Desktop as secdogie-export.pdf" \
 
 | Topic | Reality |
 |-------|---------|
-| **Focus** | Wayland often refuses programmatic focus. Prefer X11 or Windows. Use `--window` with the *exact* title. |
+| **Focus** | Wayland often refuses programmatic focus. Prefer X11 or Windows. `--window` matches exact, then prefix, then substring (case-insensitive). |
 | **DPI / scaling** | Windows display scaling is handled when the process opts into DPI awareness at startup. Mixed-DPI multi-monitor can still offset clicks. |
 | **Overlay dialogs** | Modal CAD dialogs, licensing popups, or auto-save prompts can steal the frame the model sees. Dismiss them first or include them in the task text. |
 | **Custom ribbons** | Heavily customized toolbars reduce accessibility-tree hit rate; `--desktop-ax` helps when the control exposes a name. |
