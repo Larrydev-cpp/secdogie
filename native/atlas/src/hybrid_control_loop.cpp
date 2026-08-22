@@ -49,7 +49,10 @@ const char* StepStatusName(StepStatus s) noexcept {
 }
 
 double PixelDiff::ChangedRatio(const Framebuffer& a, const Framebuffer& b) {
-  const std::size_t n = std::min(a.bgra.size(), b.bgra.size());
+  if (a.width != b.width || a.height != b.height || a.bgra.size() != b.bgra.size()) {
+    return 1.0;
+  }
+  const std::size_t n = a.bgra.size();
   if (n < 4) return 1.0;
   double acc = 0;
   std::size_t count = 0;
@@ -94,7 +97,16 @@ Result<Framebuffer> HybridControlLoop::CaptureScreen(const Rect& r) {
     return PrivilegeError{PrivilegeCode::Failed, "GetDC failed"};
   }
   HDC mem = CreateCompatibleDC(screen);
+  if (!mem) {
+    ReleaseDC(nullptr, screen);
+    return PrivilegeError{PrivilegeCode::Failed, "CreateCompatibleDC failed"};
+  }
   HBITMAP bmp = CreateCompatibleBitmap(screen, r.w, r.h);
+  if (!bmp) {
+    DeleteDC(mem);
+    ReleaseDC(nullptr, screen);
+    return PrivilegeError{PrivilegeCode::Failed, "CreateCompatibleBitmap failed"};
+  }
   HGDIOBJ old = SelectObject(mem, bmp);
   BitBlt(mem, 0, 0, r.w, r.h, screen, r.x, r.y, SRCCOPY);
 
@@ -186,8 +198,13 @@ PrivilegeError HybridControlLoop::ExecuteDefault(const ControlNode& target,
   in[1].mi.dwFlags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE | MOUSEEVENTF_LEFTUP;
   const int cx = target.bounds.x + target.bounds.w / 2;
   const int cy = target.bounds.y + target.bounds.h / 2;
-  const int nx = cx * 65535 / GetSystemMetrics(SM_CXSCREEN);
-  const int ny = cy * 65535 / GetSystemMetrics(SM_CYSCREEN);
+  const int sx = GetSystemMetrics(SM_CXSCREEN);
+  const int sy = GetSystemMetrics(SM_CYSCREEN);
+  if (sx <= 0 || sy <= 0) {
+    return PrivilegeError{PrivilegeCode::Failed, "GetSystemMetrics screen size is 0"};
+  }
+  const int nx = cx * 65535 / sx;
+  const int ny = cy * 65535 / sy;
   in[0].mi.dx = in[1].mi.dx = nx;
   in[0].mi.dy = in[1].mi.dy = ny;
   SendInput(2, in, sizeof(INPUT));
@@ -216,29 +233,34 @@ LoopStep HybridControlLoop::Run(const LoopAction& action, SinkFn sink) {
     return step;
   }
 
-  last_ = perception_.Snapshot();
-  const ControlNode* target = ProcessPerception::Find(last_.controls, action.selector);
-  PerceptionMode mode = last_.mode;
+  PerceptionSnapshot current = perception_.Snapshot();
+  const ControlNode* found = ProcessPerception::Find(current.controls, action.selector);
+  PerceptionMode mode = current.mode;
 
-  if (!target) {
+  if (!found) {
     emit(StepStatus::Fallback, "UIA miss — falling back to last-known / vision.");
     if (!config_.vision_fallback) {
       emit(StepStatus::Failed, "No UIA hit and vision fallback is disarmed.");
       return step;
     }
-    // Last snapshot may still have the node if UIA just flaked this frame.
-    target = ProcessPerception::Find(last_.controls, action.selector);
+    found = ProcessPerception::Find(last_.controls, action.selector);
     mode = PerceptionMode::VisionFallback;
     step.mode = mode;
-    if (!target) {
+    if (!found) {
       emit(StepStatus::Failed, "No UIA hit and vision fallback could not resolve the selector.");
       return step;
     }
   }
 
+  // Copy the node before we maybe move `current` into `last_`.
+  ControlNode target = *found;
+  if (!current.controls.empty()) {
+    last_ = std::move(current);
+  }
+
   step.mode = mode;
-  step.target_name = target->name;
-  step.target_bounds = target->bounds;
+  step.target_name = target.name;
+  step.target_bounds = target.bounds;
   emit(StepStatus::Targeting, mode == PerceptionMode::Uia ? "UIA target" : "Vision target");
 
   if (action.kind == ActionKind::Read) {
@@ -252,7 +274,7 @@ LoopStep HybridControlLoop::Run(const LoopAction& action, SinkFn sink) {
   }
 
   emit(StepStatus::SnapshotBefore, "Capturing pre-action framebuffer.");
-  const Rect cap = Inflate(target->bounds, config_.capture_pad_px);
+  const Rect cap = Inflate(target.bounds, config_.capture_pad_px);
   auto before = capture_(cap);
   if (!before) {
     emit(StepStatus::Failed, "pre-capture failed: " + before.error().detail);
@@ -264,7 +286,7 @@ LoopStep HybridControlLoop::Run(const LoopAction& action, SinkFn sink) {
     emit(attempt == 0 ? StepStatus::Executing : StepStatus::Retrying,
          attempt == 0 ? "Invoke via UIA / click" : "Retry after insufficient pixel-diff");
     if (execute_) {
-      const PrivilegeError ex = execute_(*target, action);
+      const PrivilegeError ex = execute_(target, action);
       if (ex.code != PrivilegeCode::Ok && ex.code != PrivilegeCode::Stripped) {
         emit(StepStatus::Failed, "execute failed: " + ex.detail);
         return step;

@@ -19,7 +19,8 @@ control.**
   what to do next, and executes one action at a time (click, type, scroll,
   ...) until the task is done. On Windows, `--desktop-ax` makes UI Automation
   the primary targeting path and a pixel-diff verifies every mutating click
-  (the Atlas dual-tier loop — see [`docs/ATLAS.md`](docs/ATLAS.md)). See
+  (the Atlas dual-tier loop — see [`docs/ATLAS.md`](docs/ATLAS.md) /
+  [`docs/ATLAS.zh.md`](docs/ATLAS.zh.md)). See
   [`agent/README.md`](agent/README.md).
 - [`open/`](open/) — a local web page on top of `agent/` that splits the
   screen by open window and drives one `agent` instance per selected window

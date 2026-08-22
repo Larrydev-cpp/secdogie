@@ -93,6 +93,7 @@ class HybridControlLoop {
   LoopStep Run(const LoopAction& action, SinkFn sink = {});
 
   const PerceptionSnapshot& last_snapshot() const { return last_; }
+  void SetLastSnapshot(PerceptionSnapshot s) { last_ = std::move(s); }
   LoopConfig& config() { return config_; }
 
   // Default capture: BitBlt of a screen rect. Default execute: UIA Invoke

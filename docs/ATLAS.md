@@ -1,5 +1,7 @@
 # Atlas: dual-tier perception, read-only handles, Cloudflare Tunnel
 
+中文：[ATLAS.zh.md](ATLAS.zh.md).
+
 Atlas is the next-generation control path for secdogie on operator-owned
 machines. Python decision core: [`agent/secdogie_agent/atlas.py`](../agent/secdogie_agent/atlas.py).
 Windows-speed native twin: [`native/atlas/`](../native/atlas/).
@@ -15,11 +17,33 @@ Windows-speed native twin: [`native/atlas/`](../native/atlas/).
    C++ `PixelDiff` for the native path). No visible mutation → retry → fail.
    A no-mutation step is never recorded as success.
 3. **`click_element` is in the retry-safe set**, so a UIA Invoke that didn't
-   actually change the UI is retried and then reported honestly.
+   actually change the UI is retried along the **same delivery path** (Invoke
+   again, or rewrite to `left_click`). The raw `click_element` kind is never
+   forwarded to `backend.execute` — it is not a backend verb.
+4. A UIA miss falls back to the **previous** snapshot (last-known tree), not
+   the empty current frame. Name / AutomationId / role match is case-insensitive.
+5. The live agent loop (`loop.py`) keeps last-known `element_targets` the same
+   way: an empty accessibility frame does not wipe the listing, so a model that
+   still holds `eN` refs from the previous step can resolve them. `click_element`
+   retries go through `_deliver_action` (Invoke, else rewrite to `left_click`) —
+   the raw kind is never forwarded to `backend.execute`.
+6. `axtree.find_elements` name / AutomationId match is case-insensitive exact
+   (not substring), aligned with Atlas `find_control`.
 
 CAD canvases and custom-drawn chrome still fall back to vision. That's
 intentional: the tree is empty there, and pixels remain the fallback, not the
 default.
+
+## Last-known tree
+
+An empty current UIA tree **must not overwrite** last-known. C++
+`HybridControlLoop::last_` updates only when this frame's `controls` is
+non-empty; Python `keep_tree` / `coalesce_element_targets` and the web
+`keepTree` follow the same contract.
+
+Execute exceptions / non-ok privilege codes fail the step immediately — they
+are not retried as "no mutation". Pixel-diff width/height/length mismatch is
+100% changed (never a `min`-length compare that under-reports).
 
 ## Read-only process handles
 

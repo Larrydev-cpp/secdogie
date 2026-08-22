@@ -1,0 +1,59 @@
+# Atlas：双层感知、只读句柄、Cloudflare 隧道
+
+英文版：[ATLAS.md](ATLAS.md)。
+
+Python 决策核：[`agent/secdogie_agent/atlas.py`](../agent/secdogie_agent/atlas.py)。
+Windows 原生孪生模块：[`native/atlas/`](../native/atlas/)。
+
+## 双层循环
+
+1. **主定位**走操作系统无障碍树（Windows UI Automation / AT-SPI / AX）——PID、hwnd、包围盒、AutomationId。用 `--desktop-ax` 打开。实循环优先 `click_element` / 原生 Invoke，而不是在缩小后的截图上猜像素。
+2. **核验**是动作前后控件区域的 pixel-diff（agent 循环里的 `screen.changed_ratio`；原生路径是 `atlas.changed_ratio` / C++ `PixelDiff`）。没有可见突变 → 重试 → 失败。无突变的步骤永远不会被记成成功。
+3. **`click_element` 在可重试集合里。** UIA Invoke 如果没改 UI，会按**同一投递路径**重试（再 Invoke，或改写成 `left_click`），不会把生的 `click_element` 交给 `backend.execute`（那不是后端动词）。
+4. UIA 本帧未命中时，回退到**上一帧**已解析的控件树（last-known），而不是在同一份空快照上再 Find 一次。名称 / AutomationId / role 匹配大小写不敏感。
+5. 实循环 `loop.py` 同样保留 last-known `element_targets`：空的无障碍帧不会抹掉列表，模型上一帧拿到的 `eN` 仍能解析。`click_element` 重试走 `_deliver_action`（Invoke，否则改写成 `left_click`）。
+6. `axtree.find_elements` 的 name / AutomationId 是大小写不敏感的精确匹配（不是子串），与 Atlas `find_control` 对齐。
+
+CAD 画布和自绘 chrome 仍回退到视觉。这是故意的：树上是空的，像素是回退，不是默认。
+
+## 只读进程句柄
+
+`OpenProcess` 只允许 `PROCESS_VM_READ | PROCESS_QUERY_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION`。`PROCESS_VM_WRITE`、`PROCESS_VM_OPERATION`、`PROCESS_CREATE_THREAD`、`PROCESS_ALL_ACCESS` **拒绝，不静默收窄**——幻觉出来的写请求不能被当成「我们帮你去掉危险位了」。
+
+## 权限墙
+
+- **SYSTEM** 是从*已经是管理员*的令牌上走文档化的 `CreateProcessAsUser`，启动时用 `--allow-elevated-command` 白名单。不是 UAC 绕过。见 [`elevate.py`](../agent/secdogie_agent/elevate.py)。
+- **`NT SERVICE\TrustedInstaller` 模拟被拒绝。** 窃取服务身份令牌是安全边界绕过。`elevate.try_impersonate_trusted_installer()` 与 `PrivilegeManager::TryImpersonateTrustedInstaller()` 永远返回 `refused-identity`。
+- **Anti-EDR 被拒绝。** 没有脱钩、藏句柄、扫外部进程内存。Atlas 只用 OpenProcess（查询/读）、Toolhelp、EnumWindows、UI Automation COM。
+
+## 感知回退
+
+空的当前 UIA 树**不会覆盖** last-known。C++ `HybridControlLoop::last_` 只在本帧 `controls` 非空时更新；Python `keep_tree` / `coalesce_element_targets` 与 Web `keepTree` 同一契约。
+
+execute 抛错或返回失败码记成 Failed，不会被当成「无突变再试一次」。Pixel-diff 宽高/长度不一致记为 100% 改变（避免用 `min` 长度低估突变）。
+
+## Cloudflare Tunnel
+
+生产可达性优先 **命名 Cloudflare Tunnel**，而不是未经审计的自定义 UDP `tunnel/`：
+
+```sh
+# Linux / macOS
+native/atlas/scripts/setup-cloudflare-tunnel.sh secdogie-atlas atlas.example.com
+
+# Windows
+native/atlas/scripts/setup-cloudflare-tunnel.ps1 -Name secdogie-atlas -Hostname atlas.example.com
+```
+
+配置模板：[`native/atlas/config/cf_tunnel_config.json`](../native/atlas/config/cf_tunnel_config.json) 与 [`tunnel/cloudflare/`](../tunnel/cloudflare/)。`cloudflared` 只出站；主机名前面放 Cloudflare Access。不要提交凭据 JSON。
+
+自定义 `tunnel/` 留给隔离实验网。见 [`SECURITY.md`](../SECURITY.md)。
+
+## 编译原生模块
+
+```sh
+cmake -S native/atlas -B native/atlas/build
+cmake --build native/atlas/build --target atlas_test
+ctest --test-dir native/atlas/build --output-on-failure
+```
+
+非 Windows 上库仍能编过；Win32 入口返回 `Unsupported`，决策核测试仍然通过。

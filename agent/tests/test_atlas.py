@@ -92,6 +92,22 @@ def test_find_control_by_automation_id():
     assert a.find_control([btn], Selector()) is None  # empty selector matches nothing
 
 
+def test_changed_ratio_length_mismatch_is_fully_changed():
+    short = bytes([40, 40, 40, 255]) * 8
+    long = bytes([40, 40, 40, 255]) * 16
+    assert a.changed_ratio(short, long) == 1.0
+    assert a.changed_ratio(long, short) == 1.0
+
+
+def test_find_control_name_is_case_insensitive():
+    btn = ControlNode(
+        role="Button", name="Zoom Extents", automation_id="ID_ZOOM_EXTENTS",
+        bounds=Rect(10, 10, 80, 24),
+    )
+    assert a.find_control([btn], Selector(name="zoom extents")) is btn
+    assert a.find_control([btn], Selector(name="ZOOM EXTENTS", role="button")) is btn
+
+
 def test_pixel_diff_identical_and_mutated():
     same = bytes([40, 40, 40, 255]) * (16 * 16)
     other = bytes([200, 200, 200, 255]) * (16 * 16)
@@ -196,3 +212,50 @@ def test_hybrid_loop_read_skips_pixel_diff():
     )
     assert step.status == a.PASSED
     assert "Read-only" in step.detail
+
+
+def test_hybrid_loop_vision_fallback_disarmed():
+    step = a.run_hybrid_step(
+        LoopAction("zoom", selector=Selector(automation_id="ID_ZOOM_EXTENTS")),
+        snapshot=lambda: [],
+        capture=lambda _r: b"",
+        execute=lambda n, act: (_ for _ in ()).throw(AssertionError("must not execute")),
+        last_tree=_tree(True),
+        config=LoopConfig(vision_fallback=False),
+    )
+    assert step.status == a.FAILED
+    assert "disarmed" in step.detail
+
+
+def test_hybrid_loop_execute_exception_is_failed():
+    def boom(_node, _act):
+        raise RuntimeError("invoke refused")
+
+    step = a.run_hybrid_step(
+        LoopAction("zoom", selector=Selector(automation_id="ID_ZOOM_EXTENTS")),
+        snapshot=lambda: _tree(True),
+        capture=lambda _r: bytes([10, 10, 10, 255]) * 8,
+        execute=boom,
+        config=LoopConfig(max_retries=1),
+    )
+    assert step.status == a.FAILED
+    assert "execute failed" in step.detail
+
+
+def test_hybrid_loop_empty_last_tree_on_uia_miss_fails():
+    step = a.run_hybrid_step(
+        LoopAction("zoom", selector=Selector(automation_id="ID_ZOOM_EXTENTS")),
+        snapshot=lambda: [],
+        capture=lambda _r: b"",
+        execute=lambda n, act: (_ for _ in ()).throw(AssertionError("must not execute")),
+        last_tree=[],
+    )
+    assert step.status == a.FAILED
+    assert step.mode == "vision-fallback"
+
+
+def test_keep_tree_preserves_last_known_on_empty():
+    prev = _tree(True)
+    assert a.keep_tree([], prev) is prev
+    nxt = _tree(True)
+    assert a.keep_tree(nxt, prev) is nxt

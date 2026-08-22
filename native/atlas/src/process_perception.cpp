@@ -139,7 +139,7 @@ bool NodeMatches(const ControlNode& n, const Selector& s) {
   if (!s.automation_id.empty() && !Ieq(n.automation_id, s.automation_id)) {
     return false;
   }
-  if (!s.name.empty() && n.name != s.name) return false;
+  if (!s.name.empty() && !Ieq(n.name, s.name)) return false;
   if (s.has_role && n.role != s.role) return false;
   return !s.automation_id.empty() || !s.name.empty() || s.has_role;
 }

@@ -37,6 +37,10 @@ _WATCH_DIRECTIVE = (
     'Use "done" only if the task is a one-shot that is now fully complete and no more '
     "watching is needed."
 )
+_STALE_TREE_NOTE = (
+    "\n\nNOTE: live accessibility tree was empty this frame; listing is last-known. "
+    "Prefer look if the UI may have changed."
+)
 _MEMORY_DIRECTIVE = (
     "You have a persistent memory that survives across runs. To save a durable fact "
     "for your future self -- where a control is, a preference the user confirmed, how "
@@ -87,6 +91,20 @@ class AgentConfig:
     trace_path: str | None = None
     memory_path: str | None = None
     require_focus: bool = False
+
+
+def coalesce_element_targets(live, last) -> tuple[list, list, bool]:
+    """Prefer the live accessibility tree. An empty frame must not wipe last-known.
+
+    Returns `(targets_this_step, last_to_keep, used_stale)`. Same contract as
+    Atlas `keep_tree` / C++ `last_` — a UIA blip would otherwise drop every
+    `click_element` ref the model still holds from the previous listing.
+    """
+    live_list = list(live or [])
+    last_list = list(last or [])
+    if live_list:
+        return live_list, live_list, False
+    return last_list, last_list, bool(last_list)
 
 
 def _present(backend, logger) -> None:
@@ -181,6 +199,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
     last_sent_hash: bytes | None = None
     last_model_frame: tuple | None = None  # (model_png, model_size, scale)
     boost_detail = False
+    last_targets: list = []
 
     memory = Memory(config.memory_path) if config.memory_path else None
     if memory is not None:
@@ -264,8 +283,13 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 step_targets: list = []
                 listing = ""
                 if isinstance(backend, ElementAware):
-                    step_targets = backend.element_targets()
+                    live_targets = backend.element_targets()
+                    step_targets, last_targets, stale_tree = coalesce_element_targets(
+                        live_targets, last_targets,
+                    )
                     listing = elements.render_for_model(step_targets)
+                    if stale_tree and listing:
+                        listing += _STALE_TREE_NOTE
 
                 screen_unchanged = (
                     last_sent_hash is not None
@@ -538,18 +562,10 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     executed_ok = r.outcome == elevate.LAUNCHED
                     (logger.info if executed_ok else logger.warning)("run_elevated -> %s", result)
                 else:
-                    harnessed = _try_harness(backend, action, harness_el)
-                    if harnessed is not None:
-                        result = harnessed
-                        executed_ok = True
+                    result, exec_kind = _deliver_action(backend, action, harness_el)
+                    executed_ok = True
+                    if action.kind == "click_element" and exec_kind == "click_element":
                         logger.info("harness: %s", result)
-                    else:
-                        exec_action = action
-                        if action.kind == "click_element":
-                            exec_action = replace(action, kind="left_click")
-                        exec_kind = exec_action.kind
-                        result = backend.execute(exec_action)
-                        executed_ok = True
                     if actions.FOCUS_UNCONFIRMED_NOTE in result:
                         logger.warning(
                             "'%s' ran without confirmed focus on the target window; it may have "
@@ -572,7 +588,9 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             # Type/key/open/drag change the UI less predictably (or not at all in
             # the short window) and were the main source of screenshot pile-up.
             if executed_ok and config.verify_actions and exec_kind in _RETRY_SAFE:
-                result = _verify_and_maybe_retry(backend, action, raw_png, result, config, logger)
+                result = _verify_and_maybe_retry(
+                    backend, action, raw_png, result, config, logger, harness_el=harness_el,
+                )
                 if _NO_CHANGE_NOTE in result:
                     # Next frame needs more detail so the model can re-aim.
                     boost_detail = True
@@ -609,6 +627,25 @@ def _try_harness(backend: Backend, action, el) -> str | None:
     return None
 
 
+def _deliver_action(backend: Backend, action, el) -> tuple[str, str]:
+    """Execute once, returning (result, exec_kind).
+
+    `click_element` is not a backend verb. First chance is UIA Invoke
+    (`invoke_element`); otherwise we rewrite to `left_click`. Retries MUST
+    take this same path -- forwarding the raw kind to `backend.execute`
+    would raise or no-op on AdbBackend / IosBackend / DesktopBackend.
+    """
+    harnessed = _try_harness(backend, action, el)
+    if harnessed is not None:
+        return harnessed, action.kind
+    exec_action = action
+    exec_kind = action.kind
+    if action.kind == "click_element":
+        exec_action = replace(action, kind="left_click")
+        exec_kind = "left_click"
+    return backend.execute(exec_action), exec_kind
+
+
 def _build_plan(provider: VisionProvider, config: AgentConfig, logger, backend: Backend) -> Plan | None:
     try:
         raw_png, real_size = backend.capture(config.region)
@@ -638,7 +675,10 @@ def _visible_change(pre_png: bytes, post_png: bytes, threshold: float, logger) -
         return True
 
 
-def _verify_and_maybe_retry(backend: Backend, action, pre_png: bytes, result: str, config: AgentConfig, logger) -> str:
+def _verify_and_maybe_retry(
+    backend: Backend, action, pre_png: bytes, result: str, config: AgentConfig, logger,
+    *, harness_el=None,
+) -> str:
     try:
         after_png, _ = backend.capture(config.region)
     except screen.CaptureError:
@@ -651,7 +691,7 @@ def _verify_and_maybe_retry(backend: Backend, action, pre_png: bytes, result: st
         for attempt in range(1, config.action_retries + 1):
             logger.info("action '%s' had no visible effect; retry %d/%d", action.kind, attempt, config.action_retries)
             try:
-                result = backend.execute(action)
+                result, _kind = _deliver_action(backend, action, harness_el)
             except Exception as e:
                 logger.error("retry of '%s' failed: %s", action.kind, e)
                 return f"error on retry: {e}"

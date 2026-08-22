@@ -1,4 +1,8 @@
+import io
+import logging
+
 import pytest
+from PIL import Image
 from secdogie_agent import actions, loop, screen
 from secdogie_agent.providers.base import Action, VisionProvider
 
@@ -182,3 +186,130 @@ def test_require_focus_false_continues_on_failure(monkeypatch):
     rc = loop.run(provider, config)
     assert rc == 0
     assert executed == ["left_click"]
+
+
+def _solid_png(color=(0, 0, 0)):
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), color).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_deliver_click_element_never_forwards_raw_kind():
+    executed = []
+
+    class B:
+        def execute(self, action):
+            executed.append(action.kind)
+            return "ok"
+
+    action = Action.from_dict({"action": "click_element", "element": "e1", "x": 1, "y": 1})
+    result, kind = loop._deliver_action(B(), action, el=None)
+    assert kind == "left_click"
+    assert executed == ["left_click"]
+    assert result == "ok"
+
+
+def test_verify_retry_rewrites_click_element_to_left_click():
+    png = _solid_png()
+    executed = []
+
+    class B:
+        def execute(self, action):
+            executed.append(action.kind)
+            return "ok"
+
+        def capture(self, region=None):
+            return png, (64, 64)
+
+    action = Action.from_dict({"action": "click_element", "element": "e1", "x": 1, "y": 1})
+    config = loop.AgentConfig(task="x", auto=True, action_retries=1, action_pause=0)
+    out = loop._verify_and_maybe_retry(
+        B(), action, png, "ok", config, logging.getLogger("t"),
+    )
+    assert executed == ["left_click"]
+    assert "click_element" not in executed
+    assert loop._NO_CHANGE_NOTE in out
+
+
+def test_verify_retry_uses_invoke_when_harness_present():
+    png = _solid_png()
+    invoked = []
+    executed = []
+
+    class El:
+        pass
+
+    class B:
+        def execute(self, action):
+            executed.append(action.kind)
+            return "ok"
+
+        def invoke_element(self, el):
+            invoked.append(el)
+            return "invoked"
+
+        def capture(self, region=None):
+            return png, (64, 64)
+
+    action = Action.from_dict({"action": "click_element", "element": "e1"})
+    config = loop.AgentConfig(task="x", auto=True, action_retries=1, action_pause=0)
+    loop._verify_and_maybe_retry(
+        B(), action, png, "ok", config, logging.getLogger("t"), harness_el=El(),
+    )
+    assert len(invoked) == 1
+    assert executed == []
+
+
+def test_coalesce_element_targets_keeps_last_known():
+    live = ["a"]
+    last = ["b"]
+    got, keep, stale = loop.coalesce_element_targets(live, last)
+    assert got == ["a"] and keep == ["a"] and stale is False
+    got, keep, stale = loop.coalesce_element_targets([], last)
+    assert got == ["b"] and keep == ["b"] and stale is True
+    got, keep, stale = loop.coalesce_element_targets([], [])
+    assert got == [] and keep == [] and stale is False
+
+
+def test_loop_click_element_uses_last_known_when_tree_empty(monkeypatch):
+    from secdogie_agent.axtree import AxElement
+
+    el = AxElement(
+        role="Button", name="Zoom", automation_id="ID_ZOOM", bounds=(0, 0, 10, 10),
+    )
+    executed = []
+    calls = {"n": 0}
+
+    class B:
+        def setup(self, logger):
+            pass
+
+        def capture(self, region=None):
+            return _solid_png(), (64, 64)
+
+        def execute(self, action):
+            executed.append(action.kind)
+            return "ok"
+
+        def element_targets(self):
+            calls["n"] += 1
+            return [el] if calls["n"] == 1 else []
+
+        def invoke_element(self, _el):
+            executed.append("invoke")
+            return "invoked"
+
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+    provider = ScriptedProvider([
+        {"action": "click_element", "element": "e1"},
+        {"action": "click_element", "element": "e1"},
+        {"action": "done", "text": "done"},
+    ])
+    config = loop.AgentConfig(
+        task="x", auto=True, max_steps=10, backend=B(),
+        verify_actions=False, action_pause=0,
+    )
+    rc = loop.run(provider, config)
+    assert rc == 0
+    assert executed == ["invoke", "invoke"]
+    assert calls["n"] >= 2

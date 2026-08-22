@@ -110,6 +110,120 @@ int main() {
     miss.automation_id = L"NOPE";
     Expect(ProcessPerception::Find(roots, miss) == nullptr, "Find miss returns null",
            "perception");
+    Selector by_name;
+    by_name.name = L"zoom extents";
+    Expect(ProcessPerception::Find(roots, by_name) == &roots[0],
+           "Find name is case-insensitive", "perception");
+    Selector empty;
+    Expect(ProcessPerception::Find(roots, empty) == nullptr,
+           "empty selector matches nothing", "perception");
+  }
+  {
+    Framebuffer a, d;
+    a.width = a.height = 16;
+    a.bgra.assign(16 * 16 * 4, 40);
+    d = a;
+    d.width = 8;
+    Expect(PixelDiff::ChangedRatio(a, d) == 1.0, "size mismatch is fully changed",
+           "pixel-diff");
+  }
+  {
+    HybridControlLoop loop(ProcessPerception{}, LoopConfig{});
+    PerceptionSnapshot prev;
+    ControlNode btn;
+    btn.role = ControlRole::Button;
+    btn.name = L"Zoom Extents";
+    btn.automation_id = L"ID_ZOOM_EXTENTS";
+    btn.bounds = {10, 10, 80, 24};
+    prev.controls.push_back(btn);
+    loop.SetLastSnapshot(std::move(prev));
+
+    Framebuffer dark, light;
+    dark.width = light.width = 8;
+    dark.height = light.height = 8;
+    dark.bgra.assign(8 * 8 * 4, 10);
+    light.bgra.assign(8 * 8 * 4, 200);
+    int n = 0;
+    loop.SetCapture([&](const Rect&) -> Result<Framebuffer> {
+      ++n;
+      return n == 1 ? dark : light;
+    });
+    loop.SetExecute([](const ControlNode&, const LoopAction&) {
+      return PrivilegeError{PrivilegeCode::Ok, "ok"};
+    });
+    LoopAction act;
+    act.id = "zoom";
+    act.selector.automation_id = L"ID_ZOOM_EXTENTS";
+    const LoopStep st = loop.Run(act);
+    Expect(st.status == StepStatus::Passed,
+           "fallback uses previous snapshot then pixel-diff",
+           StepStatusName(st.status));
+    Expect(st.mode == PerceptionMode::VisionFallback, "fallback mode is vision",
+           st.mode == PerceptionMode::Uia ? "uia" : "vision");
+    Expect(loop.last_snapshot().controls.size() == 1,
+           "empty current snapshot does not wipe last-known",
+           "last_ overwritten");
+  }
+  {
+    HybridControlLoop loop(ProcessPerception{}, LoopConfig{});
+    LoopAction save;
+    save.id = "save";
+    save.high_risk = true;
+    const LoopStep st = loop.Run(save);
+    Expect(st.status == StepStatus::Blocked,
+           "high-risk blocked without operator confirm",
+           StepStatusName(st.status));
+  }
+  {
+    HybridControlLoop loop(ProcessPerception{}, LoopConfig{});
+    PerceptionSnapshot prev;
+    ControlNode btn;
+    btn.role = ControlRole::Button;
+    btn.name = L"Zoom Extents";
+    btn.automation_id = L"ID_ZOOM_EXTENTS";
+    btn.bounds = {10, 10, 80, 24};
+    prev.controls.push_back(btn);
+    loop.SetLastSnapshot(std::move(prev));
+    Framebuffer flat;
+    flat.width = flat.height = 8;
+    flat.bgra.assign(8 * 8 * 4, 40);
+    loop.SetCapture([&](const Rect&) -> Result<Framebuffer> { return flat; });
+    loop.SetExecute([](const ControlNode&, const LoopAction&) {
+      return PrivilegeError{PrivilegeCode::Ok, "ok"};
+    });
+    LoopAction act;
+    act.id = "zoom";
+    act.selector.automation_id = L"ID_ZOOM_EXTENTS";
+    loop.config().max_retries = 0;
+    const LoopStep st = loop.Run(act);
+    Expect(st.status == StepStatus::Failed,
+           "no-mutation is failed, not passed", StepStatusName(st.status));
+  }
+  {
+    HybridControlLoop loop(ProcessPerception{}, LoopConfig{});
+    PerceptionSnapshot prev;
+    ControlNode btn;
+    btn.role = ControlRole::Button;
+    btn.name = L"Zoom Extents";
+    btn.automation_id = L"ID_ZOOM_EXTENTS";
+    btn.bounds = {10, 10, 80, 24};
+    prev.controls.push_back(btn);
+    loop.SetLastSnapshot(std::move(prev));
+    Framebuffer flat;
+    flat.width = flat.height = 8;
+    flat.bgra.assign(8 * 8 * 4, 40);
+    loop.SetCapture([&](const Rect&) -> Result<Framebuffer> { return flat; });
+    loop.SetExecute([](const ControlNode&, const LoopAction&) {
+      return PrivilegeError{PrivilegeCode::Failed, "invoke refused"};
+    });
+    LoopAction act;
+    act.id = "zoom";
+    act.selector.automation_id = L"ID_ZOOM_EXTENTS";
+    const LoopStep st = loop.Run(act);
+    Expect(st.status == StepStatus::Failed &&
+               st.detail.find("execute failed") != std::string::npos,
+           "execute failure is Failed, not retried as no-mutation",
+           st.detail.c_str());
   }
   {
     // Handle open on a fake pid is access-denied or unsupported — never a

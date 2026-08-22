@@ -238,14 +238,18 @@ def flatten(roots: list[ControlNode], out: list[ControlNode] | None = None) -> l
 
 
 def find_control(roots: list[ControlNode], selector: Selector) -> ControlNode | None:
-    """Exact identity match: automation_id, then name, then role. Empty selector
-    matches nothing -- a blank query must not latch onto the first node."""
+    """Identity match: automation_id, then name, then role. Empty selector
+    matches nothing -- a blank query must not latch onto the first node.
+
+    automation_id / name / role are all case-insensitive. UIA names from the
+    model often differ in case from the tree ("zoom extents" vs "Zoom Extents").
+    """
     if not selector.automation_id and not selector.name and not selector.role:
         return None
     for n in flatten(roots):
         if selector.automation_id and n.automation_id.lower() != selector.automation_id.lower():
             continue
-        if selector.name and n.name != selector.name:
+        if selector.name and n.name.lower() != selector.name.lower():
             continue
         if selector.role and n.role.lower() != selector.role.lower():
             continue
@@ -290,6 +294,12 @@ def changed_ratio(before: bytes, after: bytes, *, channels: int = 4) -> float:
 CaptureFn = Callable[[Rect], bytes]
 ExecuteFn = Callable[[ControlNode, LoopAction], str]
 SnapshotFn = Callable[[], list[ControlNode]]
+
+
+def keep_tree(next_tree: list[ControlNode], fallback: list[ControlNode]) -> list[ControlNode]:
+    """Empty UIA frames must not wipe last-known. Used by callers that persist
+    the tree across steps (the C++ loop does this internally with `last_`)."""
+    return next_tree if next_tree else fallback
 
 
 def run_hybrid_step(
@@ -355,7 +365,12 @@ def run_hybrid_step(
     last_diff = 0.0
     for attempt in range(cfg.max_retries + 1):
         step.status = "executing" if attempt == 0 else "retrying"
-        execute(target, action)
+        try:
+            execute(target, action)
+        except Exception as e:
+            step.status = FAILED
+            step.detail = f"execute failed: {e}"
+            return step
         after = capture(target.bounds)
         last_diff = changed_ratio(before, after)
         step.diff_ratio = last_diff
