@@ -1,1 +1,222 @@
-PLACEHOLDER_CLI
+from __future__ import annotations
+
+import argparse
+import sys
+
+from . import cli_common, dialog, dpi, frozen_runtime, launcher_menu, osfocus
+from .loop import AgentConfig, run
+
+
+def main(argv: list[str] | None = None) -> int:
+    # FIRST of all: declare DPI awareness, before any window (the tkinter menu),
+    # capture (mss), or input (pyautogui) exists -- otherwise a scaled Windows
+    # display virtualizes the process and every click lands off-target. No-op off
+    # Windows. See dpi.py.
+    dpi.ensure_dpi_awareness()
+
+    # Windowed (console=False) frozen build safety nets: crash dialog + log to
+    # secdogie.log + reattach to a parent console for terminal/--help use. No-op
+    # from source. Must run before argparse so --help is visible in a terminal.
+    frozen_runtime.bootstrap()
+
+    # One-file UX: a packaged exe double-clicked with no arguments shows the
+    # frosted-glass chooser and runs whatever card was picked; closing it exits.
+    # Any explicit argument (terminal, script) skips the menu entirely -- except
+    # `--menu`, which explicitly asks for the chooser from a normal CLI run too
+    # (so you can actually see/run the real menu without building the exe).
+    if argv is None:
+        argv = sys.argv[1:]
+    # Before our own menu/dialogs steal focus, remember what was in front, so we
+    # can restore it before the agent's first action (else the first clicks land
+    # on a ghost of our GUI). Only when we're actually going to pop GUI.
+    pre_launch_fg = None
+    if launcher_menu.should_offer(argv) or "--menu" in argv:
+        pre_launch_fg = osfocus.current_foreground()
+        chosen = launcher_menu.show_menu()
+        if chosen is None:
+            return 0
+        argv = chosen  # the picked card's flags REPLACE argv (incl. the --menu that got us here)
+
+    parser = argparse.ArgumentParser(
+        prog="secdogie-agent",
+        description="Vision-LLM computer-control agent: point it at a task, it drives your mouse/keyboard.",
+    )
+    parser.add_argument("task", nargs="?", help="natural-language description of what to accomplish")
+    cli_common.add_provider_args(parser)
+    cli_common.add_loop_args(parser)
+
+    parser.add_argument(
+        "--macro",
+        default=None,
+        metavar="PATH",
+        help="RPA: replay this macro file with zero model calls, falling back to the live model the "
+        "moment a step can't be resolved (e.g. the UI changed); a run that finishes successfully "
+        "re-saves the full sequence here, so the next identical run gets faster/cheaper over time",
+    )
+
+    # Programmable skills: run an authored JSON skill library (sub-flows, if/while,
+    # loops, params) instead of a one-off task. See agent/README.md.
+    parser.add_argument("--skill", default=None, metavar="PATH", help="run a programmable skill library (JSON) instead of a task")
+    parser.add_argument("--skill-entry", default=None, metavar="NAME", help="which skill in the library to run (default: main)")
+    parser.add_argument(
+        "--skill-arg", action="append", default=[], metavar="K=V",
+        help="bind a skill parameter (repeatable), e.g. --skill-arg user=alice",
+    )
+
+    # Desktop-only input tuning + GUI dialogs.
+    parser.add_argument("--move-duration", type=float, default=None, help="seconds to glide the cursor to a target")
+    parser.add_argument("--settle", type=float, default=None, help="seconds to hover before clicking")
+    parser.add_argument(
+        "--window",
+        default=None,
+        metavar="TITLE",
+        help="pin the agent to a window matching this title: exact, then prefix, then "
+        "substring (case-insensitive); prefer a visible, non-minimized, larger window. "
+        "It's forced to the foreground (past Windows' ForegroundLockTimeout) and confirmed "
+        "focused before every action. Without it the agent drives whatever window is "
+        "foreground (restoring the one that was in front before any GUI dialog).",
+    )
+    parser.add_argument(
+        "--require-focus",
+        action="store_true",
+        default=None,
+        help="abort (exit 7) if the target window cannot be confirmed focused; "
+        "auto-enabled when --window is used. Use --no-require-focus to override.",
+    )
+    parser.add_argument(
+        "--no-require-focus",
+        action="store_true",
+        help="never abort on focus failure (overrides the auto-enable that --window turns on)",
+    )
+    parser.add_argument(
+        "--desktop-ax",
+        action="store_true",
+        help="drive listed widgets through the OS accessibility tree (UI Automation / AT-SPI / AX) "
+        "instead of guessing pixels: click_element Invokes without moving the cursor, and after the "
+        "first frame the screenshot is omitted (the tree is the live UI). Needs the platform "
+        "accessibility library (Windows: `pip install uiautomation`); no-ops with a hint without it",
+    )
+    parser.add_argument(
+        "--gui",
+        action="store_true",
+        help="use GUI dialogs: enter the task in a window, review the model's plan before it acts, "
+        "and answer its questions in a popup (needs tkinter; falls back to the terminal if unavailable)",
+    )
+    parser.add_argument(
+        "--menu",
+        action="store_true",
+        help="show the graphical start menu (the same one a double-clicked exe shows) and run the "
+        "chosen option -- so you can see/use it from a normal install, not only the packaged exe",
+    )
+    args = parser.parse_args(argv)
+
+    if args.init_config:
+        return cli_common.handle_init_config(args, "secdogie-agent")
+
+    # Programmable skills run their own interpreter instead of the task loop.
+    if args.skill:
+        provider = cli_common.resolve_provider(args, "secdogie-agent")
+        if provider is None:
+            return 1
+        skill_args = {}
+        for kv in args.skill_arg:
+            if "=" not in kv:
+                parser.error(f"--skill-arg must be K=V, got {kv!r}")
+            k, v = kv.split("=", 1)
+            skill_args[k] = v
+        from .skill_runner import run_skill_file
+
+        return run_skill_file(
+            provider, args.skill, args.skill_entry or "main", skill_args, auto=args.auto
+        )
+
+    # GUI mode: verify we can actually show a window, else fall back gracefully.
+    gui = args.gui
+    if gui and not dialog.gui_available():
+        print(
+            "warning: --gui requested but no GUI is available (tkinter missing or no "
+            "display); falling back to the terminal.",
+            file=sys.stderr,
+        )
+        gui = False
+
+    # GUI path without a key yet: prompt once here too (covers `--gui` from a
+    # terminal, not only the double-click menu which already gated).
+    if gui and not args.api_key:
+        from . import config as config_mod
+
+        if not config_mod.has_configured_api_key():
+            if pre_launch_fg is None:
+                pre_launch_fg = osfocus.current_foreground()
+            if not launcher_menu.ensure_api_key_or_prompt():
+                print("cancelled: no API key configured.")
+                return 0
+
+    # If no task was given, prompt for it in a window (GUI) -- otherwise it's required.
+    if not args.task:
+        if gui:
+            # ask_task pops a window that steals focus; remember the prior
+            # foreground first (if the menu didn't already) so we can restore it.
+            if pre_launch_fg is None:
+                pre_launch_fg = osfocus.current_foreground()
+            args.task = dialog.ask_task()
+            if not args.task:
+                print("cancelled: no task entered.")
+                return 0
+        else:
+            parser.error("the following arguments are required: task")
+
+    provider = cli_common.resolve_provider(args, "secdogie-agent")
+    if provider is None:
+        return 1
+
+    # Desktop backend stays None so the loop builds it from move_duration/settle.
+    cfg_kwargs = cli_common.loop_config_kwargs(args, task=args.task, backend=None)
+    cfg_kwargs["gui"] = gui
+    cfg_kwargs["macro_path"] = args.macro
+    cfg_kwargs["desktop_ax"] = args.desktop_ax
+    if args.move_duration is not None:
+        cfg_kwargs["move_duration"] = args.move_duration
+    if args.settle is not None:
+        cfg_kwargs["settle"] = args.settle
+
+    # Focus hooks (single desktop agent). --window: force+confirm that window
+    # before the first frame AND before every action. Otherwise, if we popped any
+    # GUI, restore whatever was foreground before our dialogs -- once, before the
+    # first frame -- so the agent's first clicks don't land on a leftover of our
+    # own menu/task/plan windows. See osfocus.py / loop.AgentConfig.
+    if args.window:
+        cfg_kwargs["initial_focus"] = lambda: osfocus.activate_title(args.window)
+        cfg_kwargs["activate"] = lambda: osfocus.activate_title(args.window)
+    elif pre_launch_fg is not None:
+        _fg_token = pre_launch_fg
+        cfg_kwargs["initial_focus"] = lambda: osfocus.restore_foreground(_fg_token)
+
+    # require-focus: abort on unconfirmed focus. Auto-on with --window unless
+    # the operator explicitly passes --no-require-focus.
+    if args.no_require_focus:
+        cfg_kwargs["require_focus"] = False
+    elif args.require_focus or args.window:
+        cfg_kwargs["require_focus"] = True
+
+    # Commercial audit default: when launched from the GUI (or --gui) and the
+    # operator did not pass an explicit --trace, write a timestamped JSONL next
+    # to the executable / cwd so internal runs always leave a trail.
+    if gui and not cfg_kwargs.get("trace_path"):
+        from datetime import datetime, timezone
+        from pathlib import Path as _P
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        base = _P.cwd()
+        try:
+            import sys as _sys
+            if getattr(_sys, "frozen", False) and getattr(_sys, "executable", None):
+                base = _P(_sys.executable).resolve().parent
+        except Exception:
+            pass
+        cfg_kwargs["trace_path"] = str(base / f"secdogie-trace-{stamp}.jsonl")
+
+    return run(provider, AgentConfig(**cfg_kwargs))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

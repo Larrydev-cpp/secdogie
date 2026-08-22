@@ -1,9 +1,5 @@
-import logging
-
 import pytest
-from secdogie_agent import actions, axtree, loop, screen
-from secdogie_agent.backend import DesktopBackend, ElementSelector
-from secdogie_agent.macro import Macro, MacroStep
+from secdogie_agent import actions, loop, screen
 from secdogie_agent.providers.base import Action, VisionProvider
 
 
