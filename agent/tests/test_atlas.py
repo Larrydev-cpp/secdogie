@@ -259,3 +259,62 @@ def test_keep_tree_preserves_last_known_on_empty():
     assert a.keep_tree([], prev) is prev
     nxt = _tree(True)
     assert a.keep_tree(nxt, prev) is nxt
+
+
+def test_protected_images_denied():
+    assert a.image_name_denied(r"C:\Windows\System32\lsass.exe") is True
+    assert a.image_name_denied("csrss.exe") is True
+    assert a.image_name_denied("acad.exe") is False
+
+
+def test_region_safe_boundary():
+    assert a.region_safe_to_read(
+        committed=True, size=4096, readable=True, noaccess=True,
+        guard=False, execute=False, priv=True,
+    ) is False
+    assert a.region_safe_to_read(
+        committed=True, size=4096, readable=True, noaccess=False,
+        guard=True, execute=False, priv=True,
+    ) is False
+    assert a.region_safe_to_read(
+        committed=True, size=4096, readable=True, noaccess=False,
+        guard=False, execute=True, priv=True,
+    ) is False
+    assert a.region_safe_to_read(
+        committed=True, size=4096, readable=True, noaccess=False,
+        guard=False, execute=False, priv=True,
+    ) is True
+
+
+def test_extract_utf16le_and_fuse():
+    raw = b"L\x00A\x00Y\x00E\x00R\x00_\x00D\x00I\x00M\x00S\x00\x00\x00"
+    hits = a.extract_utf16le(raw, base=0x2000)
+    assert any(h.text == "LAYER_DIMS" for h in hits)
+    btn = ControlNode(role="Button", name="LAYER_DIMS", automation_id="ID")
+    fused = a.fuse_tree([btn], hits)
+    assert fused[0].source == "fused"
+    assert fused[0].address != 0
+    empty = a.fuse_tree([], hits)
+    assert empty[0].source == "memory"
+
+
+def test_allow_inspect_token_wall():
+    self = a.TokenSnapshot(pid=10, integrity="medium", identity="user")
+    assert a.allow_inspect(self, self).code == a.OK
+    sys = a.TokenSnapshot(
+        pid=4, integrity="system", identity="system", system=True, image="spoolsv.exe"
+    )
+    r = a.allow_inspect(self, sys)
+    assert r.ok is False
+    assert r.code == a.DENIED_ESCALATE
+    ti = a.TokenSnapshot(
+        pid=99, trusted_installer=True, identity="trusted-installer",
+        image="TrustedInstaller.exe",
+    )
+    r = a.allow_inspect(self, ti)
+    assert r.code == a.DENIED_PROTECTED
+    ppl = a.TokenSnapshot(pid=7, protected_process=True, image="MsMpEng.exe")
+    assert a.allow_inspect(self, ppl).code == a.DENIED_PROTECTED
+    acad = a.TokenSnapshot(pid=4242, integrity="medium", identity="user", image="acad.exe")
+    assert a.allow_inspect(self, acad).code == a.OK
+

@@ -1,5 +1,7 @@
 #include "privilege_manager.h"
 
+#include "unique_handle.h"
+
 #include <algorithm>
 #include <cctype>
 
@@ -30,40 +32,21 @@ const char* kEdrRefusal =
     "stays off EDR radar is by not doing malware-like things.";
 
 #if defined(_WIN32)
-bool EnablePrivilege(const wchar_t* name) {
-  HANDLE token = nullptr;
-  if (!OpenProcessToken(GetCurrentProcess(),
-                        TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token)) {
-    return false;
-  }
-  LUID luid{};
-  TOKEN_PRIVILEGES tp{};
-  bool ok = false;
-  if (LookupPrivilegeValueW(nullptr, name, &luid)) {
-    tp.PrivilegeCount = 1;
-    tp.Privileges[0].Luid = luid;
-    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-    ok = AdjustTokenPrivileges(token, FALSE, &tp, 0, nullptr, nullptr) != 0;
-  }
-  CloseHandle(token);
-  return ok;
-}
-
 DWORD FindPidByImage(const wchar_t* image) {
   HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
   if (snap == INVALID_HANDLE_VALUE) return 0;
+  UniqueHandle snap_h(snap);
   PROCESSENTRY32W pe{};
   pe.dwSize = sizeof(pe);
   DWORD pid = 0;
-  if (Process32FirstW(snap, &pe)) {
+  if (Process32FirstW(snap_h.get(), &pe)) {
     do {
       if (_wcsicmp(pe.szExeFile, image) == 0) {
         pid = pe.th32ProcessID;
         break;
       }
-    } while (Process32NextW(snap, &pe));
+    } while (Process32NextW(snap_h.get(), &pe));
   }
-  CloseHandle(snap);
   return pid;
 }
 #endif
@@ -105,10 +88,7 @@ bool PrivilegeManager::IsElevated() const {
 #if !defined(_WIN32)
   return false;
 #else
-  BOOL admin = FALSE;
-  if (!IsUserAnAdmin()) return false;
-  admin = TRUE;
-  return admin == TRUE;
+  return IsUserAnAdmin() == TRUE;
 #endif
 }
 
@@ -120,11 +100,13 @@ Integrity PrivilegeManager::CurrentIntegrity() const {
   if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
     return Integrity::Unknown;
   }
+  UniqueHandle tok(token);
   DWORD size = 0;
-  GetTokenInformation(token, TokenIntegrityLevel, nullptr, 0, &size);
+  GetTokenInformation(tok.get(), TokenIntegrityLevel, nullptr, 0, &size);
+  if (size == 0) return Integrity::Unknown;
   std::vector<unsigned char> buf(size);
   Integrity level = Integrity::Unknown;
-  if (GetTokenInformation(token, TokenIntegrityLevel, buf.data(), size, &size)) {
+  if (GetTokenInformation(tok.get(), TokenIntegrityLevel, buf.data(), size, &size)) {
     auto* label = reinterpret_cast<TOKEN_MANDATORY_LABEL*>(buf.data());
     DWORD rid = *GetSidSubAuthority(
         label->Label.Sid, static_cast<DWORD>(*GetSidSubAuthorityCount(label->Label.Sid) - 1));
@@ -137,7 +119,6 @@ Integrity PrivilegeManager::CurrentIntegrity() const {
     else
       level = Integrity::Low;
   }
-  CloseHandle(token);
   return level;
 #endif
 }
@@ -168,6 +149,7 @@ Result<ReadOnlyProcessHandle> PrivilegeManager::OpenReadOnly(std::uint32_t pid,
 LaunchDecision PrivilegeManager::PlanSystemLaunch(const std::wstring& command) const {
   LaunchDecision d;
 #if !defined(_WIN32)
+  (void)command;
   d.code = PrivilegeCode::Unsupported;
   d.detail = "SYSTEM launch is Windows-only.";
   return d;
@@ -213,13 +195,16 @@ ElevateResult PrivilegeManager::RunAllowlistedAsSystem(const std::wstring& comma
     return r;
   }
 #if !defined(_WIN32)
+  (void)show;
   r.outcome = PrivilegeCode::Unsupported;
   r.detail = "Windows-only";
   return r;
 #else
-  EnablePrivilege(SE_DEBUG_NAME);
-  EnablePrivilege(SE_INCREASE_QUOTA_NAME);
-  EnablePrivilege(SE_ASSIGNPRIMARYTOKEN_NAME);
+  // Elevate only for this call. Destructors disable the privileges and close
+  // the tokens — no standing SeDebug / AssignPrimaryToken.
+  ScopedPrivilege debug(SE_DEBUG_NAME);
+  ScopedPrivilege quota(SE_INCREASE_QUOTA_NAME);
+  ScopedPrivilege assign(SE_ASSIGNPRIMARYTOKEN_NAME);
 
   const DWORD winlogon = FindPidByImage(L"winlogon.exe");
   if (!winlogon) {
@@ -234,30 +219,31 @@ ElevateResult PrivilegeManager::RunAllowlistedAsSystem(const std::wstring& comma
     r.detail = "OpenProcess(winlogon) failed";
     return r;
   }
+  UniqueHandle proc_h(proc);
 
   HANDLE src = nullptr;
-  HANDLE dup = nullptr;
-  if (!OpenProcessToken(proc, TOKEN_DUPLICATE, &src)) {
-    CloseHandle(proc);
+  if (!OpenProcessToken(proc_h.get(), TOKEN_DUPLICATE, &src) || !src) {
     r.outcome = PrivilegeCode::Failed;
     r.detail = "OpenProcessToken(winlogon) failed";
     return r;
   }
-  if (!DuplicateTokenEx(src, TOKEN_ALL_ACCESS, nullptr, SecurityImpersonation,
-                        TokenPrimary, &dup)) {
-    CloseHandle(src);
-    CloseHandle(proc);
+  UniqueHandle src_h(src);
+
+  HANDLE dup = nullptr;
+  if (!DuplicateTokenEx(src_h.get(), TOKEN_ALL_ACCESS, nullptr, SecurityImpersonation,
+                        TokenPrimary, &dup) ||
+      !dup) {
     r.outcome = PrivilegeCode::Failed;
     r.detail = "DuplicateTokenEx failed";
     return r;
   }
-  CloseHandle(src);
+  UniqueHandle dup_h(dup);
 
   DWORD session = static_cast<DWORD>(ActiveConsoleSession());
-  SetTokenInformation(dup, TokenSessionId, &session, sizeof(session));
+  SetTokenInformation(dup_h.get(), TokenSessionId, &session, sizeof(session));
 
   LPVOID env = nullptr;
-  CreateEnvironmentBlock(&env, dup, FALSE);
+  CreateEnvironmentBlock(&env, dup_h.get(), FALSE);
 
   STARTUPINFOW si{};
   si.cb = sizeof(si);
@@ -268,23 +254,21 @@ ElevateResult PrivilegeManager::RunAllowlistedAsSystem(const std::wstring& comma
 
   std::wstring mutable_cmd = command;
   const BOOL ok = CreateProcessAsUserW(
-      dup, nullptr, mutable_cmd.data(), nullptr, nullptr, FALSE,
+      dup_h.get(), nullptr, mutable_cmd.data(), nullptr, nullptr, FALSE,
       CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE, env, nullptr, &si, &pi);
 
   if (env) DestroyEnvironmentBlock(env);
-  CloseHandle(dup);
-  CloseHandle(proc);
 
   if (!ok) {
     r.outcome = PrivilegeCode::Failed;
     r.detail = "CreateProcessAsUser failed (error " + std::to_string(GetLastError()) + ")";
     return r;
   }
+  UniqueHandle thread_h(pi.hThread);
+  UniqueHandle proc_out(pi.hProcess);
   r.outcome = PrivilegeCode::Ok;
   r.pid = pi.dwProcessId;
   r.detail = "started as SYSTEM (pid " + std::to_string(r.pid) + ")";
-  CloseHandle(pi.hThread);
-  CloseHandle(pi.hProcess);
   return r;
 #endif
 }

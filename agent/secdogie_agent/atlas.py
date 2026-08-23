@@ -53,6 +53,8 @@ FAILED = "failed"
 BLOCKED = "blocked"
 PASSED = "passed"
 FALLBACK = "fallback"
+DENIED_PROTECTED = "denied-protected"
+DENIED_ESCALATE = "denied-escalate"
 
 TI_REFUSAL = (
     "NT SERVICE\\TrustedInstaller is a Windows servicing identity, not an "
@@ -65,10 +67,18 @@ TI_REFUSAL = (
 
 EDR_REFUSAL = (
     "Anti-EDR, unhooking, handle-hiding, and memory-scan evasion are not "
-    "implemented and will not be. Atlas uses documented Win32 / UI Automation "
-    "APIs only (OpenProcess with query/read, Toolhelp, UIA COM). The way this "
-    "stays off EDR radar is by not doing malware-like things."
+    "implemented and will not be. Operator-targeted read-only inspection of a "
+    "named GUI PID (VirtualQueryEx + ReadProcessMemory / process_vm_readv, "
+    "VM_READ only, handle closed before return) is perception, not evasion. "
+    "lsass/csrss/PPL stay refused. WriteProcessMemory / CreateRemoteThread / "
+    "TrustedInstaller token theft stay refused."
 )
+
+PROTECTED_IMAGES = frozenset({
+    "lsass.exe", "csrss.exe", "smss.exe", "wininit.exe", "services.exe",
+    "lsm.exe", "winlogon.exe", "memcompression", "registry",
+    "msmpeng.exe", "msmpengcp.exe", "securityhealthservice.exe",
+})
 
 DIFF_THRESHOLD = 0.012
 MAX_RETRIES = 2
@@ -385,3 +395,169 @@ def run_hybrid_step(
     step.diff_ratio = last_diff
     step.detail = "No visible mutation after retries. Action not committed as success."
     return step
+
+
+def image_name_denied(image: str) -> bool:
+    base = image.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    return base in PROTECTED_IMAGES
+
+
+def region_safe_to_read(
+    *,
+    committed: bool,
+    size: int,
+    readable: bool,
+    noaccess: bool,
+    guard: bool,
+    execute: bool,
+    priv: bool,
+    include_executable: bool = False,
+    include_mapped: bool = False,
+) -> bool:
+    """Same safe-boundary as C++ RegionSafeToRead."""
+    if not committed or size <= 0:
+        return False
+    if noaccess or guard or not readable:
+        return False
+    if execute and not include_executable:
+        return False
+    if not priv and not include_mapped:
+        return False
+    if size > (1 << 30):
+        return False
+    return True
+
+
+@dataclass(frozen=True)
+class MemoryHit:
+    address: int
+    text: str
+    utf16: bool = True
+    pid: int = 0
+
+
+@dataclass
+class HybridNode:
+    source: str  # uia | memory | fused
+    name: str = ""
+    automation_id: str = ""
+    address: int = 0
+    pid: int = 0
+
+
+def extract_utf16le(data: bytes, base: int = 0, min_len: int = 4) -> list[MemoryHit]:
+    out: list[MemoryHit] = []
+    i = 0
+    n = len(data)
+    while i + 1 < n:
+        lo, hi = data[i], data[i + 1]
+        if hi != 0 or not (0x20 <= lo < 0x7F):
+            i += 2
+            continue
+        chars = []
+        j = i
+        while j + 1 < n:
+            lo, hi = data[j], data[j + 1]
+            if hi != 0 or not (0x20 <= lo < 0x7F):
+                break
+            chars.append(chr(lo))
+            j += 2
+        if len(chars) >= min_len:
+            text = "".join(chars)
+            letters = sum(1 for c in text if c.isalpha())
+            if letters >= 3 and letters * 2 >= len(text):
+                out.append(MemoryHit(address=base + i, text=text, utf16=True))
+        i = j if j > i else i + 2
+    return out
+
+
+def fuse_tree(uia: list[ControlNode], hits: list[MemoryHit], max_memory_only: int = 1024) -> list[HybridNode]:
+    nodes = [
+        HybridNode(source="uia", name=n.name, automation_id=n.automation_id, pid=0)
+        for n in uia
+    ]
+    used = [False] * len(hits)
+    for node in nodes:
+        for i, hit in enumerate(hits):
+            if used[i]:
+                continue
+            if node.name and node.name.lower() == hit.text.lower():
+                node.source = "fused"
+                node.address = hit.address
+                used[i] = True
+                break
+            if node.automation_id and node.automation_id.lower() == hit.text.lower():
+                node.source = "fused"
+                node.address = hit.address
+                used[i] = True
+                break
+    extra = 0
+    for i, hit in enumerate(hits):
+        if used[i] or extra >= max_memory_only:
+            continue
+        nodes.append(HybridNode(source="memory", name=hit.text, address=hit.address, pid=hit.pid))
+        extra += 1
+    return nodes
+
+
+@dataclass(frozen=True)
+class TokenSnapshot:
+    pid: int = 0
+    integrity: str = "unknown"  # low | medium | high | system | unknown
+    identity: str = "user"  # user | admin | system | trusted-installer
+    elevated: bool = False
+    system: bool = False
+    trusted_installer: bool = False
+    protected_process: bool = False
+    image: str = ""
+
+
+_INTEGRITY_RANK = {"low": 0, "medium": 1, "high": 2, "system": 3}
+
+
+def allow_inspect(self_tok: TokenSnapshot, target: TokenSnapshot) -> PrivilegeResult:
+    """Same wall as C++ AllowInspect. Never impersonates a higher token."""
+    if self_tok.pid and target.pid and self_tok.pid == target.pid:
+        return PrivilegeResult(True, OK, "self inspect")
+    if target.trusted_installer:
+        return PrivilegeResult(
+            False,
+            DENIED_PROTECTED,
+            "Refused: target token is NT SERVICE\\TrustedInstaller. Atlas never "
+            "inspects or impersonates the servicing identity.",
+        )
+    if target.protected_process:
+        return PrivilegeResult(
+            False,
+            DENIED_PROTECTED,
+            "Refused: target is a protected process (PPL). No PPL bypass.",
+        )
+    if image_name_denied(target.image):
+        return PrivilegeResult(
+            False,
+            DENIED_PROTECTED,
+            "Refused: this image is a protected / servicing process "
+            "(lsass/csrss/PPL family).",
+        )
+    if target.identity == "trusted-installer":
+        return PrivilegeResult(
+            False, REFUSED_IDENTITY, "TrustedInstaller identity is never an inspect target."
+        )
+    if target.system and not self_tok.system:
+        return PrivilegeResult(
+            False,
+            DENIED_ESCALATE,
+            "Refused: target is SYSTEM and the operator is not. The wall does not "
+            "elevate the inspector to match.",
+        )
+    sr = _INTEGRITY_RANK.get(self_tok.integrity, -1)
+    tr = _INTEGRITY_RANK.get(target.integrity, -1)
+    if sr >= 0 and tr >= 0 and tr > sr:
+        return PrivilegeResult(
+            False,
+            DENIED_ESCALATE,
+            "Refused: target integrity is higher than the operator. Atlas will "
+            "not steal a higher token to close the gap (downgrade wall).",
+        )
+    return PrivilegeResult(True, OK, "inspect allowed")
+

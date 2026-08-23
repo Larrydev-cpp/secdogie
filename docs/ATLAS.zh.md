@@ -5,6 +5,28 @@
 Python 决策核：[`agent/secdogie_agent/atlas.py`](../agent/secdogie_agent/atlas.py)。
 Windows 原生孪生模块：[`native/atlas/`](../native/atlas/)。
 
+## 内存回退（UIA 未命中）
+
+无障碍树为空时（自绘 CAD chrome、UIA COM 失败），下一步**不是猜像素**。`InspectPid`：
+
+1. 对操作者和目标做 `TOKEN_QUERY`（`QueryProcessToken`）。SYSTEM / TrustedInstaller / PPL / 更高完整性返回 `denied-escalate` 或 `denied-protected`。墙不会复制更高令牌来填补差距。
+2. 只用 `PROCESS_VM_READ | PROCESS_QUERY_INFORMATION` 调用 `OpenProcess`。
+3. `VirtualQueryEx` / `/proc/<pid>/maps`：跳过 `PAGE_GUARD`、`PAGE_NOACCESS`、可执行页、文件映射、lsass/csrss/PPL。
+4. `ReadProcessMemory` / `process_vm_readv` 按 64 KiB 分块（MSVC `__try`）。失败的页跳过，绝不写入目标。
+5. 抽出 UTF-16LE / UTF-8 字符串、`BITMAPINFOHEADER`、MZ/PE、JSON 状态块。
+6. 与 last-known UIA 节点按名称融合（`HybridNode`：`uia` / `memory` / `fused`）。
+7. **返回前关闭句柄并放下 SeDebug。** 没有常驻句柄，没有常驻特权，没有 `WriteProcessMemory`。
+
+UIA 树本身是真正的 `ControlViewWalker`（GetFirstChild / GetNextSibling），有深度和节点上限——不是空的 `Walk()`。
+
+命令行（模型控制终端）：
+
+```
+native/atlas/atlas_inspect --list
+native/atlas/atlas_inspect --pid <n>
+native/atlas/atlas_inspect --self --token
+```
+
 ## 双层循环
 
 1. **主定位**走操作系统无障碍树（Windows UI Automation / AT-SPI / AX）——PID、hwnd、包围盒、AutomationId。用 `--desktop-ax` 打开。实循环优先 `click_element` / 原生 Invoke，而不是在缩小后的截图上猜像素。
@@ -24,7 +46,7 @@ CAD 画布和自绘 chrome 仍回退到视觉。这是故意的：树上是空�
 
 - **SYSTEM** 是从*已经是管理员*的令牌上走文档化的 `CreateProcessAsUser`，启动时用 `--allow-elevated-command` 白名单。不是 UAC 绕过。见 [`elevate.py`](../agent/secdogie_agent/elevate.py)。
 - **`NT SERVICE\TrustedInstaller` 模拟被拒绝。** 窃取服务身份令牌是安全边界绕过。`elevate.try_impersonate_trusted_installer()` 与 `PrivilegeManager::TryImpersonateTrustedInstaller()` 永远返回 `refused-identity`。
-- **Anti-EDR 被拒绝。** 没有脱钩、藏句柄、扫外部进程内存。Atlas 只用 OpenProcess（查询/读）、Toolhelp、EnumWindows、UI Automation COM。
+- **Anti-EDR 被拒绝。** 没有脱钩、藏句柄、PPL 绕过。操作者指定的 GUI PID 上的只读 `VirtualQueryEx` + `ReadProcessMemory` 是感知，不是规避。目标令牌只 `TOKEN_QUERY`；SYSTEM / TI / 更高完整性返回 `denied-escalate`。`ScopedPrivilege` 析构时放下 SeDebug。
 
 ## 感知回退
 

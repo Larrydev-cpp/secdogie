@@ -6,6 +6,38 @@ Atlas is the next-generation control path for secdogie on operator-owned
 machines. Python decision core: [`agent/secdogie_agent/atlas.py`](../agent/secdogie_agent/atlas.py).
 Windows-speed native twin: [`native/atlas/`](../native/atlas/).
 
+## Memory fallback (UIA miss)
+
+When the accessibility tree is empty (owner-drawn CAD chrome, UIA COM
+failure), Atlas does **not** guess pixels as the next step. `InspectPid`:
+
+1. `TOKEN_QUERY` of the operator and of the target (`QueryProcessToken`).
+   SYSTEM / TrustedInstaller / PPL / higher-integrity targets are
+   `denied-escalate` or `denied-protected`. The wall never duplicates a
+   higher token to close the gap.
+2. `OpenProcess` with `PROCESS_VM_READ | PROCESS_QUERY_INFORMATION` only.
+3. `VirtualQueryEx` / `/proc/<pid>/maps` — skip `PAGE_GUARD`, `PAGE_NOACCESS`,
+   execute pages, file-backed mappings, lsass/csrss/PPL.
+4. `ReadProcessMemory` / `process_vm_readv` in 64 KiB chunks (MSVC `__try`
+   around the syscall). A failed page is skipped, never written.
+5. UTF-16LE + UTF-8 string extract + `BITMAPINFOHEADER` + MZ/PE + JSON
+   state blobs.
+6. Fuse with any last-known UIA node by name (`HybridNode` source =
+   `uia` / `memory` / `fused`).
+7. **Close the handle and drop SeDebug before return.** There is no standing
+   handle, no standing privilege, and no `WriteProcessMemory`.
+
+The UIA tree itself is a real `ControlViewWalker` (GetFirstChild /
+GetNextSibling), depth-capped, node-capped — not an empty `Walk()`.
+
+CLI (Model Control Terminal):
+
+```
+native/atlas/atlas_inspect --list
+native/atlas/atlas_inspect --pid <n>
+native/atlas/atlas_inspect --self --token
+```
+
 ## Dual-tier loop
 
 1. **Primary targeting** is the OS accessibility tree (Windows UI Automation,

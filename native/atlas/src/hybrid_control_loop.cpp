@@ -1,11 +1,16 @@
 #include "hybrid_control_loop.h"
 
+#include "hybrid_tree.h"
+#include "memory_inspector.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <sstream>
+#include <vector>
 
 
 #if defined(_WIN32)
@@ -246,22 +251,63 @@ LoopStep HybridControlLoop::Run(const LoopAction& action, SinkFn sink) {
     found = ProcessPerception::Find(last_.controls, action.selector);
     mode = PerceptionMode::VisionFallback;
     step.mode = mode;
-    if (!found) {
-      emit(StepStatus::Failed, "No UIA hit and vision fallback could not resolve the selector.");
+  }
+
+  std::vector<ControlNode> memory_controls;
+  if (!found && config_.memory_fallback) {
+    emit(StepStatus::Fallback, "last-known miss — read-only process memory inspect.");
+    std::uint32_t pid = current.process.pid;
+    if (pid == 0) pid = last_.process.pid;
+    if (pid == 0) {
+      emit(StepStatus::Failed, "No UIA hit and no PID to inspect.");
       return step;
     }
+    InspectConfig ic;
+    ic.max_strings = 8192;
+    ic.max_bytes = 32ull * 1024ull * 1024ull;
+    Result<InspectSnapshot> mem = InspectPid(pid, ic);
+    if (!mem) {
+      emit(StepStatus::Failed, "memory inspect refused: " + mem.error().detail);
+      return step;
+    }
+    const std::vector<ControlNode>& seed =
+        !current.controls.empty() ? current.controls : last_.controls;
+    const std::vector<HybridNode> hybrid =
+        FuseTree(seed, mem.value().strings, mem.value().strings.size());
+    memory_controls = HybridAsControls(hybrid);
+    found = ProcessPerception::Find(memory_controls, action.selector);
+    if (!found) {
+      // Selector may match a raw hit even if fusion capped/deduped names.
+      for (const auto& hit : mem.value().strings) {
+        ControlNode n = MemoryHitAsControl(hit);
+        memory_controls.push_back(std::move(n));
+      }
+      found = ProcessPerception::Find(memory_controls, action.selector);
+    }
+    mode = PerceptionMode::Memory;
+    step.mode = mode;
+  }
+
+  if (!found) {
+    emit(StepStatus::Failed, "No UIA hit, last-known miss, memory inspect did not resolve the selector.");
+    return step;
   }
 
   // Copy the node before we maybe move `current` into `last_`.
   ControlNode target = *found;
   if (!current.controls.empty()) {
     last_ = std::move(current);
+  } else if (current.process.pid != 0) {
+    last_.process = current.process;
   }
 
   step.mode = mode;
   step.target_name = target.name;
   step.target_bounds = target.bounds;
-  emit(StepStatus::Targeting, mode == PerceptionMode::Uia ? "UIA target" : "Vision target");
+  emit(StepStatus::Targeting,
+       mode == PerceptionMode::Uia
+           ? "UIA target"
+           : (mode == PerceptionMode::Memory ? "Memory target" : "Vision target"));
 
   if (action.kind == ActionKind::Read) {
     emit(StepStatus::Passed, "Read-only: no mutation, no pixel-diff required.");

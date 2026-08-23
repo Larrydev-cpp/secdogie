@@ -69,6 +69,7 @@ struct LoopConfig {
   double diff_threshold = 0.012;
   int max_retries = 2;
   bool vision_fallback = true;
+  bool memory_fallback = true;
   bool operator_confirmed = false;
   int capture_pad_px = 8;
 };

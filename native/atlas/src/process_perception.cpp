@@ -1,6 +1,10 @@
 #include "process_perception.h"
 
+#include "unique_handle.h"
+
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <sstream>
 
 #if defined(_WIN32)
@@ -10,11 +14,18 @@
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "oleaut32.lib")
 #pragma comment(lib, "oleacc.lib")
+#else
+#include <cctype>
+#include <cstdlib>
+#include <dirent.h>
+#include <fstream>
+#include <unistd.h>
 #endif
 
 namespace secdogie::atlas {
 namespace {
 
+#if defined(_WIN32)
 std::string Narrow(const std::wstring& w) {
   std::string s;
   s.resize(w.size());
@@ -23,6 +34,33 @@ std::string Narrow(const std::wstring& w) {
   });
   return s;
 }
+#endif
+
+std::wstring FromUtf8(const std::string& s) {
+  std::wstring w;
+  w.reserve(s.size());
+  for (unsigned char c : s) w.push_back(static_cast<wchar_t>(c));
+  return w;
+}
+
+bool Ieq(const std::wstring& a, const std::wstring& b) {
+  if (a.size() != b.size()) return false;
+  for (std::size_t i = 0; i < a.size(); ++i) {
+    wchar_t ca = a[i] >= L'A' && a[i] <= L'Z' ? static_cast<wchar_t>(a[i] + 32) : a[i];
+    wchar_t cb = b[i] >= L'A' && b[i] <= L'Z' ? static_cast<wchar_t>(b[i] + 32) : b[i];
+    if (ca != cb) return false;
+  }
+  return true;
+}
+
+bool NodeMatches(const ControlNode& n, const Selector& s) {
+  if (!s.automation_id.empty() && !Ieq(n.automation_id, s.automation_id)) {
+    return false;
+  }
+  if (!s.name.empty() && !Ieq(n.name, s.name)) return false;
+  if (s.has_role && n.role != s.role) return false;
+  return !s.automation_id.empty() || !s.name.empty() || s.has_role;
+}
 
 #if defined(_WIN32)
 struct ComInit {
@@ -30,7 +68,7 @@ struct ComInit {
   ~ComInit() { CoUninitialize(); }
 };
 
-Rect FromUia(const RECT& r) {
+Rect FromUiaRect(const RECT& r) {
   Rect o;
   o.x = r.left;
   o.y = r.top;
@@ -63,8 +101,7 @@ bool ElementOf(IUIAutomationElement* el, ControlNode* out, std::uint32_t pid,
   el->get_CurrentControlType(&type);
   RECT r{};
   el->get_CurrentBoundingRectangle(&r);
-  const Rect bounds = FromUia(r);
-  if (!RectValid(bounds)) return false;
+  const Rect bounds = FromUiaRect(r);
 
   BSTR name = nullptr;
   BSTR auto_id = nullptr;
@@ -84,21 +121,58 @@ bool ElementOf(IUIAutomationElement* el, ControlNode* out, std::uint32_t pid,
 
   if (name) SysFreeString(name);
   if (auto_id) SysFreeString(auto_id);
-  return true;
+  // Zero-bounds owner-drawn wrappers are still kept if they have a name/id
+  // so Walk can attach children underneath them.
+  return RectValid(bounds) || !out->name.empty() || !out->automation_id.empty();
 }
 
-void Walk(IUIAutomationElement* el, int depth, ControlNode* parent,
-          std::uint32_t pid, std::uint64_t hwnd) {
-  if (!el || depth > ProcessPerception::kMaxTreeDepth) return;
-  IUIAutomationTreeWalker* walker = nullptr;
-  IUIAutomation* uia = nullptr;
-  // Walker is created by the caller via a thread-local; we instead use
-  // FindAll on the raw view for a bounded snapshot.
-  (void)walker;
-  (void)uia;
-  (void)parent;
-  (void)pid;
-  (void)hwnd;
+// Real UIA tree walk. GetFirstChild / GetNextSibling, depth-capped, node-capped.
+// Replaces the previous empty Walk() — that was a placeholder and is gone.
+void Walk(IUIAutomationTreeWalker* walker, IUIAutomationElement* el, int depth,
+          ControlNode* parent, std::uint32_t pid, std::uint64_t hwnd,
+          std::size_t* remaining) {
+  if (!walker || !el || !parent || !remaining || *remaining == 0) return;
+  if (depth > ProcessPerception::kMaxTreeDepth) return;
+
+  IUIAutomationElement* child = nullptr;
+  HRESULT hr = walker->GetFirstChildElement(el, &child);
+  if (FAILED(hr) || !child) return;
+
+  while (child && *remaining > 0) {
+    ControlNode node;
+    const bool usable = ElementOf(child, &node, pid, hwnd);
+    if (usable) {
+      --(*remaining);
+      Walk(walker, child, depth + 1, &node, pid, hwnd, remaining);
+      parent->children.push_back(std::move(node));
+    } else {
+      Walk(walker, child, depth + 1, parent, pid, hwnd, remaining);
+    }
+    IUIAutomationElement* next = nullptr;
+    walker->GetNextSiblingElement(child, &next);
+    child->Release();
+    child = next;
+  }
+  if (child) child->Release();
+}
+
+void FlattenFindAll(IUIAutomationElementArray* arr, ControlNode* parent,
+                    std::uint32_t pid, std::uint64_t hwnd, std::size_t remaining) {
+  if (!arr || !parent) return;
+  int n = 0;
+  arr->get_Length(&n);
+  if (n < 0) n = 0;
+  if (static_cast<std::size_t>(n) > remaining) n = static_cast<int>(remaining);
+  for (int i = 0; i < n; ++i) {
+    IUIAutomationElement* child = nullptr;
+    arr->GetElement(i, &child);
+    if (!child) continue;
+    ControlNode node;
+    if (ElementOf(child, &node, pid, hwnd)) {
+      parent->children.push_back(std::move(node));
+    }
+    child->Release();
+  }
 }
 
 BOOL CALLBACK EnumProc(HWND hwnd, LPARAM lp) {
@@ -124,25 +198,6 @@ BOOL CALLBACK EnumProc(HWND hwnd, LPARAM lp) {
   return TRUE;
 }
 #endif
-
-bool Ieq(const std::wstring& a, const std::wstring& b) {
-  if (a.size() != b.size()) return false;
-  for (std::size_t i = 0; i < a.size(); ++i) {
-    wchar_t ca = a[i] >= L'A' && a[i] <= L'Z' ? a[i] + 32 : a[i];
-    wchar_t cb = b[i] >= L'A' && b[i] <= L'Z' ? b[i] + 32 : b[i];
-    if (ca != cb) return false;
-  }
-  return true;
-}
-
-bool NodeMatches(const ControlNode& n, const Selector& s) {
-  if (!s.automation_id.empty() && !Ieq(n.automation_id, s.automation_id)) {
-    return false;
-  }
-  if (!s.name.empty() && !Ieq(n.name, s.name)) return false;
-  if (s.has_role && n.role != s.role) return false;
-  return !s.automation_id.empty() || !s.name.empty() || s.has_role;
-}
 
 }  // namespace
 
@@ -197,12 +252,86 @@ std::vector<WindowInfo> ProcessPerception::ListWindows() {
   return out;
 }
 
+std::vector<ListedProcess> ProcessPerception::ListProcesses() {
+  std::vector<ListedProcess> out;
+#if defined(_WIN32)
+  HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+  if (snap == INVALID_HANDLE_VALUE) return out;
+  UniqueHandle snap_h(snap);
+  PROCESSENTRY32W pe{};
+  pe.dwSize = sizeof(pe);
+  if (Process32FirstW(snap_h.get(), &pe)) {
+    do {
+      ListedProcess p;
+      p.pid = pe.th32ProcessID;
+      p.image = pe.szExeFile;
+      DWORD sid = 0;
+      ProcessIdToSessionId(pe.th32ProcessID, &sid);
+      p.session_id = sid;
+      out.push_back(std::move(p));
+      if (out.size() >= 8192) break;
+    } while (Process32NextW(snap_h.get(), &pe));
+  }
+#else
+  DIR* dir = opendir("/proc");
+  if (!dir) return out;
+  while (dirent* ent = readdir(dir)) {
+    if (!ent->d_name[0] || !std::isdigit(static_cast<unsigned char>(ent->d_name[0]))) continue;
+    char* end = nullptr;
+    const unsigned long pid = std::strtoul(ent->d_name, &end, 10);
+    if (!end || *end || pid == 0) continue;
+    ListedProcess p;
+    p.pid = static_cast<std::uint32_t>(pid);
+    const std::string base = std::string("/proc/") + ent->d_name;
+    {
+      std::ifstream comm(base + "/comm");
+      std::string name;
+      if (comm) std::getline(comm, name);
+      p.image = FromUtf8(name);
+    }
+    {
+      std::ifstream cmd(base + "/cmdline");
+      std::string raw;
+      if (cmd) std::getline(cmd, raw, '\0');
+      // cmdline is NUL-separated; first token is enough for the listing
+      if (!raw.empty()) {
+        for (char& c : raw) {
+          if (c == '\0') c = ' ';
+        }
+        p.cmdline = FromUtf8(raw);
+      }
+    }
+    out.push_back(std::move(p));
+    if (out.size() >= 8192) break;
+  }
+  closedir(dir);
+#endif
+  return out;
+}
+
+PerceptionSnapshot ProcessPerception::SnapshotLinux() {
+  PerceptionSnapshot s;
+  s.mode = PerceptionMode::Memory;
+#if !defined(_WIN32)
+  s.process.pid = static_cast<std::uint32_t>(getpid());
+  char buf[4096];
+  const ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+  if (n > 0) {
+    buf[n] = 0;
+    s.process.image = FromUtf8(std::string(buf, static_cast<std::size_t>(n)));
+  }
+  s.detail =
+      "Linux: UI Automation is Windows-only. Snapshot reports this process so "
+      "HybridControlLoop can InspectPid immediately (process_vm_readv).";
+#else
+  s.detail = "SnapshotLinux is not used on Windows";
+#endif
+  return s;
+}
+
 PerceptionSnapshot ProcessPerception::Snapshot() {
 #if !defined(_WIN32)
-  PerceptionSnapshot s;
-  s.mode = PerceptionMode::VisionFallback;
-  s.detail = "UI Automation is Windows-only; caller should use vision fallback.";
-  return s;
+  return SnapshotLinux();
 #else
   return SnapshotWindows();
 #endif
@@ -235,14 +364,25 @@ PerceptionSnapshot ProcessPerception::SnapshotWindows() {
   snap.window.bounds = {wr.left, wr.top, wr.right - wr.left, wr.bottom - wr.top};
   snap.window.visible = true;
   snap.process.pid = pid;
-  snap.process.session_id = 0;
-  ProcessIdToSessionId(pid, reinterpret_cast<DWORD*>(&snap.process.session_id));
+  DWORD sid = 0;
+  ProcessIdToSessionId(pid, &sid);
+  snap.process.session_id = sid;
+
+  wchar_t image[MAX_PATH]{};
+  HANDLE proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+  if (proc) {
+    UniqueHandle ph(proc);
+    DWORD n = MAX_PATH;
+    if (QueryFullProcessImageNameW(ph.get(), 0, image, &n)) {
+      snap.process.image.assign(image, n);
+    }
+  }
 
   IUIAutomation* uia = nullptr;
   HRESULT hr = CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER,
                                 IID_IUIAutomation, reinterpret_cast<void**>(&uia));
   if (FAILED(hr) || !uia) {
-    snap.detail = "CoCreateInstance(CUIAutomation) failed — vision fallback";
+    snap.detail = "CoCreateInstance(CUIAutomation) failed — vision/memory fallback";
     return snap;
   }
 
@@ -250,39 +390,34 @@ PerceptionSnapshot ProcessPerception::SnapshotWindows() {
   hr = uia->ElementFromHandle(fg, &root);
   if (FAILED(hr) || !root) {
     uia->Release();
-    snap.detail = "ElementFromHandle failed — vision fallback";
+    snap.detail = "ElementFromHandle failed — vision/memory fallback";
     return snap;
   }
 
-  IUIAutomationCondition* true_cond = nullptr;
-  uia->CreateTrueCondition(&true_cond);
-  IUIAutomationElementArray* arr = nullptr;
-  hr = root->FindAll(TreeScope_Subtree, true_cond, &arr);
-  if (true_cond) true_cond->Release();
-
   ControlNode window_node;
-  if (ElementOf(root, &window_node, pid, snap.window.hwnd)) {
-    if (arr) {
-      int n = 0;
-      arr->get_Length(&n);
-      if (n > 4000) n = 4000;  // hard cap, pathological trees
-      for (int i = 0; i < n; ++i) {
-        IUIAutomationElement* child = nullptr;
-        arr->GetElement(i, &child);
-        if (!child) continue;
-        ControlNode node;
-        if (ElementOf(child, &node, pid, snap.window.hwnd)) {
-          window_node.children.push_back(std::move(node));
-        }
-        child->Release();
-      }
-      arr->Release();
+  const bool root_ok = ElementOf(root, &window_node, pid, snap.window.hwnd);
+  if (root_ok) {
+    IUIAutomationTreeWalker* walker = nullptr;
+    hr = uia->get_ControlViewWalker(&walker);
+    std::size_t remaining = ProcessPerception::kMaxTreeNodes;
+    if (SUCCEEDED(hr) && walker) {
+      Walk(walker, root, 0, &window_node, pid, snap.window.hwnd, &remaining);
+      walker->Release();
+      snap.detail = "UIA snapshot ok (ControlViewWalker tree)";
+    } else {
+      IUIAutomationCondition* true_cond = nullptr;
+      uia->CreateTrueCondition(&true_cond);
+      IUIAutomationElementArray* arr = nullptr;
+      root->FindAll(TreeScope_Subtree, true_cond, &arr);
+      if (true_cond) true_cond->Release();
+      FlattenFindAll(arr, &window_node, pid, snap.window.hwnd, remaining);
+      if (arr) arr->Release();
+      snap.detail = "UIA snapshot ok (FindAll fallback — walker unavailable)";
     }
     snap.controls.push_back(std::move(window_node));
     snap.mode = PerceptionMode::Uia;
-    snap.detail = "UIA snapshot ok";
   } else {
-    snap.detail = "root element had no usable bounds — vision fallback";
+    snap.detail = "root element had no usable name/bounds — vision/memory fallback";
   }
   root->Release();
   uia->Release();
