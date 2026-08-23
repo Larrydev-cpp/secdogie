@@ -34,5 +34,7 @@ add_executable(atlas_inspect src/atlas_inspect.cpp)
 target_link_libraries(atlas_inspect PRIVATE secdogie_atlas)
 target_include_directories(atlas_inspect PRIVATE include)
 
+add_executable(atlas_target src/atlas_target.cpp)
+
 enable_testing()
 add_test(NAME atlas_test COMMAND atlas_test)

@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -168,12 +169,35 @@ void DedupHits(std::vector<MemoryHit>& hits) {
              hits.end());
 }
 
+int HitScore(const MemoryHit& h) {
+  int letters = 0;
+  int us = 0;
+  int slash = 0;
+  int space = 0;
+  for (wchar_t c : h.text) {
+    if ((c >= L'A' && c <= L'Z') || (c >= L'a' && c <= L'z') || (c >= 0x4e00 && c <= 0x9fff)) {
+      ++letters;
+    } else if (c == L'_') {
+      ++us;
+    } else if (c == L'/') {
+      ++slash;
+    } else if (c == L' ') {
+      ++space;
+    }
+  }
+  int s = letters + us * 12 + space * 6 + static_cast<int>(h.text.size() / 4);
+  if (slash >= 2) s -= 50;
+  return s;
+}
+
 void TrimHits(std::vector<MemoryHit>& hits, std::size_t maxn) {
   DedupHits(hits);
   if (hits.size() <= maxn) return;
   std::partial_sort(hits.begin(), hits.begin() + static_cast<std::ptrdiff_t>(maxn), hits.end(),
                     [](const MemoryHit& a, const MemoryHit& b) {
-                      if (a.text.size() != b.text.size()) return a.text.size() > b.text.size();
+                      const int sa = HitScore(a);
+                      const int sb = HitScore(b);
+                      if (sa != sb) return sa > sb;
                       return a.text < b.text;
                     });
   hits.resize(maxn);
@@ -396,8 +420,42 @@ Result<InspectSnapshot> InspectHandle(const ReadOnlyProcessHandle& handle,
   auto mods = handle.ModuleNames();
   if (mods) snap.modules = mods.value();
 
+#if !defined(_WIN32)
+  {
+    const std::string proc = "/proc/" + std::to_string(handle.pid());
+    std::ifstream cmd(proc + "/cmdline", std::ios::binary);
+    std::string raw((std::istreambuf_iterator<char>(cmd)),
+                    std::istreambuf_iterator<char>());
+    for (char& c : raw) {
+      if (c == '\0') c = ' ';
+    }
+    while (!raw.empty() && raw.back() == ' ') raw.pop_back();
+    snap.cmdline.clear();
+    snap.cmdline.reserve(raw.size());
+    for (unsigned char c : raw) snap.cmdline.push_back(static_cast<wchar_t>(c));
+    std::ifstream st(proc + "/status");
+    std::string line;
+    while (st && std::getline(st, line)) {
+      if (line.rfind("VmRSS:", 0) == 0) {
+        unsigned long kb = 0;
+        if (std::sscanf(line.c_str() + 6, "%lu", &kb) == 1) snap.rss_kb = kb;
+        break;
+      }
+    }
+  }
+#endif
+
   const std::vector<RemoteRegion> regions = QueryRegions(handle);
   snap.stats.regions_seen = regions.size();
+  snap.regions = regions;
+  if (snap.regions.size() > cfg.max_regions) snap.regions.resize(cfg.max_regions);
+  if (regions.empty()) {
+    snap.detail =
+        "VAD list empty: /proc/<pid>/maps unreadable (Yama ptrace_scope on "
+        "unrelated PIDs) or the process has no mapped pages. Token/cmdline "
+        "are still filled. Inspect a descendant (atlas_target) to exercise "
+        "process_vm_readv.";
+  }
 
   std::vector<std::uint8_t> chunk;
   chunk.resize(cfg.chunk_bytes == 0 ? 65536 : cfg.chunk_bytes);
@@ -405,7 +463,7 @@ Result<InspectSnapshot> InspectHandle(const ReadOnlyProcessHandle& handle,
   InspectConfig walk = cfg;
   walk.max_strings = std::max(cfg.max_strings * 8, std::size_t{8192});
 
-  for (const RemoteRegion& r : regions) {
+  for (RemoteRegion& r : snap.regions) {
     if (snap.stats.regions_read >= cfg.max_regions) break;
     if (snap.stats.bytes_read >= cfg.max_bytes) break;
     if (!RegionSafeToRead(r, cfg)) continue;
@@ -437,7 +495,35 @@ Result<InspectSnapshot> InspectHandle(const ReadOnlyProcessHandle& handle,
       if (n < want) break;
       off += n;
     }
-    if (any) ++snap.stats.regions_read;
+    if (any) {
+      r.scanned = true;
+      ++snap.stats.regions_read;
+    }
+  }
+
+  for (const RemoteRegion& r : snap.regions) {
+    if (r.pathname.empty() || r.pathname[0] != '/') continue;
+    bool seen = false;
+    for (auto& m : snap.mapped) {
+      std::string existing;
+      existing.reserve(m.path.size());
+      for (wchar_t c : m.path) {
+        if (c >= 32 && c < 127) existing.push_back(static_cast<char>(c));
+      }
+      if (existing == r.pathname) {
+        if (r.start < m.start) m.start = r.start;
+        m.size += r.size;
+        seen = true;
+        break;
+      }
+    }
+    if (seen) continue;
+    LoadedModule m;
+    m.start = r.start;
+    m.size = r.size;
+    m.path.reserve(r.pathname.size());
+    for (unsigned char c : r.pathname) m.path.push_back(static_cast<wchar_t>(c));
+    snap.mapped.push_back(std::move(m));
   }
 
   TrimHits(snap.strings, cfg.max_strings);
@@ -445,7 +531,11 @@ Result<InspectSnapshot> InspectHandle(const ReadOnlyProcessHandle& handle,
   snap.stats.dibs_found = snap.dibs.size();
   snap.stats.pes_found = snap.pes.size();
   snap.stats.json_found = snap.json.size();
-  snap.detail = "read-only inspect ok";
+  if (snap.stats.regions_read > 0) {
+    snap.detail = "read-only inspect ok";
+  } else if (snap.detail.empty()) {
+    snap.detail = "no safe private pages were readable";
+  }
   return snap;
 }
 

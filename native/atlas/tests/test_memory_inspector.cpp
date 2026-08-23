@@ -183,6 +183,13 @@ void RunMemoryInspectorTests() {
              found ? "hit" : "miss — Yama/ptrace_scope may block process_vm_readv");
       Expect(snap.value().stats.bytes_read > 0, "bytes actually copied from the target",
              "bytes_read");
+      Expect(!snap.value().regions.empty(), "snapshot keeps the VAD region list",
+             "regions");
+      bool any_scanned = false;
+      for (const auto& r : snap.value().regions) {
+        if (r.scanned) any_scanned = true;
+      }
+      Expect(any_scanned, "at least one region marked scanned", "scanned");
     }
 
     // After InspectPid the caller's Open handle (if any) is independent;

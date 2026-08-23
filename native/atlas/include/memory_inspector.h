@@ -59,6 +59,7 @@ struct RemoteRegion {
   bool execute = false;
   bool guard = false;
   bool noaccess = false;
+  bool scanned = false;
   std::string pathname;
 };
 
@@ -88,6 +89,12 @@ struct JsonHit {
   std::string text;
 };
 
+struct LoadedModule {
+  std::uint64_t start = 0;
+  std::uint64_t size = 0;
+  std::wstring path;
+};
+
 struct InspectStats {
   std::size_t regions_seen = 0;
   std::size_t regions_read = 0;
@@ -104,13 +111,17 @@ struct InspectStats {
 struct InspectSnapshot {
   std::uint32_t pid = 0;
   std::wstring image;
+  std::wstring cmdline;
   std::uint32_t session_id = 0;
+  std::uint64_t rss_kb = 0;
   TokenSnapshot token;
+  std::vector<RemoteRegion> regions;
   std::vector<MemoryHit> strings;
   std::vector<DibHit> dibs;
   std::vector<PeHit> pes;
   std::vector<JsonHit> json;
   std::vector<std::wstring> modules;
+  std::vector<LoadedModule> mapped;
   InspectStats stats;
   std::string detail;
 };
@@ -125,12 +136,9 @@ void ExtractStrings(const std::uint8_t* data, std::size_t n, std::uint64_t base,
 void ExtractDibs(const std::uint8_t* data, std::size_t n, std::uint64_t base,
                  const InspectConfig& cfg, std::vector<DibHit>& out);
 
-// MZ/PE at offset 0 of `data` only (page/region start). Not a sliding scan.
 void ExtractPe(const std::uint8_t* data, std::size_t n, std::uint64_t base,
                std::vector<PeHit>& out);
 
-// JSON object fragments with at least one "ident": pair. Graphics/state
-// blobs live in heap as UTF-8 config more often than as GDI bitmaps.
 void ExtractJson(const std::uint8_t* data, std::size_t n, std::uint64_t base,
                  const InspectConfig& cfg, std::vector<JsonHit>& out);
 

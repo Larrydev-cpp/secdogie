@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <dirent.h>
 #include <fstream>
+#include <iterator>
 #include <unistd.h>
 #endif
 
@@ -290,15 +291,26 @@ std::vector<ListedProcess> ProcessPerception::ListProcesses() {
       p.image = FromUtf8(name);
     }
     {
-      std::ifstream cmd(base + "/cmdline");
-      std::string raw;
-      if (cmd) std::getline(cmd, raw, '\0');
-      // cmdline is NUL-separated; first token is enough for the listing
-      if (!raw.empty()) {
-        for (char& c : raw) {
-          if (c == '\0') c = ' ';
+      std::ifstream cmd(base + "/cmdline", std::ios::binary);
+      std::string raw((std::istreambuf_iterator<char>(cmd)),
+                      std::istreambuf_iterator<char>());
+      for (char& c : raw) {
+        if (c == '\0') c = ' ';
+      }
+      while (!raw.empty() && raw.back() == ' ') raw.pop_back();
+      if (!raw.empty()) p.cmdline = FromUtf8(raw);
+    }
+    {
+      std::ifstream st(base + "/status");
+      std::string line;
+      while (st && std::getline(st, line)) {
+        if (line.rfind("VmRSS:", 0) == 0) {
+          unsigned long kb = 0;
+          if (std::sscanf(line.c_str() + 6, "%lu", &kb) == 1) {
+            p.rss_kb = kb;
+          }
+          break;
         }
-        p.cmdline = FromUtf8(raw);
       }
     }
     out.push_back(std::move(p));
