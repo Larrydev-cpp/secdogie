@@ -42,11 +42,23 @@ trusted host/operator boundary:
   is a Windows servicing identity, not an application privilege. secdogie will
   not steal that token, impersonate it, or use it to read PPL / protected
   processes. `elevate.try_impersonate_trusted_installer()` and the Atlas native
-  `PrivilegeManager` always return `refused-identity`. The same wall covers
-  anti-EDR (unhooking, handle-hiding, foreign-process memory scans): not
-  implemented, documented refusal. Process handles opened for perception are
-  strictly `PROCESS_VM_READ | PROCESS_QUERY_INFORMATION` — write / VM-op /
-  thread-create / `PROCESS_ALL_ACCESS` are refused, not silently narrowed.
+  `PrivilegeManager` always return `refused-identity`. Anti-EDR (unhooking,
+  handle-hiding) is the same wall.
+- **Process handles are strictly read-only.** `PROCESS_VM_READ |
+  PROCESS_QUERY_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION` may be
+  granted. Write / VM-op / thread-create / `PROCESS_ALL_ACCESS` are refused,
+  not silently narrowed. When UI Automation cannot see a control (owner-drawn
+  chrome), Atlas may *read* the operator-named GUI process with
+  `VirtualQueryEx` + `ReadProcessMemory` (or Linux `process_vm_readv`) under
+  that same mask, skip `PAGE_GUARD` / `PAGE_NOACCESS` / execute pages, refuse
+  lsass/csrss/PPL by image name, **query the target token with `TOKEN_QUERY`
+  only** (never `TOKEN_DUPLICATE` / impersonate), refuse SYSTEM/TI/higher
+  integrity (`denied-escalate` / `denied-protected`), disable SeDebug in
+  `ScopedPrivilege`'s destructor, and **close the handle before returning**.
+  There is no `WriteProcessMemory`, no `CreateRemoteThread`, no standing
+  handle, no standing privilege. This is perception of a machine you own, not
+  a dump of the OS security boundary.
+
 
 If multiple, mutually-distrusting people can reach the same running agent or
 the same host, that is outside the model — isolate by OS user / host instead.

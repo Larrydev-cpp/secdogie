@@ -18,6 +18,8 @@ enum class PrivilegeCode {
   NotAllowlisted,
   NoSession,
   AccessDenied,
+  DeniedProtected,
+  DeniedEscalate,
   Failed,
 };
 
@@ -34,6 +36,8 @@ inline const char* PrivilegeCodeName(PrivilegeCode c) noexcept {
     case PrivilegeCode::NotAllowlisted: return "not-allowlisted";
     case PrivilegeCode::NoSession: return "no-session";
     case PrivilegeCode::AccessDenied: return "access-denied";
+    case PrivilegeCode::DeniedProtected: return "denied-protected";
+    case PrivilegeCode::DeniedEscalate: return "denied-escalate";
     case PrivilegeCode::Failed: return "failed";
   }
   return "failed";

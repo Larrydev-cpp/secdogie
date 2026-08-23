@@ -17,10 +17,10 @@
 
 using namespace secdogie::atlas;
 
-static int g_failed = 0;
-static int g_passed = 0;
+int g_failed = 0;
+int g_passed = 0;
 
-static void Expect(bool cond, const char* name, const char* detail) {
+void Expect(bool cond, const char* name, const char* detail) {
   if (cond) {
     std::printf("  PASS  %s\n", name);
     ++g_passed;
@@ -29,6 +29,8 @@ static void Expect(bool cond, const char* name, const char* detail) {
     ++g_failed;
   }
 }
+
+void RunMemoryInspectorTests();
 
 int main() {
   std::printf("atlas_test\n");
@@ -233,6 +235,8 @@ int main() {
            "Open with VM_WRITE refused before syscall",
            h.ok() ? "ok" : PrivilegeCodeName(h.error().code));
   }
+
+  RunMemoryInspectorTests();
 
   std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
   return g_failed ? 1 : 0;

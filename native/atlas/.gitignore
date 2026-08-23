@@ -2,4 +2,6 @@ build/
 CMakeFiles/
 CMakeCache.txt
 *.a
+*.o
 atlas_test
+atlas_inspect

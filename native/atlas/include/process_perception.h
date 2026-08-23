@@ -5,11 +5,11 @@
 // Primary path is documented UI Automation (IUIAutomation). PID / window
 // bounds come from Toolhelp + EnumWindows. PROCESS_VM_READ is used only to
 // call EnumProcessModules for the image name of the target window's process
-// — never to dump arbitrary memory.
+// — never to dump arbitrary memory (that is memory_inspector.cpp).
 //
 // If UIA is unavailable (headless session, control vanished, COM failure)
-// Snapshot() reports mode = VisionFallback and the caller is expected to
-// degrade to the vision / pixel-diff path in HybridControlLoop.
+// Snapshot() reports mode = VisionFallback on Windows, Memory on Linux
+// (this process's pid, so HybridControlLoop can InspectPid immediately).
 
 #include "privilege_error.h"
 
@@ -19,7 +19,7 @@
 
 namespace secdogie::atlas {
 
-enum class PerceptionMode { Uia, VisionFallback };
+enum class PerceptionMode { Uia, VisionFallback, Memory };
 
 enum class ControlRole {
   Window,
@@ -85,15 +85,27 @@ struct PerceptionSnapshot {
   std::string detail;
 };
 
+struct ListedProcess {
+  std::uint32_t pid = 0;
+  std::wstring image;
+  std::wstring cmdline;
+  std::uint32_t session_id = 0;
+};
+
 class ProcessPerception {
  public:
   static constexpr int kMaxTreeDepth = 40;
+  static constexpr std::size_t kMaxTreeNodes = 4000;
 
   // Foreground window, its PID, and the UIA tree under it.
+  // Linux: this process (pid + image) so memory inspect is the primary path.
   PerceptionSnapshot Snapshot();
 
-  // Enumerate visible top-level windows (no UIA).
+  // Enumerate visible top-level windows (no UIA). Empty off Windows.
   std::vector<WindowInfo> ListWindows();
+
+  // Toolhelp /proc process list. Read-only; no handles held after return.
+  static std::vector<ListedProcess> ListProcesses();
 
   static const ControlNode* Find(const std::vector<ControlNode>& roots,
                                  const Selector& selector);
@@ -102,6 +114,7 @@ class ProcessPerception {
 
  private:
   PerceptionSnapshot SnapshotWindows();
+  PerceptionSnapshot SnapshotLinux();
 };
 
 const char* RoleName(ControlRole r) noexcept;
