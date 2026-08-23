@@ -4,6 +4,7 @@ into the unmodified loop and that model coordinates on the downscaled pixel
 screenshot get scaled back to pixels by the loop, then down to WDA points by
 the backend -- the full two-step coordinate path.
 """
+from secdogie_agent import screen
 from secdogie_agent.loop import AgentConfig, run
 from secdogie_agent.providers.base import Action, VisionProvider
 from secdogie_ios.backend import IosBackend
@@ -21,18 +22,25 @@ class ScriptedProvider(VisionProvider):
 
 
 def test_tap_scaled_from_model_space_through_pixels_to_points():
-    # 1170x2532 pixel screen (3x, so 390x844 points). Long edge 2532 caps to
-    # 1568, so the model sees a ~725x1568 image. It returns a tap; the loop
-    # scales model->pixels, then IosBackend scales pixels->points.
+    # 1170x2532 pixel screen (3x, so 390x844 points). Long edge is capped to
+    # screen.DEFAULT_MAX_EDGE. The loop scales model->pixels, then IosBackend
+    # scales pixels->points. Coupled to the live default so a cap change cannot
+    # silently miss the phone.
     wda = FakeWda(pixel=(1170, 2532), point=(390, 844))
     provider = ScriptedProvider([
         {"action": "left_click", "x": 300, "y": 700},
         {"action": "done", "text": "tapped"},
     ])
-    rc = run(provider, AgentConfig(task="tap", auto=True, max_steps=5, backend=IosBackend(wda)))
+    rc = run(
+        provider,
+        AgentConfig(
+            task="tap", auto=True, max_steps=5, backend=IosBackend(wda),
+            verify_actions=False,  # identical fake frames would otherwise retry
+        ),
+    )
     assert rc == 0
 
-    pixel_scale = 2532 / 1568   # model -> pixels (loop)
+    pixel_scale = 2532 / screen.DEFAULT_MAX_EDGE
     px_per_pt = 1170 / 390      # pixels -> points (backend) = 3.0
     expect = (
         round(round(300 * pixel_scale) / px_per_pt),
@@ -40,6 +48,7 @@ def test_tap_scaled_from_model_space_through_pixels_to_points():
     )
     assert wda.calls[0][0] == "tap"
     assert wda.calls[0][1:] == expect
+    assert len(wda.calls) == 1
 
 
 def test_capture_failure_exits_cleanly():

@@ -61,15 +61,17 @@ def find_elements(
     name: str | None = None,
     role: str | None = None,
 ) -> list[AxElement]:
-    """Filter by any combination of identity attributes, all matched EXACTLY.
-    Desktop trees are dense and repetitive, so exact matching (not substring)
-    keeps a re-find from latching onto a lookalike; `selector_for` records the
-    strongest available combination so this stays precise."""
+    """Filter by any combination of identity attributes, all matched as
+    case-insensitive exact strings (not substring). Desktop trees are dense
+    and repetitive, so exact matching keeps a re-find from latching onto a
+    lookalike; `selector_for` records the strongest available combination so
+    this stays precise. Case-folding matches Atlas `find_control` — UIA names
+    from the model often differ in case from the tree."""
     out = []
     for el in elements:
-        if automation_id is not None and el.automation_id != automation_id:
+        if automation_id is not None and el.automation_id.casefold() != automation_id.casefold():
             continue
-        if name is not None and el.name != name:
+        if name is not None and el.name.casefold() != name.casefold():
             continue
         if role is not None and el.role.casefold() != role.casefold():
             continue

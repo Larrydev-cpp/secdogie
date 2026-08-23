@@ -6,6 +6,7 @@ the downscaled screenshot get scaled back to real device pixels before the tap.
 import io
 
 from PIL import Image
+from secdogie_agent import screen
 from secdogie_agent.loop import AgentConfig, run
 from secdogie_agent.providers.base import Action, VisionProvider
 from secdogie_android.backend import AdbBackend
@@ -29,20 +30,28 @@ def _png(w, h):
 
 
 def test_tap_is_scaled_from_model_space_to_device_pixels():
-    # A tall 1080x2400 phone: long edge (2400) is capped to 1568, so the model
-    # sees a ~706x1568 image. A tap the model returns at model-space (300, 700)
-    # must be scaled up by 2400/1568 before it reaches adb.
+    # Tall 1080x2400 phone: long edge is capped to screen.DEFAULT_MAX_EDGE, so
+    # a tap the model returns at model-space (300, 700) must be scaled up by
+    # 2400 / DEFAULT_MAX_EDGE before it reaches adb. Keep this coupled to the
+    # live default so a cap change cannot silently miss the phone.
     adb = FakeAdb(png=_png(1080, 2400))
-    scale = 2400 / 1568
+    scale = 2400 / screen.DEFAULT_MAX_EDGE
     provider = ScriptedProvider([
         {"action": "left_click", "x": 300, "y": 700},
         {"action": "done", "text": "tapped"},
     ])
-    rc = run(provider, AgentConfig(task="tap", auto=True, max_steps=5, backend=AdbBackend(adb)))
+    rc = run(
+        provider,
+        AgentConfig(
+            task="tap", auto=True, max_steps=5, backend=AdbBackend(adb),
+            verify_actions=False,  # identical fake frames would otherwise retry
+        ),
+    )
     assert rc == 0
     kind, x, y = adb.calls[0]
     assert kind == "tap"
     assert (x, y) == (round(300 * scale), round(700 * scale))
+    assert len(adb.calls) == 1
 
 
 def test_capture_failure_exits_cleanly():

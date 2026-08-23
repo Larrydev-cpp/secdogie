@@ -43,6 +43,21 @@ Constraints (non-negotiable):
 - [ ] Versioned release notes that map to roadmap items
 - [ ] Optional signed Windows binary path (future)
 
+## P4 — Atlas hybrid loop (done)
+
+Dual-tier perception for CAD daily-driver reliability, with an honest privilege
+wall. See [`docs/ATLAS.md`](docs/ATLAS.md).
+
+- [x] UIA / accessibility as primary targeting (`--desktop-ax`); vision is fallback
+- [x] Pixel-diff verification on `click_element` (UIA Invoke) as well as pixel clicks
+- [x] Read-only process-handle wall (`PROCESS_VM_READ | PROCESS_QUERY_*` only;
+      `PROCESS_ALL_ACCESS` / write bits refused, not narrowed)
+- [x] TrustedInstaller impersonation and anti-EDR documented as `refused-identity`
+- [x] Native C++ twin (`native/atlas/`) with self-contained unit tests in CI
+- [x] Cloudflare named-tunnel config + setup scripts (`tunnel/cloudflare/`)
+- [x] Restore `loop.py` / `cli.py` / `osfocus.py` after accidental PLACEHOLDER overwrite
+- [x] `--window` matching: exact → prefix → substring, prefer visible/non-minimized/larger
+
 ## Exit criteria for "daily internal use"
 
 A run that:

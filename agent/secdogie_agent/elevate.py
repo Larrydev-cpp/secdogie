@@ -28,6 +28,12 @@ Windows-only. Off Windows, and when not elevated, every entry point degrades to
 a clean, honest refusal -- it never pretends, and never tries to work around the
 missing privilege. The token dance is on-machine; the *decision* of whether a
 launch may proceed is a pure function, unit-tested here.
+
+NT SERVICE\\TrustedInstaller impersonation and anti-EDR tricks are not in this
+module and will not be added. They are documented refusals
+(`try_impersonate_trusted_installer`, `try_edr_evasion`) so a caller that asks
+for them gets an honest no instead of a silent no-op or a malware-shaped
+workaround. Atlas (`atlas.py` / `native/atlas`) is the same wall.
 """
 from __future__ import annotations
 
@@ -42,6 +48,7 @@ NO_SESSION = "no-session"      # no active interactive session to launch into
 UNSUPPORTED = "unsupported"    # not Windows / a Win32 call is unavailable
 BAD_COMMAND = "bad-command"    # empty/whitespace command
 FAILED = "failed"             # the token dance itself failed
+REFUSED_IDENTITY = "refused-identity"  # TI impersonation / anti-EDR -- never implemented
 
 
 @dataclass(frozen=True)
@@ -190,6 +197,35 @@ def active_console_session() -> int | None:
         return int(sid)
     except Exception:
         return None
+
+
+# -- documented refusals (the wall above SYSTEM) -------------------------------
+
+_TI_REFUSAL = (
+    "NT SERVICE\\TrustedInstaller is a Windows servicing identity, not an "
+    "application privilege. Token theft / impersonation of TrustedInstaller is "
+    "refused. secdogie never steals service tokens, never bypasses PPL, and "
+    "never uses this path to read protected processes. For operator-allowlisted "
+    "SYSTEM work, start already-elevated and use the documented CreateProcessAsUser "
+    "path."
+)
+
+_EDR_REFUSAL = (
+    "Anti-EDR, unhooking, handle-hiding, and memory-scan evasion are not "
+    "implemented and will not be. Atlas uses documented Win32 / UI Automation "
+    "APIs only (OpenProcess with query/read, Toolhelp, UIA COM). The way this "
+    "stays off EDR radar is by not doing malware-like things."
+)
+
+
+def try_impersonate_trusted_installer() -> ElevateResult:
+    """Always refused. Exists so callers (and tests) can assert the wall."""
+    return ElevateResult(REFUSED_IDENTITY, detail=_TI_REFUSAL)
+
+
+def try_edr_evasion() -> ElevateResult:
+    """Always refused. secdogie does not unhook, hide handles, or scan foreign VA."""
+    return ElevateResult(REFUSED_IDENTITY, detail=_EDR_REFUSAL)
 
 
 # -- the on-machine launch (token dance) ---------------------------------------

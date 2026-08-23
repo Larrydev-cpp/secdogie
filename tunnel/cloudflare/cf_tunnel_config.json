@@ -1,0 +1,27 @@
+{
+  "tunnel": "secdogie-atlas",
+  "credentials-file": "/etc/cloudflared/secdogie-atlas.json",
+  "protocol": "quic",
+  "no-autoupdate": true,
+  "originRequest": {
+    "connectTimeout": "10s",
+    "keepAliveTimeout": "90s",
+    "noTLSVerify": false
+  },
+  "ingress": [
+    {
+      "hostname": "atlas.example.com",
+      "service": "http://127.0.0.1:17890"
+    },
+    {
+      "service": "http_status:404"
+    }
+  ],
+  "notes": [
+    "Named Cloudflare Tunnel. TLS terminates at the edge.",
+    "Replaces the unaudited custom UDP tunnel for production reachability.",
+    "cloudflared makes outbound-only connections — no inbound ports on the workstation.",
+    "Put Cloudflare Access in front of the hostname. Do not commit credentials JSON.",
+    "The custom tunnel/ in the secdogie repo remains for air-gapped lab use."
+  ]
+}
