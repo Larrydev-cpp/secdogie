@@ -17,6 +17,10 @@
 #endif
 #include <psapi.h>
 #include <windows.h>
+#elif defined(__APPLE__)
+#include <libproc.h>
+#include <mach/mach.h>
+#include <mach/mach_vm.h>
 #endif
 
 namespace secdogie::atlas {
@@ -124,7 +128,7 @@ std::vector<RemoteRegion> QueryWindows(HANDLE h) {
 }
 #endif
 
-#if !defined(_WIN32)
+#if defined(__linux__)
 int ParseLinuxProtect(const std::string& perm) {
   int p = 0;
   if (perm.size() >= 1 && perm[0] == 'r') p |= 1;
@@ -166,9 +170,50 @@ std::vector<RemoteRegion> QueryLinux(std::uint32_t pid) {
 }
 #endif
 
+#if defined(__APPLE__)
+std::vector<RemoteRegion> QueryDarwin(const ReadOnlyProcessHandle& h) {
+  std::vector<RemoteRegion> out;
+  const auto task = static_cast<mach_port_t>(reinterpret_cast<uintptr_t>(h.get()));
+  if (!task) return out;
+  mach_vm_address_t addr = 0;
+  for (;;) {
+    mach_vm_size_t size = 0;
+    vm_region_basic_info_data_64_t info{};
+    mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
+    mach_port_t object = MACH_PORT_NULL;
+    const kern_return_t kr =
+        mach_vm_region(task, &addr, &size, VM_REGION_BASIC_INFO_64,
+                       reinterpret_cast<vm_region_info_t>(&info), &count, &object);
+    if (kr != KERN_SUCCESS) break;
+    if (object != MACH_PORT_NULL) mach_port_deallocate(mach_task_self(), object);
+    RemoteRegion r;
+    r.start = addr;
+    r.size = size;
+    r.protect = static_cast<std::uint32_t>(info.protection);
+    r.committed = size > 0;
+    r.readable = (info.protection & VM_PROT_READ) != 0;
+    r.writable = (info.protection & VM_PROT_WRITE) != 0;
+    r.execute = (info.protection & VM_PROT_EXECUTE) != 0;
+    r.noaccess = !r.readable && !r.writable && !r.execute;
+    r.priv = info.share_mode == SM_PRIVATE;
+    char path[4096];
+    const int n = proc_regionfilename(static_cast<int>(h.pid()), addr, path, sizeof(path));
+    if (n > 0) r.pathname.assign(path, static_cast<std::size_t>(n));
+    else if (r.priv) r.pathname = "[private]";
+    out.push_back(r);
+    if (addr + size <= addr) break;
+    addr += size;
+    if (out.size() > 65536) break;
+  }
+  return out;
+}
+#endif
+
 std::vector<RemoteRegion> QueryRegions(const ReadOnlyProcessHandle& h) {
 #if defined(_WIN32)
   return QueryWindows(h.get());
+#elif defined(__APPLE__)
+  return QueryDarwin(h);
 #else
   return QueryLinux(h.pid());
 #endif
@@ -450,6 +495,10 @@ Result<InspectSnapshot> InspectHandle(const ReadOnlyProcessHandle& handle,
     snap.detail =
         "VAD list empty: VirtualQueryEx returned no committed regions "
         "(handle lost the target, or the process is exiting).";
+#elif defined(__APPLE__)
+    snap.detail =
+        "VAD list empty: mach_vm_region returned no regions "
+        "(task_for_pid denied, or the process is exiting).";
 #else
     snap.detail =
         "VAD list empty: /proc/<pid>/maps unreadable (Yama ptrace_scope on "

@@ -370,7 +370,7 @@ void RunMemoryInspectorTests() {
   {
     ProcessPerception perception;
     const PerceptionSnapshot snap = perception.Snapshot();
-    Expect(snap.process.pid != 0, "Snapshot reports a real PID (Windows UIA / Linux port)",
+    Expect(snap.process.pid != 0, "Snapshot reports a real PID on this OS",
            "pid");
   }
   {

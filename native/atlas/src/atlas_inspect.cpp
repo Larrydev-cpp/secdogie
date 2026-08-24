@@ -76,6 +76,8 @@ static std::string RegionKind(const RemoteRegion& r) {
 static const char* PlatformName() {
 #if defined(_WIN32)
   return "windows";
+#elif defined(__APPLE__)
+  return "macos";
 #else
   return "linux";
 #endif
@@ -83,13 +85,16 @@ static const char* PlatformName() {
 
 static void Usage() {
   std::fputs(
-      "atlas_inspect — Model Control Terminal (Windows-first)\n"
-      "read-only hybrid UIA + process-memory inspector\n"
+      "atlas_inspect — Model Control Terminal (Windows / Linux / macOS)\n"
+      "read-only hybrid UI-tree + process-memory inspector\n"
       "\n"
-      "  Primary path is UI Automation (IUIAutomationTreeWalker) of the\n"
-      "  target PID's visible hwnds. On miss: OpenProcess read-only +\n"
-      "  VirtualQueryEx + ReadProcessMemory (SEH). Linux is a port\n"
-      "  (process_vm_readv).\n"
+      "  Windows : IUIAutomationTreeWalker of the target PID's hwnds;\n"
+      "            miss → OpenProcess read-only + VirtualQueryEx +\n"
+      "            ReadProcessMemory (SEH).\n"
+      "  Linux   : /proc/<pid>/maps + process_vm_readv.\n"
+      "  macOS   : AXUIElement of the target PID; miss → task_for_pid +\n"
+      "            mach_vm_region + mach_vm_read_overwrite.\n"
+      "  Never writes the target. TI / PPL / VM_WRITE / ALL_ACCESS refused.\n"
       "\n"
       "  atlas_inspect --list [--json]\n"
       "  atlas_inspect --self [--json] [--max-mb 32] [--find NAME]\n"

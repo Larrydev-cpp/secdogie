@@ -28,6 +28,13 @@
 #include <fstream>
 #include <iterator>
 #include <unistd.h>
+#if defined(__APPLE__)
+#include <ApplicationServices/ApplicationServices.h>
+#include <cstring>
+#include <libproc.h>
+#include <sys/sysctl.h>
+#include <sys/syslimits.h>
+#endif
 #endif
 
 namespace secdogie::atlas {
@@ -256,6 +263,48 @@ std::vector<WindowInfo> ProcessPerception::ListWindows() {
   std::vector<WindowInfo> out;
 #if defined(_WIN32)
   EnumWindows(EnumProc, reinterpret_cast<LPARAM>(&out));
+#elif defined(__APPLE__)
+  CFArrayRef arr = CGWindowListCopyWindowInfo(
+      kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID);
+  if (!arr) return out;
+  const CFIndex n = CFArrayGetCount(arr);
+  for (CFIndex i = 0; i < n; ++i) {
+    CFDictionaryRef d = static_cast<CFDictionaryRef>(CFArrayGetValueAtIndex(arr, i));
+    if (!d) continue;
+    WindowInfo w;
+    CFNumberRef pidn = static_cast<CFNumberRef>(CFDictionaryGetValue(d, kCGWindowOwnerPID));
+    int pid = 0;
+    if (pidn) CFNumberGetValue(pidn, kCFNumberIntType, &pid);
+    w.pid = static_cast<std::uint32_t>(pid);
+    CFNumberRef num = static_cast<CFNumberRef>(CFDictionaryGetValue(d, kCGWindowNumber));
+    int64_t hwnd = 0;
+    if (num) CFNumberGetValue(num, kCFNumberSInt64Type, &hwnd);
+    w.hwnd = static_cast<std::uint64_t>(hwnd);
+    CFStringRef title = static_cast<CFStringRef>(CFDictionaryGetValue(d, kCGWindowName));
+    if (title) {
+      char buf[512];
+      if (CFStringGetCString(title, buf, sizeof(buf), kCFStringEncodingUTF8)) {
+        w.title = FromUtf8(buf);
+      }
+    }
+    CFStringRef owner = static_cast<CFStringRef>(CFDictionaryGetValue(d, kCGWindowOwnerName));
+    if (owner) {
+      char buf[256];
+      if (CFStringGetCString(owner, buf, sizeof(buf), kCFStringEncodingUTF8)) {
+        w.class_name = FromUtf8(buf);
+      }
+    }
+    CFDictionaryRef b = static_cast<CFDictionaryRef>(CFDictionaryGetValue(d, kCGWindowBounds));
+    if (b) {
+      CGRect r{};
+      CGRectMakeWithDictionaryRepresentation(b, &r);
+      w.bounds = {static_cast<std::int32_t>(r.origin.x), static_cast<std::int32_t>(r.origin.y),
+                  static_cast<std::int32_t>(r.size.width), static_cast<std::int32_t>(r.size.height)};
+    }
+    w.visible = true;
+    if (!w.title.empty()) out.push_back(std::move(w));
+  }
+  CFRelease(arr);
 #endif
   return out;
 }
@@ -318,7 +367,31 @@ std::vector<ListedProcess> ProcessPerception::ListProcesses() {
       if (out.size() >= 8192) break;
     } while (Process32NextW(snap_h.get(), &pe));
   }
-#else
+#elif defined(__APPLE__)
+  int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0};
+  std::size_t len = 0;
+  if (sysctl(mib, 4, nullptr, &len, nullptr, 0) != 0 || len == 0) return out;
+  std::vector<char> buf(len);
+  if (sysctl(mib, 4, buf.data(), &len, nullptr, 0) != 0) return out;
+  const auto* kp = reinterpret_cast<kinfo_proc*>(buf.data());
+  const std::size_t count = len / sizeof(kinfo_proc);
+  for (std::size_t i = 0; i < count && out.size() < 8192; ++i) {
+    ListedProcess p;
+    p.pid = static_cast<std::uint32_t>(kp[i].kp_proc.p_pid);
+    if (p.pid == 0) continue;
+    p.image = FromUtf8(kp[i].kp_proc.p_comm);
+    char path[PROC_PIDPATHINFO_MAXSIZE]{};
+    if (proc_pidpath(static_cast<int>(p.pid), path, sizeof(path)) > 0) {
+      p.cmdline = FromUtf8(path);
+    }
+    proc_taskinfo ti{};
+    if (proc_pidinfo(static_cast<int>(p.pid), PROC_PIDTASKINFO, 0, &ti, sizeof(ti)) ==
+        static_cast<int>(sizeof(ti))) {
+      p.rss_kb = static_cast<std::uint64_t>(ti.pti_resident_size / 1024);
+    }
+    out.push_back(std::move(p));
+  }
+#elif defined(__linux__)
   DIR* dir = opendir("/proc");
   if (!dir) return out;
   while (dirent* ent = readdir(dir)) {
@@ -369,7 +442,7 @@ std::vector<ListedProcess> ProcessPerception::ListProcesses() {
 PerceptionSnapshot ProcessPerception::SnapshotLinux() {
   PerceptionSnapshot s;
   s.mode = PerceptionMode::Memory;
-#if !defined(_WIN32)
+#if defined(__linux__)
   s.process.pid = static_cast<std::uint32_t>(getpid());
   char buf[4096];
   const ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
@@ -378,35 +451,194 @@ PerceptionSnapshot ProcessPerception::SnapshotLinux() {
     s.process.image = FromUtf8(std::string(buf, static_cast<std::size_t>(n)));
   }
   s.detail =
-      "Linux port: UI Automation is Windows-only. Snapshot reports this "
-      "process so HybridControlLoop can InspectPid immediately "
-      "(process_vm_readv).";
+      "Linux: window tree needs a compositor (AT-SPI not linked). "
+      "Memory inspect of this pid uses process_vm_readv.";
 #else
-  s.detail = "SnapshotLinux is not used on Windows";
+  s.detail = "SnapshotLinux is Linux-only";
+#endif
+  return s;
+}
+
+#if defined(__APPLE__)
+ControlRole AxRole(CFStringRef role) {
+  if (!role) return ControlRole::Custom;
+  char buf[128];
+  if (!CFStringGetCString(role, buf, sizeof(buf), kCFStringEncodingUTF8)) {
+    return ControlRole::Custom;
+  }
+  if (std::strstr(buf, "Button")) return ControlRole::Button;
+  if (std::strstr(buf, "Window")) return ControlRole::Window;
+  if (std::strstr(buf, "Text") || std::strstr(buf, "Static")) return ControlRole::Text;
+  if (std::strstr(buf, "TextField") || std::strstr(buf, "Edit")) return ControlRole::Edit;
+  if (std::strstr(buf, "Menu")) return ControlRole::MenuItem;
+  if (std::strstr(buf, "Toolbar")) return ControlRole::ToolBar;
+  if (std::strstr(buf, "Tab")) return ControlRole::TabItem;
+  return ControlRole::Custom;
+}
+
+void WalkAx(AXUIElementRef el, int depth, ControlNode* parent, std::uint32_t pid,
+            std::uint64_t hwnd, std::size_t* remaining) {
+  if (!el || !parent || !remaining || *remaining == 0) return;
+  if (depth > ProcessPerception::kMaxTreeDepth) return;
+  CFTypeRef children = nullptr;
+  if (AXUIElementCopyAttributeValue(el, kAXChildrenAttribute, &children) != kAXErrorSuccess ||
+      !children) {
+    return;
+  }
+  if (CFGetTypeID(children) != CFArrayGetTypeID()) {
+    CFRelease(children);
+    return;
+  }
+  CFArrayRef arr = static_cast<CFArrayRef>(children);
+  const CFIndex n = CFArrayGetCount(arr);
+  for (CFIndex i = 0; i < n && *remaining > 0; ++i) {
+    AXUIElementRef child = static_cast<AXUIElementRef>(
+        const_cast<void*>(CFArrayGetValueAtIndex(arr, i)));
+    if (!child) continue;
+    ControlNode node;
+    CFTypeRef role = nullptr;
+    CFTypeRef title = nullptr;
+    CFTypeRef ident = nullptr;
+    AXUIElementCopyAttributeValue(child, kAXRoleAttribute, &role);
+    AXUIElementCopyAttributeValue(child, kAXTitleAttribute, &title);
+    AXUIElementCopyAttributeValue(child, kAXIdentifierAttribute, &ident);
+    node.role = role && CFGetTypeID(role) == CFStringGetTypeID()
+                    ? AxRole(static_cast<CFStringRef>(role))
+                    : ControlRole::Custom;
+    if (title && CFGetTypeID(title) == CFStringGetTypeID()) {
+      char buf[512];
+      if (CFStringGetCString(static_cast<CFStringRef>(title), buf, sizeof(buf),
+                             kCFStringEncodingUTF8)) {
+        node.name = FromUtf8(buf);
+      }
+    }
+    if (ident && CFGetTypeID(ident) == CFStringGetTypeID()) {
+      char buf[256];
+      if (CFStringGetCString(static_cast<CFStringRef>(ident), buf, sizeof(buf),
+                             kCFStringEncodingUTF8)) {
+        node.automation_id = FromUtf8(buf);
+      }
+    }
+    node.pid = pid;
+    node.hwnd = hwnd;
+    {
+      const std::wstring& src = node.automation_id.empty() ? node.name : node.automation_id;
+      node.id.resize(src.size());
+      for (std::size_t i = 0; i < src.size(); ++i) {
+        node.id[i] = src[i] < 128 ? static_cast<char>(src[i]) : '?';
+      }
+    }
+    if (role) CFRelease(role);
+    if (title) CFRelease(title);
+    if (ident) CFRelease(ident);
+    --(*remaining);
+    WalkAx(child, depth + 1, &node, pid, hwnd, remaining);
+    parent->children.push_back(std::move(node));
+  }
+  CFRelease(children);
+}
+#endif
+
+PerceptionSnapshot ProcessPerception::SnapshotDarwin() {
+  PerceptionSnapshot s;
+  s.mode = PerceptionMode::Memory;
+#if defined(__APPLE__)
+  s.process.pid = static_cast<std::uint32_t>(getpid());
+  char path[PROC_PIDPATHINFO_MAXSIZE]{};
+  if (proc_pidpath(static_cast<int>(s.process.pid), path, sizeof(path)) > 0) {
+    s.process.image = FromUtf8(path);
+  }
+  s.detail = "macOS: AXUIElement of this process; mach_vm_read on miss.";
+#else
+  s.detail = "SnapshotDarwin is macOS-only";
 #endif
   return s;
 }
 
 PerceptionSnapshot ProcessPerception::Snapshot() {
-#if !defined(_WIN32)
-  return SnapshotLinux();
-#else
+#if defined(_WIN32)
   HWND fg = GetForegroundWindow();
   DWORD pid = 0;
   if (fg) GetWindowThreadProcessId(fg, &pid);
   if (pid == 0) pid = GetCurrentProcessId();
   return SnapshotPid(static_cast<std::uint32_t>(pid));
+#elif defined(__APPLE__)
+  return SnapshotPid(static_cast<std::uint32_t>(getpid()));
+#else
+  return SnapshotLinux();
 #endif
 }
 
 PerceptionSnapshot ProcessPerception::SnapshotPid(std::uint32_t pid) {
-#if !defined(_WIN32)
+#if defined(__linux__)
   PerceptionSnapshot s = SnapshotLinux();
   s.process.pid = pid;
   s.detail =
-      "Linux port: UI Automation is Windows-only. Memory inspect of the "
-      "requested pid uses process_vm_readv.";
+      "Linux: memory inspect of the requested pid uses process_vm_readv. "
+      "Window tree is compositor-dependent (AT-SPI not linked).";
   return s;
+#elif defined(__APPLE__)
+  PerceptionSnapshot snap;
+  snap.mode = PerceptionMode::Memory;
+  snap.process.pid = pid;
+  char path[PROC_PIDPATHINFO_MAXSIZE]{};
+  if (proc_pidpath(static_cast<int>(pid), path, sizeof(path)) > 0) {
+    snap.process.image = FromUtf8(path);
+  }
+  snap.detail = "macOS: no AX windows for pid — mach_vm_read is primary";
+
+  AXUIElementRef app = AXUIElementCreateApplication(static_cast<pid_t>(pid));
+  if (!app) return snap;
+  CFTypeRef wins = nullptr;
+  const AXError err = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute, &wins);
+  if (err != kAXErrorSuccess || !wins || CFGetTypeID(wins) != CFArrayGetTypeID()) {
+    snap.detail =
+        "macOS: AXUIElementCreateApplication ok but no windows "
+        "(grant Accessibility in Privacy & Security). Memory inspect still runs.";
+    if (wins) CFRelease(wins);
+    CFRelease(app);
+    return snap;
+  }
+  CFArrayRef arr = static_cast<CFArrayRef>(wins);
+  std::size_t remaining = ProcessPerception::kMaxTreeNodes;
+  const CFIndex n = CFArrayGetCount(arr);
+  for (CFIndex i = 0; i < n && remaining > 0; ++i) {
+    AXUIElementRef win = static_cast<AXUIElementRef>(
+        const_cast<void*>(CFArrayGetValueAtIndex(arr, i)));
+    if (!win) continue;
+    ControlNode window_node;
+    window_node.role = ControlRole::Window;
+    window_node.pid = pid;
+    CFTypeRef title = nullptr;
+    AXUIElementCopyAttributeValue(win, kAXTitleAttribute, &title);
+    if (title && CFGetTypeID(title) == CFStringGetTypeID()) {
+      char buf[512];
+      if (CFStringGetCString(static_cast<CFStringRef>(title), buf, sizeof(buf),
+                             kCFStringEncodingUTF8)) {
+        window_node.name = FromUtf8(buf);
+      }
+    }
+    if (title) CFRelease(title);
+    {
+      const std::wstring& src = window_node.name;
+      window_node.id.resize(src.size());
+      for (std::size_t k = 0; k < src.size(); ++k) {
+        window_node.id[k] = src[k] < 128 ? static_cast<char>(src[k]) : '?';
+      }
+    }
+    --remaining;
+    WalkAx(win, 0, &window_node, pid, 0, &remaining);
+    snap.controls.push_back(std::move(window_node));
+  }
+  CFRelease(wins);
+  CFRelease(app);
+  if (!snap.controls.empty()) {
+    snap.mode = PerceptionMode::Uia;
+    snap.window.pid = pid;
+    snap.window.title = snap.controls.front().name;
+    snap.detail = "AXUIElement snapshot ok (per-pid)";
+  }
+  return snap;
 #else
   PerceptionSnapshot snap;
   snap.mode = PerceptionMode::Memory;

@@ -108,7 +108,7 @@ jobs:
           ctest --test-dir build-asan --output-on-failure
           ./build-asan/fuzz_packets 1000000
 
-  # --- Atlas native module: C++ decision core (Windows MCT; Linux is a port)
+  # --- Atlas native module: Windows / Linux / macOS (same source)
   atlas-tests:
     runs-on: ubuntu-latest
     steps:
@@ -142,3 +142,18 @@ jobs:
       - name: Test
         working-directory: native/atlas
         run: ctest --test-dir build -C Release --output-on-failure
+
+  atlas-tests-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build (Apple clang)
+        working-directory: native/atlas
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake --build build --target atlas_test atlas_inspect atlas_target -j
+
+      - name: Test
+        working-directory: native/atlas
+        run: ctest --test-dir build --output-on-failure

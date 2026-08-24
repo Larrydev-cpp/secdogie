@@ -14,6 +14,15 @@
 #include <psapi.h>
 #include <tlhelp32.h>
 #pragma comment(lib, "psapi.lib")
+#elif defined(__APPLE__)
+#include <cerrno>
+#include <csignal>
+#include <cstring>
+#include <libproc.h>
+#include <mach/mach.h>
+#include <mach/mach_vm.h>
+#include <sys/sysctl.h>
+#include <unistd.h>
 #else
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
@@ -83,6 +92,13 @@ ReadOnlyProcessHandle::~ReadOnlyProcessHandle() {
   if (handle_ && handle_ != INVALID_HANDLE_VALUE) {
     CloseHandle(handle_);
   }
+#elif defined(__APPLE__)
+  if (handle_) {
+    const auto task = static_cast<mach_port_t>(reinterpret_cast<uintptr_t>(handle_));
+    if (task != mach_task_self()) {
+      mach_port_deallocate(mach_task_self(), task);
+    }
+  }
 #endif
   handle_ = nullptr;
   pid_ = 0;
@@ -123,6 +139,21 @@ Result<ReadOnlyProcessHandle> ReadOnlyProcessHandle::Open(std::uint32_t pid,
     return PrivilegeError{PrivilegeCode::AccessDenied, oss.str()};
   }
   return ReadOnlyProcessHandle(h, gate.granted, pid, true);
+#elif defined(__APPLE__)
+  mach_port_t task = MACH_PORT_NULL;
+  if (pid == static_cast<std::uint32_t>(getpid())) {
+    task = mach_task_self();
+  } else {
+    const kern_return_t kr = task_for_pid(mach_task_self(), static_cast<int>(pid), &task);
+    if (kr != KERN_SUCCESS) {
+      std::ostringstream oss;
+      oss << "task_for_pid(" << pid << ") kr=" << kr
+          << " (same-user / debugger entitlement; SIP blocks unrelated tasks)";
+      return PrivilegeError{PrivilegeCode::AccessDenied, oss.str()};
+    }
+  }
+  return ReadOnlyProcessHandle(reinterpret_cast<HANDLE>(static_cast<uintptr_t>(task)),
+                               gate.granted, pid, true);
 #else
   if (kill(static_cast<pid_t>(pid), 0) != 0 && errno != EPERM) {
     return PrivilegeError{PrivilegeCode::AccessDenied,
@@ -153,6 +184,18 @@ Result<std::wstring> ReadOnlyProcessHandle::ImageName() const {
   }
   return PrivilegeError{PrivilegeCode::AccessDenied,
                         "QueryFullProcessImageNameW / EnumProcessModules failed"};
+#elif defined(__APPLE__)
+  char buf[PROC_PIDPATHINFO_MAXSIZE];
+  const int n = proc_pidpath(static_cast<int>(pid_), buf, sizeof(buf));
+  if (n <= 0) {
+    return PrivilegeError{PrivilegeCode::AccessDenied, "proc_pidpath failed"};
+  }
+  std::wstring out;
+  out.reserve(static_cast<std::size_t>(n));
+  for (int i = 0; i < n && buf[i]; ++i) {
+    out.push_back(static_cast<wchar_t>(static_cast<unsigned char>(buf[i])));
+  }
+  return out;
 #else
   const std::string path = "/proc/" + std::to_string(pid_) + "/exe";
   char buf[4096];
@@ -228,6 +271,32 @@ Result<std::wstring> ReadOnlyProcessHandle::CommandLine() const {
     return PrivilegeError{PrivilegeCode::Failed, "empty command line"};
   }
   return std::wstring(src, chars);
+#elif defined(__APPLE__)
+  int mib[3] = {CTL_KERN, KERN_PROCARGS2, static_cast<int>(pid_)};
+  std::size_t len = 0;
+  if (sysctl(mib, 3, nullptr, &len, nullptr, 0) != 0 || len < sizeof(int) || len > 65536) {
+    return PrivilegeError{PrivilegeCode::AccessDenied, "KERN_PROCARGS2 size failed"};
+  }
+  std::vector<char> buf(len);
+  if (sysctl(mib, 3, buf.data(), &len, nullptr, 0) != 0) {
+    return PrivilegeError{PrivilegeCode::AccessDenied, "KERN_PROCARGS2 refused"};
+  }
+  int argc = 0;
+  std::memcpy(&argc, buf.data(), sizeof(argc));
+  char* p = buf.data() + sizeof(int);
+  char* end = buf.data() + static_cast<std::ptrdiff_t>(len);
+  while (p < end && *p) ++p;
+  while (p < end && *p == 0) ++p;
+  std::string raw;
+  for (int i = 0; i < argc && p < end; ++i) {
+    if (!raw.empty()) raw.push_back(' ');
+    raw.append(p);
+    p += std::strlen(p) + 1;
+  }
+  std::wstring out;
+  out.reserve(raw.size());
+  for (unsigned char c : raw) out.push_back(static_cast<wchar_t>(c));
+  return out;
 #else
   const std::string path = "/proc/" + std::to_string(pid_) + "/cmdline";
   std::ifstream in(path, std::ios::binary);
@@ -256,6 +325,13 @@ Result<std::uint64_t> ReadOnlyProcessHandle::WorkingSetKb() const {
     return PrivilegeError{PrivilegeCode::AccessDenied, "GetProcessMemoryInfo failed"};
   }
   return static_cast<std::uint64_t>(pmc.WorkingSetSize / 1024);
+#elif defined(__APPLE__)
+  proc_taskinfo ti{};
+  const int n = proc_pidinfo(static_cast<int>(pid_), PROC_PIDTASKINFO, 0, &ti, sizeof(ti));
+  if (n != static_cast<int>(sizeof(ti))) {
+    return PrivilegeError{PrivilegeCode::AccessDenied, "proc_pidinfo TASKINFO failed"};
+  }
+  return static_cast<std::uint64_t>(ti.pti_resident_size / 1024);
 #else
   std::ifstream st("/proc/" + std::to_string(pid_) + "/status");
   std::string line;
@@ -298,6 +374,16 @@ Result<std::size_t> ReadOnlyProcessHandle::Read(std::uint64_t addr, void* dst,
     return PrivilegeError{PrivilegeCode::Failed, "ReadProcessMemory failed"};
   }
   return static_cast<std::size_t>(got);
+#elif defined(__APPLE__)
+  const auto task = static_cast<mach_port_t>(reinterpret_cast<uintptr_t>(handle_));
+  mach_vm_size_t got = 0;
+  const kern_return_t kr = mach_vm_read_overwrite(
+      task, static_cast<mach_vm_address_t>(addr), n,
+      reinterpret_cast<mach_vm_address_t>(dst), &got);
+  if (kr != KERN_SUCCESS) {
+    return PrivilegeError{PrivilegeCode::Failed, "mach_vm_read_overwrite failed"};
+  }
+  return static_cast<std::size_t>(got);
 #else
   struct iovec local{};
   local.iov_base = dst;
@@ -331,6 +417,40 @@ Result<std::vector<std::wstring>> ReadOnlyProcessHandle::ModuleNames() const {
     if (GetModuleBaseNameW(handle_, mods[i], name, MAX_PATH)) {
       out.emplace_back(name);
     }
+  }
+  return out;
+#elif defined(__APPLE__)
+  const auto task = static_cast<mach_port_t>(reinterpret_cast<uintptr_t>(handle_));
+  mach_vm_address_t addr = 0;
+  for (unsigned n = 0; n < 4096; ++n) {
+    mach_vm_size_t size = 0;
+    vm_region_basic_info_data_64_t info{};
+    mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
+    mach_port_t object = MACH_PORT_NULL;
+    const kern_return_t kr =
+        mach_vm_region(task, &addr, &size, VM_REGION_BASIC_INFO_64,
+                       reinterpret_cast<vm_region_info_t>(&info), &count, &object);
+    if (kr != KERN_SUCCESS) break;
+    if (object != MACH_PORT_NULL) mach_port_deallocate(mach_task_self(), object);
+    char path[4096];
+    const int got = proc_regionfilename(static_cast<int>(pid_), addr, path, sizeof(path));
+    if (got > 0) {
+      std::wstring w;
+      w.reserve(static_cast<std::size_t>(got));
+      for (int i = 0; i < got && path[i]; ++i) {
+        w.push_back(static_cast<wchar_t>(static_cast<unsigned char>(path[i])));
+      }
+      bool seen = false;
+      for (const auto& e : out) {
+        if (e == w) {
+          seen = true;
+          break;
+        }
+      }
+      if (!seen) out.push_back(std::move(w));
+    }
+    if (addr + size <= addr) break;
+    addr += size;
   }
   return out;
 #else

@@ -22,6 +22,12 @@ if (WIN32)
     ole32 oleaut32 oleacc psapi advapi32 userenv wtsapi32 user32 gdi32 shell32
   )
 endif()
+if (APPLE)
+  target_link_libraries(secdogie_atlas PUBLIC
+    "-framework ApplicationServices"
+    "-framework CoreFoundation"
+  )
+endif()
 
 add_executable(atlas_test
   tests/test_atlas.cpp

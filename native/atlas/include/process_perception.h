@@ -1,15 +1,15 @@
 #pragma once
 
-// Process + window + UI Automation perception.
+// Process + window + UI tree perception.
 //
-// Primary path is documented UI Automation (IUIAutomation). PID / window
-// bounds come from Toolhelp + EnumWindows. PROCESS_VM_READ is used only to
-// call EnumProcessModules for the image name of the target window's process
-// — never to dump arbitrary memory (that is memory_inspector.cpp).
+// Three first-class operator OSes, same source:
+//   Windows : IUIAutomationTreeWalker of the *target pid's* hwnds
+//   Linux   : process list via /proc; window tree is compositor-dependent
+//             (memory inspect is the live path: process_vm_readv)
+//   macOS   : AXUIElement of the target pid + CGWindowList
 //
-// If UIA is unavailable (headless session, control vanished, COM failure)
-// Snapshot() reports mode = VisionFallback on Windows, Memory on Linux
-// (this process's pid, so HybridControlLoop can InspectPid immediately).
+// PROCESS_VM_READ / mach_vm_read / process_vm_readv is used to name modules
+// and to dump *safe* committed pages in memory_inspector.cpp — never to write.
 
 #include "privilege_error.h"
 
@@ -113,6 +113,7 @@ class ProcessPerception {
  private:
   PerceptionSnapshot SnapshotWindows();
   PerceptionSnapshot SnapshotLinux();
+  PerceptionSnapshot SnapshotDarwin();
 };
 
 const char* RoleName(ControlRole r) noexcept;
