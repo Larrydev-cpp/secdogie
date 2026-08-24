@@ -1,5 +1,8 @@
 # secdogie atlas — Model Control Terminal
 
+> **This branch is `windows`.** Same source as `platform/windows`, `platform/linux`, and `platform/macos`. See [PLATFORMS.md](PLATFORMS.md).
+
+
 C++20. Three first-class operator OSes, **same source**. No TODOs, no empty functions.
 
 | OS | UI tree | Memory inspect |
