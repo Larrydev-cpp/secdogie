@@ -61,18 +61,35 @@ static void JsonStr(const std::string& s) { JsonEscape(s.data(), s.size()); }
 static void JsonW(const std::wstring& w) { JsonStr(NarrowStr(w)); }
 
 static std::string RegionKind(const RemoteRegion& r) {
-  if (r.pathname == "[heap]") return "heap";
+  if (r.pathname == "[heap]" || r.pathname == "[private]") return "heap";
   if (r.pathname.rfind("[stack", 0) == 0) return "stack";
+  if (r.pathname == "[image]") return "image";
+  if (r.pathname == "[mapped]") return "file";
   if (r.pathname.empty() || r.pathname.rfind("[anon", 0) == 0) return "anon";
   if (r.pathname.rfind("[v", 0) == 0) return "vdso";
   if (!r.pathname.empty() && r.pathname[0] == '/') return "file";
+  if (r.pathname.find('\\') != std::string::npos) return "file";
+  if (r.pathname.size() > 1 && r.pathname[1] == ':') return "file";
   return "other";
+}
+
+static const char* PlatformName() {
+#if defined(_WIN32)
+  return "windows";
+#else
+  return "linux";
+#endif
 }
 
 static void Usage() {
   std::fputs(
-      "atlas_inspect — Model Control Terminal\n"
+      "atlas_inspect — Model Control Terminal (Windows-first)\n"
       "read-only hybrid UIA + process-memory inspector\n"
+      "\n"
+      "  Primary path is UI Automation (IUIAutomationTreeWalker) of the\n"
+      "  target PID's visible hwnds. On miss: OpenProcess read-only +\n"
+      "  VirtualQueryEx + ReadProcessMemory (SEH). Linux is a port\n"
+      "  (process_vm_readv).\n"
       "\n"
       "  atlas_inspect --list [--json]\n"
       "  atlas_inspect --self [--json] [--max-mb 32] [--find NAME]\n"
@@ -136,10 +153,102 @@ static void DumpHybrid(const std::vector<HybridNode>& nodes) {
   std::printf("]");
 }
 
+static const char* ProtectName(const RemoteRegion& r) {
+#if defined(_WIN32)
+  const unsigned p = r.protect;
+  const unsigned base = p & 0xFFu;
+  const char* n = "OTHER";
+  switch (base) {
+    case 0x01: n = "PAGE_NOACCESS"; break;
+    case 0x02: n = "PAGE_READONLY"; break;
+    case 0x04: n = "PAGE_READWRITE"; break;
+    case 0x08: n = "PAGE_WRITECOPY"; break;
+    case 0x10: n = "PAGE_EXECUTE"; break;
+    case 0x20: n = "PAGE_EXECUTE_READ"; break;
+    case 0x40: n = "PAGE_EXECUTE_READWRITE"; break;
+    case 0x80: n = "PAGE_EXECUTE_WRITECOPY"; break;
+  }
+  static thread_local char buf[96];
+  std::snprintf(buf, sizeof(buf), "%s%s%s%s", n, (p & 0x100) ? "|PAGE_GUARD" : "",
+                (p & 0x200) ? "|PAGE_NOCACHE" : "", (p & 0x400) ? "|PAGE_WRITECOMBINE" : "");
+  return buf;
+#else
+  static thread_local char buf[8];
+  buf[0] = r.readable ? 'r' : '-';
+  buf[1] = r.writable ? 'w' : '-';
+  buf[2] = r.execute ? 'x' : '-';
+  buf[3] = 0;
+  return buf;
+#endif
+}
+
+static void DumpControlTree(const std::vector<ControlNode>& roots) {
+  std::printf("\"tree\":[");
+  bool first = true;
+  const auto walk = [&](auto& self, const ControlNode& n, int depth) -> void {
+    if (!first) std::putchar(',');
+    first = false;
+    std::printf("{\"depth\":%d,\"id\":", depth);
+    JsonStr(n.id);
+    std::printf(",\"role\":");
+    JsonStr(RoleName(n.role));
+    std::printf(",\"name\":");
+    JsonW(n.name);
+    std::printf(",\"automation_id\":");
+    JsonW(n.automation_id);
+    std::printf(",\"hwnd\":%llu,\"pid\":%u,\"enabled\":%s,"
+                "\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d}",
+                static_cast<unsigned long long>(n.hwnd), n.pid,
+                n.enabled ? "true" : "false", n.bounds.x, n.bounds.y, n.bounds.w,
+                n.bounds.h);
+    for (const auto& c : n.children) self(self, c, depth + 1);
+  };
+  for (const auto& r : roots) walk(walk, r, 0);
+  std::printf("]");
+}
+
+static void DumpWindowsOf(std::uint32_t pid) {
+  std::printf("\"windows\":[");
+  bool first = true;
+  for (const auto& w : ProcessPerception::ListWindows()) {
+    if (pid != 0 && w.pid != pid) continue;
+    if (!first) std::putchar(',');
+    first = false;
+    std::printf("{\"hwnd\":%llu,\"pid\":%u,\"title\":",
+                static_cast<unsigned long long>(w.hwnd), w.pid);
+    JsonW(w.title);
+    std::printf(",\"class\":");
+    JsonW(w.class_name);
+    std::printf(",\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"visible\":%s}",
+                w.bounds.x, w.bounds.y, w.bounds.w, w.bounds.h,
+                w.visible ? "true" : "false");
+  }
+  std::printf("]");
+}
+
+static void DumpUia(const PerceptionSnapshot& uia) {
+  std::printf("\"uia\":{\"mode\":");
+  JsonStr(uia.mode == PerceptionMode::Uia
+              ? "uia"
+              : (uia.mode == PerceptionMode::Memory ? "memory" : "vision-fallback"));
+  std::printf(",\"detail\":");
+  JsonStr(uia.detail);
+  std::printf(",\"pid\":%u,\"hwnd\":%llu,\"title\":", uia.process.pid,
+              static_cast<unsigned long long>(uia.window.hwnd));
+  JsonW(uia.window.title);
+  std::printf(",\"class\":");
+  JsonW(uia.window.class_name);
+  std::printf(",\"nodes\":%zu,", uia.controls.size());
+  DumpControlTree(uia.controls);
+  std::putchar('}');
+}
+
 static void DumpFull(const InspectSnapshot& s, const std::vector<HybridNode>& fused,
                      const PerceptionSnapshot& uia, const PrivilegeError* wall,
                      const ControlNode* found) {
-  std::printf("{\"ok\":true,\"pid\":%u,\"image\":", s.pid);
+  std::printf("{\"ok\":true,\"platform\":");
+  JsonStr(PlatformName());
+  std::printf(",\"pid\":%u,\"image\":", s.pid);
   JsonW(s.image);
   std::printf(",\"cmdline\":");
   JsonW(s.cmdline);
@@ -161,13 +270,10 @@ static void DumpFull(const InspectSnapshot& s, const std::vector<HybridNode>& fu
               s.stats.pes_found, s.stats.json_found, s.mapped.size(),
               s.stats.handle_closed ? "true" : "false",
               s.stats.token_closed ? "true" : "false");
-  std::printf(",\"uia\":{\"mode\":");
-  JsonStr(uia.mode == PerceptionMode::Uia
-              ? "uia"
-              : (uia.mode == PerceptionMode::Memory ? "memory" : "vision-fallback"));
-  std::printf(",\"detail\":");
-  JsonStr(uia.detail);
-  std::printf(",\"pid\":%u,\"nodes\":%zu}", uia.process.pid, uia.controls.size());
+  std::printf(",");
+  DumpUia(uia);
+  std::printf(",");
+  DumpWindowsOf(s.pid);
 
   std::printf(",\"regions\":[");
   for (std::size_t i = 0; i < s.regions.size(); ++i) {
@@ -183,6 +289,8 @@ static void DumpFull(const InspectSnapshot& s, const std::vector<HybridNode>& fu
                 r.guard ? "true" : "false", r.noaccess ? "true" : "false",
                 r.scanned ? "true" : "false");
     JsonStr(RegionKind(r));
+    std::printf(",\"protect_name\":");
+    JsonStr(ProtectName(r));
     std::printf(",\"pathname\":");
     JsonStr(r.pathname);
     std::putchar('}');
@@ -299,7 +407,9 @@ int main(int argc, char** argv) {
   if (list) {
     const std::vector<ListedProcess> procs = ProcessPerception::ListProcesses();
     if (json) {
-      std::printf("{\"count\":%zu,\"operator\":", procs.size());
+      std::printf("{\"count\":%zu,\"platform\":", procs.size());
+      JsonStr(PlatformName());
+      std::printf(",\"operator\":");
       if (own) {
         std::printf("{\"identity\":");
         JsonStr(IdentityName(own.value().identity));
@@ -312,13 +422,24 @@ int main(int argc, char** argv) {
       std::printf(",\"processes\":[");
       for (std::size_t i = 0; i < procs.size(); ++i) {
         if (i) std::putchar(',');
-        std::printf("{\"pid\":%u,\"rss_kb\":%llu,\"image\":", procs[i].pid,
-                    static_cast<unsigned long long>(procs[i].rss_kb));
+        std::printf("{\"pid\":%u,\"rss_kb\":%llu,\"session\":%u,\"image\":", procs[i].pid,
+                    static_cast<unsigned long long>(procs[i].rss_kb), procs[i].session_id);
         JsonW(procs[i].image);
         std::printf(",\"cmdline\":");
         std::wstring cmd = procs[i].cmdline;
         if (cmd.size() > 200) cmd.resize(200);
         JsonW(cmd);
+        std::putchar('}');
+      }
+      std::printf("],\"windows\":[");
+      const std::vector<WindowInfo> wins = ProcessPerception::ListWindows();
+      for (std::size_t i = 0; i < wins.size(); ++i) {
+        if (i) std::putchar(',');
+        std::printf("{\"hwnd\":%llu,\"pid\":%u,\"title\":",
+                    static_cast<unsigned long long>(wins[i].hwnd), wins[i].pid);
+        JsonW(wins[i].title);
+        std::printf(",\"class\":");
+        JsonW(wins[i].class_name);
         std::putchar('}');
       }
       std::printf("]}\n");
@@ -389,7 +510,7 @@ int main(int argc, char** argv) {
   }
 
   ProcessPerception perception;
-  PerceptionSnapshot uia = perception.Snapshot();
+  PerceptionSnapshot uia = perception.SnapshotPid(pid);
   Result<InspectSnapshot> mem = InspectPid(pid, cfg);
   if (!mem) {
     if (json) {

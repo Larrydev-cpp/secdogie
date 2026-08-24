@@ -74,6 +74,8 @@ class ReadOnlyProcessHandle {
 
   Result<std::wstring> ImageName() const;
   Result<std::uint32_t> SessionId() const;
+  Result<std::wstring> CommandLine() const;
+  Result<std::uint64_t> WorkingSetKb() const;
   Result<std::size_t> Read(std::uint64_t addr, void* dst, std::size_t n) const;
   Result<std::vector<std::wstring>> ModuleNames() const;
 

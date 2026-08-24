@@ -240,6 +240,34 @@ void RunMemoryInspectorTests() {
   }
 #endif
 
+#if defined(_WIN32)
+  {
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+    wchar_t cmd[] = L"cmd.exe /c ping -n 4 127.0.0.1 >NUL";
+    if (CreateProcessW(nullptr, cmd, nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr,
+                       nullptr, &si, &pi)) {
+      Sleep(250);
+      InspectConfig cfg;
+      cfg.max_bytes = 16ull * 1024ull * 1024ull;
+      Result<InspectSnapshot> snap = InspectPid(pi.dwProcessId, cfg);
+      TerminateProcess(pi.hProcess, 0);
+      WaitForSingleObject(pi.hProcess, 2000);
+      CloseHandle(pi.hThread);
+      CloseHandle(pi.hProcess);
+      Expect(snap.ok(), "InspectPid(cmd) is a real foreign-process RPM",
+             snap.ok() ? "ok" : PrivilegeCodeName(snap.error().code));
+      if (snap) {
+        Expect(!snap.value().regions.empty(), "VirtualQueryEx returned VAD regions",
+               "regions");
+        Expect(snap.value().stats.handle_closed, "Windows foreign inspect handle closed",
+               "raii");
+      }
+    }
+  }
+#endif
+
   {
     unsigned char pe[128];
     std::memset(pe, 0, sizeof(pe));
@@ -342,7 +370,7 @@ void RunMemoryInspectorTests() {
   {
     ProcessPerception perception;
     const PerceptionSnapshot snap = perception.Snapshot();
-    Expect(snap.process.pid != 0, "Snapshot reports a real PID (Linux memory-primary)",
+    Expect(snap.process.pid != 0, "Snapshot reports a real PID (Windows UIA / Linux port)",
            "pid");
   }
   {

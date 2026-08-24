@@ -6,14 +6,21 @@
 #include <cstdio>
 #include <cstdlib>
 #include <sstream>
+#include <vector>
 
 #if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
 #include <oleauto.h>
+#include <psapi.h>
 #include <tlhelp32.h>
 #include <uiautomation.h>
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "oleaut32.lib")
 #pragma comment(lib, "oleacc.lib")
+#pragma comment(lib, "psapi.lib")
 #else
 #include <cctype>
 #include <cstdlib>
@@ -269,6 +276,44 @@ std::vector<ListedProcess> ProcessPerception::ListProcesses() {
       DWORD sid = 0;
       ProcessIdToSessionId(pe.th32ProcessID, &sid);
       p.session_id = sid;
+      HANDLE ph = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pe.th32ProcessID);
+      if (ph) {
+        UniqueHandle h(ph);
+        PROCESS_MEMORY_COUNTERS pmc{};
+        if (GetProcessMemoryInfo(h.get(), &pmc, sizeof(pmc))) {
+          p.rss_kb = pmc.WorkingSetSize / 1024;
+        }
+        using NtQip = LONG(WINAPI*)(HANDLE, ULONG, PVOID, ULONG, PULONG);
+        HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+        auto ntq = ntdll ? reinterpret_cast<NtQip>(
+                               GetProcAddress(ntdll, "NtQueryInformationProcess"))
+                         : nullptr;
+        if (ntq) {
+          ULONG need = 0;
+          ntq(h.get(), 60, nullptr, 0, &need);
+          if (need > 0 && need <= 65536) {
+            std::vector<unsigned char> buf(need);
+            if (ntq(h.get(), 60, buf.data(), need, &need) >= 0) {
+              struct UStr {
+                unsigned short length;
+                unsigned short maximum_length;
+                wchar_t* buffer;
+              };
+              auto* us = reinterpret_cast<UStr*>(buf.data());
+              auto* begin = reinterpret_cast<unsigned char*>(buf.data());
+              auto* pb = reinterpret_cast<unsigned char*>(us->buffer);
+              const wchar_t* src = nullptr;
+              if (us->buffer && us->length >= 2 && pb >= begin &&
+                  pb + us->length <= begin + buf.size()) {
+                src = us->buffer;
+              } else if (us->length >= 2 && sizeof(UStr) + us->length <= buf.size()) {
+                src = reinterpret_cast<const wchar_t*>(buf.data() + sizeof(UStr));
+              }
+              if (src) p.cmdline.assign(src, us->length / sizeof(wchar_t));
+            }
+          }
+        }
+      }
       out.push_back(std::move(p));
       if (out.size() >= 8192) break;
     } while (Process32NextW(snap_h.get(), &pe));
@@ -333,8 +378,9 @@ PerceptionSnapshot ProcessPerception::SnapshotLinux() {
     s.process.image = FromUtf8(std::string(buf, static_cast<std::size_t>(n)));
   }
   s.detail =
-      "Linux: UI Automation is Windows-only. Snapshot reports this process so "
-      "HybridControlLoop can InspectPid immediately (process_vm_readv).";
+      "Linux port: UI Automation is Windows-only. Snapshot reports this "
+      "process so HybridControlLoop can InspectPid immediately "
+      "(process_vm_readv).";
 #else
   s.detail = "SnapshotLinux is not used on Windows";
 #endif
@@ -345,51 +391,61 @@ PerceptionSnapshot ProcessPerception::Snapshot() {
 #if !defined(_WIN32)
   return SnapshotLinux();
 #else
-  return SnapshotWindows();
+  HWND fg = GetForegroundWindow();
+  DWORD pid = 0;
+  if (fg) GetWindowThreadProcessId(fg, &pid);
+  if (pid == 0) pid = GetCurrentProcessId();
+  return SnapshotPid(static_cast<std::uint32_t>(pid));
 #endif
 }
 
-PerceptionSnapshot ProcessPerception::SnapshotWindows() {
+PerceptionSnapshot ProcessPerception::SnapshotPid(std::uint32_t pid) {
+#if !defined(_WIN32)
+  PerceptionSnapshot s = SnapshotLinux();
+  s.process.pid = pid;
+  s.detail =
+      "Linux port: UI Automation is Windows-only. Memory inspect of the "
+      "requested pid uses process_vm_readv.";
+  return s;
+#else
   PerceptionSnapshot snap;
-  snap.mode = PerceptionMode::VisionFallback;
-  snap.detail = "UIA unavailable";
-
-#if defined(_WIN32)
-  ComInit com;
-  HWND fg = GetForegroundWindow();
-  if (!fg) {
-    snap.detail = "no foreground window";
-    return snap;
-  }
-  DWORD pid = 0;
-  GetWindowThreadProcessId(fg, &pid);
-  wchar_t title[512]{};
-  wchar_t cls[256]{};
-  GetWindowTextW(fg, title, 512);
-  GetClassNameW(fg, cls, 256);
-  RECT wr{};
-  GetWindowRect(fg, &wr);
-  snap.window.hwnd = reinterpret_cast<std::uint64_t>(fg);
-  snap.window.pid = pid;
-  snap.window.title = title;
-  snap.window.class_name = cls;
-  snap.window.bounds = {wr.left, wr.top, wr.right - wr.left, wr.bottom - wr.top};
-  snap.window.visible = true;
+  snap.mode = PerceptionMode::Memory;
   snap.process.pid = pid;
-  DWORD sid = 0;
-  ProcessIdToSessionId(pid, &sid);
-  snap.process.session_id = sid;
+  snap.detail = "no visible hwnd for pid — UIA miss, memory-primary";
 
-  wchar_t image[MAX_PATH]{};
   HANDLE proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
   if (proc) {
     UniqueHandle ph(proc);
+    wchar_t image[MAX_PATH]{};
     DWORD n = MAX_PATH;
     if (QueryFullProcessImageNameW(ph.get(), 0, image, &n)) {
       snap.process.image.assign(image, n);
     }
   }
+  DWORD sid = 0;
+  ProcessIdToSessionId(pid, &sid);
+  snap.process.session_id = sid;
 
+  std::vector<WindowInfo> all = ListWindows();
+  std::vector<WindowInfo> wins;
+  for (auto& w : all) {
+    if (w.pid == pid) wins.push_back(std::move(w));
+  }
+  if (wins.empty()) return snap;
+
+  std::size_t best = 0;
+  std::int64_t best_area = 0;
+  for (std::size_t i = 0; i < wins.size(); ++i) {
+    const std::int64_t area =
+        static_cast<std::int64_t>(wins[i].bounds.w) * wins[i].bounds.h;
+    if (area > best_area) {
+      best_area = area;
+      best = i;
+    }
+  }
+  snap.window = wins[best];
+
+  ComInit com;
   IUIAutomation* uia = nullptr;
   HRESULT hr = CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER,
                                 IID_IUIAutomation, reinterpret_cast<void**>(&uia));
@@ -398,43 +454,46 @@ PerceptionSnapshot ProcessPerception::SnapshotWindows() {
     return snap;
   }
 
-  IUIAutomationElement* root = nullptr;
-  hr = uia->ElementFromHandle(fg, &root);
-  if (FAILED(hr) || !root) {
-    uia->Release();
-    snap.detail = "ElementFromHandle failed — vision/memory fallback";
-    return snap;
-  }
-
-  ControlNode window_node;
-  const bool root_ok = ElementOf(root, &window_node, pid, snap.window.hwnd);
-  if (root_ok) {
+  std::size_t remaining = ProcessPerception::kMaxTreeNodes;
+  for (const auto& w : wins) {
+    if (remaining == 0) break;
+    IUIAutomationElement* root = nullptr;
+    hr = uia->ElementFromHandle(reinterpret_cast<HWND>(static_cast<uintptr_t>(w.hwnd)),
+                                &root);
+    if (FAILED(hr) || !root) continue;
+    ControlNode window_node;
+    if (!ElementOf(root, &window_node, pid, w.hwnd)) {
+      root->Release();
+      continue;
+    }
     IUIAutomationTreeWalker* walker = nullptr;
     hr = uia->get_ControlViewWalker(&walker);
-    std::size_t remaining = ProcessPerception::kMaxTreeNodes;
     if (SUCCEEDED(hr) && walker) {
-      Walk(walker, root, 0, &window_node, pid, snap.window.hwnd, &remaining);
+      Walk(walker, root, 0, &window_node, pid, w.hwnd, &remaining);
       walker->Release();
-      snap.detail = "UIA snapshot ok (ControlViewWalker tree)";
     } else {
       IUIAutomationCondition* true_cond = nullptr;
       uia->CreateTrueCondition(&true_cond);
       IUIAutomationElementArray* arr = nullptr;
       root->FindAll(TreeScope_Subtree, true_cond, &arr);
       if (true_cond) true_cond->Release();
-      FlattenFindAll(arr, &window_node, pid, snap.window.hwnd, remaining);
+      FlattenFindAll(arr, &window_node, pid, w.hwnd, remaining);
       if (arr) arr->Release();
-      snap.detail = "UIA snapshot ok (FindAll fallback — walker unavailable)";
     }
     snap.controls.push_back(std::move(window_node));
-    snap.mode = PerceptionMode::Uia;
-  } else {
-    snap.detail = "root element had no usable name/bounds — vision/memory fallback";
+    root->Release();
   }
-  root->Release();
   uia->Release();
-#endif
+  if (!snap.controls.empty()) {
+    snap.mode = PerceptionMode::Uia;
+    snap.detail = "UIA snapshot ok (per-pid ControlViewWalker)";
+  }
   return snap;
+#endif
+}
+
+PerceptionSnapshot ProcessPerception::SnapshotWindows() {
+  return Snapshot();
 }
 
 }  // namespace secdogie::atlas

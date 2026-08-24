@@ -99,8 +99,9 @@ class ProcessPerception {
   static constexpr std::size_t kMaxTreeNodes = 4000;
 
   PerceptionSnapshot Snapshot();
+  PerceptionSnapshot SnapshotPid(std::uint32_t pid);
 
-  std::vector<WindowInfo> ListWindows();
+  static std::vector<WindowInfo> ListWindows();
 
   static std::vector<ListedProcess> ListProcesses();
 

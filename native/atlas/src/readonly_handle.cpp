@@ -3,6 +3,9 @@
 #endif
 #include "readonly_handle.h"
 
+#include <cstdio>
+#include <fstream>
+#include <iterator>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -179,6 +182,92 @@ Result<std::uint32_t> ReadOnlyProcessHandle::SessionId() const {
   return static_cast<std::uint32_t>(sid);
 #else
   return static_cast<std::uint32_t>(0);
+#endif
+}
+
+Result<std::wstring> ReadOnlyProcessHandle::CommandLine() const {
+  if (!valid()) {
+    return PrivilegeError{PrivilegeCode::Failed, "handle closed"};
+  }
+#if defined(_WIN32)
+  using NtQip = LONG(WINAPI*)(HANDLE, ULONG, PVOID, ULONG, PULONG);
+  HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+  if (!ntdll) {
+    return PrivilegeError{PrivilegeCode::Failed, "ntdll missing"};
+  }
+  auto ntq = reinterpret_cast<NtQip>(GetProcAddress(ntdll, "NtQueryInformationProcess"));
+  if (!ntq) {
+    return PrivilegeError{PrivilegeCode::Failed, "NtQueryInformationProcess missing"};
+  }
+  ULONG need = 0;
+  ntq(handle_, 60 /* ProcessCommandLineInformation */, nullptr, 0, &need);
+  if (need == 0 || need > 65536) {
+    return PrivilegeError{PrivilegeCode::AccessDenied, "command line not available"};
+  }
+  std::vector<unsigned char> buf(need);
+  const LONG st = ntq(handle_, 60, buf.data(), need, &need);
+  if (st < 0) {
+    return PrivilegeError{PrivilegeCode::AccessDenied, "ProcessCommandLineInformation refused"};
+  }
+  struct UStr {
+    unsigned short length;
+    unsigned short maximum_length;
+    wchar_t* buffer;
+  };
+  auto* us = reinterpret_cast<UStr*>(buf.data());
+  const auto* begin = reinterpret_cast<unsigned char*>(buf.data());
+  const wchar_t* src = nullptr;
+  const std::size_t chars = us->length / sizeof(wchar_t);
+  const auto* p = reinterpret_cast<unsigned char*>(us->buffer);
+  if (us->buffer && us->length >= 2 && p >= begin && p + us->length <= begin + buf.size()) {
+    src = us->buffer;
+  } else if (us->length >= 2 && sizeof(UStr) + us->length <= buf.size()) {
+    src = reinterpret_cast<const wchar_t*>(buf.data() + sizeof(UStr));
+  }
+  if (!src || chars == 0) {
+    return PrivilegeError{PrivilegeCode::Failed, "empty command line"};
+  }
+  return std::wstring(src, chars);
+#else
+  const std::string path = "/proc/" + std::to_string(pid_) + "/cmdline";
+  std::ifstream in(path, std::ios::binary);
+  if (!in) {
+    return PrivilegeError{PrivilegeCode::AccessDenied, "cannot open /proc/pid/cmdline"};
+  }
+  std::string raw((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  for (char& c : raw) {
+    if (c == '\0') c = ' ';
+  }
+  while (!raw.empty() && raw.back() == ' ') raw.pop_back();
+  std::wstring out;
+  out.reserve(raw.size());
+  for (unsigned char c : raw) out.push_back(static_cast<wchar_t>(c));
+  return out;
+#endif
+}
+
+Result<std::uint64_t> ReadOnlyProcessHandle::WorkingSetKb() const {
+  if (!valid()) {
+    return PrivilegeError{PrivilegeCode::Failed, "handle closed"};
+  }
+#if defined(_WIN32)
+  PROCESS_MEMORY_COUNTERS pmc{};
+  if (!GetProcessMemoryInfo(handle_, &pmc, sizeof(pmc))) {
+    return PrivilegeError{PrivilegeCode::AccessDenied, "GetProcessMemoryInfo failed"};
+  }
+  return static_cast<std::uint64_t>(pmc.WorkingSetSize / 1024);
+#else
+  std::ifstream st("/proc/" + std::to_string(pid_) + "/status");
+  std::string line;
+  while (st && std::getline(st, line)) {
+    if (line.rfind("VmRSS:", 0) == 0) {
+      unsigned long kb = 0;
+      if (std::sscanf(line.c_str() + 6, "%lu", &kb) == 1) {
+        return static_cast<std::uint64_t>(kb);
+      }
+    }
+  }
+  return PrivilegeError{PrivilegeCode::Failed, "VmRSS missing"};
 #endif
 }
 

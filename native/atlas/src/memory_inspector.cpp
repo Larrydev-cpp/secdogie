@@ -15,6 +15,7 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
+#include <psapi.h>
 #include <windows.h>
 #endif
 
@@ -89,6 +90,9 @@ RemoteRegion FromMbi(const MEMORY_BASIC_INFORMATION& m) {
                 p == PAGE_EXECUTE_WRITECOPY);
   r.writable = (p == PAGE_READWRITE || p == PAGE_WRITECOPY ||
                 p == PAGE_EXECUTE_READWRITE || p == PAGE_EXECUTE_WRITECOPY);
+  if (m.Type == MEM_IMAGE) r.pathname = "[image]";
+  else if (m.Type == MEM_MAPPED) r.pathname = "[mapped]";
+  else if (m.Type == MEM_PRIVATE) r.pathname = "[private]";
   return r;
 }
 
@@ -102,6 +106,19 @@ std::vector<RemoteRegion> QueryWindows(HANDLE h) {
     if (next <= addr) break;
     addr = next;
     if (out.size() > 65536) break;
+  }
+  wchar_t path[MAX_PATH];
+  for (RemoteRegion& r : out) {
+    if (!r.committed || r.size == 0) continue;
+    const DWORD n = GetMappedFileNameW(
+        h, reinterpret_cast<LPVOID>(static_cast<uintptr_t>(r.start)), path, MAX_PATH);
+    if (n == 0) continue;
+    r.pathname.clear();
+    r.pathname.reserve(n);
+    for (DWORD i = 0; i < n && path[i]; ++i) {
+      const wchar_t c = path[i];
+      r.pathname.push_back(c >= 32 && c < 127 ? static_cast<char>(c) : '?');
+    }
   }
   return out;
 }
@@ -179,7 +196,7 @@ int HitScore(const MemoryHit& h) {
       ++letters;
     } else if (c == L'_') {
       ++us;
-    } else if (c == L'/') {
+    } else if (c == L'/' || c == L'\\') {
       ++slash;
     } else if (c == L' ') {
       ++space;
@@ -419,42 +436,27 @@ Result<InspectSnapshot> InspectHandle(const ReadOnlyProcessHandle& handle,
   if (sid) snap.session_id = sid.value();
   auto mods = handle.ModuleNames();
   if (mods) snap.modules = mods.value();
-
-#if !defined(_WIN32)
-  {
-    const std::string proc = "/proc/" + std::to_string(handle.pid());
-    std::ifstream cmd(proc + "/cmdline", std::ios::binary);
-    std::string raw((std::istreambuf_iterator<char>(cmd)),
-                    std::istreambuf_iterator<char>());
-    for (char& c : raw) {
-      if (c == '\0') c = ' ';
-    }
-    while (!raw.empty() && raw.back() == ' ') raw.pop_back();
-    snap.cmdline.clear();
-    snap.cmdline.reserve(raw.size());
-    for (unsigned char c : raw) snap.cmdline.push_back(static_cast<wchar_t>(c));
-    std::ifstream st(proc + "/status");
-    std::string line;
-    while (st && std::getline(st, line)) {
-      if (line.rfind("VmRSS:", 0) == 0) {
-        unsigned long kb = 0;
-        if (std::sscanf(line.c_str() + 6, "%lu", &kb) == 1) snap.rss_kb = kb;
-        break;
-      }
-    }
-  }
-#endif
+  auto cmd = handle.CommandLine();
+  if (cmd) snap.cmdline = cmd.value();
+  auto rss = handle.WorkingSetKb();
+  if (rss) snap.rss_kb = rss.value();
 
   const std::vector<RemoteRegion> regions = QueryRegions(handle);
   snap.stats.regions_seen = regions.size();
   snap.regions = regions;
   if (snap.regions.size() > cfg.max_regions) snap.regions.resize(cfg.max_regions);
   if (regions.empty()) {
+#if defined(_WIN32)
+    snap.detail =
+        "VAD list empty: VirtualQueryEx returned no committed regions "
+        "(handle lost the target, or the process is exiting).";
+#else
     snap.detail =
         "VAD list empty: /proc/<pid>/maps unreadable (Yama ptrace_scope on "
         "unrelated PIDs) or the process has no mapped pages. Token/cmdline "
         "are still filled. Inspect a descendant (atlas_target) to exercise "
         "process_vm_readv.";
+#endif
   }
 
   std::vector<std::uint8_t> chunk;
@@ -502,7 +504,7 @@ Result<InspectSnapshot> InspectHandle(const ReadOnlyProcessHandle& handle,
   }
 
   for (const RemoteRegion& r : snap.regions) {
-    if (r.pathname.empty() || r.pathname[0] != '/') continue;
+    if (r.pathname.empty() || r.pathname[0] == '[') continue;
     bool seen = false;
     for (auto& m : snap.mapped) {
       std::string existing;

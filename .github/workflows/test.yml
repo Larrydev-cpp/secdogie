@@ -108,7 +108,7 @@ jobs:
           ctest --test-dir build-asan --output-on-failure
           ./build-asan/fuzz_packets 1000000
 
-  # --- Atlas native module: C++ decision core (read-only handles, TI wall, pixel-diff)
+  # --- Atlas native module: C++ decision core (Windows MCT; Linux is a port)
   atlas-tests:
     runs-on: ubuntu-latest
     steps:
@@ -126,3 +126,19 @@ jobs:
       - name: Test
         working-directory: native/atlas
         run: ctest --test-dir build --output-on-failure
+
+  # --- Atlas native module on Windows (UIA / RPM / VirtualQueryEx / token wall)
+  atlas-tests-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build (MSVC)
+        working-directory: native/atlas
+        run: |
+          cmake -S . -B build
+          cmake --build build --config Release --target atlas_test atlas_inspect atlas_target
+
+      - name: Test
+        working-directory: native/atlas
+        run: ctest --test-dir build -C Release --output-on-failure

@@ -19,7 +19,7 @@ target_include_directories(secdogie_atlas PUBLIC include)
 if (WIN32)
   target_compile_definitions(secdogie_atlas PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN)
   target_link_libraries(secdogie_atlas PUBLIC
-    ole32 oleaut32 oleacc psapi advapi32 userenv wtsapi32 user32 gdi32
+    ole32 oleaut32 oleacc psapi advapi32 userenv wtsapi32 user32 gdi32 shell32
   )
 endif()
 
@@ -35,6 +35,15 @@ target_link_libraries(atlas_inspect PRIVATE secdogie_atlas)
 target_include_directories(atlas_inspect PRIVATE include)
 
 add_executable(atlas_target src/atlas_target.cpp)
+
+if (WIN32)
+  target_link_libraries(atlas_target PRIVATE user32)
+  if (MSVC)
+    foreach(tgt secdogie_atlas atlas_test atlas_inspect atlas_target)
+      target_compile_options(${tgt} PRIVATE /utf-8 /W3 /EHsc)
+    endforeach()
+  endif()
+endif()
 
 enable_testing()
 add_test(NAME atlas_test COMMAND atlas_test)
