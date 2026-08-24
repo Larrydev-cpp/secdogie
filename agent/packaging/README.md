@@ -106,3 +106,55 @@ a temp dir on first launch, so it starts a beat slower than a normal
 program. If that matters, drop `--onefile` behavior by switching the spec to
 a `COLLECT` (one-folder) build — faster startup, but it ships as a folder
 instead of a single file.
+
+## macOS notes (Apple Silicon + Intel)
+
+### Gatekeeper / quarantine
+
+Downloaded binaries are often quarantined. Symptoms: double-click does nothing,
+or a dialog saying the app cannot be opened.
+
+Fix once:
+
+```sh
+xattr -d com.apple.quarantine ./secdogie-agent
+chmod +x ./secdogie-agent ./open.command
+```
+
+Or right-click the binary → **Open** → **Open**.
+
+The included `open.command` launcher already tries to strip the quarantine
+attribute automatically.
+
+### Accessibility permission (required for `--desktop-ax`)
+
+Element-level control uses the macOS Accessibility (AX) API. The *host process*
+that launches the binary (Terminal, iTerm, or the binary itself when double-clicked)
+must be listed under:
+
+**System Settings → Privacy & Security → Accessibility**
+
+Without this permission the AX framework loads but returns an empty tree; the
+agent silently falls back to pure screenshot + mouse/keyboard control.
+
+### Architecture
+
+| Runner / machine | Asset name |
+|------------------|------------|
+| Apple Silicon (M1/M2/M3/…) | `agent-macos-arm64` |
+| Intel Mac | `agent-macos-x86_64` |
+
+PyInstaller does **not** cross-compile. Build (or download) the binary that
+matches the CPU you will run on. Rosetta 2 can run the x86_64 binary on Apple
+Silicon, but native arm64 is preferred.
+
+### Local build on a Mac
+
+```sh
+cd agent
+./packaging/build.sh
+# → packaging/dist/secdogie-agent
+```
+
+Then copy `packaging/launchers/open.command` next to the binary for a
+double-click friendly start.
