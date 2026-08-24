@@ -90,6 +90,7 @@ struct ListedProcess {
   std::wstring image;
   std::wstring cmdline;
   std::uint32_t session_id = 0;
+  std::uint64_t rss_kb = 0;
 };
 
 class ProcessPerception {
@@ -97,14 +98,10 @@ class ProcessPerception {
   static constexpr int kMaxTreeDepth = 40;
   static constexpr std::size_t kMaxTreeNodes = 4000;
 
-  // Foreground window, its PID, and the UIA tree under it.
-  // Linux: this process (pid + image) so memory inspect is the primary path.
   PerceptionSnapshot Snapshot();
 
-  // Enumerate visible top-level windows (no UIA). Empty off Windows.
   std::vector<WindowInfo> ListWindows();
 
-  // Toolhelp /proc process list. Read-only; no handles held after return.
   static std::vector<ListedProcess> ListProcesses();
 
   static const ControlNode* Find(const std::vector<ControlNode>& roots,

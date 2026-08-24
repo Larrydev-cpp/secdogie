@@ -26,11 +26,15 @@ falls back from UIA into deep memory, and never writes the target.
 cmake -S . -B build
 cmake --build build --target atlas_test atlas_inspect
 ctest --test-dir build --output-on-failure
-./build/atlas_inspect --list
-./build/atlas_inspect --pid <gui-pid>
+./build/atlas_inspect --list --json
+./build/atlas_inspect --pid <gui-pid> --json --find "Zoom Extents"
 ./build/atlas_inspect --self --token
-./build/atlas_inspect --self --json
+./build/atlas_target   # descendant heap fixture for Yama-limited sandboxes
 ```
+
+`--json` dumps the **full** snapshot, not a summary: token, VAD regions (`scanned` flag + `kind` heap/stack/anon/file/vdso), strings with remote VA + encoding, DIB / PE / JSON hits, mapped modules, hybrid nodes, and `--find` match. Handle is closed before any JSON is printed.
+
+On Linux, Yama `ptrace_scope=1` makes `/proc/<unrelated-pid>/maps` return EACCES. `InspectPid` of a descendant still works (`process_vm_readv`). `atlas_target` plants `Zoom Extents` / `LAYER_DIMS` / a JSON viewport / a 64×64 DIB on the heap so the console has a live foreign PID to read.
 
 Off Windows the inspector is live: it uses `process_vm_readv` against a real PID. The tests fork a child, plant a heap marker, and assert the parent can read it. `HybridControlLoop` on Linux reports this process so the memory fallback is the primary path, not a stub.
 
@@ -46,5 +50,6 @@ Off Windows the inspector is live: it uses `process_vm_readv` against a real PID
 | `include/privilege_manager.h` + `src/privilege_manager.cpp` | Integrity, TI refusal, allowlisted SYSTEM |
 | `include/process_perception.h` + `src/process_perception.cpp` | Toolhelp, EnumWindows, UIA tree walker, /proc list |
 | `include/hybrid_control_loop.h` + `src/hybrid_control_loop.cpp` | UIA → last-known → memory inspect → pixel-diff |
-| `src/atlas_inspect.cpp` | Model Control Terminal CLI |
+| `src/atlas_inspect.cpp` | Model Control Terminal CLI (full JSON) |
+| `src/atlas_target.cpp` | Heap fixture process (descendant inspect) |
 | `tests/test_memory_inspector.cpp` | Real child-process inspect + live hybrid loop |
