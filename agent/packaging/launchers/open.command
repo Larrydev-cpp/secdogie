@@ -47,7 +47,7 @@ if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ ! -f "$HOME/.config/secdogie/config" ]; 
 fi
 
 echo "Starting secdogie-agent ..."
-Echo
+echo
 echo "NOTE (macOS Accessibility):"
 echo "  For element-level control (--desktop-ax) you must grant Accessibility"
 echo "  permission to the host that launches this binary:"
