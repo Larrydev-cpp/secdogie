@@ -245,7 +245,9 @@ LoopStep HybridControlLoop::Run(const LoopAction& action, SinkFn sink) {
     return step;
   }
 
-  PerceptionSnapshot current = perception_.Snapshot();
+  PerceptionSnapshot current = config_.target_pid
+                                   ? perception_.SnapshotPid(config_.target_pid)
+                                   : perception_.Snapshot();
   const ControlNode* found = ProcessPerception::Find(current.controls, action.selector);
   PerceptionMode mode = current.mode;
 
