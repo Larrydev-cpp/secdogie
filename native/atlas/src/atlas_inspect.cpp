@@ -4,6 +4,7 @@
 #include "process_perception.h"
 #include "readonly_handle.h"
 #include "token_wall.h"
+#include "utf.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -19,20 +20,8 @@
 using namespace secdogie::atlas;
 
 static void PutNarrow(const std::wstring& w) {
-  for (wchar_t c : w) {
-    if (c >= 32 && c < 127) std::putchar(static_cast<char>(c));
-    else std::putchar('?');
-  }
-}
-
-static std::string NarrowStr(const std::wstring& w) {
-  std::string s;
-  s.reserve(w.size());
-  for (wchar_t c : w) {
-    if (c >= 32 && c < 127) s.push_back(static_cast<char>(c));
-    else s.push_back('?');
-  }
-  return s;
+  const std::string u8 = WideToUtf8(w);
+  std::fwrite(u8.data(), 1, u8.size(), stdout);
 }
 
 static void JsonEscape(const char* s, std::size_t n) {
@@ -58,7 +47,7 @@ static void JsonEscape(const char* s, std::size_t n) {
 }
 
 static void JsonStr(const std::string& s) { JsonEscape(s.data(), s.size()); }
-static void JsonW(const std::wstring& w) { JsonStr(NarrowStr(w)); }
+static void JsonW(const std::wstring& w) { JsonStr(WideToUtf8(w)); }
 
 static std::string RegionKind(const RemoteRegion& r) {
   if (r.pathname == "[heap]" || r.pathname == "[private]") return "heap";
@@ -94,6 +83,8 @@ static void Usage() {
       "  Linux   : /proc/<pid>/maps + process_vm_readv.\n"
       "  macOS   : AXUIElement of the target PID; miss → task_for_pid +\n"
       "            mach_vm_region + mach_vm_read_overwrite.\n"
+      "  Decode  : Windows UTF-16LE then UTF-8; Linux/macOS UTF-8 (CJK kept)\n"
+      "            then real UTF-16LE. JSON is always UTF-8, never '?'.\n"
       "  Never writes the target. TI / PPL / VM_WRITE / ALL_ACCESS refused.\n"
       "\n"
       "  atlas_inspect --list [--json]\n"
@@ -253,6 +244,13 @@ static void DumpFull(const InspectSnapshot& s, const std::vector<HybridNode>& fu
                      const ControlNode* found) {
   std::printf("{\"ok\":true,\"platform\":");
   JsonStr(PlatformName());
+  std::printf(",\"decode\":{\"platform\":");
+  JsonStr(PlatformName());
+#if defined(_WIN32)
+  std::printf(",\"primary\":\"utf-16le\",\"secondary\":\"utf-8\",\"json\":\"utf-8\"}");
+#else
+  std::printf(",\"primary\":\"utf-8\",\"secondary\":\"utf-16le\",\"json\":\"utf-8\"}");
+#endif
   std::printf(",\"pid\":%u,\"image\":", s.pid);
   JsonW(s.image);
   std::printf(",\"cmdline\":");
@@ -393,11 +391,7 @@ int main(int argc, char** argv) {
       cfg.max_strings = static_cast<std::size_t>(std::strtoul(argv[++i], nullptr, 10));
       if (cfg.max_strings == 0) cfg.max_strings = 64;
     } else if (std::strcmp(a, "--find") == 0 && i + 1 < argc) {
-      const char* n = argv[++i];
-      find_name.clear();
-      for (const char* p = n; *p; ++p) {
-        find_name.push_back(static_cast<wchar_t>(static_cast<unsigned char>(*p)));
-      }
+      find_name = Utf8ToWide(argv[++i]);
     } else if (std::strcmp(a, "-h") == 0 || std::strcmp(a, "--help") == 0) {
       Usage();
       return 0;

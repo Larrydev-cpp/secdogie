@@ -2,6 +2,7 @@
 
 #include "token_wall.h"
 #include "unique_handle.h"
+#include "utf.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -12,6 +13,9 @@
 #include <vector>
 
 #if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -39,16 +43,6 @@ std::wstring ToLowerAscii(std::wstring s) {
   return s;
 }
 
-bool PrintableAscii(unsigned char c) { return c >= 0x20 && c < 0x7f; }
-
-bool PrintableWide(wchar_t c) {
-  if (c >= 0x20 && c < 0x7f) return true;
-  if (c == 0x00d8 || c == 0x00f8) return true;
-  if (c >= 0x00a0 && c <= 0x024f) return true;
-  if (c >= 0x4e00 && c <= 0x9fff) return true;
-  return false;
-}
-
 bool LooksLikeNoise(const std::wstring& s) {
   if (s.size() < 2) return true;
   bool all_same = true;
@@ -60,12 +54,13 @@ bool LooksLikeNoise(const std::wstring& s) {
   }
   if (all_same) return true;
   unsigned letters = 0;
+  unsigned cjk = 0;
   for (wchar_t c : s) {
-    if ((c >= L'A' && c <= L'Z') || (c >= L'a' && c <= L'z') ||
-        (c >= 0x4e00 && c <= 0x9fff) || c == 0x00d8) {
-      ++letters;
-    }
+    const char32_t cp = static_cast<char32_t>(c);
+    if (LetterCp(cp)) ++letters;
+    if (CjkCp(cp)) ++cjk;
   }
+  if (cjk >= 2) return false;
   if (letters < 3) return true;
   if (letters * 2 < s.size()) return true;
   return false;
@@ -117,12 +112,7 @@ std::vector<RemoteRegion> QueryWindows(HANDLE h) {
     const DWORD n = GetMappedFileNameW(
         h, reinterpret_cast<LPVOID>(static_cast<uintptr_t>(r.start)), path, MAX_PATH);
     if (n == 0) continue;
-    r.pathname.clear();
-    r.pathname.reserve(n);
-    for (DWORD i = 0; i < n && path[i]; ++i) {
-      const wchar_t c = path[i];
-      r.pathname.push_back(c >= 32 && c < 127 ? static_cast<char>(c) : '?');
-    }
+    r.pathname = WideToUtf8(std::wstring(path, n));
   }
   return out;
 }
@@ -195,11 +185,20 @@ std::vector<RemoteRegion> QueryDarwin(const ReadOnlyProcessHandle& h) {
     r.writable = (info.protection & VM_PROT_WRITE) != 0;
     r.execute = (info.protection & VM_PROT_EXECUTE) != 0;
     r.noaccess = !r.readable && !r.writable && !r.execute;
-    r.priv = info.share_mode == SM_PRIVATE;
+    // vm_region_basic_info_64 has `shared` (boolean), not `share_mode`
+    // (that field lives on vm_region_extended_info). The wrong field
+    // is what broke atlas-tests-macos.
+    r.priv = !info.shared;
     char path[4096];
     const int n = proc_regionfilename(static_cast<int>(h.pid()), addr, path, sizeof(path));
-    if (n > 0) r.pathname.assign(path, static_cast<std::size_t>(n));
-    else if (r.priv) r.pathname = "[private]";
+    if (n > 0) {
+      r.pathname.assign(path, static_cast<std::size_t>(n));
+      if (!r.pathname.empty() && r.pathname[0] == '/') r.priv = false;
+    } else if (r.priv) {
+      r.pathname = "[private]";
+    } else {
+      r.pathname = "[shared]";
+    }
     out.push_back(r);
     if (addr + size <= addr) break;
     addr += size;
@@ -222,6 +221,11 @@ std::vector<RemoteRegion> QueryRegions(const ReadOnlyProcessHandle& h) {
 void DedupHits(std::vector<MemoryHit>& hits) {
   std::sort(hits.begin(), hits.end(), [](const MemoryHit& a, const MemoryHit& b) {
     if (a.text != b.text) return a.text < b.text;
+#if defined(_WIN32)
+    if (a.utf16 != b.utf16) return a.utf16;
+#else
+    if (a.utf16 != b.utf16) return !a.utf16;
+#endif
     return a.address < b.address;
   });
   hits.erase(std::unique(hits.begin(), hits.end(),
@@ -237,7 +241,7 @@ int HitScore(const MemoryHit& h) {
   int slash = 0;
   int space = 0;
   for (wchar_t c : h.text) {
-    if ((c >= L'A' && c <= L'Z') || (c >= L'a' && c <= L'z') || (c >= 0x4e00 && c <= 0x9fff)) {
+    if ((c >= L'A' && c <= L'Z') || (c >= L'a' && c <= L'z') || CjkCp(c)) {
       ++letters;
     } else if (c == L'_') {
       ++us;
@@ -263,6 +267,114 @@ void TrimHits(std::vector<MemoryHit>& hits, std::size_t maxn) {
                       return a.text < b.text;
                     });
   hits.resize(maxn);
+}
+
+void ExtractUtf16Le(const std::uint8_t* data, std::size_t n, std::uint64_t base,
+                    std::uint32_t pid, const InspectConfig& cfg,
+                    std::vector<MemoryHit>& out, bool strict) {
+  if (!data || n < 2) return;
+  const std::size_t min_n = cfg.min_string;
+  const std::size_t max_n = cfg.max_string;
+  for (std::size_t i = 0; i + 1 < n && out.size() < cfg.max_strings;) {
+    std::uint16_t u = 0;
+    std::memcpy(&u, data + i, 2);
+    if (!PrintableCp(u)) {
+      i += 2;
+      continue;
+    }
+    std::size_t j = i;
+    std::wstring s;
+    s.reserve(16);
+    int ascii_u16 = 0;
+    int ascii_pair = 0;
+    int cjk = 0;
+    int letters = 0;
+    while (j + 1 < n && s.size() < max_n) {
+      std::uint16_t w = 0;
+      std::memcpy(&w, data + j, 2);
+      if (!PrintableCp(w)) break;
+      const unsigned lo = w & 0xFFu;
+      const unsigned hi = (w >> 8) & 0xFFu;
+      if (hi == 0 && lo >= 0x20 && lo < 0x7f) ++ascii_u16;
+      if (lo >= 0x20 && lo < 0x7f && hi >= 0x20 && hi < 0x7f) ++ascii_pair;
+      if (CjkCp(w)) ++cjk;
+      if (LetterCp(w)) ++letters;
+      AppendWide(s, w);
+      j += 2;
+    }
+    const int units = static_cast<int>(s.size());
+    bool ok = (s.size() >= min_n) || (cjk >= 2 && s.size() >= 2);
+    if (ok && letters < 2 && cjk == 0) ok = false;
+    if (ok && LooksLikeNoise(s)) ok = false;
+    // UTF-8 ASCII paired as UTF-16LE lands in the CJK range (e.g. 'Z','o'
+    // → U+6F5A). Real UTF-16LE English has a zero high byte. Real CJK can
+    // have a few units whose both bytes happen to be ASCII, so require a
+    // 75% ASCII-pair majority before dropping the run.
+    if (ok && units > 0 && ascii_u16 * 2 < units && ascii_pair * 4 >= units * 3) {
+      ok = false;
+    }
+    if (ok && strict) {
+      // Linux/macOS heaps are UTF-8. UTF-16LE is kept only when every
+      // code unit has a zero high byte (real wchar / CFString ASCII).
+      // CJK on these platforms comes from ExtractUtf8; pairing UTF-8 as
+      // UTF-16LE is what produced the garbled 明文.
+      if (ascii_u16 != units) ok = false;
+    }
+    if (ok) {
+      MemoryHit hit;
+      hit.address = base + i;
+      hit.text = std::move(s);
+      hit.utf16 = true;
+      hit.pid = pid;
+      out.push_back(std::move(hit));
+    }
+    i = (j > i) ? j : i + 2;
+  }
+}
+
+void ExtractUtf8(const std::uint8_t* data, std::size_t n, std::uint64_t base,
+                 std::uint32_t pid, const InspectConfig& cfg,
+                 std::vector<MemoryHit>& out) {
+  if (!data || n == 0) return;
+  const std::size_t min_n = cfg.min_string;
+  const std::size_t max_n = cfg.max_string;
+  for (std::size_t i = 0; i < n && out.size() < cfg.max_strings;) {
+    char32_t cp = 0;
+    const std::size_t used = Utf8Decode(data + i, n - i, &cp);
+    if (used == 0 || !PrintableCp(cp)) {
+      ++i;
+      continue;
+    }
+    std::size_t j = i;
+    std::wstring s;
+    s.reserve(16);
+    int letters = 0;
+    int cjk = 0;
+    std::size_t weight = 0;
+    while (j < n && s.size() < max_n) {
+      char32_t c = 0;
+      const std::size_t u = Utf8Decode(data + j, n - j, &c);
+      if (u == 0 || !PrintableCp(c)) break;
+      AppendWide(s, c);
+      if (LetterCp(c)) ++letters;
+      if (CjkCp(c)) {
+        ++cjk;
+        weight += 2;
+      } else {
+        ++weight;
+      }
+      j += u;
+    }
+    if (weight >= min_n && (letters >= 2 || cjk >= 2) && !LooksLikeNoise(s)) {
+      MemoryHit hit;
+      hit.address = base + i;
+      hit.text = std::move(s);
+      hit.utf16 = false;
+      hit.pid = pid;
+      out.push_back(std::move(hit));
+    }
+    i = j == i ? i + 1 : j;
+  }
 }
 
 }  // namespace
@@ -306,59 +418,13 @@ void ExtractStrings(const std::uint8_t* data, std::size_t n, std::uint64_t base,
                     std::uint32_t pid, const InspectConfig& cfg,
                     std::vector<MemoryHit>& out) {
   if (!data || n == 0) return;
-  const std::size_t min_n = cfg.min_string;
-  const std::size_t max_n = cfg.max_string;
-
-  for (std::size_t i = 0; i + 1 < n && out.size() < cfg.max_strings;) {
-    wchar_t c = 0;
-    std::memcpy(&c, data + i, 2);
-    if (!PrintableWide(c)) {
-      i += 2;
-      continue;
-    }
-    std::size_t j = i;
-    std::wstring s;
-    s.reserve(16);
-    while (j + 1 < n && s.size() < max_n) {
-      wchar_t w = 0;
-      std::memcpy(&w, data + j, 2);
-      if (!PrintableWide(w)) break;
-      s.push_back(w);
-      j += 2;
-    }
-    if (s.size() >= min_n && !LooksLikeNoise(s)) {
-      MemoryHit hit;
-      hit.address = base + i;
-      hit.text = std::move(s);
-      hit.utf16 = true;
-      hit.pid = pid;
-      out.push_back(std::move(hit));
-    }
-    i = (j > i) ? j : i + 2;
-  }
-
-  for (std::size_t i = 0; i < n && out.size() < cfg.max_strings;) {
-    if (!PrintableAscii(data[i])) {
-      ++i;
-      continue;
-    }
-    std::size_t j = i;
-    while (j < n && j - i < max_n && PrintableAscii(data[j])) ++j;
-    if (j - i >= min_n) {
-      std::wstring s;
-      s.reserve(j - i);
-      for (std::size_t k = i; k < j; ++k) s.push_back(static_cast<wchar_t>(data[k]));
-      if (!LooksLikeNoise(s)) {
-        MemoryHit hit;
-        hit.address = base + i;
-        hit.text = std::move(s);
-        hit.utf16 = false;
-        hit.pid = pid;
-        out.push_back(std::move(hit));
-      }
-    }
-    i = j == i ? i + 1 : j;
-  }
+#if defined(_WIN32)
+  ExtractUtf16Le(data, n, base, pid, cfg, out, /*strict=*/false);
+  ExtractUtf8(data, n, base, pid, cfg, out);
+#else
+  ExtractUtf8(data, n, base, pid, cfg, out);
+  ExtractUtf16Le(data, n, base, pid, cfg, out, /*strict=*/true);
+#endif
 }
 
 void ExtractDibs(const std::uint8_t* data, std::size_t n, std::uint64_t base,
@@ -422,7 +488,6 @@ void ExtractJson(const std::uint8_t* data, std::size_t n, std::uint64_t base,
   const std::size_t cap = cfg.max_string < 512 ? 512 : cfg.max_string;
   for (std::size_t i = 0; i + 8 < n && out.size() < 64; ++i) {
     if (data[i] != '{') continue;
-    // Require {"ident":
     if (i + 3 >= n || data[i + 1] != '"') continue;
     std::size_t k = i + 2;
     std::size_t ident = 0;
@@ -512,7 +577,7 @@ Result<InspectSnapshot> InspectHandle(const ReadOnlyProcessHandle& handle,
   chunk.resize(cfg.chunk_bytes == 0 ? 65536 : cfg.chunk_bytes);
 
   InspectConfig walk = cfg;
-  walk.max_strings = std::max(cfg.max_strings * 8, std::size_t{8192});
+  walk.max_strings = (std::max)(cfg.max_strings * 8, std::size_t{8192});
 
   for (RemoteRegion& r : snap.regions) {
     if (snap.stats.regions_read >= cfg.max_regions) break;
@@ -556,12 +621,7 @@ Result<InspectSnapshot> InspectHandle(const ReadOnlyProcessHandle& handle,
     if (r.pathname.empty() || r.pathname[0] == '[') continue;
     bool seen = false;
     for (auto& m : snap.mapped) {
-      std::string existing;
-      existing.reserve(m.path.size());
-      for (wchar_t c : m.path) {
-        if (c >= 32 && c < 127) existing.push_back(static_cast<char>(c));
-      }
-      if (existing == r.pathname) {
+      if (WideToUtf8(m.path) == r.pathname) {
         if (r.start < m.start) m.start = r.start;
         m.size += r.size;
         seen = true;
@@ -572,8 +632,7 @@ Result<InspectSnapshot> InspectHandle(const ReadOnlyProcessHandle& handle,
     LoadedModule m;
     m.start = r.start;
     m.size = r.size;
-    m.path.reserve(r.pathname.size());
-    for (unsigned char c : r.pathname) m.path.push_back(static_cast<wchar_t>(c));
+    m.path = Utf8ToWide(r.pathname);
     snap.mapped.push_back(std::move(m));
   }
 
