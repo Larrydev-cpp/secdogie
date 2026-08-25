@@ -3,6 +3,8 @@
 #endif
 #include "readonly_handle.h"
 
+#include "utf.h"
+
 #include <cstdio>
 #include <fstream>
 #include <iterator>
@@ -36,6 +38,27 @@
 #endif
 
 namespace secdogie::atlas {
+namespace {
+
+// Pure-C helper so MSVC __try never sees C++ objects that need unwind
+// (C2712). Keep this function free of any class with a non-trivial
+// destructor.
+#if defined(_WIN32) && defined(_MSC_VER)
+BOOL SafeReadProcessMemory(HANDLE h, LPCVOID addr, void* dst, SIZE_T n,
+                           SIZE_T* got) {
+  BOOL ok = FALSE;
+  *got = 0;
+  __try {
+    ok = ReadProcessMemory(h, addr, dst, n, got);
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    ok = FALSE;
+    *got = 0;
+  }
+  return ok;
+}
+#endif
+
+}  // namespace
 
 AccessDecision EnforceReadOnly(DWORD desired) noexcept {
   AccessDecision d;
@@ -190,12 +213,8 @@ Result<std::wstring> ReadOnlyProcessHandle::ImageName() const {
   if (n <= 0) {
     return PrivilegeError{PrivilegeCode::AccessDenied, "proc_pidpath failed"};
   }
-  std::wstring out;
-  out.reserve(static_cast<std::size_t>(n));
-  for (int i = 0; i < n && buf[i]; ++i) {
-    out.push_back(static_cast<wchar_t>(static_cast<unsigned char>(buf[i])));
-  }
-  return out;
+  // POSIX paths are UTF-8. Never byte→wchar (that is the old garble path).
+  return Utf8ToWide(std::string(buf, static_cast<std::size_t>(n)));
 #else
   const std::string path = "/proc/" + std::to_string(pid_) + "/exe";
   char buf[4096];
@@ -204,12 +223,7 @@ Result<std::wstring> ReadOnlyProcessHandle::ImageName() const {
     return PrivilegeError{PrivilegeCode::AccessDenied, "readlink /proc/pid/exe failed"};
   }
   buf[n] = 0;
-  std::wstring out;
-  out.reserve(static_cast<std::size_t>(n));
-  for (ssize_t i = 0; i < n; ++i) {
-    out.push_back(static_cast<wchar_t>(static_cast<unsigned char>(buf[i])));
-  }
-  return out;
+  return Utf8ToWide(std::string(buf, static_cast<std::size_t>(n)));
 #endif
 }
 
@@ -293,10 +307,8 @@ Result<std::wstring> ReadOnlyProcessHandle::CommandLine() const {
     raw.append(p);
     p += std::strlen(p) + 1;
   }
-  std::wstring out;
-  out.reserve(raw.size());
-  for (unsigned char c : raw) out.push_back(static_cast<wchar_t>(c));
-  return out;
+  // KERN_PROCARGS2 returns UTF-8 on modern macOS.
+  return Utf8ToWide(raw);
 #else
   const std::string path = "/proc/" + std::to_string(pid_) + "/cmdline";
   std::ifstream in(path, std::ios::binary);
@@ -308,10 +320,8 @@ Result<std::wstring> ReadOnlyProcessHandle::CommandLine() const {
     if (c == '\0') c = ' ';
   }
   while (!raw.empty() && raw.back() == ' ') raw.pop_back();
-  std::wstring out;
-  out.reserve(raw.size());
-  for (unsigned char c : raw) out.push_back(static_cast<wchar_t>(c));
-  return out;
+  // /proc/<pid>/cmdline is UTF-8.
+  return Utf8ToWide(raw);
 #endif
 }
 
@@ -359,13 +369,9 @@ Result<std::size_t> ReadOnlyProcessHandle::Read(std::uint64_t addr, void* dst,
   SIZE_T got = 0;
   BOOL ok = FALSE;
 #if defined(_MSC_VER)
-  __try {
-    ok = ReadProcessMemory(handle_, reinterpret_cast<LPCVOID>(static_cast<uintptr_t>(addr)),
-                           dst, n, &got);
-  } __except (EXCEPTION_EXECUTE_HANDLER) {
-    ok = FALSE;
-    got = 0;
-  }
+  ok = SafeReadProcessMemory(handle_,
+                             reinterpret_cast<LPCVOID>(static_cast<uintptr_t>(addr)),
+                             dst, n, &got);
 #else
   ok = ReadProcessMemory(handle_, reinterpret_cast<LPCVOID>(static_cast<uintptr_t>(addr)),
                          dst, n, &got);
@@ -435,11 +441,8 @@ Result<std::vector<std::wstring>> ReadOnlyProcessHandle::ModuleNames() const {
     char path[4096];
     const int got = proc_regionfilename(static_cast<int>(pid_), addr, path, sizeof(path));
     if (got > 0) {
-      std::wstring w;
-      w.reserve(static_cast<std::size_t>(got));
-      for (int i = 0; i < got && path[i]; ++i) {
-        w.push_back(static_cast<wchar_t>(static_cast<unsigned char>(path[i])));
-      }
+      // proc_regionfilename returns UTF-8.
+      std::wstring w = Utf8ToWide(std::string(path, static_cast<std::size_t>(got)));
       bool seen = false;
       for (const auto& e : out) {
         if (e == w) {
@@ -464,9 +467,8 @@ Result<std::vector<std::wstring>> ReadOnlyProcessHandle::ModuleNames() const {
     const auto slash = line.find('/');
     if (slash == std::string::npos) continue;
     const std::string path = line.substr(slash);
-    std::wstring w;
-    w.reserve(path.size());
-    for (unsigned char c : path) w.push_back(static_cast<wchar_t>(c));
+    // /proc maps paths are UTF-8.
+    std::wstring w = Utf8ToWide(path);
     bool seen = false;
     for (const auto& e : out) {
       if (e == w) {
