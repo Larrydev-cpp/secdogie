@@ -311,10 +311,10 @@ std::string ExecMctLine(MctState& st, const std::string& line) {
       return Wrap(true, "help",
                   "list · inspect <pid|name> · find <control> · zoom · layer · 图层尺寸 · "
                   "graphics · mapped on|off · status · clear",
-                  "\"kind\":\"exe\"");
+                  "\"kind\":\"app\"");
     case MctOp::Status:
-      return Wrap(true, "status", "atlas_mct loopback, read-only",
-                  std::string("\"platform\":\"") + PlatformName() + "\",\"kind\":\"exe\",\"pid\":" +
+      return Wrap(true, "status", "atlas_mct 应用程式 loopback, read-only",
+                  std::string("\"platform\":\"") + PlatformName() + "\",\"kind\":\"app\",\"pid\":" +
                       std::to_string(st.pid));
     case MctOp::Clear:
       st.pid = 0;

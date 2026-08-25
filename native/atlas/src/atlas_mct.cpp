@@ -15,9 +15,10 @@ using namespace secdogie::atlas;
 
 static void Usage() {
   std::fputs(
-      "atlas_mct — Model Control Terminal (Windows EXE / Linux / macOS app)\n"
+      "atlas_mct — 应用程式 (Windows EXE / Linux / macOS app)\n"
       "read-only hybrid UIA + process-memory inspector\n"
       "\n"
+      "  Native application command plane (not a web script).\n"
       "  Binds 127.0.0.1 only. 0.0.0.0 / LAN / wildcard refused.\n"
       "  Port is operator-chosen (default 17890, 0 = ephemeral).\n"
       "  Commands: list · inspect <pid|name> · find <control> · graphics\n"
@@ -95,12 +96,12 @@ int main(int argc, char** argv) {
     std::thread repl_thr([] {
       MctState st;
       std::string line;
-      std::fputs("atlas> ", stdout);
+      std::fputs("应用程式> ", stdout);
       std::fflush(stdout);
       while (std::getline(std::cin, line)) {
         const std::string out = ExecMctLine(st, line);
         std::fwrite(out.data(), 1, out.size(), stdout);
-        std::fputs("\natlas> ", stdout);
+        std::fputs("\n应用程式> ", stdout);
         std::fflush(stdout);
       }
     });
