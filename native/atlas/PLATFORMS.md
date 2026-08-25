@@ -10,4 +10,4 @@ Same C++ tree. Check out the branch for the machine you operate:
 
 CI runs all three (`ubuntu-latest`, `windows-latest`, `macos-latest` arm64 + x86_64). Write bits, TrustedInstaller theft, PPL, UAC bypass stay refused on every branch.
 
-Release assets: `atlas_inspect` / `atlas_target` for windows-x86_64, linux-x86_64, macos-arm64, macos-x86_64. Intel Mac is cross-compiled from `macos-latest` (`CMAKE_OSX_ARCHITECTURES=x86_64` / `setup-python architecture: x64`). Retired `macos-13` runners are not used; a failed arch no longer blocks publishing the rest.
+Release assets: `atlas_mct` / `atlas_inspect` / `atlas_target` for windows-x86_64 (`.exe`), linux-x86_64, macos-arm64, macos-x86_64. `atlas_mct` is the operator command plane and binds **127.0.0.1 only**. Intel Mac is cross-compiled from `macos-latest` (`CMAKE_OSX_ARCHITECTURES=x86_64` / `setup-python architecture: x64`). Retired `macos-13` runners are not used; a failed arch no longer blocks publishing the rest.

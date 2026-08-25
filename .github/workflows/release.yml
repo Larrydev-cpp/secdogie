@@ -330,10 +330,10 @@ jobs:
           fi
           if [ "${{ runner.os }}" = "Windows" ]; then
             cmake -S . -B build "${extra[@]}"
-            cmake --build build --config Release --target atlas_inspect atlas_target
+            cmake --build build --config Release --target atlas_inspect atlas_mct atlas_target
           else
             cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo "${extra[@]}"
-            cmake --build build --target atlas_inspect atlas_target -j
+            cmake --build build --target atlas_inspect atlas_mct atlas_target -j
           fi
 
       - name: Stage artifact
@@ -342,9 +342,11 @@ jobs:
           mkdir -p staging
           if [ "${{ runner.os }}" = "Windows" ]; then
             cp native/atlas/build/Release/atlas_inspect.exe staging/atlas_inspect.exe
+            cp native/atlas/build/Release/atlas_mct.exe staging/atlas_mct.exe
             cp native/atlas/build/Release/atlas_target.exe staging/atlas_target.exe
           else
             cp native/atlas/build/atlas_inspect staging/atlas_inspect
+            cp native/atlas/build/atlas_mct staging/atlas_mct
             cp native/atlas/build/atlas_target staging/atlas_target
             chmod +x staging/*
           fi
@@ -468,15 +470,17 @@ jobs:
             [ -d "$dir" ] || continue
             platform="${dir##*/atlas-}"
             case "$platform" in
-              *windows*) inner_inspect="atlas_inspect.exe"; inner_target="atlas_target.exe" ;;
-              *)         inner_inspect="atlas_inspect";     inner_target="atlas_target" ;;
+              *windows*) inner_inspect="atlas_inspect.exe"; inner_mct="atlas_mct.exe"; inner_target="atlas_target.exe" ;;
+              *)         inner_inspect="atlas_inspect";     inner_mct="atlas_mct";     inner_target="atlas_target" ;;
             esac
             inspect="$(echo "$dir"/atlas_inspect*)"
+            mct="$(echo "$dir"/atlas_mct*)"
             target="$(echo "$dir"/atlas_target*)"
             [ -f "$inspect" ] || continue
             name="secdogie-atlas-${platform}-${version}"
             mkdir -p "pkg/${name}"
             cp "$inspect" "pkg/${name}/${inner_inspect}"
+            [ -f "$mct" ] && cp "$mct" "pkg/${name}/${inner_mct}" || true
             [ -f "$target" ] && cp "$target" "pkg/${name}/${inner_target}" || true
             chmod +x "pkg/${name}/"* 2>/dev/null || true
             cp native/atlas/README.md native/atlas/PLATFORMS.md LICENSE "pkg/${name}/" 2>/dev/null || true
