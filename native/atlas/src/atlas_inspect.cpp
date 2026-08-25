@@ -49,6 +49,30 @@ static void JsonEscape(const char* s, std::size_t n) {
 static void JsonStr(const std::string& s) { JsonEscape(s.data(), s.size()); }
 static void JsonW(const std::wstring& w) { JsonStr(WideToUtf8(w)); }
 
+static void JsonB64(const std::uint8_t* p, std::size_t n) {
+  static const char kTab[] =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  std::putchar('"');
+  std::size_t i = 0;
+  while (i + 3 <= n) {
+    const unsigned v = (p[i] << 16) | (p[i + 1] << 8) | p[i + 2];
+    std::putchar(kTab[(v >> 18) & 63]);
+    std::putchar(kTab[(v >> 12) & 63]);
+    std::putchar(kTab[(v >> 6) & 63]);
+    std::putchar(kTab[v & 63]);
+    i += 3;
+  }
+  if (i < n) {
+    unsigned v = p[i] << 16;
+    if (i + 1 < n) v |= p[i + 1] << 8;
+    std::putchar(kTab[(v >> 18) & 63]);
+    std::putchar(kTab[(v >> 12) & 63]);
+    std::putchar(i + 1 < n ? kTab[(v >> 6) & 63] : '=');
+    std::putchar('=');
+  }
+  std::putchar('"');
+}
+
 static std::string RegionKind(const RemoteRegion& r) {
   if (r.pathname == "[heap]" || r.pathname == "[private]") return "heap";
   if (r.pathname.rfind("[stack", 0) == 0) return "stack";
@@ -252,7 +276,7 @@ static void DumpFull(const InspectSnapshot& s, const std::vector<HybridNode>& fu
   std::printf(",\"primary\":\"utf-8\",\"secondary\":\"utf-16le\",\"json\":\"utf-8\"}");
 #endif
   std::printf(",\"pid\":%u,\"image\":", s.pid);
-  JsonW(s.image);
+  JsonW(s.image.empty() ? s.token.image : s.image);
   std::printf(",\"cmdline\":");
   JsonW(s.cmdline);
   std::printf(",\"rss_kb\":%llu,\"session\":%u,\"detail\":",
@@ -311,9 +335,17 @@ static void DumpFull(const InspectSnapshot& s, const std::vector<HybridNode>& fu
   std::printf("],\"dibs\":[");
   for (std::size_t i = 0; i < s.dibs.size(); ++i) {
     if (i) std::putchar(',');
-    std::printf("{\"address\":%llu,\"width\":%d,\"height\":%d,\"bit_count\":%u}",
+    std::printf("{\"address\":%llu,\"width\":%d,\"height\":%d,\"bit_count\":%u,"
+                "\"compression\":%u,\"preview\":",
                 static_cast<unsigned long long>(s.dibs[i].address),
-                s.dibs[i].width, s.dibs[i].height, s.dibs[i].bit_count);
+                s.dibs[i].width, s.dibs[i].height, s.dibs[i].bit_count,
+                s.dibs[i].compression);
+    if (s.dibs[i].rgba.empty()) {
+      std::fputs("null", stdout);
+    } else {
+      JsonB64(s.dibs[i].rgba.data(), s.dibs[i].rgba.size());
+    }
+    std::putchar('}');
   }
   std::printf("],\"pe\":[");
   for (std::size_t i = 0; i < s.pes.size(); ++i) {
@@ -421,8 +453,9 @@ int main(int argc, char** argv) {
       std::printf(",\"processes\":[");
       for (std::size_t i = 0; i < procs.size(); ++i) {
         if (i) std::putchar(',');
-        std::printf("{\"pid\":%u,\"rss_kb\":%llu,\"session\":%u,\"image\":", procs[i].pid,
-                    static_cast<unsigned long long>(procs[i].rss_kb), procs[i].session_id);
+        std::printf("{\"pid\":%u,\"rss_kb\":%llu,\"session\":%u,\"readable\":%s,\"image\":",
+                    procs[i].pid, static_cast<unsigned long long>(procs[i].rss_kb),
+                    procs[i].session_id, procs[i].readable ? "true" : "false");
         JsonW(procs[i].image);
         std::printf(",\"cmdline\":");
         std::wstring cmd = procs[i].cmdline;
