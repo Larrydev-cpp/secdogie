@@ -28,6 +28,13 @@ static volatile char* PlantHeap() {
                                'M', 0, '_', 0, 'E', 0, 'X', 0, 'T', 0, 'E', 0,
                                'N', 0, 'T', 0, 'S', 0, 0, 0};
   std::memcpy(const_cast<char*>(heap) + 160, u16, sizeof(u16));
+  // UTF-16LE 图层尺寸 — Windows / Cocoa wide layout
+  const unsigned char cjk16[] = {0xFE, 0x56, 0x42, 0x5C, 0x3A, 0x5C, 0xF8, 0x5B, 0, 0};
+  std::memcpy(const_cast<char*>(heap) + 200, cjk16, sizeof(cjk16));
+  // UTF-8 图层尺寸 — Linux / macOS heap primary
+  const unsigned char cjk8[] = {0xE5, 0x9B, 0xBE, 0xE5, 0xB1, 0x82,
+                                0xE5, 0xB0, 0xBA, 0xE5, 0xAF, 0xB8, 0};
+  std::memcpy(const_cast<char*>(heap) + 220, cjk8, sizeof(cjk8));
   unsigned char dib[40] = {};
   dib[0] = 40;
   dib[4] = 64;

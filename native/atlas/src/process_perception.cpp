@@ -1,6 +1,7 @@
 #include "process_perception.h"
 
 #include "unique_handle.h"
+#include "utf.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -9,6 +10,9 @@
 #include <vector>
 
 #if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -16,7 +20,9 @@
 #include <oleauto.h>
 #include <psapi.h>
 #include <tlhelp32.h>
-#include <uiautomation.h>
+// UIAutomationClient.h only — do not also include UIAutomation.h /
+// UIAutomationCore.h; that redefines IAnnotationProvider on MSVC.
+#include <UIAutomationClient.h>
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "oleaut32.lib")
 #pragma comment(lib, "oleacc.lib")
@@ -41,22 +47,10 @@ namespace secdogie::atlas {
 namespace {
 
 #if defined(_WIN32)
-std::string Narrow(const std::wstring& w) {
-  std::string s;
-  s.resize(w.size());
-  std::transform(w.begin(), w.end(), s.begin(), [](wchar_t c) {
-    return static_cast<char>(c < 128 ? c : '?');
-  });
-  return s;
-}
+std::string Narrow(const std::wstring& w) { return WideToUtf8(w); }
 #endif
 
-std::wstring FromUtf8(const std::string& s) {
-  std::wstring w;
-  w.reserve(s.size());
-  for (unsigned char c : s) w.push_back(static_cast<wchar_t>(c));
-  return w;
-}
+std::wstring FromUtf8(const std::string& s) { return Utf8ToWide(s); }
 
 bool Ieq(const std::wstring& a, const std::wstring& b) {
   if (a.size() != b.size()) return false;
@@ -523,10 +517,7 @@ void WalkAx(AXUIElementRef el, int depth, ControlNode* parent, std::uint32_t pid
     node.hwnd = hwnd;
     {
       const std::wstring& src = node.automation_id.empty() ? node.name : node.automation_id;
-      node.id.resize(src.size());
-      for (std::size_t i = 0; i < src.size(); ++i) {
-        node.id[i] = src[i] < 128 ? static_cast<char>(src[i]) : '?';
-      }
+      node.id = WideToUtf8(src);
     }
     if (role) CFRelease(role);
     if (title) CFRelease(title);
@@ -619,13 +610,7 @@ PerceptionSnapshot ProcessPerception::SnapshotPid(std::uint32_t pid) {
       }
     }
     if (title) CFRelease(title);
-    {
-      const std::wstring& src = window_node.name;
-      window_node.id.resize(src.size());
-      for (std::size_t k = 0; k < src.size(); ++k) {
-        window_node.id[k] = src[k] < 128 ? static_cast<char>(src[k]) : '?';
-      }
-    }
+    window_node.id = WideToUtf8(window_node.name);
     --remaining;
     WalkAx(win, 0, &window_node, pid, 0, &remaining);
     snap.controls.push_back(std::move(window_node));

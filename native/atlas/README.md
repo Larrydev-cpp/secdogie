@@ -5,11 +5,11 @@
 
 C++20. Three first-class operator OSes, **same source**. No TODOs, no empty functions.
 
-| OS | UI tree | Memory inspect |
-|---|---|---|
-| **Windows** | `IUIAutomationTreeWalker` of the *target PID's* hwnds | `OpenProcess` `VM_READ\|QUERY` → `VirtualQueryEx` → `ReadProcessMemory` + SEH |
-| **Linux** | compositor / AT-SPI not linked; memory is the live path | `/proc/<pid>/maps` → `process_vm_readv` |
-| **macOS** | `AXUIElementCreateApplication(pid)` | `task_for_pid` → `mach_vm_region` → `mach_vm_read_overwrite` |
+| OS | UI tree | Memory inspect | Decode |
+|---|---|---|---|
+| **Windows** | `IUIAutomationTreeWalker` of the *target PID's* hwnds | `OpenProcess` `VM_READ\|QUERY` → `VirtualQueryEx` → `ReadProcessMemory` + SEH | UTF-16LE primary, UTF-8 secondary. JSON is UTF-8. |
+| **Linux** | compositor / AT-SPI not linked; memory is the live path | `/proc/<pid>/maps` → `process_vm_readv` | UTF-8 primary (CJK kept). UTF-16LE only if it is real wide text, not ASCII-pair garbage. |
+| **macOS** | `AXUIElementCreateApplication(pid)` | `task_for_pid` → `mach_vm_region` (`shared`, not `share_mode`) → `mach_vm_read_overwrite` | Same as Linux. AX titles via `kCFStringEncodingUTF8`. |
 
 Long-lived branches (same tree, README lead-in differs):
 
@@ -68,9 +68,9 @@ On macOS, Accessibility must be granted to the inspector for AX trees. `task_for
 
 `atlas_target` on Windows is a real hwnd (`Zoom Extents` / `LAYER_DIMS` buttons). On Linux/macOS it plants the same heap strings / DIB / JSON so memory inspect has a live foreign PID.
 
-`--json` dumps `platform`, token, VAD (`scanned` + `kind` + `protect_name`), strings + VA, DIB/PE/JSON, mapped modules, `uia.tree`, `windows[]`, hybrid, `--find`. Handle closed before JSON.
+`--json` dumps `platform`, `decode` (primary/secondary encoding), token, VAD (`scanned` + `kind` + `protect_name`), strings + VA + encoding, DIB/PE/JSON, mapped modules, `uia.tree`, `windows[]`, hybrid, `--find`. Handle closed before JSON. Wide strings are emitted as UTF-8; non-ASCII is never replaced with `?`.
 
-CI: `ubuntu-latest`, `windows-latest`, `macos-latest`.
+CI: `ubuntu-latest`, `windows-latest`, `macos-latest` (arm64 native + x86_64 via `CMAKE_OSX_ARCHITECTURES`). Release no longer waits on retired `macos-13` Intel runners.
 
 ## Files
 
@@ -79,7 +79,8 @@ CI: `ubuntu-latest`, `windows-latest`, `macos-latest`.
 | `include/readonly_handle.h` + `src/readonly_handle.cpp` | RAII OpenProcess / task_for_pid / pid session; RPM / mach_vm_read / process_vm_readv |
 | `include/unique_handle.h` + `src/unique_handle.cpp` | `HANDLE` RAII, `ScopedPrivilege` enable/disable |
 | `include/token_wall.h` + `src/token_wall.cpp` | `TOKEN_QUERY` / uid; SID / integrity / TI / PPL |
-| `include/memory_inspector.h` + `src/memory_inspector.cpp` | VAD walk, string/DIB/PE/JSON, mapped names |
+| `include/memory_inspector.h` + `src/memory_inspector.cpp` | VAD walk, per-OS string decode (UTF-16LE / UTF-8 + CJK), DIB/PE/JSON |
+| `include/utf.h` | WideToUtf8 / Utf8ToWide — JSON and UI ids are UTF-8 |
 | `include/hybrid_tree.h` + `src/hybrid_tree.cpp` | UI tree + memory fusion |
 | `include/privilege_manager.h` + `src/privilege_manager.cpp` | Integrity, TI refusal, allowlisted `CreateProcessAsUser` |
 | `include/process_perception.h` + `src/process_perception.cpp` | Toolhelp / `/proc` / `KERN_PROC`; UIA / AX / EnumWindows / CGWindowList |
