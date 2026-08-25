@@ -19,6 +19,10 @@
 
 #if !defined(_WIN32)
 #include <unistd.h>
+#if defined(__APPLE__)
+#include <libproc.h>
+#include <sys/sysctl.h>
+#endif
 #endif
 
 namespace secdogie::atlas {
@@ -159,7 +163,7 @@ TokenSnapshot FillFromToken(HANDLE token, HANDLE proc, std::uint32_t pid) {
 
 #endif  // _WIN32
 
-#if !defined(_WIN32)
+#if defined(__linux__)
 TokenSnapshot FillFromProcStatus(std::uint32_t pid) {
   TokenSnapshot s;
   s.pid = pid;
@@ -201,6 +205,46 @@ TokenSnapshot FillFromProcStatus(std::uint32_t pid) {
 }
 #endif
 
+#if defined(__APPLE__)
+TokenSnapshot FillFromKinfo(std::uint32_t pid) {
+  TokenSnapshot s;
+  s.pid = pid;
+  int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, static_cast<int>(pid)};
+  kinfo_proc kp{};
+  std::size_t len = sizeof(kp);
+  if (sysctl(mib, 4, &kp, &len, nullptr, 0) != 0 || len == 0) {
+    s.detail = "sysctl KERN_PROC_PID failed";
+    return s;
+  }
+  s.queried = true;
+  const uid_t uid = kp.kp_eproc.e_ucred.cr_uid;
+  char path[PROC_PIDPATHINFO_MAXSIZE]{};
+  if (proc_pidpath(static_cast<int>(pid), path, sizeof(path)) > 0) {
+    const char* base = path;
+    for (char* p = path; *p; ++p) {
+      if (*p == '/') base = p + 1;
+    }
+    s.image.clear();
+    for (const char* p = base; *p; ++p) {
+      s.image.push_back(static_cast<wchar_t>(static_cast<unsigned char>(*p)));
+    }
+  }
+  if (uid == 0) {
+    s.system = true;
+    s.elevated = true;
+    s.identity = Identity::System;
+    s.integrity = Integrity::System;
+    s.sid = "uid:0";
+  } else {
+    s.identity = Identity::User;
+    s.integrity = Integrity::Medium;
+    s.sid = "uid:" + std::to_string(static_cast<unsigned>(uid));
+  }
+  s.detail = "token queried (KERN_PROC_PID; no standing port)";
+  return s;
+}
+#endif
+
 }  // namespace
 
 Result<TokenSnapshot> QueryOwnToken() {
@@ -212,6 +256,8 @@ Result<TokenSnapshot> QueryOwnToken() {
   UniqueHandle tok(token);
   TokenSnapshot s = FillFromToken(tok.get(), GetCurrentProcess(), GetCurrentProcessId());
   return s;
+#elif defined(__APPLE__)
+  return FillFromKinfo(static_cast<std::uint32_t>(getpid()));
 #else
   return FillFromProcStatus(static_cast<std::uint32_t>(getpid()));
 #endif
@@ -244,6 +290,8 @@ Result<TokenSnapshot> QueryProcessToken(std::uint32_t pid) {
     s.image = BasenameW(std::wstring(image, n));
   }
   return s;
+#elif defined(__APPLE__)
+  return FillFromKinfo(pid);
 #else
   return FillFromProcStatus(pid);
 #endif

@@ -6,12 +6,14 @@
 #include <cctype>
 
 #if defined(_WIN32)
+#include <shlobj.h>
 #include <tlhelp32.h>
 #include <userenv.h>
 #include <wtsapi32.h>
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "userenv.lib")
 #pragma comment(lib, "wtsapi32.lib")
+#pragma comment(lib, "shell32.lib")
 #endif
 
 namespace secdogie::atlas {

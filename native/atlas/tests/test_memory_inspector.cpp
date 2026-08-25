@@ -8,6 +8,7 @@
 #include "process_perception.h"
 #include "readonly_handle.h"
 #include "token_wall.h"
+#include "utf.h"
 
 #include <cstdio>
 #include <cstring>
@@ -121,6 +122,64 @@ void RunMemoryInspectorTests() {
       if (h.text == L"LAYER_DIMS") found = true;
     }
     Expect(found, "UTF-16LE extractor finds LAYER_DIMS", found ? "ok" : "miss");
+  }
+  {
+    unsigned char buf[64];
+    std::memset(buf, 0, sizeof(buf));
+    std::memcpy(buf, "Zoom Extents", 12);
+    InspectConfig cfg;
+    cfg.min_string = 4;
+    std::vector<MemoryHit> hits;
+    ExtractStrings(buf, sizeof(buf), 0x1000, 1, cfg, hits);
+    bool utf8_hit = false;
+    bool utf16_hit = false;
+    for (const auto& h : hits) {
+      if (h.text == L"Zoom Extents" && !h.utf16) utf8_hit = true;
+      if (h.utf16) utf16_hit = true;
+    }
+    Expect(utf8_hit, "UTF-8 ASCII stays UTF-8 plaintext", utf8_hit ? "ok" : "miss");
+    Expect(!utf16_hit, "UTF-8 ASCII is not decoded as UTF-16LE CJK garbage",
+           utf16_hit ? "garbage" : "clean");
+  }
+  {
+    unsigned char buf[64];
+    std::memset(buf, 0, sizeof(buf));
+    const unsigned char cjk8[] = {0xE5, 0x9B, 0xBE, 0xE5, 0xB1, 0x82,
+                                  0xE5, 0xB0, 0xBA, 0xE5, 0xAF, 0xB8};
+    std::memcpy(buf, cjk8, sizeof(cjk8));
+    InspectConfig cfg;
+    cfg.min_string = 4;
+    std::vector<MemoryHit> hits;
+    ExtractStrings(buf, sizeof(buf), 0x3000, 1, cfg, hits);
+    const std::wstring want = L"\u56fe\u5c42\u5c3a\u5bf8";
+    bool found = false;
+    for (const auto& h : hits) {
+      if (h.text == want && !h.utf16) found = true;
+    }
+    Expect(found, "UTF-8 extractor keeps CJK plaintext", found ? "ok" : "miss");
+    Expect(WideToUtf8(want) == std::string(reinterpret_cast<const char*>(cjk8), 12),
+           "WideToUtf8 round-trips 图层尺寸", "utf8");
+  }
+  {
+    unsigned char buf[64];
+    std::memset(buf, 0, sizeof(buf));
+    const unsigned char cjk16[] = {0xFE, 0x56, 0x42, 0x5C, 0x3A, 0x5C, 0xF8, 0x5B, 0, 0};
+    std::memcpy(buf, cjk16, sizeof(cjk16));
+    InspectConfig cfg;
+    cfg.min_string = 4;
+    std::vector<MemoryHit> hits;
+    ExtractStrings(buf, sizeof(buf), 0x4000, 1, cfg, hits);
+    const std::wstring want = L"\u56fe\u5c42\u5c3a\u5bf8";
+    bool found = false;
+    for (const auto& h : hits) {
+      if (h.text == want && h.utf16) found = true;
+    }
+#if defined(_WIN32)
+    Expect(found, "UTF-16LE extractor keeps CJK plaintext", found ? "ok" : "miss");
+#else
+    Expect(!found, "POSIX skips UTF-16LE CJK (UTF-8 is primary)",
+           found ? "kept" : "skipped");
+#endif
   }
   {
     ControlNode btn;
@@ -240,6 +299,34 @@ void RunMemoryInspectorTests() {
   }
 #endif
 
+#if defined(_WIN32)
+  {
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+    wchar_t cmd[] = L"cmd.exe /c ping -n 4 127.0.0.1 >NUL";
+    if (CreateProcessW(nullptr, cmd, nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr,
+                       nullptr, &si, &pi)) {
+      Sleep(250);
+      InspectConfig cfg;
+      cfg.max_bytes = 16ull * 1024ull * 1024ull;
+      Result<InspectSnapshot> snap = InspectPid(pi.dwProcessId, cfg);
+      TerminateProcess(pi.hProcess, 0);
+      WaitForSingleObject(pi.hProcess, 2000);
+      CloseHandle(pi.hThread);
+      CloseHandle(pi.hProcess);
+      Expect(snap.ok(), "InspectPid(cmd) is a real foreign-process RPM",
+             snap.ok() ? "ok" : PrivilegeCodeName(snap.error().code));
+      if (snap) {
+        Expect(!snap.value().regions.empty(), "VirtualQueryEx returned VAD regions",
+               "regions");
+        Expect(snap.value().stats.handle_closed, "Windows foreign inspect handle closed",
+               "raii");
+      }
+    }
+  }
+#endif
+
   {
     unsigned char pe[128];
     std::memset(pe, 0, sizeof(pe));
@@ -342,7 +429,7 @@ void RunMemoryInspectorTests() {
   {
     ProcessPerception perception;
     const PerceptionSnapshot snap = perception.Snapshot();
-    Expect(snap.process.pid != 0, "Snapshot reports a real PID (Linux memory-primary)",
+    Expect(snap.process.pid != 0, "Snapshot reports a real PID on this OS",
            "pid");
   }
   {
