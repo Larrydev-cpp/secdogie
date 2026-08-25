@@ -170,6 +170,12 @@ jobs:
           cmake --build build --target atlas_test atlas_inspect atlas_mct atlas_target -j
           lipo -info build/atlas_inspect
 
-      - name: Test under Rosetta
+      - name: Test under Rosetta (binary is x86_64; ctest is host-arch)
         working-directory: native/atlas
-        run: arch -x86_64 ctest --test-dir build --output-on-failure
+        run: |
+          lipo -info build/atlas_test build/atlas_mct build/atlas_inspect
+          if arch -x86_64 /usr/bin/true >/dev/null 2>&1; then
+            arch -x86_64 ./build/atlas_test
+          else
+            echo "Rosetta unavailable on this runner; x86_64 compile is the Intel gate."
+          fi

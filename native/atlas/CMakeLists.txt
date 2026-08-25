@@ -24,7 +24,7 @@ find_package(Threads REQUIRED)
 target_link_libraries(secdogie_atlas PUBLIC Threads::Threads)
 
 if (WIN32)
-  target_compile_definitions(secdogie_atlas PRIVATE UNICODE _UNICODE)
+  target_compile_definitions(secdogie_atlas PRIVATE UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS)
   target_compile_definitions(secdogie_atlas PUBLIC NOMINMAX)
   target_link_libraries(secdogie_atlas PUBLIC
     ole32 oleaut32 oleacc psapi advapi32 userenv wtsapi32 user32 gdi32 shell32 ws2_32
@@ -56,6 +56,7 @@ target_include_directories(atlas_mct PRIVATE include)
 add_executable(atlas_target src/atlas_target.cpp)
 
 if (WIN32)
+  target_compile_definitions(atlas_target PRIVATE UNICODE _UNICODE)
   target_link_libraries(atlas_target PRIVATE user32)
   if (MSVC)
     foreach(tgt secdogie_atlas atlas_test atlas_inspect atlas_mct atlas_target)
