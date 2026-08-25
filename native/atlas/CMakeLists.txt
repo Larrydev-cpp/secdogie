@@ -13,14 +13,21 @@ add_library(secdogie_atlas STATIC
   src/hybrid_control_loop.cpp
   src/memory_inspector.cpp
   src/hybrid_tree.cpp
+  src/inspect_json.cpp
+  src/mct_command.cpp
+  src/mct_server.cpp
 )
 target_include_directories(secdogie_atlas PUBLIC include)
+
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+target_link_libraries(secdogie_atlas PUBLIC Threads::Threads)
 
 if (WIN32)
   target_compile_definitions(secdogie_atlas PRIVATE UNICODE _UNICODE)
   target_compile_definitions(secdogie_atlas PUBLIC NOMINMAX)
   target_link_libraries(secdogie_atlas PUBLIC
-    ole32 oleaut32 oleacc psapi advapi32 userenv wtsapi32 user32 gdi32 shell32
+    ole32 oleaut32 oleacc psapi advapi32 userenv wtsapi32 user32 gdi32 shell32 ws2_32
   )
 endif()
 if (APPLE)
@@ -33,6 +40,7 @@ endif()
 add_executable(atlas_test
   tests/test_atlas.cpp
   tests/test_memory_inspector.cpp
+  tests/test_mct.cpp
 )
 target_link_libraries(atlas_test PRIVATE secdogie_atlas)
 target_include_directories(atlas_test PRIVATE include)
@@ -41,12 +49,16 @@ add_executable(atlas_inspect src/atlas_inspect.cpp)
 target_link_libraries(atlas_inspect PRIVATE secdogie_atlas)
 target_include_directories(atlas_inspect PRIVATE include)
 
+add_executable(atlas_mct src/atlas_mct.cpp)
+target_link_libraries(atlas_mct PRIVATE secdogie_atlas)
+target_include_directories(atlas_mct PRIVATE include)
+
 add_executable(atlas_target src/atlas_target.cpp)
 
 if (WIN32)
   target_link_libraries(atlas_target PRIVATE user32)
   if (MSVC)
-    foreach(tgt secdogie_atlas atlas_test atlas_inspect atlas_target)
+    foreach(tgt secdogie_atlas atlas_test atlas_inspect atlas_mct atlas_target)
       target_compile_options(${tgt} PRIVATE /utf-8 /W3 /EHsc)
     endforeach()
   endif()
