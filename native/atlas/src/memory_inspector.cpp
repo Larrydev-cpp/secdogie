@@ -431,29 +431,92 @@ void ExtractDibs(const std::uint8_t* data, std::size_t n, std::uint64_t base,
                  const InspectConfig& cfg, std::vector<DibHit>& out) {
   (void)cfg;
   if (!data || n < 40) return;
-  for (std::size_t i = 0; i + 40 <= n && out.size() < 64; i += 2) {
-    std::uint32_t biSize = 0;
+
+  const auto fill_rgba = [](DibHit& d, const std::uint8_t* pix, std::uint64_t stride,
+                            bool bottom_up, int src_bpp) {
+    if (d.width <= 0 || d.height <= 0) return;
+    if (d.width > 256 || d.height > 256) return;
+    if (src_bpp != 3 && src_bpp != 4) return;
+    const std::int32_t h = d.height;
+    const std::int32_t w = d.width;
+    const std::uint64_t need = stride * static_cast<std::uint64_t>(h);
+    if (need == 0) return;
+    d.rgba.resize(static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4);
+    for (std::int32_t y = 0; y < h; ++y) {
+      const std::int32_t src_y = bottom_up ? (h - 1 - y) : y;
+      const std::uint8_t* row = pix + static_cast<std::size_t>(src_y) * stride;
+      std::uint8_t* dst =
+          d.rgba.data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(w) * 4;
+      for (std::int32_t x = 0; x < w; ++x) {
+        if (src_bpp == 4) {
+          dst[x * 4 + 0] = row[x * 4 + 2];
+          dst[x * 4 + 1] = row[x * 4 + 1];
+          dst[x * 4 + 2] = row[x * 4 + 0];
+          dst[x * 4 + 3] = row[x * 4 + 3] ? row[x * 4 + 3] : 255;
+        } else {
+          dst[x * 4 + 0] = row[x * 3 + 2];
+          dst[x * 4 + 1] = row[x * 3 + 1];
+          dst[x * 4 + 2] = row[x * 3 + 0];
+          dst[x * 4 + 3] = 255;
+        }
+      }
+    }
+  };
+
+  const auto try_info = [&](std::size_t hdr, std::size_t pix_off) -> bool {
+    if (hdr + 40 > n) return false;
+    std::uint32_t biSize = 0, biCompression = 0, biSizeImage = 0;
     std::int32_t biWidth = 0, biHeight = 0;
     std::uint16_t biPlanes = 0, biBitCount = 0;
-    std::memcpy(&biSize, data + i, 4);
-    if (biSize != 40 && biSize != 108 && biSize != 124) continue;
-    std::memcpy(&biWidth, data + i + 4, 4);
-    std::memcpy(&biHeight, data + i + 8, 4);
-    std::memcpy(&biPlanes, data + i + 12, 2);
-    std::memcpy(&biBitCount, data + i + 14, 2);
-    const std::int32_t h = biHeight < 0 ? -biHeight : biHeight;
-    if (biPlanes != 1) continue;
-    if (biBitCount != 1 && biBitCount != 4 && biBitCount != 8 && biBitCount != 16 &&
-        biBitCount != 24 && biBitCount != 32) {
-      continue;
+    std::memcpy(&biSize, data + hdr, 4);
+    if (biSize != 40) return false;
+    std::memcpy(&biWidth, data + hdr + 4, 4);
+    std::memcpy(&biHeight, data + hdr + 8, 4);
+    std::memcpy(&biPlanes, data + hdr + 12, 2);
+    std::memcpy(&biBitCount, data + hdr + 14, 2);
+    std::memcpy(&biCompression, data + hdr + 16, 4);
+    std::memcpy(&biSizeImage, data + hdr + 20, 4);
+    if (biCompression != 0 && biCompression != 3) return false;
+    if (biPlanes != 1) return false;
+    if (biBitCount != 8 && biBitCount != 16 && biBitCount != 24 && biBitCount != 32) {
+      return false;
     }
-    if (biWidth < 8 || biWidth > 8192 || h < 8 || h > 8192) continue;
+    const std::int32_t h = biHeight < 0 ? -biHeight : biHeight;
+    if (biWidth < 16 || biWidth > 4096 || h < 16 || h > 4096) return false;
+    const std::uint64_t stride =
+        (static_cast<std::uint64_t>(biWidth) * biBitCount + 31u) / 32u * 4u;
+    const std::uint64_t bytes = stride * static_cast<std::uint64_t>(h);
+    if (bytes == 0 || bytes > (1ull << 24)) return false;
+    if (biSizeImage != 0 && biSizeImage > bytes * 2 + 256) return false;
     DibHit d;
-    d.address = base + i;
+    d.address = base + hdr;
     d.width = biWidth;
     d.height = h;
     d.bit_count = biBitCount;
-    out.push_back(d);
+    d.compression = biCompression;
+    if ((biBitCount == 24 || biBitCount == 32) && pix_off + bytes <= n) {
+      fill_rgba(d, data + pix_off, stride, biHeight > 0, biBitCount / 8);
+    }
+    out.push_back(std::move(d));
+    return true;
+  };
+
+  for (std::size_t i = 0; i + 40 <= n && out.size() < 32; i += 2) {
+    if (i + 54 <= n && data[i] == 'B' && data[i + 1] == 'M') {
+      std::uint32_t off_bits = 0;
+      std::memcpy(&off_bits, data + i + 10, 4);
+      if (off_bits >= 54 && off_bits < n - i) {
+        if (try_info(i + 14, i + off_bits)) {
+          i += 52;
+          continue;
+        }
+      }
+    }
+    if ((i % 4) == 0) {
+      if (try_info(i, i + 40)) {
+        i += 38;
+      }
+    }
   }
 }
 

@@ -364,6 +364,68 @@ void RunMemoryInspectorTests() {
            hits.empty() ? "miss" : hits[0].text.c_str());
   }
   {
+    unsigned char buf[40 + 32 * 32 * 4];
+    std::memset(buf, 0, sizeof(buf));
+    buf[0] = 40;
+    const std::int32_t w = 32, h = 32;
+    std::memcpy(buf + 4, &w, 4);
+    std::memcpy(buf + 8, &h, 4);
+    buf[12] = 1;
+    buf[14] = 32;
+    const std::uint32_t img = 32 * 32 * 4;
+    std::memcpy(buf + 20, &img, 4);
+    buf[40 + 2] = 200;  // first pixel R in BGRA
+    InspectConfig cfg;
+    std::vector<DibHit> hits;
+    ExtractDibs(buf, sizeof(buf), 0x9000, cfg, hits);
+    Expect(!hits.empty() && hits[0].width == 32 && hits[0].height == 32 &&
+               hits[0].bit_count == 32 && hits[0].rgba.size() == 32 * 32 * 4,
+           "ExtractDibs keeps a real 32bpp BITMAPINFOHEADER + pixels",
+           hits.empty() ? "miss" : "ok");
+  }
+  {
+    unsigned char buf[64];
+    std::memset(buf, 0, sizeof(buf));
+    buf[0] = 40;
+    buf[4] = 32;
+    buf[8] = 32;
+    buf[12] = 1;
+    buf[14] = 32;
+    buf[16] = 0xFF;
+    buf[17] = 0xFF;
+    buf[18] = 0xFF;
+    buf[19] = 0xFF;
+    InspectConfig cfg;
+    std::vector<DibHit> hits;
+    ExtractDibs(buf, sizeof(buf), 0xA000, cfg, hits);
+    Expect(hits.empty(), "ExtractDibs ignores 40-byte blobs with garbage compression",
+           hits.empty() ? "ok" : "false-positive");
+  }
+  {
+    unsigned char buf[54 + 24 * 24 * 4];
+    std::memset(buf, 0, sizeof(buf));
+    buf[0] = 'B';
+    buf[1] = 'M';
+    const std::uint32_t off = 54;
+    std::memcpy(buf + 10, &off, 4);
+    buf[14] = 40;
+    const std::int32_t w = 24, h = 24;
+    std::memcpy(buf + 18, &w, 4);
+    std::memcpy(buf + 22, &h, 4);
+    buf[26] = 1;
+    buf[28] = 32;
+    const std::uint32_t img = 24 * 24 * 4;
+    std::memcpy(buf + 34, &img, 4);
+    buf[54 + 2] = 180;
+    InspectConfig cfg;
+    std::vector<DibHit> hits;
+    ExtractDibs(buf, sizeof(buf), 0xB000, cfg, hits);
+    Expect(!hits.empty() && hits[0].width == 24 && hits[0].bit_count == 32 &&
+               hits[0].rgba.size() == 24 * 24 * 4,
+           "ExtractDibs follows a BM BITMAPFILEHEADER to pixels",
+           hits.empty() ? "miss" : "ok");
+  }
+  {
     TokenSnapshot self;
     self.pid = 10;
     self.integrity = Integrity::Medium;

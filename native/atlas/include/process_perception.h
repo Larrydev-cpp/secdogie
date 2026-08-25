@@ -91,6 +91,7 @@ struct ListedProcess {
   std::wstring cmdline;
   std::uint32_t session_id = 0;
   std::uint64_t rss_kb = 0;
+  bool readable = true;
 };
 
 class ProcessPerception {

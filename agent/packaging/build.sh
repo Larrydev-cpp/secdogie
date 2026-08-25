@@ -7,6 +7,9 @@
 #
 # The resulting binary is OS/architecture specific -- run this on each
 # target platform you want to ship a binary for.
+#
+# On macOS it also copies open.command next to the binary so a double-click
+# launch is ready immediately.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,6 +29,21 @@ cd "$HERE"
 rm -rf build dist
 pyinstaller secdogie-agent.spec --distpath ./dist --workpath ./build --noconfirm
 
-echo
-echo "Built: $HERE/dist/secdogie-agent"
-echo "Try:   ./dist/secdogie-agent --help"
+# On macOS, place the double-click launcher next to the binary for convenience.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  cp -f "$HERE/launchers/open.command" "$HERE/dist/open.command"
+  chmod +x "$HERE/dist/open.command" "$HERE/dist/secdogie-agent"
+  arch="$(uname -m)"
+  echo
+  echo "Built for macOS ($arch):"
+  echo "  $HERE/dist/secdogie-agent"
+  echo "  $HERE/dist/open.command   ← double-click this"
+  echo
+  echo "First run tips:"
+  echo "  • Gatekeeper: right-click → Open, or: xattr -d com.apple.quarantine ./secdogie-agent"
+  echo "  • Accessibility: System Settings → Privacy & Security → Accessibility"
+else
+  echo
+  echo "Built: $HERE/dist/secdogie-agent"
+  echo "Try:   ./dist/secdogie-agent --help"
+fi

@@ -319,9 +319,11 @@ std::vector<ListedProcess> ProcessPerception::ListProcesses() {
       DWORD sid = 0;
       ProcessIdToSessionId(pe.th32ProcessID, &sid);
       p.session_id = sid;
+      p.readable = false;
       HANDLE ph = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pe.th32ProcessID);
       if (ph) {
         UniqueHandle h(ph);
+        p.readable = true;
         PROCESS_MEMORY_COUNTERS pmc{};
         if (GetProcessMemoryInfo(h.get(), &pmc, sizeof(pmc))) {
           p.rss_kb = pmc.WorkingSetSize / 1024;
@@ -377,6 +379,9 @@ std::vector<ListedProcess> ProcessPerception::ListProcesses() {
     char path[PROC_PIDPATHINFO_MAXSIZE]{};
     if (proc_pidpath(static_cast<int>(p.pid), path, sizeof(path)) > 0) {
       p.cmdline = FromUtf8(path);
+      p.readable = true;
+    } else {
+      p.readable = false;
     }
     proc_taskinfo ti{};
     if (proc_pidinfo(static_cast<int>(p.pid), PROC_PIDTASKINFO, 0, &ti, sizeof(ti)) ==
@@ -396,12 +401,12 @@ std::vector<ListedProcess> ProcessPerception::ListProcesses() {
     ListedProcess p;
     p.pid = static_cast<std::uint32_t>(pid);
     const std::string base = std::string("/proc/") + ent->d_name;
+    std::string comm;
     {
-      std::ifstream comm(base + "/comm");
-      std::string name;
-      if (comm) std::getline(comm, name);
-      p.image = FromUtf8(name);
+      std::ifstream in(base + "/comm");
+      if (in) std::getline(in, comm);
     }
+    std::string cmdline;
     {
       std::ifstream cmd(base + "/cmdline", std::ios::binary);
       std::string raw((std::istreambuf_iterator<char>(cmd)),
@@ -410,8 +415,9 @@ std::vector<ListedProcess> ProcessPerception::ListProcesses() {
         if (c == '\0') c = ' ';
       }
       while (!raw.empty() && raw.back() == ' ') raw.pop_back();
-      if (!raw.empty()) p.cmdline = FromUtf8(raw);
+      cmdline = std::move(raw);
     }
+    unsigned dumpable = 1;
     {
       std::ifstream st(base + "/status");
       std::string line;
@@ -421,9 +427,35 @@ std::vector<ListedProcess> ProcessPerception::ListProcesses() {
           if (std::sscanf(line.c_str() + 6, "%lu", &kb) == 1) {
             p.rss_kb = kb;
           }
-          break;
+        } else if (line.rfind("Dumpable:", 0) == 0) {
+          unsigned d = 1;
+          if (std::sscanf(line.c_str() + 9, "%u", &d) == 1) dumpable = d;
         }
       }
+    }
+    char exe[4096];
+    const ssize_t nexe = readlink((base + "/exe").c_str(), exe, sizeof(exe) - 1);
+    if (nexe > 0) {
+      exe[nexe] = 0;
+      const std::string full(exe, static_cast<std::size_t>(nexe));
+      const auto slash = full.find_last_of('/');
+      p.image = FromUtf8(slash == std::string::npos ? full : full.substr(slash + 1));
+      if (cmdline.empty()) cmdline = full;
+    } else if (!comm.empty()) {
+      p.image = FromUtf8(comm);
+    } else if (!cmdline.empty()) {
+      const auto sp = cmdline.find(' ');
+      p.image = FromUtf8(sp == std::string::npos ? cmdline : cmdline.substr(0, sp));
+    }
+    if (!cmdline.empty()) p.cmdline = FromUtf8(cmdline);
+    {
+      std::ifstream maps(base + "/maps");
+      p.readable = dumpable != 0 && maps.good() && maps.peek() != std::char_traits<char>::eof();
+    }
+    // Kernel threads: no exe, no cmdline, zero RSS.
+    if (!p.readable && cmdline.empty() && p.rss_kb == 0 &&
+        (comm.empty() || comm[0] == '[')) {
+      continue;
     }
     out.push_back(std::move(p));
     if (out.size() >= 8192) break;
