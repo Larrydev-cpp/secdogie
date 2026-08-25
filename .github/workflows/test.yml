@@ -157,3 +157,19 @@ jobs:
       - name: Test
         working-directory: native/atlas
         run: ctest --test-dir build --output-on-failure
+
+  atlas-tests-macos-intel:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build x86_64 (cross from Apple Silicon)
+        working-directory: native/atlas
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_OSX_ARCHITECTURES=x86_64
+          cmake --build build --target atlas_test atlas_inspect atlas_target -j
+          lipo -info build/atlas_inspect
+
+      - name: Test under Rosetta
+        working-directory: native/atlas
+        run: arch -x86_64 ctest --test-dir build --output-on-failure
