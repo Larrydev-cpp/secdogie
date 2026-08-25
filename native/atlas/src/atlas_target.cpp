@@ -182,7 +182,7 @@ int main() {
   wc.hInstance = GetModuleHandleW(nullptr);
   wc.lpszClassName = L"SecDogieAtlasTarget";
   wc.hbrBackground = reinterpret_cast<HBRUSH>(static_cast<uintptr_t>(COLOR_WINDOW + 1));
-  wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+  wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
   RegisterClassW(&wc);
 
   HWND wnd = CreateWindowW(L"SecDogieAtlasTarget", L"atlas_target",
