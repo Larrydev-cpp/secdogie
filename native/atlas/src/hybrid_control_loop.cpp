@@ -1,3 +1,15 @@
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <objbase.h>
+#include <UIAutomationClient.h>
+#endif
+
 #include "hybrid_control_loop.h"
 
 #include "hybrid_tree.h"
@@ -11,11 +23,6 @@
 #include <cstring>
 #include <sstream>
 #include <vector>
-
-
-#if defined(_WIN32)
-#include <uiautomation.h>
-#endif
 
 namespace secdogie::atlas {
 namespace {
@@ -62,7 +69,7 @@ double PixelDiff::ChangedRatio(const Framebuffer& a, const Framebuffer& b) {
   double acc = 0;
   std::size_t count = 0;
   for (std::size_t i = 0; i + 3 < n; i += 4) {
-    const int alpha = std::max(a.bgra[i + 3], b.bgra[i + 3]);
+    const int alpha = (std::max)(a.bgra[i + 3], b.bgra[i + 3]);
     if (alpha < 8) continue;
     const double dr = std::abs(int(a.bgra[i + 2]) - int(b.bgra[i + 2]));
     const double dg = std::abs(int(a.bgra[i + 1]) - int(b.bgra[i + 1]));

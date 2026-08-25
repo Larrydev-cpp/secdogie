@@ -31,9 +31,12 @@ jobs:
             asset: agent-windows-x86_64
           - os: macos-latest
             asset: agent-macos-arm64
-          # macos-13 is still Intel x86_64; macos-latest is Apple Silicon.
-          - os: macos-13
+            python_arch: arm64
+          # Intel Mac: cross from macos-latest (Rosetta / x64 Python).
+          # macos-13 is retired and queued forever, blocking publish.
+          - os: macos-latest
             asset: agent-macos-x86_64
+            python_arch: x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -41,6 +44,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          architecture: ${{ matrix.python_arch || 'x64' }}
 
       - name: Build single-file executable
         shell: bash
@@ -79,8 +83,10 @@ jobs:
             asset: android-windows-x86_64
           - os: macos-latest
             asset: android-macos-arm64
-          - os: macos-13
+            python_arch: arm64
+          - os: macos-latest
             asset: android-macos-x86_64
+            python_arch: x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -88,6 +94,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          architecture: ${{ matrix.python_arch || 'x64' }}
 
       - name: Build single-file executable
         shell: bash
@@ -125,8 +132,10 @@ jobs:
             asset: ios-windows-x86_64
           - os: macos-latest
             asset: ios-macos-arm64
-          - os: macos-13
+            python_arch: arm64
+          - os: macos-latest
             asset: ios-macos-x86_64
+            python_arch: x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -134,6 +143,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          architecture: ${{ matrix.python_arch || 'x64' }}
 
       - name: Build single-file executable
         shell: bash
@@ -171,8 +181,10 @@ jobs:
             asset: open-windows-x86_64
           - os: macos-latest
             asset: open-macos-arm64
-          - os: macos-13
+            python_arch: arm64
+          - os: macos-latest
             asset: open-macos-x86_64
+            python_arch: x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -180,6 +192,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          architecture: ${{ matrix.python_arch || 'x64' }}
 
       - name: Build single-file executable
         shell: bash
@@ -217,8 +230,10 @@ jobs:
             asset: scene3d-windows-x86_64
           - os: macos-latest
             asset: scene3d-macos-arm64
-          - os: macos-13
+            python_arch: arm64
+          - os: macos-latest
             asset: scene3d-macos-x86_64
+            python_arch: x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -226,6 +241,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          architecture: ${{ matrix.python_arch || 'x64' }}
 
       - name: Build single-file executable
         shell: bash
@@ -276,11 +292,74 @@ jobs:
           name: tunnel-linux-x86_64
           path: staging/*
 
+  # Native MCT: atlas_inspect + atlas_target per OS/arch. Intel Mac is
+  # cross-compiled on macos-latest (CMAKE_OSX_ARCHITECTURES=x86_64), never
+  # macos-13.
+  build-atlas:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: atlas-linux-x86_64
+            cmake_osx_arch: ""
+          - os: windows-latest
+            asset: atlas-windows-x86_64
+            cmake_osx_arch: ""
+          - os: macos-latest
+            asset: atlas-macos-arm64
+            cmake_osx_arch: arm64
+          - os: macos-latest
+            asset: atlas-macos-x86_64
+            cmake_osx_arch: x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux deps
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake
+
+      - name: Build
+        shell: bash
+        working-directory: native/atlas
+        run: |
+          extra=()
+          if [ -n "${{ matrix.cmake_osx_arch }}" ]; then
+            extra+=(-DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_osx_arch }})
+          fi
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cmake -S . -B build "${extra[@]}"
+            cmake --build build --config Release --target atlas_inspect atlas_target
+          else
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo "${extra[@]}"
+            cmake --build build --target atlas_inspect atlas_target -j
+          fi
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          mkdir -p staging
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp native/atlas/build/Release/atlas_inspect.exe staging/atlas_inspect.exe
+            cp native/atlas/build/Release/atlas_target.exe staging/atlas_target.exe
+          else
+            cp native/atlas/build/atlas_inspect staging/atlas_inspect
+            cp native/atlas/build/atlas_target staging/atlas_target
+            chmod +x staging/*
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: staging/*
+
   publish:
-    needs: [build-agent, build-android, build-ios, build-open, build-scene3d, build-tunnel]
+    needs: [build-agent, build-android, build-ios, build-open, build-scene3d, build-tunnel, build-atlas]
     runs-on: ubuntu-latest
-    # Only publish an actual Release for tag pushes; a manual run just builds.
-    if: startsWith(github.ref, 'refs/tags/')
+    # Publish even if one arch failed (Intel Python on ARM can flake). A
+    # cancelled run still skips. Manual dispatch (no tag) still skips.
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/') }}
     permissions:
       contents: write
     steps:
@@ -294,6 +373,7 @@ jobs:
       - name: Package release assets
         run: |
           set -euo pipefail
+          shopt -s nullglob
           version="${GITHUB_REF_NAME}"
           mkdir -p release pkg
 
@@ -381,6 +461,28 @@ jobs:
             esac
             package "secdogie-scene3d-${platform}-${version}" "$f" "$inner" \
               scene3d/README.md LICENSE
+          done
+
+          # Native MCT (atlas_inspect + atlas_target) per OS/arch.
+          for dir in downloaded/atlas-*; do
+            [ -d "$dir" ] || continue
+            platform="${dir##*/atlas-}"
+            case "$platform" in
+              *windows*) inner_inspect="atlas_inspect.exe"; inner_target="atlas_target.exe" ;;
+              *)         inner_inspect="atlas_inspect";     inner_target="atlas_target" ;;
+            esac
+            inspect="$(echo "$dir"/atlas_inspect*)"
+            target="$(echo "$dir"/atlas_target*)"
+            [ -f "$inspect" ] || continue
+            name="secdogie-atlas-${platform}-${version}"
+            mkdir -p "pkg/${name}"
+            cp "$inspect" "pkg/${name}/${inner_inspect}"
+            [ -f "$target" ] && cp "$target" "pkg/${name}/${inner_target}" || true
+            chmod +x "pkg/${name}/"* 2>/dev/null || true
+            cp native/atlas/README.md native/atlas/PLATFORMS.md LICENSE "pkg/${name}/" 2>/dev/null || true
+            (cd pkg && zip -r "../release/${name}.zip" "${name}")
+            cp "$inspect" "release/${name}-${inner_inspect}"
+            [ -x "$inspect" ] && chmod +x "release/${name}-${inner_inspect}" || true
           done
 
           # Tunnel binary (Linux only).

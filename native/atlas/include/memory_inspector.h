@@ -5,8 +5,15 @@
 // Primary path is UI Automation. When the tree is empty / COM failed / the
 // control is owner-drawn, InspectPid() opens a *read-only* process handle,
 // walks committed PAGE_READONLY / PAGE_READWRITE regions with VirtualQueryEx
-// (Windows) or /proc/<pid>/maps (Linux), and ReadProcessMemory /
-// process_vm_readv copies them in 64 KiB chunks.
+// (Windows), /proc/<pid>/maps (Linux), or mach_vm_region (macOS), then
+// ReadProcessMemory / process_vm_readv / mach_vm_read_overwrite copies them
+// in 64 KiB chunks.
+//
+// Decode is per-OS, not a single scanner:
+//   Windows : UTF-16LE first, then UTF-8. JSON on the wire is UTF-8.
+//   Linux / macOS : UTF-8 first (real multi-byte, CJK kept). UTF-16LE only
+//                   when the run is real wide text (NUL high bytes or CJK
+//                   units), never ASCII-pair garbage that looks like CJK.
 //
 // Safe boundary:
 //   * PAGE_GUARD / PAGE_NOACCESS / execute-only skipped
