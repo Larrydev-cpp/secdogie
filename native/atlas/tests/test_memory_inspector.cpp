@@ -498,7 +498,13 @@ void RunMemoryInspectorTests() {
     char* marker = new char[64];
     std::memset(marker, 0, 64);
     std::memcpy(marker, "SECDOGIE_LOOP_MARKER_v1", 23);
-    HybridControlLoop loop(ProcessPerception{}, LoopConfig{});
+    LoopConfig cfg;
+#if defined(_WIN32)
+    cfg.target_pid = GetCurrentProcessId();
+#else
+    cfg.target_pid = static_cast<std::uint32_t>(getpid());
+#endif
+    HybridControlLoop loop(ProcessPerception{}, cfg);
     LoopAction act;
     act.id = "read-marker";
     act.kind = ActionKind::Read;

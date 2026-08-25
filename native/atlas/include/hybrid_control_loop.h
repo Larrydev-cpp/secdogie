@@ -72,6 +72,7 @@ struct LoopConfig {
   bool memory_fallback = true;
   bool operator_confirmed = false;
   int capture_pad_px = 8;
+  std::uint32_t target_pid = 0;  // 0 = Snapshot() (foreground / self)
 };
 
 class PixelDiff {
