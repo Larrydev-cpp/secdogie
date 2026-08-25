@@ -19,6 +19,20 @@ Long-lived branches (same tree, README lead-in differs):
 
 `atlas_inspect` never writes the target. TrustedInstaller / PPL / `VM_WRITE` / `ALL_ACCESS` / UAC bypass are refused.
 
+The **operator command plane** is `atlas_mct` — Windows `atlas_mct.exe`, Linux/macOS `atlas_mct`. It binds **127.0.0.1 only** (loopback). `0.0.0.0` / LAN / wildcard are refused. Port is operator-chosen (`--listen 127.0.0.1:PORT`, `0` = ephemeral, default 17890).
+
+```bat
+atlas_mct.exe --listen 127.0.0.1:17890
+```
+
+```sh
+./atlas_mct --listen 127.0.0.1:17890
+# POST /cmd  {"line":"inspect atlas_target"}
+# GET  /health  GET /list
+```
+
+Commands: `list` · `inspect <pid|name>` · `find <control>` · `graphics` · `图层尺寸`. Same read-only inspect as `atlas_inspect`.
+
 ## What this is
 
 1. **UI tree first, memory on miss.** Windows UIA of the target pid (not the inspector's foreground window). macOS AX of that pid. Linux memory-primary.
@@ -41,26 +55,29 @@ Windows (MSVC):
 
 ```bat
 cmake -S . -B build
-cmake --build build --config Release --target atlas_test atlas_inspect atlas_target
+cmake --build build --config Release --target atlas_test atlas_inspect atlas_mct atlas_target
 ctest --test-dir build -C Release --output-on-failure
 .\build\Release\atlas_target.exe
+.\build\Release\atlas_mct.exe --listen 127.0.0.1:17890
 .\build\Release\atlas_inspect.exe --pid <gui-pid> --json --find "Zoom Extents"
 ```
 
 Linux:
 
 ```sh
-cmake -S . -B build && cmake --build build --target atlas_test atlas_inspect atlas_target
+cmake -S . -B build && cmake --build build --target atlas_test atlas_inspect atlas_mct atlas_target
 ctest --test-dir build --output-on-failure
 ./build/atlas_target &
+./build/atlas_mct --listen 127.0.0.1:17890 &
 ./build/atlas_inspect --pid $! --json --find "Zoom Extents"
 ```
 
 macOS:
 
 ```sh
-cmake -S . -B build && cmake --build build --target atlas_test atlas_inspect atlas_target
+cmake -S . -B build && cmake --build build --target atlas_test atlas_inspect atlas_mct atlas_target
 ctest --test-dir build --output-on-failure
+./build/atlas_mct --listen 127.0.0.1:17890
 ./build/atlas_inspect --pid <gui-pid> --json --find "Zoom Extents"
 ```
 
@@ -85,6 +102,10 @@ CI: `ubuntu-latest`, `windows-latest`, `macos-latest` (arm64 native + x86_64 via
 | `include/privilege_manager.h` + `src/privilege_manager.cpp` | Integrity, TI refusal, allowlisted `CreateProcessAsUser` |
 | `include/process_perception.h` + `src/process_perception.cpp` | Toolhelp / `/proc` / `KERN_PROC`; UIA / AX / EnumWindows / CGWindowList |
 | `include/hybrid_control_loop.h` + `src/hybrid_control_loop.cpp` | UIA Invoke / SendInput + GDI pixel-diff |
+| `src/inspect_json.cpp` | UTF-8 JSON dump shared by CLI and MCT |
+| `src/mct_command.cpp` | Command interpreter (`list` / `inspect` / `find` / `graphics`) |
+| `src/mct_server.cpp` | Loopback-only HTTP (`127.0.0.1`, never `0.0.0.0`) |
 | `src/atlas_inspect.cpp` | MCT CLI (full JSON) |
+| `src/atlas_mct.cpp` | Long-lived terminal EXE / app (`--listen 127.0.0.1:PORT`) |
 | `src/atlas_target.cpp` | Win32 window + heap fixture (Linux/macOS: heap descendant) |
 | `tests/test_memory_inspector.cpp` | Self + foreign-process inspect |
