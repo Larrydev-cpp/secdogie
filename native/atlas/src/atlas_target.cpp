@@ -2,6 +2,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
+#include <vector>
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -10,6 +12,10 @@
 #include <windows.h>
 #else
 #include <unistd.h>
+#if defined(__APPLE__)
+#include <libproc.h>
+#include <sys/syslimits.h>
+#endif
 #endif
 
 // Planted CAD viewport: BITMAPFILEHEADER + 32bpp DIB whose pixels are the
@@ -149,6 +155,62 @@ static volatile char* PlantHeap() {
   return heap;
 }
 
+static volatile char* PlantReportHeap() {
+  constexpr int kBytes = 32768;
+  volatile char* heap = static_cast<volatile char*>(std::malloc(kBytes));
+  if (!heap) return nullptr;
+  std::memset(const_cast<char*>(heap), 0, kBytes);
+  const char k0[] = "SECDOGIE_REPORT_v1";
+  const char k1[] = "报表";
+  const char k2[] = "{\"job\":\"report\",\"layer\":\"DIMS\",\"src\":\"atlas_target\",\"viewport\":\"sheet\"}";
+  std::memcpy(const_cast<char*>(heap), k0, sizeof(k0));
+  std::memcpy(const_cast<char*>(heap) + 32, k1, sizeof(k1));
+  std::memcpy(const_cast<char*>(heap) + 64, k2, sizeof(k2));
+  heap[kBytes - 1] = heap[kBytes - 1];
+  return heap;
+}
+
+static bool IsReportMode(int argc, char** argv) {
+  for (int i = 1; i < argc; ++i) {
+    if (argv[i] && std::strcmp(argv[i], "--report") == 0) return true;
+  }
+  return false;
+}
+
+static void SpawnReportChild() {
+#if defined(_WIN32)
+  wchar_t self[MAX_PATH]{};
+  if (!GetModuleFileNameW(nullptr, self, MAX_PATH)) return;
+  std::wstring cmd = L"\"";
+  cmd += self;
+  cmd += L"\" --report";
+  std::vector<wchar_t> buf(cmd.begin(), cmd.end());
+  buf.push_back(0);
+  STARTUPINFOW si{};
+  si.cb = sizeof(si);
+  PROCESS_INFORMATION pi{};
+  if (CreateProcessW(self, buf.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr,
+                     &si, &pi)) {
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+  }
+#else
+  char path[4096]{};
+#if defined(__APPLE__)
+  if (proc_pidpath(getpid(), path, sizeof(path)) <= 0) return;
+#else
+  const ssize_t n = readlink("/proc/self/exe", path, sizeof(path) - 1);
+  if (n <= 0) return;
+  path[n] = 0;
+#endif
+  const pid_t child = fork();
+  if (child == 0) {
+    execl(path, path, "--report", static_cast<char*>(nullptr));
+    _exit(127);
+  }
+#endif
+}
+
 #if defined(_WIN32)
 static volatile char* g_heap = nullptr;
 
@@ -173,19 +235,21 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
   return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
-int main() {
-  g_heap = PlantHeap();
+int main(int argc, char** argv) {
+  const bool report = IsReportMode(argc, argv);
+  g_heap = report ? PlantReportHeap() : PlantHeap();
   if (!g_heap) return 1;
+  if (!report) SpawnReportChild();
 
   WNDCLASSW wc{};
   wc.lpfnWndProc = WndProc;
   wc.hInstance = GetModuleHandleW(nullptr);
-  wc.lpszClassName = L"SecDogieAtlasTarget";
+  wc.lpszClassName = report ? L"SecDogieAtlasReport" : L"SecDogieAtlasTarget";
   wc.hbrBackground = reinterpret_cast<HBRUSH>(static_cast<uintptr_t>(COLOR_WINDOW + 1));
   wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
   RegisterClassW(&wc);
 
-  HWND wnd = CreateWindowW(L"SecDogieAtlasTarget", L"atlas_target",
+  HWND wnd = CreateWindowW(wc.lpszClassName, report ? L"atlas_report" : L"atlas_target",
                            WS_OVERLAPPEDWINDOW | WS_VISIBLE, 80, 80, 340, 180,
                            nullptr, nullptr, wc.hInstance, nullptr);
   (void)wnd;
@@ -201,9 +265,11 @@ int main() {
   return 0;
 }
 #else
-int main() {
-  volatile char* heap = PlantHeap();
+int main(int argc, char** argv) {
+  const bool report = IsReportMode(argc, argv);
+  volatile char* heap = report ? PlantReportHeap() : PlantHeap();
   if (!heap) return 1;
+  if (!report) SpawnReportChild();
   std::printf("%d %p\n", static_cast<int>(getpid()), const_cast<char*>(heap));
   std::fflush(stdout);
   for (;;) {

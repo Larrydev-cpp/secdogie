@@ -315,6 +315,7 @@ std::vector<ListedProcess> ProcessPerception::ListProcesses() {
     do {
       ListedProcess p;
       p.pid = pe.th32ProcessID;
+      p.ppid = pe.th32ParentProcessID;
       p.image = pe.szExeFile;
       DWORD sid = 0;
       ProcessIdToSessionId(pe.th32ProcessID, &sid);
@@ -375,6 +376,7 @@ std::vector<ListedProcess> ProcessPerception::ListProcesses() {
     ListedProcess p;
     p.pid = static_cast<std::uint32_t>(kp[i].kp_proc.p_pid);
     if (p.pid == 0) continue;
+    p.ppid = static_cast<std::uint32_t>(kp[i].kp_eproc.e_ppid);
     p.image = FromUtf8(kp[i].kp_proc.p_comm);
     char path[PROC_PIDPATHINFO_MAXSIZE]{};
     if (proc_pidpath(static_cast<int>(p.pid), path, sizeof(path)) > 0) {
@@ -430,6 +432,11 @@ std::vector<ListedProcess> ProcessPerception::ListProcesses() {
         } else if (line.rfind("Dumpable:", 0) == 0) {
           unsigned d = 1;
           if (std::sscanf(line.c_str() + 9, "%u", &d) == 1) dumpable = d;
+        } else if (line.rfind("PPid:", 0) == 0) {
+          unsigned long pp = 0;
+          if (std::sscanf(line.c_str() + 5, "%lu", &pp) == 1) {
+            p.ppid = static_cast<std::uint32_t>(pp);
+          }
         }
       }
     }

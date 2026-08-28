@@ -87,6 +87,7 @@ struct PerceptionSnapshot {
 
 struct ListedProcess {
   std::uint32_t pid = 0;
+  std::uint32_t ppid = 0;
   std::wstring image;
   std::wstring cmdline;
   std::uint32_t session_id = 0;

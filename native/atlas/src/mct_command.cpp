@@ -1,6 +1,7 @@
 #include "mct_command.h"
 
 #include "inspect_json.h"
+#include "process_chain.h"
 #include "process_perception.h"
 #include "utf.h"
 
@@ -83,6 +84,21 @@ bool FileExists(const std::string& p) {
 #endif
 }
 
+bool ContainsPid(const std::vector<std::uint32_t>& ids, std::uint32_t pid) {
+  for (std::uint32_t x : ids) {
+    if (x == pid) return true;
+  }
+  return false;
+}
+
+std::vector<ChainMember> RememberChain(MctState& st, std::uint32_t pid,
+                                       const std::vector<ListedProcess>& all) {
+  auto chain = BuildChain(pid, all, st.linked);
+  MergeLastKnown(chain, st.last_chain);
+  st.last_chain = chain;
+  return chain;
+}
+
 std::string TargetPath() {
 #if defined(_WIN32)
   const char* name = "atlas_target.exe";
@@ -111,6 +127,10 @@ int ScoreProcess(const ListedProcess& p, const std::string& q) {
   else if (base.find(ql) != std::string::npos || image.find(ql) != std::string::npos) s += 50;
   if (cmd.find(ql) != std::string::npos) s += 15;
   if (base.find("atlas_target") != std::string::npos) s += 40;
+  if (cmd.find("--report") != std::string::npos && ql.find("report") == std::string::npos &&
+      ql.find("报表") == std::string::npos) {
+    s -= 50;
+  }
   if (!p.readable) s -= 200;
   else s += 30;
   if (base.find("atlas_inspect") != std::string::npos && ql.find("atlas") != std::string::npos &&
@@ -132,8 +152,14 @@ const ListedProcess* Resolve(const std::vector<ListedProcess>& procs, const std:
     for (const auto& p : procs) {
       if (!p.readable) continue;
       const std::string base = Lower(BasenameUtf8(p.image));
-      if (base.find("atlas_target") != std::string::npos && p.rss_kb > 0) return &p;
-      if (base.find("atlas_target") != std::string::npos) best = &p;
+      const std::string cmd = Lower(WideToUtf8(p.cmdline));
+      if (base.find("atlas_target") != std::string::npos && cmd.find("--report") == std::string::npos &&
+          p.rss_kb > 0) {
+        return &p;
+      }
+      if (base.find("atlas_target") != std::string::npos && cmd.find("--report") == std::string::npos) {
+        best = &p;
+      }
     }
     if (best) return best;
     for (const auto& p : procs) {
@@ -194,7 +220,8 @@ std::uint32_t MctEnsureFixture() {
   const std::vector<ListedProcess> procs = ProcessPerception::ListProcesses();
   for (const auto& p : procs) {
     if (!p.readable) continue;
-    if (Lower(BasenameUtf8(p.image)).find("atlas_target") != std::string::npos && p.rss_kb > 0) {
+    if (Lower(BasenameUtf8(p.image)).find("atlas_target") != std::string::npos &&
+        Lower(WideToUtf8(p.cmdline)).find("--report") == std::string::npos && p.rss_kb > 0) {
       return p.pid;
     }
   }
@@ -266,6 +293,17 @@ MctOp ParseMctLine(const std::string& line, std::string* arg) {
     return MctOp::Inspect;
   }
   if (h == "find" || head == "查找" || head == "找" || h == "lock") return MctOp::Find;
+  if (h == "chain" || h == "related" || head == "串联" || head == "关联" || head == "链路") {
+    return MctOp::Chain;
+  }
+  if (h == "link" || head == "链接" || head == "钉住") return MctOp::Link;
+  if (h == "unlink" || head == "取消链接") return MctOp::Unlink;
+  if (h == "job" || h == "jobs" || head == "作业" || head == "报表" || h == "report") {
+    if (h == "report" || head == "报表") {
+      if (arg) *arg = arg->empty() ? "report" : *arg;
+    }
+    return MctOp::Job;
+  }
   if (h == "zoom" || head == "缩放" || h == "extents") {
     if (arg) *arg = "Zoom Extents";
     return MctOp::Find;
@@ -309,16 +347,20 @@ std::string ExecMctLine(MctState& st, const std::string& line) {
   switch (op) {
     case MctOp::Help:
       return Wrap(true, "help",
-                  "list · inspect <pid|name> · find <control> · zoom · layer · 图层尺寸 · "
-                  "graphics · mapped on|off · status · clear",
-                  "\"kind\":\"exe\"");
+                  "list · inspect <pid|name> · find <control> · chain · link <pid> · "
+                  "job report · 报表 · graphics · mapped on|off · status · clear",
+                  "\"kind\":\"app\"");
     case MctOp::Status:
-      return Wrap(true, "status", "atlas_mct loopback, read-only",
-                  std::string("\"platform\":\"") + PlatformName() + "\",\"kind\":\"exe\",\"pid\":" +
+      return Wrap(true, "status", "atlas_mct 应用程式 loopback, read-only",
+                  std::string("\"platform\":\"") + PlatformName() + "\",\"kind\":\"app\",\"pid\":" +
                       std::to_string(st.pid));
     case MctOp::Clear:
       st.pid = 0;
       st.find.clear();
+      st.linked.clear();
+      st.last_snap.clear();
+      st.last_pid = 0;
+      st.last_chain.clear();
       return Wrap(true, "clear", "cleared", "");
     case MctOp::Mapped:
       st.include_mapped = arg != "off" && arg != "0" && arg != "关";
@@ -336,14 +378,33 @@ std::string ExecMctLine(MctState& st, const std::string& line) {
         return Wrap(false, "inspect", "no matching process: " + arg, "");
       }
       if (!p->readable) {
+        InspectAttempt stale =
+            InspectWithRetry(p->pid, cfg, st.find, st.last_snap.empty() ? nullptr : &st.last_snap, 1);
+        if (stale.stale) {
+          return Wrap(true, "inspect",
+                      "pid " + std::to_string(p->pid) + " unreadable — last-known (isolated)",
+                      std::string("\"pid\":") + std::to_string(p->pid) +
+                          ",\"stale\":true,\"isolated\":true,\"snapshot\":" + stale.json);
+        }
         return Wrap(false, "inspect",
                     "pid " + std::to_string(p->pid) + " unreadable (maps/dumpable)", "");
       }
       st.pid = p->pid;
-      const std::string snap = DumpInspectJson(p->pid, cfg, st.find);
+      InspectAttempt a = InspectWithRetry(p->pid, cfg, st.find,
+                                          st.last_snap.empty() ? nullptr : &st.last_snap, 3);
+      if (a.ok) {
+        st.last_snap = a.json;
+        st.last_pid = p->pid;
+      }
       const std::string image = BasenameUtf8(p->image);
-      return Wrap(true, "inspect", "pid " + std::to_string(p->pid) + " " + image,
-                  std::string("\"pid\":") + std::to_string(p->pid) + ",\"snapshot\":" + snap);
+      const bool ok = a.ok || a.stale;
+      std::string extra = std::string("\"pid\":") + std::to_string(p->pid) + ",\"attempts\":" +
+                          std::to_string(a.attempts) + ",\"stale\":" + (a.stale ? "true" : "false") +
+                          ",\"snapshot\":" + (a.json.empty() ? "null" : a.json);
+      return Wrap(ok, "inspect",
+                  a.ok ? ("pid " + std::to_string(p->pid) + " " + image)
+                       : (a.stale ? "inspect jitter — last-known" : a.detail),
+                  extra);
     }
     case MctOp::Find: {
       if (arg.empty()) return Wrap(false, "find", "usage: find <name>", "");
@@ -355,11 +416,21 @@ std::string ExecMctLine(MctState& st, const std::string& line) {
         if (p) st.pid = p->pid;
       }
       if (st.pid == 0) return Wrap(false, "find", "no readable target", "");
-      const std::string snap = DumpInspectJson(st.pid, cfg, st.find);
-      const bool hit = snap.find("\"found\":null") == std::string::npos &&
-                       snap.find("\"found\":") != std::string::npos;
-      return Wrap(hit, "find", hit ? ("HIT " + arg) : ("MISS " + arg),
-                  std::string("\"pid\":") + std::to_string(st.pid) + ",\"snapshot\":" + snap);
+      InspectAttempt a = InspectWithRetry(st.pid, cfg, st.find,
+                                          st.last_snap.empty() ? nullptr : &st.last_snap, 3);
+      if (a.ok) {
+        st.last_snap = a.json;
+        st.last_pid = st.pid;
+      }
+      const bool hit = a.json.find("\"found\":null") == std::string::npos &&
+                       a.json.find("\"found\":") != std::string::npos;
+      const bool ok = (a.ok || a.stale) && hit;
+      return Wrap(ok, "find",
+                  a.stale ? ("stale HIT/MISS " + arg)
+                          : (hit ? ("HIT " + arg) : ("MISS " + arg)),
+                  std::string("\"pid\":") + std::to_string(st.pid) + ",\"stale\":" +
+                      (a.stale ? "true" : "false") + ",\"snapshot\":" +
+                      (a.json.empty() ? "null" : a.json));
     }
     case MctOp::Graphics: {
       if (st.pid == 0) {
@@ -369,10 +440,84 @@ std::string ExecMctLine(MctState& st, const std::string& line) {
         if (p) st.pid = p->pid;
       }
       if (st.pid == 0) return Wrap(false, "graphics", "no readable target", "");
-      const std::string snap = DumpInspectJson(st.pid, cfg, L"");
-      return Wrap(true, "graphics", "viewport from process memory",
-                  std::string("\"pid\":") + std::to_string(st.pid) + ",\"tab\":\"graphics\",\"snapshot\":" +
-                      snap);
+      InspectAttempt a = InspectWithRetry(st.pid, cfg, L"",
+                                          st.last_snap.empty() ? nullptr : &st.last_snap, 3);
+      if (a.ok) {
+        st.last_snap = a.json;
+        st.last_pid = st.pid;
+      }
+      return Wrap(a.ok || a.stale, "graphics",
+                  a.stale ? "viewport from last-known (isolated)" : "viewport from process memory",
+                  std::string("\"pid\":") + std::to_string(st.pid) +
+                      ",\"tab\":\"graphics\",\"stale\":" + (a.stale ? "true" : "false") +
+                      ",\"snapshot\":" + (a.json.empty() ? "null" : a.json));
+    }
+    case MctOp::Chain: {
+      MctEnsureFixture();
+      if (st.pid == 0) {
+        const auto procs = ProcessPerception::ListProcesses();
+        const ListedProcess* p = Resolve(procs, arg.empty() ? "" : arg);
+        if (p) st.pid = p->pid;
+      } else if (!arg.empty()) {
+        const auto procs = ProcessPerception::ListProcesses();
+        const ListedProcess* p = Resolve(procs, arg);
+        if (p) st.pid = p->pid;
+      }
+      if (st.pid == 0) return Wrap(false, "chain", "no process to chain", "");
+      const auto all = ProcessPerception::ListProcesses();
+      const auto chain = RememberChain(st, st.pid, all);
+      return Wrap(true, "chain",
+                  "pid " + std::to_string(st.pid) + " · " + std::to_string(chain.size()) + " members",
+                  std::string("\"pid\":") + std::to_string(st.pid) + ",\"chain\":" + DumpChainJson(chain));
+    }
+    case MctOp::Link: {
+      if (arg.empty()) return Wrap(false, "link", "usage: link <pid|name>", "");
+      const auto procs = ProcessPerception::ListProcesses();
+      const ListedProcess* p = Resolve(procs, arg);
+      if (!p) return Wrap(false, "link", "no matching process: " + arg, "");
+      if (!ContainsPid(st.linked, p->pid)) st.linked.push_back(p->pid);
+      if (st.pid == 0) st.pid = p->pid;
+      const auto chain = RememberChain(st, st.pid, procs);
+      return Wrap(true, "link", "linked pid " + std::to_string(p->pid),
+                  std::string("\"pid\":") + std::to_string(p->pid) + ",\"chain\":" + DumpChainJson(chain));
+    }
+    case MctOp::Unlink: {
+      const unsigned long n = std::strtoul(arg.c_str(), nullptr, 10);
+      st.linked.erase(std::remove(st.linked.begin(), st.linked.end(), static_cast<std::uint32_t>(n)),
+                      st.linked.end());
+      return Wrap(true, "unlink", "unlinked " + arg, "");
+    }
+    case MctOp::Job: {
+      MctEnsureFixture();
+      std::string kind = Lower(arg);
+      if (kind.empty() || kind == "status" || kind == "报表") kind = "report";
+      if (kind.rfind("report", 0) == 0 || kind == "报表") kind = "report";
+      if (st.pid == 0) {
+        const auto procs = ProcessPerception::ListProcesses();
+        const ListedProcess* p = Resolve(procs, "");
+        if (p) st.pid = p->pid;
+      }
+      if (kind != "report") {
+        return Wrap(false, "job", "unknown job (try: job report)", "");
+      }
+      const std::string* cache = st.last_snap.empty() ? nullptr : &st.last_snap;
+      JobResult job = RunReportJob(st.pid, st.linked, cfg, cache,
+                                   st.last_chain.empty() ? nullptr : &st.last_chain);
+      if (!job.last_snap.empty()) {
+        st.last_snap = job.last_snap;
+        st.last_pid = job.source_pid;
+        if (st.pid == 0) st.pid = job.source_pid;
+      }
+      std::string extra = std::string("\"job\":") + DumpJobJson(job);
+      extra += ",\"pid\":" + std::to_string(job.source_pid);
+      if (!job.last_snap.empty()) extra += ",\"snapshot\":" + job.last_snap;
+      const auto all = ProcessPerception::ListProcesses();
+      extra += ",\"chain\":" + DumpChainJson(RememberChain(st, job.source_pid, all));
+      extra += ",\"tab\":\"job\"";
+      return Wrap(job.status != "failed", "job",
+                  "job " + job.name + " " + job.status + " · " +
+                      std::to_string(job.stages.size()) + " stages",
+                  extra);
     }
     default:
       return Wrap(false, "unknown", "unknown command. help", "");
