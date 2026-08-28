@@ -273,9 +273,9 @@ std::string DumpListJson() {
   o.puts(",\"processes\":[");
   for (std::size_t i = 0; i < procs.size(); ++i) {
     if (i) o.put(',');
-    o.fmt("{\"pid\":%u,\"rss_kb\":%llu,\"session\":%u,\"readable\":%s,\"image\":",
-          procs[i].pid, static_cast<unsigned long long>(procs[i].rss_kb), procs[i].session_id,
-          procs[i].readable ? "true" : "false");
+    o.fmt("{\"pid\":%u,\"ppid\":%u,\"rss_kb\":%llu,\"session\":%u,\"readable\":%s,\"image\":",
+          procs[i].pid, procs[i].ppid, static_cast<unsigned long long>(procs[i].rss_kb),
+          procs[i].session_id, procs[i].readable ? "true" : "false");
     JsonW(o, procs[i].image);
     o.puts(",\"cmdline\":");
     std::wstring cmd = procs[i].cmdline;

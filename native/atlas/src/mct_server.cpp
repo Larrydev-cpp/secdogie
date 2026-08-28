@@ -234,7 +234,7 @@ void HandleConn(sock_t fd) {
   if (method == "GET" && (path == "/health" || path == "/status")) {
     char b[320];
     std::snprintf(b, sizeof(b),
-                  "{\"ok\":true,\"app\":\"atlas_mct\",\"kind\":\"exe\",\"bind\":\"127.0.0.1\","
+                  "{\"ok\":true,\"app\":\"atlas_mct\",\"kind\":\"app\",\"bind\":\"127.0.0.1\","
                   "\"platform\":\"%s\",\"readonly\":true,\"pid\":%u}",
                   PlatformName(), g_state.pid);
     HttpReply(fd, 200, b);
@@ -429,7 +429,7 @@ int ServeMct(const ListenSpec& spec, ListenSpec* bound, std::string* err) {
   g_stop.store(false);
   if (bound) *bound = got;
   WriteMctPortFile(got);
-  std::fprintf(stderr, "atlas_mct listening on 127.0.0.1:%u (loopback only)\n", got.port);
+  std::fprintf(stderr, "atlas_mct 应用程式 listening on 127.0.0.1:%u (loopback only)\n", got.port);
   std::fflush(stderr);
   while (!g_stop.load()) {
     sockaddr_in peer{};

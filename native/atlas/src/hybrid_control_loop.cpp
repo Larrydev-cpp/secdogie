@@ -24,6 +24,10 @@
 #include <sstream>
 #include <vector>
 
+#if !defined(_WIN32)
+#include <unistd.h>
+#endif
+
 namespace secdogie::atlas {
 namespace {
 
@@ -37,6 +41,15 @@ std::uint32_t ElapsedMs(Clock::time_point start) {
 
 Rect Inflate(const Rect& r, int pad) {
   return {r.x - pad, r.y - pad, r.w + pad * 2, r.h + pad * 2};
+}
+
+void Nap(int ms) {
+  if (ms <= 0) return;
+#if defined(_WIN32)
+  Sleep(static_cast<DWORD>(ms));
+#else
+  usleep(static_cast<useconds_t>(ms) * 1000);
+#endif
 }
 
 }  // namespace
@@ -274,11 +287,25 @@ LoopStep HybridControlLoop::Run(const LoopAction& action, SinkFn sink) {
     InspectConfig ic;
     ic.max_strings = 8192;
     ic.max_bytes = 32ull * 1024ull * 1024ull;
-    Result<InspectSnapshot> mem = InspectPid(pid, ic);
-    if (!mem) {
-      emit(StepStatus::Failed, "memory inspect refused: " + mem.error().detail);
-      return step;
+    Result<InspectSnapshot> mem{PrivilegeError{PrivilegeCode::Failed, "pending"}};
+    for (int i = 0; i < 3; ++i) {
+      mem = InspectPid(pid, ic);
+      if (mem) break;
+      emit(StepStatus::Retrying, "memory inspect jitter, retry " + std::to_string(i + 1));
+      Nap(80 << i);
     }
+    if (!mem) {
+      found = ProcessPerception::Find(last_.controls, action.selector);
+      if (found) {
+        emit(StepStatus::Fallback, "inspect refused after retries — last-known tree (isolated)");
+        memory_controls = last_.controls;
+        mode = PerceptionMode::Memory;
+        step.mode = mode;
+      } else {
+        emit(StepStatus::Failed, "memory inspect refused: " + mem.error().detail);
+        return step;
+      }
+    } else {
     const std::vector<ControlNode>& seed =
         !current.controls.empty() ? current.controls : last_.controls;
     const std::vector<HybridNode> hybrid =
@@ -295,6 +322,7 @@ LoopStep HybridControlLoop::Run(const LoopAction& action, SinkFn sink) {
     }
     mode = PerceptionMode::Memory;
     step.mode = mode;
+    }
   }
 
   if (!found) {
@@ -330,7 +358,12 @@ LoopStep HybridControlLoop::Run(const LoopAction& action, SinkFn sink) {
 
   emit(StepStatus::SnapshotBefore, "Capturing pre-action framebuffer.");
   const Rect cap = Inflate(target.bounds, config_.capture_pad_px);
-  auto before = capture_(cap);
+  Result<Framebuffer> before{PrivilegeError{PrivilegeCode::Failed, "pending"}};
+  for (int i = 0; i < 3; ++i) {
+    before = capture_(cap);
+    if (before) break;
+    Nap(80 << i);
+  }
   if (!before) {
     emit(StepStatus::Failed, "pre-capture failed: " + before.error().detail);
     return step;
@@ -348,10 +381,15 @@ LoopStep HybridControlLoop::Run(const LoopAction& action, SinkFn sink) {
       }
     }
     emit(StepStatus::SnapshotAfter, "Capturing post-action framebuffer.");
-    auto after = capture_(cap);
+    Result<Framebuffer> after{PrivilegeError{PrivilegeCode::Failed, "pending"}};
+    for (int i = 0; i < 3; ++i) {
+      after = capture_(cap);
+      if (after) break;
+      Nap(40 << i);
+    }
     if (!after) {
-      emit(StepStatus::Failed, "post-capture failed: " + after.error().detail);
-      return step;
+      emit(StepStatus::Retrying, "post-capture jitter: " + after.error().detail);
+      continue;
     }
     last_diff = PixelDiff::ChangedRatio(before.value(), after.value());
     step.diff_ratio = last_diff;
