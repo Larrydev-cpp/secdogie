@@ -28,7 +28,9 @@ atlas_mct.exe --listen 127.0.0.1:17890
 # GET  /health  GET /list
 ```
 
-Commands: `list` · `inspect <pid|name>` · `find <control>` · `graphics` · `图层尺寸`. Same read-only inspect as `atlas_inspect`.
+Commands: `list` · `inspect <pid|name>` · `find <control>` · `chain` / `串联` · `link <pid>` · `job report` / `报表` · `graphics`. Same read-only inspect as `atlas_inspect`.
+
+A **job** is a chain of related processes (parent / child / same family / operator `link` — CAD drawing + report workbook, acad + accoreconsole). One unread PID, a dead related process, or a jittered inspect is **isolated**: last-known snapshot is kept, the vanished PID stays on the chain, the rest of the job continues. The whole job only fails if every stage fails with no last-known snapshot.
 
 ## What this is
 
@@ -100,7 +102,8 @@ CI: `ubuntu-latest`, `windows-latest`, `macos-latest` (arm64 native + x86_64 via
 | `include/process_perception.h` + `src/process_perception.cpp` | Toolhelp / `/proc` / `KERN_PROC`; UIA / AX / EnumWindows / CGWindowList |
 | `include/hybrid_control_loop.h` + `src/hybrid_control_loop.cpp` | UIA Invoke / SendInput + GDI pixel-diff |
 | `src/inspect_json.cpp` | UTF-8 JSON dump shared by CLI and MCT |
-| `src/mct_command.cpp` | Command interpreter (`list` / `inspect` / `find` / `graphics`) |
+| `src/mct_command.cpp` | Command interpreter (`list` / `inspect` / `find` / `chain` / `job report`) |
+| `include/process_chain.h` + `src/process_chain.cpp` | parent/child/family/link graph; isolated job runner; last-known members kept on death/jitter |
 | `src/mct_server.cpp` | Loopback-only HTTP (`127.0.0.1`, never `0.0.0.0`) |
 | `src/atlas_inspect.cpp` | MCT CLI (full JSON) |
 | `src/atlas_mct.cpp` | Long-lived terminal EXE / app (`--listen 127.0.0.1:PORT`) |

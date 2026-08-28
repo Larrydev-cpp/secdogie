@@ -21,7 +21,7 @@ static void Usage() {
       "  Native application command plane (not a web script).\n"
       "  Binds 127.0.0.1 only. 0.0.0.0 / LAN / wildcard refused.\n"
       "  Port is operator-chosen (default 17890, 0 = ephemeral).\n"
-      "  Commands: list · inspect <pid|name> · find <control> · graphics\n"
+      "  Commands: list · inspect <pid|name> · find <control> · chain · link · job report / 报表\n"
       "  Never writes the target. TI / PPL / VM_WRITE / ALL_ACCESS refused.\n"
       "\n"
       "  atlas_mct.exe --listen 127.0.0.1:17890\n"

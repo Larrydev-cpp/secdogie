@@ -32,6 +32,7 @@ void Expect(bool cond, const char* name, const char* detail) {
 
 void RunMemoryInspectorTests();
 void RunMctTests();
+void RunChainTests();
 
 int main() {
   std::printf("atlas_test\n");
@@ -239,6 +240,7 @@ int main() {
 
   RunMemoryInspectorTests();
   RunMctTests();
+  RunChainTests();
 
   std::printf("\n%d passed, %d failed\n", g_passed, g_failed);
   return g_failed ? 1 : 0;

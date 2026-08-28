@@ -16,6 +16,7 @@ add_library(secdogie_atlas STATIC
   src/inspect_json.cpp
   src/mct_command.cpp
   src/mct_server.cpp
+  src/process_chain.cpp
 )
 target_include_directories(secdogie_atlas PUBLIC include)
 
@@ -41,6 +42,7 @@ add_executable(atlas_test
   tests/test_atlas.cpp
   tests/test_memory_inspector.cpp
   tests/test_mct.cpp
+  tests/test_chain.cpp
 )
 target_link_libraries(atlas_test PRIVATE secdogie_atlas)
 target_include_directories(atlas_test PRIVATE include)
