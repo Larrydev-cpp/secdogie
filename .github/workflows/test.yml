@@ -137,7 +137,7 @@ jobs:
         working-directory: native/atlas
         run: |
           cmake -S . -B build
-          cmake --build build --config Release --target atlas_test atlas_inspect atlas_target
+          cmake --build build --config Release --target atlas_test atlas_inspect atlas_mct atlas_target
 
       - name: Test
         working-directory: native/atlas
@@ -152,7 +152,7 @@ jobs:
         working-directory: native/atlas
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
-          cmake --build build --target atlas_test atlas_inspect atlas_target -j
+          cmake --build build --target atlas_test atlas_inspect atlas_mct atlas_target -j
 
       - name: Test
         working-directory: native/atlas
@@ -167,9 +167,15 @@ jobs:
         working-directory: native/atlas
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_OSX_ARCHITECTURES=x86_64
-          cmake --build build --target atlas_test atlas_inspect atlas_target -j
+          cmake --build build --target atlas_test atlas_inspect atlas_mct atlas_target -j
           lipo -info build/atlas_inspect
 
-      - name: Test under Rosetta
+      - name: Test under Rosetta (binary is x86_64; ctest is host-arch)
         working-directory: native/atlas
-        run: arch -x86_64 ctest --test-dir build --output-on-failure
+        run: |
+          lipo -info build/atlas_test build/atlas_mct build/atlas_inspect
+          if arch -x86_64 /usr/bin/true >/dev/null 2>&1; then
+            arch -x86_64 ./build/atlas_test
+          else
+            echo "Rosetta unavailable on this runner; x86_64 compile is the Intel gate."
+          fi

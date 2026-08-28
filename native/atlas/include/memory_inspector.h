@@ -82,6 +82,9 @@ struct DibHit {
   std::int32_t width = 0;
   std::int32_t height = 0;
   std::uint16_t bit_count = 0;
+  std::uint32_t compression = 0;
+  // Top-down RGBA preview, empty when pixels were not in this chunk.
+  std::vector<std::uint8_t> rgba;
 };
 
 struct PeHit {

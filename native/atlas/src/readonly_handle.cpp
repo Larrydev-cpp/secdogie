@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #endif
 #include "readonly_handle.h"
+#include "utf.h"
 
 #include "utf.h"
 
@@ -220,6 +221,9 @@ Result<std::wstring> ReadOnlyProcessHandle::ImageName() const {
   char buf[4096];
   const ssize_t n = readlink(path.c_str(), buf, sizeof(buf) - 1);
   if (n <= 0) {
+    std::ifstream comm("/proc/" + std::to_string(pid_) + "/comm");
+    std::string name;
+    if (comm && std::getline(comm, name) && !name.empty()) return Utf8ToWide(name);
     return PrivilegeError{PrivilegeCode::AccessDenied, "readlink /proc/pid/exe failed"};
   }
   buf[n] = 0;
