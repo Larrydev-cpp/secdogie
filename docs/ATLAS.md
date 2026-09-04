@@ -48,18 +48,23 @@ native/atlas/atlas_inspect --self --token
    action (`screen.changed_ratio` in the agent loop; `atlas.changed_ratio` /
    C++ `PixelDiff` for the native path). No visible mutation → retry → fail.
    A no-mutation step is never recorded as success.
-3. **`click_element` is in the retry-safe set**, so a UIA Invoke that didn't
-   actually change the UI is retried along the **same delivery path** (Invoke
-   again, or rewrite to `left_click`). The raw `click_element` kind is never
-   forwarded to `backend.execute` — it is not a backend verb.
-4. A UIA miss falls back to the **previous** snapshot (last-known tree), not
+3. **Mutation is per-OS.** Windows: UIA Invoke, then documented `SendInput`.
+   macOS: `AXPress` / `AXConfirm` only — `click_element` is **never** rewritten
+   to `left_click` (pyautogui on Darwin is Quartz HID / `CGEventPost`). Linux:
+   no native mutate. A no-mutation step is never recorded as success.
+4. **`click_element` is in the retry-safe set.** A miss retries along the
+   **same delivery path** (Invoke / AXPress again). On Windows only, a miss
+   rewrites to `left_click`. The raw `click_element` kind is never forwarded
+   to `backend.execute` — it is not a backend verb.
+5. A UIA miss falls back to the **previous** snapshot (last-known tree), not
    the empty current frame. Name / AutomationId / role match is case-insensitive.
-5. The live agent loop (`loop.py`) keeps last-known `element_targets` the same
+6. The live agent loop (`loop.py`) keeps last-known `element_targets` the same
    way: an empty accessibility frame does not wipe the listing, so a model that
    still holds `eN` refs from the previous step can resolve them. `click_element`
-   retries go through `_deliver_action` (Invoke, else rewrite to `left_click`) —
-   the raw kind is never forwarded to `backend.execute`.
-6. `axtree.find_elements` name / AutomationId match is case-insensitive exact
+   retries go through `_deliver_action` (Invoke / AXPress; Windows may rewrite
+   to `left_click`; macOS never does) — the raw kind is never forwarded to
+   `backend.execute`.
+7. `axtree.find_elements` name / AutomationId match is case-insensitive exact
    (not substring), aligned with Atlas `find_control`.
 
 CAD canvases and custom-drawn chrome still fall back to vision. That's
@@ -122,6 +127,7 @@ The custom `tunnel/` remains for air-gapped lab use. See [`SECURITY.md`](../SECU
 
 ```sh
 cmake -S native/atlas -B native/atlas/build
+# Intel Mac: add -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 -DCMAKE_OSX_ARCHITECTURES=x86_64
 cmake --build native/atlas/build --target atlas_test
 ctest --test-dir native/atlas/build --output-on-failure
 ```

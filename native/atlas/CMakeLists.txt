@@ -1,4 +1,11 @@
 cmake_minimum_required(VERSION 3.16)
+# Intel Macs (x86_64) + Apple Silicon. 11.0 covers Big Sur through Sequoia.
+# Intel slice: cmake -DCMAKE_OSX_ARCHITECTURES=x86_64
+# Universal:   lipo -create arm64-bin x86_64-bin -output universal-bin
+if(APPLE AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+  set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING
+      "macOS 11+ (Intel x86_64 and Apple Silicon)")
+endif()
 project(secdogie_atlas LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -35,6 +42,7 @@ if (APPLE)
   target_link_libraries(secdogie_atlas PUBLIC
     "-framework ApplicationServices"
     "-framework CoreFoundation"
+    "-framework CoreGraphics"
   )
 endif()
 

@@ -148,10 +148,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build (Apple clang)
+      - name: Build (Apple clang, macOS 11+ / Intel + Apple Silicon)
         working-directory: native/atlas
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
           cmake --build build --target atlas_test atlas_inspect atlas_mct atlas_target -j
 
       - name: Test
@@ -163,19 +164,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build x86_64 (cross from Apple Silicon)
+      - name: Build x86_64 for Intel Macs (cross from Apple Silicon)
         working-directory: native/atlas
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_OSX_ARCHITECTURES=x86_64
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DCMAKE_OSX_ARCHITECTURES=x86_64
           cmake --build build --target atlas_test atlas_inspect atlas_mct atlas_target -j
-          lipo -info build/atlas_inspect
 
-      - name: Test under Rosetta (binary is x86_64; ctest is host-arch)
+      - name: Verify x86_64 slice (Intel Macs Big Sur–Sequoia)
         working-directory: native/atlas
         run: |
-          lipo -info build/atlas_test build/atlas_mct build/atlas_inspect
+          set -euo pipefail
+          info="$(lipo -info build/atlas_test build/atlas_mct build/atlas_inspect build/atlas_target)"
+          echo "$info"
+          echo "$info" | grep -q x86_64 || {
+            echo "FATAL: Intel x86_64 slice missing — this build cannot run on Intel Macs."
+            exit 1
+          }
+
+      - name: Test under Rosetta (run the x86_64 binary; never wrap host ctest)
+        working-directory: native/atlas
+        run: |
+          set -euo pipefail
           if arch -x86_64 /usr/bin/true >/dev/null 2>&1; then
             arch -x86_64 ./build/atlas_test
           else
-            echo "Rosetta unavailable on this runner; x86_64 compile is the Intel gate."
+            echo "Rosetta unavailable on this runner; x86_64 compile + lipo is the Intel gate."
           fi

@@ -615,8 +615,10 @@ The model can then reply `{"action": "click_element", "element": "e2", ...}` -- 
 and the **desktop harness** delivers that through the accessibility API
 (Invoke / AXPress / AT-SPI click, SetValue). The real cursor is not moved and
 the window does not have to steal focus. If the native action is refused (a
-control with no Invoke pattern), the loop falls back to a pixel click at the
-element's centre, same as before.
+control with no Invoke pattern), Windows / Linux fall back to a pixel click at
+the element's centre. **macOS does not**: pyautogui on Darwin is Quartz HID
+(`CGEventPost` / IOHID), so a miss is reported and HID click is refused. Type
+on Darwin is `AXValue` only.
 
 That's the non-vision path for desktop *chrome* (menus, dialogs, ribbons, named
 buttons). CAD canvases, games, and custom-drawn UI have no named widgets -- the
