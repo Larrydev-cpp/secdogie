@@ -327,6 +327,7 @@ jobs:
           extra=()
           if [ -n "${{ matrix.cmake_osx_arch }}" ]; then
             extra+=(-DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_osx_arch }})
+            extra+=(-DCMAKE_OSX_DEPLOYMENT_TARGET=11.0)
           fi
           if [ "${{ runner.os }}" = "Windows" ]; then
             cmake -S . -B build "${extra[@]}"
@@ -356,8 +357,46 @@ jobs:
           name: ${{ matrix.asset }}
           path: staging/*
 
+  # Universal Mac binary: lipo arm64 (Apple Silicon) + x86_64 (Intel).
+  # Operators who do not know the chip download this one. continue-on-error
+  # so a lipo flake does not block the per-arch assets.
+  build-atlas-universal:
+    needs: [build-atlas]
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: atlas-macos-*
+          path: downloaded
+
+      - name: lipo arm64 + x86_64
+        run: |
+          set -euo pipefail
+          mkdir -p staging
+          for bin in atlas_inspect atlas_mct atlas_target; do
+            arm="downloaded/atlas-macos-arm64/${bin}"
+            intel="downloaded/atlas-macos-x86_64/${bin}"
+            if [ ! -f "$arm" ] || [ ! -f "$intel" ]; then
+              echo "missing $bin slice"
+              ls -l downloaded/atlas-macos-arm64 downloaded/atlas-macos-x86_64 || true
+              exit 1
+            fi
+            lipo -create "$arm" "$intel" -output "staging/${bin}"
+            info="$(lipo -info "staging/${bin}")"
+            echo "$info"
+            echo "$info" | grep -q arm64
+            echo "$info" | grep -q x86_64
+            chmod +x "staging/${bin}"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: atlas-macos-universal
+          path: staging/*
+
   publish:
-    needs: [build-agent, build-android, build-ios, build-open, build-scene3d, build-tunnel, build-atlas]
+    needs: [build-agent, build-android, build-ios, build-open, build-scene3d, build-tunnel, build-atlas, build-atlas-universal]
     runs-on: ubuntu-latest
     # Publish even if one arch failed (Intel Python on ARM can flake). A
     # cancelled run still skips. Manual dispatch (no tag) still skips.

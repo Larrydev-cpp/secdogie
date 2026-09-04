@@ -31,10 +31,11 @@ native/atlas/atlas_inspect --self --token
 
 1. **主定位**走操作系统无障碍树（Windows UI Automation / AT-SPI / AX）——PID、hwnd、包围盒、AutomationId。用 `--desktop-ax` 打开。实循环优先 `click_element` / 原生 Invoke，而不是在缩小后的截图上猜像素。
 2. **核验**是动作前后控件区域的 pixel-diff（agent 循环里的 `screen.changed_ratio`；原生路径是 `atlas.changed_ratio` / C++ `PixelDiff`）。没有可见突变 → 重试 → 失败。无突变的步骤永远不会被记成成功。
-3. **`click_element` 在可重试集合里。** UIA Invoke 如果没改 UI，会按**同一投递路径**重试（再 Invoke，或改写成 `left_click`），不会把生的 `click_element` 交给 `backend.execute`（那不是后端动词）。
-4. UIA 本帧未命中时，回退到**上一帧**已解析的控件树（last-known），而不是在同一份空快照上再 Find 一次。名称 / AutomationId / role 匹配大小写不敏感。
-5. 实循环 `loop.py` 同样保留 last-known `element_targets`：空的无障碍帧不会抹掉列表，模型上一帧拿到的 `eN` 仍能解析。`click_element` 重试走 `_deliver_action`（Invoke，否则改写成 `left_click`）。
-6. `axtree.find_elements` 的 name / AutomationId 是大小写不敏感的精确匹配（不是子串），与 Atlas `find_control` 对齐。
+3. **突变按操作系统分开。** Windows：UIA Invoke，再走文档化的 `SendInput`。macOS：**只**走 `AXPress` / `AXConfirm`——`click_element` **不会**改写成 `left_click`（Darwin 上的 pyautogui 就是 Quartz HID / `CGEventPost`）。Linux：原生不做突变。无突变的步骤永远不会被记成成功。
+4. **`click_element` 在可重试集合里。** 未命中按**同一投递路径**重试（再 Invoke / AXPress）。只有 Windows 才会改写成 `left_click`。不会把生的 `click_element` 交给 `backend.execute`（那不是后端动词）。
+5. UIA 本帧未命中时，回退到**上一帧**已解析的控件树（last-known），而不是在同一份空快照上再 Find 一次。名称 / AutomationId / role 匹配大小写不敏感。
+6. 实循环 `loop.py` 同样保留 last-known `element_targets`：空的无障碍帧不会抹掉列表，模型上一帧拿到的 `eN` 仍能解析。`click_element` 重试走 `_deliver_action`（Invoke / AXPress；Windows 可改写成 `left_click`，macOS 绝不）。
+7. `axtree.find_elements` 的 name / AutomationId 是大小写不敏感的精确匹配（不是子串），与 Atlas `find_control` 对齐。
 
 CAD 画布和自绘 chrome 仍回退到视觉。这是故意的：树上是空的，像素是回退，不是默认。
 

@@ -39,6 +39,16 @@ FOCUS_UNCONFIRMED_NOTE = " [focus unconfirmed: the target window may not have be
 
 HIGH_RISK_KINDS = frozenset({"open", "run_elevated"})
 
+# pyautogui on Darwin posts CGEvent / IOHID. Mutation there is AXPress /
+# AXValue only — never a synthesized mouse/key HID event.
+_DARWIN_HID_KINDS = frozenset({
+    "left_click", "right_click", "double_click", "move", "drag",
+    "scroll", "track_click", "type", "key", "hold_key",
+})
+_DARWIN_HID_REFUSED = (
+    "macOS mutation is AXPress/AXValue only; HID/CGEvent/IOHID/pyautogui refused."
+)
+
 
 def is_high_risk(action: Action) -> bool:
     """True for actions that can permanently change files or close apps.
@@ -111,6 +121,9 @@ def _activated(activate: Callable[[], bool]) -> bool:
 
 
 def _dispatch(action: Action, move_duration: float, settle: float) -> str:
+    if sys.platform == "darwin" and action.kind in _DARWIN_HID_KINDS:
+        return _DARWIN_HID_REFUSED
+
     import pyautogui
 
     def _approach(x: int, y: int) -> None:

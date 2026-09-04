@@ -5,6 +5,7 @@ user stops it, or `max_steps` is hit.
 from __future__ import annotations
 
 import hashlib
+import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -630,10 +631,18 @@ def _try_harness(backend: Backend, action, el) -> str | None:
 def _deliver_action(backend: Backend, action, el) -> tuple[str, str]:
     """Execute once, returning (result, exec_kind).
 
-    `click_element` is not a backend verb. First chance is UIA Invoke
-    (`invoke_element`); otherwise we rewrite to `left_click`. Retries MUST
-    take this same path -- forwarding the raw kind to `backend.execute`
-    would raise or no-op on AdbBackend / IosBackend / DesktopBackend.
+    `click_element` is not a backend verb. First chance is the OS
+    accessibility action (`invoke_element`: UIA Invoke / AXPress).
+
+    Windows: on a miss, rewrite to `left_click` (SendInput / pyautogui).
+    macOS: never rewrite to a mouse click — pyautogui is Quartz HID
+    (`CGEventPost`). AX miss is a refused result, not a HID fallback.
+    Linux keeps the mouse rewrite (X11/Wayland), matching the native
+    loop which does not mutate at all.
+
+    Retries MUST take this same path — forwarding the raw kind to
+    `backend.execute` would raise or no-op on AdbBackend / IosBackend /
+    DesktopBackend.
     """
     harnessed = _try_harness(backend, action, el)
     if harnessed is not None:
@@ -641,6 +650,12 @@ def _deliver_action(backend: Backend, action, el) -> tuple[str, str]:
     exec_action = action
     exec_kind = action.kind
     if action.kind == "click_element":
+        if sys.platform == "darwin":
+            return (
+                "macOS click_element is AXPress only; "
+                "HID/CGEvent/IOHID/pyautogui click refused.",
+                action.kind,
+            )
         exec_action = replace(action, kind="left_click")
         exec_kind = "left_click"
     return backend.execute(exec_action), exec_kind

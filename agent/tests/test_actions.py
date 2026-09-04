@@ -57,6 +57,29 @@ def test_type_ascii_uses_typewrite(monkeypatch):
     assert [c[0] for c in calls] == ["typewrite"]
 
 
+def test_darwin_refuses_hid_mouse_and_keys(monkeypatch):
+    calls = _fake_pyautogui(monkeypatch)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    for kind, payload in (
+        ("left_click", {"action": "left_click", "x": 10, "y": 10}),
+        ("right_click", {"action": "right_click", "x": 10, "y": 10}),
+        ("double_click", {"action": "double_click", "x": 10, "y": 10}),
+        ("move", {"action": "move", "x": 10, "y": 10}),
+        ("drag", {"action": "drag", "x": 1, "y": 1, "to_x": 2, "to_y": 2}),
+        ("scroll", {"action": "scroll", "x": 10, "y": 10, "dy": 1}),
+        ("type", {"action": "type", "text": "hi"}),
+        ("key", {"action": "key", "keys": ["a"]}),
+        ("hold_key", {"action": "hold_key", "keys": ["a"], "seconds": 0}),
+    ):
+        res = _run(payload)
+        assert calls == [], kind
+        assert "HID" in res, kind
+        assert "AXPress" in res or "AXValue" in res, kind
+    res = _run({"action": "screenshot"})
+    assert "no-op" in res
+    assert calls == []
+
+
 def _fake_clipboard(monkeypatch, initial="", paste_raises=False, copy_raises=False):
     """A stand-in clipboard that records every copy in order, so tests can see
     both what was pasted and what was put back afterwards."""
@@ -88,12 +111,15 @@ def test_type_unicode_uses_clipboard(monkeypatch):
     assert "clipboard" in res
 
 
-def test_type_unicode_uses_cmd_v_on_mac(monkeypatch):
+def test_type_unicode_on_mac_is_ax_not_hid(monkeypatch):
+    # Darwin: pyautogui type/hotkey is Quartz HID. Mutation is AXValue only.
     calls = _fake_pyautogui(monkeypatch)
     _fake_clipboard(monkeypatch)
     monkeypatch.setattr(actions.sys, "platform", "darwin")
-    _run({"action": "type", "text": "café"})
-    assert ("hotkey", ("command", "v"), {}) in calls
+    res = _run({"action": "type", "text": "café"})
+    assert calls == []
+    assert "HID" in res
+    assert "AX" in res
 
 
 def test_type_unicode_restores_the_users_clipboard(monkeypatch):

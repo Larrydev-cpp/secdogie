@@ -1,14 +1,16 @@
 #pragma once
 
-// Dual-tier control loop.
+// Dual-tier control loop. Mutation is per-OS and never HID on Darwin:
 //
-//   1. Perception: UIA / window tree picks the exact control (PID, hwnd,
-//      bounding box, automationId).
-//   2. Action: Invoke / Toggle via UIA patterns, or a coordinate click if
-//      UIA failed and vision fallback is armed.
-//   3. Verify: GDI capture of the control (inflated) before and after;
-//      mean-absolute pixel-diff must exceed kDiffThreshold or the step
-//      retries, then fails. A no-mutation "success" is never recorded.
+//   Windows : UIA Invoke / Toggle, then documented SendInput click.
+//   macOS   : AXUIElementPerformAction(kAXPressAction) only.
+//             CGEventPost / IOHID / Quartz HID click is refused.
+//   Linux   : no mutate. Memory inspect only (no AT-SPI, no HID).
+//
+// Verify: capture of the control (inflated) before and after; mean-absolute
+// pixel-diff must exceed kDiffThreshold or the step retries, then fails.
+// Capture is GDI (Windows) / CGWindow (macOS) / unsupported (Linux).
+// A no-mutation "success" is never recorded.
 //
 // High-risk actions (save / delete / close) require an operator confirm
 // flag. The vision model cannot set that flag.
@@ -81,6 +83,11 @@ class PixelDiff {
   static std::string Hash(const Framebuffer& fb);
 };
 
+// "uia+sendinput" | "ax-press" | "none"
+const char* MutationBackendName() noexcept;
+// Windows SendInput fallback is HID. macOS AX and Linux are not.
+bool MutationUsesHid() noexcept;
+
 class HybridControlLoop {
  public:
   using CaptureFn = std::function<Result<Framebuffer>(const Rect&)>;
@@ -98,8 +105,8 @@ class HybridControlLoop {
   void SetLastSnapshot(PerceptionSnapshot s) { last_ = std::move(s); }
   LoopConfig& config() { return config_; }
 
-  // Default capture: BitBlt of a screen rect. Default execute: UIA Invoke
-  // with a SendInput click fallback.
+  // Default capture: GDI BitBlt (Windows) / CGWindowListCreateImage (macOS).
+  // Default execute: UIA+SendInput (Windows) / AXPress (macOS, never HID).
   static Result<Framebuffer> CaptureScreen(const Rect& r);
   static PrivilegeError ExecuteDefault(const ControlNode& target,
                                        const LoopAction& action);
