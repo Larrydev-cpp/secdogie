@@ -190,3 +190,19 @@ def test_write_sk_or_key_stores_openrouter(tmp_path):
     text = target.read_text(encoding="utf-8")
     assert "OPENROUTER_API_KEY=sk-or-v1-secret" in text
     assert "SECDOGIE_PROVIDER=openrouter" in text
+
+
+def test_saved_openrouter_config_keeps_vendor_model(monkeypatch, tmp_path):
+    """After the GUI Save-key path, Start must send vendor/model to OpenRouter."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("SECDOGIE_MODEL", raising=False)
+    monkeypatch.delenv("SECDOGIE_PROVIDER", raising=False)
+    target = tmp_path / "secdogie.env"
+    config_mod.write_api_key("sk-or-v1-secret", provider="openrouter", path=target)
+    r = config_mod.resolve(config_path=str(target))
+    assert r.provider == "openrouter"
+    assert r.api_key == "sk-or-v1-secret"
+    assert r.model and "/" in r.model, r.model
+    assert not r.model.startswith("openrouter/")

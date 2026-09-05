@@ -123,6 +123,28 @@ def _present(backend, logger) -> None:
         logger.warning("could not present the target window before capture: %s", e)
 
 
+def _alert(config: AgentConfig, title: str, message: str) -> None:
+    """Surface a failure in GUI mode. Windowed exe has no stderr the operator sees."""
+    if config.gui:
+        dialog.notify(title, message, error=True)
+
+
+def _confirm_step(config: AgentConfig, prompt: str, *, high_risk: bool = False) -> bool:
+    """Per-step approval. GUI uses a popup; terminal uses stdin y/N.
+
+    A windowed build's stdin is EOF or a hang — `safety.confirm` would skip
+    every action (or freeze) with no window. That is the 'command did nothing'
+    report after filling an API key.
+    """
+    if config.gui:
+        return dialog.confirm_action(prompt, high_risk=high_risk)
+    return safety.confirm(prompt)
+
+
+def _busy(config: AgentConfig, message: str):
+    return dialog.working(message) if config.gui else None
+
+
 def run(provider: VisionProvider, config: AgentConfig) -> int:
     """Returns a process-style exit code: 0 done, 1 provider error,
     2 user declined to continue past an ask_user, 3 max_steps exhausted (or a
@@ -244,6 +266,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 raw_png, real_size = backend.capture(config.region)
             except screen.CaptureError as e:
                 logger.error("%s", e)
+                _alert(config, "secdogie-agent — cannot capture the screen", str(e))
                 return 4
 
             frame_hash = hashlib.blake2b(raw_png, digest_size=16).digest()
@@ -347,23 +370,38 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                         "target rather than repeating the same click."
                     )
                 action = None
-                for attempt in range(config.max_transient_retries + 1):
-                    try:
-                        action = provider.next_action(step_task, model_png, model_size, history)
-                        break
-                    except Exception as e:
-                        if attempt >= config.max_transient_retries or not is_transient(e):
-                            logger.error("provider failed to produce an action: %s", e)
-                            return 1
-                        delay = min(config.transient_backoff_base * (2 ** attempt), 60.0)
-                        logger.warning(
-                            "model call failed (%s); backing off %.1fs and retrying (%d/%d)",
-                            e, delay, attempt + 1, config.max_transient_retries,
-                        )
-                        time.sleep(delay)
-                        if config.should_stop is not None and config.should_stop():
-                            logger.info("stopped externally while backing off")
-                            return 5
+                busy = _busy(config, "Asking the model for the next action…")
+                try:
+                    for attempt in range(config.max_transient_retries + 1):
+                        try:
+                            action = provider.next_action(step_task, model_png, model_size, history)
+                            break
+                        except Exception as e:
+                            if attempt >= config.max_transient_retries or not is_transient(e):
+                                logger.error("provider failed to produce an action: %s", e)
+                                _alert(
+                                    config,
+                                    "secdogie-agent — the model did not answer",
+                                    "Your command was received, but the model call failed "
+                                    "before any action.\n\n"
+                                    f"{e}\n\n"
+                                    "Check the API key, provider, and model id. "
+                                    "OpenRouter needs a vendor/model id "
+                                    "(e.g. openai/gpt-4o or anthropic/claude-sonnet-4).",
+                                )
+                                return 1
+                            delay = min(config.transient_backoff_base * (2 ** attempt), 60.0)
+                            logger.warning(
+                                "model call failed (%s); backing off %.1fs and retrying (%d/%d)",
+                                e, delay, attempt + 1, config.max_transient_retries,
+                            )
+                            time.sleep(delay)
+                            if config.should_stop is not None and config.should_stop():
+                                logger.info("stopped externally while backing off")
+                                return 5
+                finally:
+                    if busy is not None:
+                        busy.close()
                 action = action.scaled(scale)
                 if config.region is not None:
                     action = action.translated(config.region[0], config.region[1])
@@ -548,7 +586,11 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 if config.auto and force_confirm:
                     logger.warning("HIGH-RISK action '%s' needs confirmation even under --auto", action.kind)
                 label = "HIGH-RISK " if is_high_risk else ""
-                if not safety.confirm(f"Execute {label}{action.kind}({action.raw})?"):
+                if not _confirm_step(
+                    config,
+                    f"Execute {label}{action.kind}({action.raw})?",
+                    high_risk=is_high_risk,
+                ):
                     logger.info("action not confirmed, skipping: %s", action.kind)
                     record_result("skipped (user declined)")
                     continue
@@ -724,20 +766,35 @@ def _verify_and_maybe_retry(
 
 
 def _run_briefing(provider: VisionProvider, config: AgentConfig, logger, backend: Backend) -> int | None:
+    busy = _busy(config, "Calling the model with your task…")
     try:
-        raw_png, real_size = backend.capture(config.region)
-    except screen.CaptureError as e:
-        logger.error("%s", e)
-        return 4
+        try:
+            raw_png, real_size = backend.capture(config.region)
+        except screen.CaptureError as e:
+            logger.error("%s", e)
+            _alert(config, "secdogie-agent — cannot capture the screen", str(e))
+            return 4
 
-    model_png, _size, _scale = screen.prepare_for_model(
-        raw_png, real_size, max_edge=config.max_image_edge
-    )
-    try:
-        plan = provider.explain_task(config.task, model_png, real_size)
-    except Exception as e:
-        logger.warning("could not get a task briefing from the model: %s", e)
-        return None
+        model_png, _size, _scale = screen.prepare_for_model(
+            raw_png, real_size, max_edge=config.max_image_edge
+        )
+        try:
+            plan = provider.explain_task(config.task, model_png, real_size)
+        except Exception as e:
+            logger.warning("could not get a task briefing from the model: %s", e)
+            _alert(
+                config,
+                "secdogie-agent — the model did not answer",
+                "Your command was received, but the model call failed before any action.\n\n"
+                f"{e}\n\n"
+                "Check the API key, provider, and model id. "
+                "OpenRouter needs a vendor/model id "
+                "(e.g. openai/gpt-4o or anthropic/claude-sonnet-4).",
+            )
+            return 1
+    finally:
+        if busy is not None:
+            busy.close()
 
     if not plan:
         return None

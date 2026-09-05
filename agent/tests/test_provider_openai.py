@@ -79,3 +79,32 @@ def test_explain_task_empty_is_none():
     client = FakeClient("   ")
     provider = OpenAIProvider(model="gpt-5.5", client=client)
     assert provider.explain_task("t", b"img", (800, 600)) is None
+
+
+def test_complete_falls_back_to_max_tokens_when_new_param_rejected():
+    class FlipClient:
+        def __init__(self, content):
+            self.calls = []
+            self._content = content
+
+            class _Comp:
+                def __init__(self, outer):
+                    self._outer = outer
+
+                def create(self, **kwargs):
+                    self._outer.calls.append(kwargs)
+                    if "max_completion_tokens" in kwargs:
+                        raise RuntimeError("Unsupported parameter: 'max_completion_tokens'")
+                    message = type("_Msg", (), {"content": self._outer._content})()
+                    choice = type("_Choice", (), {"message": message})()
+                    return type("_Resp", (), {"choices": [choice]})()
+
+            self.chat = type("_Chat", (), {"completions": _Comp(self)})()
+
+    client = FlipClient('{"action": "done", "text": "ok"}')
+    provider = OpenAIProvider(model="openai/gpt-4o", client=client, max_tokens=256)
+    action = provider.next_action("t", None, (100, 100), [])
+    assert action.kind == "done"
+    assert len(client.calls) == 2
+    assert "max_completion_tokens" in client.calls[0]
+    assert client.calls[1]["max_tokens"] == 256

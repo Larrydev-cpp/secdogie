@@ -22,7 +22,10 @@ def test_every_choice_maps_to_argv_and_keys_are_unique():
 
 
 def test_args_for_known_and_unknown():
+    assert m.args_for("task") == ["--gui", "--desktop-ax"]
+    assert m.args_for("dry") == ["--gui", "--desktop-ax", "--dry-run"]
     assert m.args_for("ax") == ["--gui", "--desktop-ax"]
+    assert m.args_for("auto") == ["--gui", "--desktop-ax", "--auto"]
     assert m.args_for("config") == []  # GUI dialog, not --init-config
     assert m.args_for("nope") is None
 

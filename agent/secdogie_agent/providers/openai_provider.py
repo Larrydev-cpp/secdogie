@@ -81,18 +81,32 @@ class OpenAIProvider(VisionProvider):
                     "image_url": {"url": f"data:{media};base64,{b64}"},
                 }
             )
-        response = self._client.chat.completions.create(
-            model=self.model,
-            # Reasoning/GPT-5-era models require max_completion_tokens; max_tokens
-            # is rejected by them, so we use the current canonical parameter.
-            max_completion_tokens=self.max_tokens,
-            messages=[
+        kwargs = {
+            "model": self.model,
+            "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": content},
             ],
-        )
+        }
+        try:
+            response = self._client.chat.completions.create(
+                # Reasoning/GPT-5-era models require max_completion_tokens;
+                # max_tokens is rejected by them.
+                max_completion_tokens=self.max_tokens,
+                **kwargs,
+            )
+        except Exception as e:
+            # OpenRouter / older OpenAI-compat endpoints still want max_tokens.
+            # A 400 here used to kill the GUI run with no window.
+            msg = str(e).lower()
+            if "max_completion_tokens" in msg or "unsupported parameter" in msg:
+                response = self._client.chat.completions.create(
+                    max_tokens=self.max_tokens,
+                    **kwargs,
+                )
+            else:
+                raise
         return response.choices[0].message.content or ""
-
     def next_action(
         self,
         task: str,

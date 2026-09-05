@@ -106,6 +106,23 @@ def test_openrouter_ref_keeps_vendor_model():
     assert bare == "anthropic/claude-sonnet-4"
 
 
+def test_openrouter_explicit_keeps_vendor_model():
+    """GUI first-run writes SECDOGIE_PROVIDER=openrouter and
+    SECDOGIE_MODEL=anthropic/claude-sonnet-4. The anthropic/ head must not be
+    stripped — OpenRouter 404s on a bare claude-* id."""
+    provider, bare = resolve_model_provider(
+        "anthropic/claude-sonnet-4", explicit_provider="openrouter"
+    )
+    assert provider == OPENROUTER_PROVIDER_ID
+    assert bare == "anthropic/claude-sonnet-4"
+
+
+def test_openrouter_explicit_keeps_openai_vendor_model():
+    provider, bare = resolve_model_provider("openai/gpt-4o", explicit_provider="openrouter")
+    assert provider == OPENROUTER_PROVIDER_ID
+    assert bare == "openai/gpt-4o"
+
+
 def test_openrouter_alias():
     assert normalize_provider("OpenRouter") == OPENROUTER_PROVIDER_ID
     assert normalize_provider("or") == OPENROUTER_PROVIDER_ID

@@ -96,22 +96,38 @@ def _infer_provider(model: str | None) -> str:
 def resolve_model_provider(
     model: str | None, explicit_provider: str | None = None
 ) -> tuple[str, str | None]:
-    """Decide the provider and strip any known `provider/` prefix off the model.
+    """Decide the provider and the model id to send to the SDK.
 
-    Returns (provider_id, bare_model). `bare_model` is the model string to send
-    to the SDK. For OpenRouter the bare id keeps the vendor/model form
-    (`anthropic/claude-sonnet-4`). None means "use the provider's default".
+    Returns (provider_id, bare_model). None for the model means "use the
+    provider's default".
+
+    OpenRouter catalogue ids are `vendor/model` (`anthropic/claude-sonnet-4`,
+    `openai/gpt-4o`). That first slash is NOT a secdogie provider prefix
+    unless the head is literally `openrouter/` / `or/`. Stripping
+    `anthropic/` off a saved OpenRouter default used to send
+    `claude-sonnet-4` to OpenRouter, which 404s — and the GUI swallowed
+    that as "typed a command, nothing happened".
     """
-    bare = model
-    ref_provider: str | None = None
+    explicit = normalize_provider(explicit_provider)
+
     if model and "/" in model:
         head, _, tail = model.partition("/")
-        ref_provider = normalize_provider(head)
-        if ref_provider is not None:
-            bare = tail or None
+        head_id = normalize_provider(head)
 
-    provider = normalize_provider(explicit_provider) or ref_provider or _infer_provider(bare)
-    return provider, bare
+        # openrouter/<vendor/model> (or or/<vendor/model>)
+        if head_id == OPENROUTER_PROVIDER_ID:
+            return OPENROUTER_PROVIDER_ID, (tail or None)
+
+        # Operator chose OpenRouter: keep the vendor/model id intact.
+        if explicit == OPENROUTER_PROVIDER_ID:
+            return OPENROUTER_PROVIDER_ID, model
+
+        # Native SDK refs: openai/gpt-5.5, anthropic/claude-sonnet-5
+        if head_id is not None:
+            return (explicit or head_id), (tail or None)
+
+    provider = explicit or _infer_provider(model)
+    return provider, model
 
 
 def make_provider(
