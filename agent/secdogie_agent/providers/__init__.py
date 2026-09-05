@@ -1,10 +1,11 @@
 """Provider registry + model->provider routing.
 
-Two canonical providers, mirroring how a multi-provider agent framework names
-them: "anthropic" and "openai". The agent picks one per run from (in order):
-an explicit --provider, a `provider/model` ref (e.g. "openai/gpt-5.5"), or the
-model-id prefix. Anthropic is the default when nothing else decides, since it
-is the reference implementation and keeps older invocations working.
+Canonical providers: "anthropic", "openai", and "openrouter". The agent picks
+one per run from (in order): an explicit --provider, a `provider/model` ref
+(e.g. "openai/gpt-5.5" or "openrouter/anthropic/claude-sonnet-4"), a key
+prefix (`sk-or-` is OpenRouter), or the model-id prefix. Anthropic is the
+default when nothing else decides, since it is the reference implementation
+and keeps older invocations working.
 """
 from __future__ import annotations
 
@@ -13,18 +14,24 @@ from .base import VisionProvider
 
 ANTHROPIC_PROVIDER_ID = "anthropic"
 OPENAI_PROVIDER_ID = "openai"
+OPENROUTER_PROVIDER_ID = "openrouter"
+
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # Env var / config-file key that holds each provider's API key. Provider
 # identity owns its auth key name so config and CLI ask for the right secret.
 API_KEY_ENV = {
     ANTHROPIC_PROVIDER_ID: "ANTHROPIC_API_KEY",
     OPENAI_PROVIDER_ID: "OPENAI_API_KEY",
+    OPENROUTER_PROVIDER_ID: "OPENROUTER_API_KEY",
 }
 
 # Default model per provider when the user names a provider but no model.
 DEFAULT_MODELS = {
     ANTHROPIC_PROVIDER_ID: "claude-sonnet-5",
     OPENAI_PROVIDER_ID: "gpt-5.5",
+    # OpenRouter keeps the vendor/model id the catalogue uses.
+    OPENROUTER_PROVIDER_ID: "anthropic/claude-sonnet-4",
 }
 
 # Vision-capable models offered as ready picks in a UI (e.g. secdogie-open's
@@ -34,6 +41,11 @@ DEFAULT_MODELS = {
 SUGGESTED_MODELS = {
     ANTHROPIC_PROVIDER_ID: ["claude-sonnet-5", "claude-opus-4-8", "claude-haiku-4-5-20251001"],
     OPENAI_PROVIDER_ID: ["gpt-5.5", "gpt-5.4"],
+    OPENROUTER_PROVIDER_ID: [
+        "anthropic/claude-sonnet-4",
+        "openai/gpt-4o",
+        "google/gemini-2.5-flash",
+    ],
 }
 
 # Accepted spellings for --provider and the head of a `provider/model` ref.
@@ -42,9 +54,12 @@ _PROVIDER_ALIASES = {
     "claude": ANTHROPIC_PROVIDER_ID,
     "openai": OPENAI_PROVIDER_ID,
     "gpt": OPENAI_PROVIDER_ID,
+    "openrouter": OPENROUTER_PROVIDER_ID,
+    "or": OPENROUTER_PROVIDER_ID,
 }
 
-# Model-id prefixes that route to OpenAI; anything else falls back to Anthropic.
+# Model-id prefixes that route to OpenAI; anything else falls back to Anthropic
+# unless an OpenRouter ref / key decided first.
 _OPENAI_MODEL_PREFIXES = ("gpt", "chatgpt", "o1", "o3", "o4")
 
 
@@ -55,8 +70,22 @@ def normalize_provider(value: str | None) -> str | None:
     return _PROVIDER_ALIASES.get(value.strip().lower())
 
 
+def infer_provider_from_key(api_key: str | None) -> str | None:
+    """Guess the provider from a pasted secret. `sk-or-` is OpenRouter."""
+    if not api_key:
+        return None
+    k = api_key.strip()
+    if k.startswith("sk-or-"):
+        return OPENROUTER_PROVIDER_ID
+    if k.startswith("sk-ant-"):
+        return ANTHROPIC_PROVIDER_ID
+    return None
+
+
 def _infer_provider(model: str | None) -> str:
     m = (model or "").lower()
+    if m.startswith("openrouter/") or m.startswith("or/"):
+        return OPENROUTER_PROVIDER_ID
     if m.startswith("claude"):
         return ANTHROPIC_PROVIDER_ID
     if any(m.startswith(p) for p in _OPENAI_MODEL_PREFIXES):
@@ -67,11 +96,11 @@ def _infer_provider(model: str | None) -> str:
 def resolve_model_provider(
     model: str | None, explicit_provider: str | None = None
 ) -> tuple[str, str | None]:
-    """Decide the provider and strip any `provider/` prefix off the model.
+    """Decide the provider and strip any known `provider/` prefix off the model.
 
     Returns (provider_id, bare_model). `bare_model` is the model string to send
-    to the SDK (without the `provider/` prefix); None means "use the provider's
-    default model".
+    to the SDK. For OpenRouter the bare id keeps the vendor/model form
+    (`anthropic/claude-sonnet-4`). None means "use the provider's default".
     """
     bare = model
     ref_provider: str | None = None
@@ -100,6 +129,20 @@ def make_provider(
         return OpenAIProvider(
             model=resolved_model, api_key=api_key, max_tokens=max_tokens, proxy=proxy
         )
+    if provider_id == OPENROUTER_PROVIDER_ID:
+        from .openai_provider import OpenAIProvider
+
+        return OpenAIProvider(
+            model=resolved_model,
+            api_key=api_key,
+            max_tokens=max_tokens,
+            proxy=proxy,
+            base_url=OPENROUTER_BASE_URL,
+            default_headers={
+                "HTTP-Referer": "https://github.com/Larrydev-cpp/secdogie",
+                "X-Title": "secdogie",
+            },
+        )
     return AnthropicProvider(
         model=resolved_model, api_key=api_key, max_tokens=max_tokens, proxy=proxy
     )
@@ -110,10 +153,13 @@ __all__ = [
     "VisionProvider",
     "ANTHROPIC_PROVIDER_ID",
     "OPENAI_PROVIDER_ID",
+    "OPENROUTER_PROVIDER_ID",
+    "OPENROUTER_BASE_URL",
     "API_KEY_ENV",
     "DEFAULT_MODELS",
     "SUGGESTED_MODELS",
     "normalize_provider",
+    "infer_provider_from_key",
     "resolve_model_provider",
     "make_provider",
 ]

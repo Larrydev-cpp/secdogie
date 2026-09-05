@@ -146,9 +146,47 @@ def test_write_api_key_creates_and_updates(tmp_path):
     assert path == target
     text = target.read_text(encoding="utf-8")
     assert "ANTHROPIC_API_KEY=sk-aaa" in text
+    assert "SECDOGIE_PROVIDER=anthropic" in text
+    assert "SECDOGIE_MODEL=" in text
 
     config_mod.write_api_key("sk-bbb", provider="anthropic", model="claude-x", path=target)
     text = target.read_text(encoding="utf-8")
     assert "ANTHROPIC_API_KEY=sk-bbb" in text
     assert "SECDOGIE_MODEL=claude-x" in text
     assert text.count("ANTHROPIC_API_KEY=") == 1
+
+
+def test_openai_key_alone_is_enough_without_model(monkeypatch, tmp_path):
+    """GUI first-run: user pastes an OpenAI key, leaves model blank, hits Start."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("SECDOGIE_MODEL", raising=False)
+    monkeypatch.delenv("SECDOGIE_PROVIDER", raising=False)
+    cfg = tmp_path / "secdogie.env"
+    cfg.write_text("OPENAI_API_KEY=sk-oai-only\n", encoding="utf-8")
+    r = config_mod.resolve(config_path=str(cfg))
+    assert r.api_key == "sk-oai-only"
+    assert r.provider == "openai"
+
+
+def test_openrouter_key_prefix_routes_even_under_openai_name(monkeypatch, tmp_path):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("SECDOGIE_MODEL", raising=False)
+    monkeypatch.delenv("SECDOGIE_PROVIDER", raising=False)
+    cfg = tmp_path / "secdogie.env"
+    cfg.write_text("OPENAI_API_KEY=sk-or-v1-abc123456\n", encoding="utf-8")
+    r = config_mod.resolve(config_path=str(cfg))
+    assert r.api_key.startswith("sk-or-")
+    assert r.provider == "openrouter"
+    assert r.model  # default OpenRouter vendor/model id
+
+
+def test_write_sk_or_key_stores_openrouter(tmp_path):
+    target = tmp_path / "secdogie.env"
+    config_mod.write_api_key("sk-or-v1-secret", provider="openai", path=target)
+    text = target.read_text(encoding="utf-8")
+    assert "OPENROUTER_API_KEY=sk-or-v1-secret" in text
+    assert "SECDOGIE_PROVIDER=openrouter" in text
