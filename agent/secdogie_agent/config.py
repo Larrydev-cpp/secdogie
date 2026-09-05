@@ -28,7 +28,13 @@ import sys
 from pathlib import Path
 from typing import NamedTuple
 
-from .providers import API_KEY_ENV, resolve_model_provider
+from .providers import (
+    API_KEY_ENV,
+    DEFAULT_MODELS,
+    infer_provider_from_key,
+    normalize_provider,
+    resolve_model_provider,
+)
 
 
 def _exe_dir() -> Path | None:
@@ -85,6 +91,10 @@ ANTHROPIC_API_KEY=
 # OpenAI-compatible endpoints (DeepSeek, Groq, local vLLM, etc.) when you pass
 # --provider openai and a custom base URL via the SDK / env.
 # OPENAI_API_KEY=
+
+# OpenRouter key (https://openrouter.ai/keys). Prefix is sk-or-. Models keep
+# the vendor/model id, e.g. anthropic/claude-sonnet-4 or openai/gpt-4o.
+# OPENROUTER_API_KEY=
 
 # Optional: default model to use (overridable with --model). The model prefix
 # picks the provider (claude-* -> Anthropic, gpt-* -> OpenAI); you can also be
@@ -155,6 +165,32 @@ def has_configured_api_key() -> bool:
     return False
 
 
+def _lookup_key(env_var: str, file_values: dict[str, str], chosen: Path | None) -> tuple[str | None, str]:
+    if os.environ.get(env_var, "").strip():
+        return os.environ[env_var].strip(), f"{env_var} environment variable"
+    if file_values.get(env_var, "").strip():
+        where = f"config file {chosen}" if chosen is not None else "config file"
+        return file_values[env_var].strip(), where
+    return None, "none"
+
+
+def _available_keys(file_values: dict[str, str], chosen: Path | None) -> list[tuple[str, str, str]]:
+    """(provider, key, source) for every non-empty known provider key."""
+    found: list[tuple[str, str, str]] = []
+    for provider, env_var in API_KEY_ENV.items():
+        key, source = _lookup_key(env_var, file_values, chosen)
+        if key:
+            found.append((provider, key, source))
+    # A sk-or- key saved under OPENAI_API_KEY / ANTHROPIC_API_KEY still counts
+    # as OpenRouter even if OPENROUTER_API_KEY is empty.
+    extra: list[tuple[str, str, str]] = []
+    for provider, key, source in found:
+        guessed = infer_provider_from_key(key)
+        if guessed and guessed != provider:
+            extra.append((guessed, key, source))
+    return extra + found
+
+
 def resolve(
     cli_api_key: str | None = None,
     cli_model: str | None = None,
@@ -174,24 +210,75 @@ def resolve(
         or file_values.get("SECDOGIE_MODEL")
         or None
     )
+    if model:
+        model = model.strip() or None
+
+    stored_provider = normalize_provider(
+        cli_provider
+        or os.environ.get("SECDOGIE_PROVIDER")
+        or file_values.get("SECDOGIE_PROVIDER")
+    )
 
     # Provider selects which API key name to look for. `bare_model` drops any
-    # `provider/` prefix so downstream sends the SDK the plain model id.
-    provider, bare_model = resolve_model_provider(model, cli_provider)
+    # known `provider/` prefix so downstream sends the SDK the right model id.
+    provider, bare_model = resolve_model_provider(model, stored_provider)
     env_var = API_KEY_ENV[provider]
 
     if cli_api_key:
-        api_key: str | None = cli_api_key
+        api_key: str | None = cli_api_key.strip()
         source = "--api-key argument"
-    elif os.environ.get(env_var):
-        api_key = os.environ[env_var]
-        source = f"{env_var} environment variable"
-    elif file_values.get(env_var):
-        api_key = file_values[env_var]
-        source = f"config file {chosen}"
+        guessed = infer_provider_from_key(api_key)
+        # A pasted OpenRouter key must not be sent to api.anthropic.com just
+        # because the model field was left empty (default = anthropic).
+        if guessed and not cli_provider and (not model or guessed == provider or infer_provider_from_key(api_key) == guessed):
+            if guessed != provider and not cli_model and not stored_provider:
+                provider = guessed
+                env_var = API_KEY_ENV[provider]
+                if bare_model is None:
+                    bare_model = DEFAULT_MODELS[provider]
     else:
-        api_key = None
-        source = "none"
+        api_key, source = _lookup_key(env_var, file_values, chosen)
+        if api_key is None:
+            # No model / no explicit provider: use whichever key the operator
+            # actually saved. This is the GUI first-run path — they paste an
+            # OpenAI or OpenRouter key, then hit Start, and used to get a
+            # silent "no Anthropic key" exit because the default model is
+            # Claude. An *explicit* gpt-* model still refuses an Anthropic
+            # key (see test_wrong_providers_key_is_not_reused).
+            model_was_explicit = bool(cli_model or os.environ.get("SECDOGIE_MODEL") or file_values.get("SECDOGIE_MODEL"))
+            provider_was_explicit = bool(cli_provider or os.environ.get("SECDOGIE_PROVIDER") or file_values.get("SECDOGIE_PROVIDER"))
+            if not model_was_explicit and not provider_was_explicit:
+                available = _available_keys(file_values, chosen)
+                if available:
+                    provider, api_key, source = available[0]
+                    env_var = API_KEY_ENV.get(provider, env_var)
+                    bare_model = DEFAULT_MODELS.get(provider)
+            elif not provider_was_explicit:
+                # Model is set but its key is missing; if the only saved key
+                # is an OpenRouter sk-or- token, route there and keep the
+                # vendor/model id (do not strip anthropic/ off it).
+                for cand_provider, cand_key, cand_source in _available_keys(file_values, chosen):
+                    if infer_provider_from_key(cand_key) == "openrouter" or cand_provider == "openrouter":
+                        provider = "openrouter"
+                        api_key = cand_key
+                        source = cand_source
+                        env_var = API_KEY_ENV[provider]
+                        # OpenRouter wants vendor/model. If we already stripped
+                        # anthropic/ off a Claude id, put it back.
+                        if model and "/" in model and normalize_provider(model.split("/", 1)[0]) == "openrouter":
+                            bare_model = model.split("/", 1)[1]
+                        elif bare_model and "/" not in bare_model and model and "/" in model:
+                            bare_model = model
+                        elif not bare_model:
+                            bare_model = DEFAULT_MODELS[provider]
+                        break
+
+        guessed = infer_provider_from_key(api_key)
+        if guessed == "openrouter" and provider != "openrouter" and not cli_provider:
+            provider = "openrouter"
+            env_var = API_KEY_ENV[provider]
+            if not bare_model:
+                bare_model = DEFAULT_MODELS[provider]
 
     return ResolvedConfig(
         api_key=api_key,
@@ -253,12 +340,17 @@ def write_api_key(
     target = path or default_write_target()
     target.parent.mkdir(parents=True, exist_ok=True)
 
+    guessed = infer_provider_from_key(api_key)
+    if guessed:
+        provider = guessed
     if env_var:
         key_name = env_var.strip()
     elif provider:
         key_name = API_KEY_ENV.get(provider, "ANTHROPIC_API_KEY")
     else:
         key_name = "ANTHROPIC_API_KEY"
+    if guessed == "openrouter" and not env_var:
+        key_name = API_KEY_ENV["openrouter"]
 
     if not key_name or "=" in key_name or " " in key_name:
         raise ValueError(f"invalid env var name: {key_name!r}")
@@ -269,8 +361,15 @@ def write_api_key(
         lines = _TEMPLATE.splitlines()
 
     lines = _upsert_line(lines, key_name, api_key.strip())
-    if model and model.strip():
-        lines = _upsert_line(lines, "SECDOGIE_MODEL", model.strip())
+    guessed = infer_provider_from_key(api_key)
+    persist_provider = provider or guessed
+    if persist_provider:
+        lines = _upsert_line(lines, "SECDOGIE_PROVIDER", persist_provider)
+    model_to_write = (model or "").strip()
+    if not model_to_write and persist_provider:
+        model_to_write = DEFAULT_MODELS.get(persist_provider, "")
+    if model_to_write:
+        lines = _upsert_line(lines, "SECDOGIE_MODEL", model_to_write)
 
     target.write_text("\n".join(lines) + "\n", encoding="utf-8")
     try:

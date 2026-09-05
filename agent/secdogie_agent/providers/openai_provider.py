@@ -38,8 +38,12 @@ class OpenAIProvider(VisionProvider):
         max_tokens: int = 1024,
         client=None,
         proxy: str | None = None,
+        base_url: str | None = None,
+        default_headers: dict[str, str] | None = None,
     ):
         # `client` lets tests inject a fake; production builds one from the SDK.
+        # `base_url` / `default_headers` let OpenRouter (and any other
+        # OpenAI-compatible endpoint) reuse this transport.
         if client is not None:
             self._client = client
         else:
@@ -56,9 +60,14 @@ class OpenAIProvider(VisionProvider):
                 kwargs["api_key"] = api_key
             if http_client is not None:
                 kwargs["http_client"] = http_client
+            if base_url:
+                kwargs["base_url"] = base_url
+            if default_headers:
+                kwargs["default_headers"] = default_headers
             self._client = openai.OpenAI(**kwargs)
         self.model = model
         self.max_tokens = max_tokens
+        self.base_url = base_url
 
     def _complete(self, system: str, user_text: str, screenshot_png: bytes | None) -> str:
         """One turn: system + (text, optional image) -> assistant text."""
