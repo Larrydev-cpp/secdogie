@@ -10,8 +10,10 @@
 #include "hybrid_control_loop.h"
 #include "privilege_manager.h"
 #include "process_perception.h"
+#include "readonly_handle.h"
 
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -236,6 +238,57 @@ int main() {
     Expect(!h.ok() && h.error().code == PrivilegeCode::DeniedWrite,
            "Open with VM_WRITE refused before syscall",
            h.ok() ? "ok" : PrivilegeCodeName(h.error().code));
+  }
+  {
+#if defined(_WIN32)
+    Expect(MutationUsesHid() && std::strcmp(MutationBackendName(), "uia+sendinput") == 0,
+           "Windows mutation is UIA + SendInput HID fallback", MutationBackendName());
+#elif defined(__APPLE__)
+    Expect(!MutationUsesHid() && std::strcmp(MutationBackendName(), "ax-press") == 0,
+           "macOS mutation is AXPress, never HID", MutationBackendName());
+#else
+    Expect(!MutationUsesHid() && std::strcmp(MutationBackendName(), "none") == 0,
+           "Linux mutation is not HID", MutationBackendName());
+#endif
+  }
+  {
+    LoopAction act;
+    act.kind = ActionKind::Invoke;
+    ControlNode n;
+    n.pid = 1;
+    n.name = L"Zoom Extents";
+    n.automation_id = L"ID_ZOOM_EXTENTS";
+    n.bounds = {10, 10, 80, 24};
+    const PrivilegeError e = HybridControlLoop::ExecuteDefault(n, act);
+#if defined(__APPLE__)
+    Expect(e.detail.find("SendInput") == std::string::npos,
+           "macOS ExecuteDefault never uses SendInput", e.detail.c_str());
+    Expect(e.detail.find("AX") != std::string::npos,
+           "macOS execute is AX path", e.detail.c_str());
+#elif defined(_WIN32)
+    Expect(e.code != PrivilegeCode::Unsupported, "Windows execute is implemented",
+           PrivilegeCodeName(e.code));
+#else
+    Expect(e.code == PrivilegeCode::Unsupported, "Linux execute is not HID",
+           PrivilegeCodeName(e.code));
+    Expect(e.detail.find("HID") != std::string::npos,
+           "Linux execute names HID refusal", e.detail.c_str());
+#endif
+  }
+  {
+    const Result<Framebuffer> cap = HybridControlLoop::CaptureScreen({0, 0, 8, 8});
+#if defined(__APPLE__)
+    if (!cap) {
+      Expect(cap.error().detail.find("HID") == std::string::npos ||
+                 cap.error().detail.find("refused") != std::string::npos,
+             "macOS capture is CGWindow, not HID", cap.error().detail.c_str());
+    }
+#elif !defined(_WIN32)
+    Expect(!cap && cap.error().code == PrivilegeCode::Unsupported,
+           "Linux capture is not HID",
+           cap ? "ok" : PrivilegeCodeName(cap.error().code));
+#endif
+    (void)cap;
   }
 
   RunMemoryInspectorTests();

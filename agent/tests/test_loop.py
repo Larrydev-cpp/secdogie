@@ -209,6 +209,46 @@ def test_deliver_click_element_never_forwards_raw_kind():
     assert result == "ok"
 
 
+def test_deliver_click_element_darwin_never_hid(monkeypatch):
+    executed = []
+    monkeypatch.setattr(loop.sys, "platform", "darwin")
+
+    class B:
+        def execute(self, action):
+            executed.append(action.kind)
+            return "ok"
+
+    action = Action.from_dict({"action": "click_element", "element": "e1", "x": 1, "y": 1})
+    result, kind = loop._deliver_action(B(), action, el=None)
+    assert kind == "click_element"
+    assert executed == []
+    assert "HID" in result
+    assert "AXPress" in result
+
+
+def test_verify_retry_darwin_click_element_never_left_click(monkeypatch):
+    png = _solid_png()
+    executed = []
+    monkeypatch.setattr(loop.sys, "platform", "darwin")
+
+    class B:
+        def execute(self, action):
+            executed.append(action.kind)
+            return "ok"
+
+        def capture(self, region=None):
+            return png, (64, 64)
+
+    action = Action.from_dict({"action": "click_element", "element": "e1", "x": 1, "y": 1})
+    config = loop.AgentConfig(task="x", auto=True, action_retries=1, action_pause=0)
+    out = loop._verify_and_maybe_retry(
+        B(), action, png, "ok", config, logging.getLogger("t"),
+    )
+    assert executed == []
+    assert "left_click" not in executed
+    assert "HID" in out
+
+
 def test_verify_retry_rewrites_click_element_to_left_click():
     png = _solid_png()
     executed = []

@@ -234,8 +234,9 @@ class DesktopBackend:
     def invoke_element(self, el: axtree.AxElement) -> str | None:
         """Native accessibility action (Invoke / AXPress / AT-SPI click) for
         `el`, without moving the real cursor. None if the provider can't (no
-        press(), press returned False, nothing identifiable) -- the loop then
-        falls back to a pixel click at the element's centre."""
+        press(), press returned False, nothing identifiable) — the loop then
+        falls back to a pixel click on Windows / Linux. On macOS the loop
+        refuses HID/CGEvent/pyautogui instead of synthesizing a click."""
         press = getattr(self.ax_provider, "press", None)
         if self.ax_provider is None or not callable(press):
             return None

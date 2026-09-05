@@ -1,19 +1,5 @@
-#if defined(_WIN32)
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-#include <objbase.h>
-#include <UIAutomationClient.h>
-#endif
-
 #include "hybrid_control_loop.h"
-
-#include "hybrid_tree.h"
-#include "memory_inspector.h"
+#include "utf.h"
 
 #include <algorithm>
 #include <chrono>
@@ -24,9 +10,29 @@
 #include <sstream>
 #include <vector>
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <objbase.h>
+#include <UIAutomationClient.h>
+#elif defined(__APPLE__)
+#include <ApplicationServices/ApplicationServices.h>
+#include <CoreGraphics/CoreGraphics.h>
+#else
+#include <unistd.h>
+#endif
+
 #if !defined(_WIN32)
 #include <unistd.h>
 #endif
+
+#include "hybrid_tree.h"
+#include "memory_inspector.h"
 
 namespace secdogie::atlas {
 namespace {
@@ -52,7 +58,171 @@ void Nap(int ms) {
 #endif
 }
 
+#if defined(__APPLE__)
+bool WIeq(const std::wstring& a, const std::wstring& b) {
+  if (a.size() != b.size()) return false;
+  for (std::size_t i = 0; i < a.size(); ++i) {
+    wchar_t ca = a[i] >= L'A' && a[i] <= L'Z' ? static_cast<wchar_t>(a[i] + 32) : a[i];
+    wchar_t cb = b[i] >= L'A' && b[i] <= L'Z' ? static_cast<wchar_t>(b[i] + 32) : b[i];
+    if (ca != cb) return false;
+  }
+  return true;
+}
+
+std::wstring CfWide(CFTypeRef v) {
+  if (!v || CFGetTypeID(v) != CFStringGetTypeID()) return {};
+  char buf[512];
+  if (!CFStringGetCString(static_cast<CFStringRef>(v), buf, sizeof(buf), kCFStringEncodingUTF8)) {
+    return {};
+  }
+  return Utf8ToWide(buf);
+}
+
+AXUIElementRef FindAx(AXUIElementRef el, const ControlNode& target, int depth) {
+  if (!el || depth > ProcessPerception::kMaxTreeDepth) return nullptr;
+  CFTypeRef ident = nullptr;
+  CFTypeRef title = nullptr;
+  CFTypeRef desc = nullptr;
+  AXUIElementCopyAttributeValue(el, kAXIdentifierAttribute, &ident);
+  AXUIElementCopyAttributeValue(el, kAXTitleAttribute, &title);
+  AXUIElementCopyAttributeValue(el, kAXDescriptionAttribute, &desc);
+  const std::wstring id = CfWide(ident);
+  const std::wstring name = CfWide(title);
+  const std::wstring d = CfWide(desc);
+  if (ident) CFRelease(ident);
+  if (title) CFRelease(title);
+  if (desc) CFRelease(desc);
+
+  bool hit = false;
+  if (!target.automation_id.empty() && WIeq(id, target.automation_id)) {
+    hit = true;
+  } else if (target.automation_id.empty() && !target.name.empty() &&
+             (WIeq(name, target.name) || WIeq(d, target.name))) {
+    hit = true;
+  }
+  if (hit) {
+    CFRetain(el);
+    return el;
+  }
+
+  CFTypeRef children = nullptr;
+  if (AXUIElementCopyAttributeValue(el, kAXChildrenAttribute, &children) != kAXErrorSuccess ||
+      !children) {
+    return nullptr;
+  }
+  if (CFGetTypeID(children) != CFArrayGetTypeID()) {
+    CFRelease(children);
+    return nullptr;
+  }
+  CFArrayRef arr = static_cast<CFArrayRef>(children);
+  AXUIElementRef found = nullptr;
+  const CFIndex n = CFArrayGetCount(arr);
+  for (CFIndex i = 0; i < n && !found; ++i) {
+    AXUIElementRef child = static_cast<AXUIElementRef>(
+        const_cast<void*>(CFArrayGetValueAtIndex(arr, i)));
+    found = FindAx(child, target, depth + 1);
+  }
+  CFRelease(children);
+  return found;
+}
+
+PrivilegeError ExecuteAxPress(const ControlNode& target, const LoopAction& action) {
+  if (action.kind == ActionKind::Read) {
+    return PrivilegeError{PrivilegeCode::Ok, "read — no mutation"};
+  }
+  if (target.pid == 0) {
+    return PrivilegeError{PrivilegeCode::Failed,
+                          "macOS AX press needs a pid. HID/CGEvent/IOHID refused."};
+  }
+  if (!AXIsProcessTrusted()) {
+    // Own-process AX can still work; keep going but remember the hint.
+  }
+  AXUIElementRef app = AXUIElementCreateApplication(static_cast<pid_t>(target.pid));
+  if (!app) {
+    return PrivilegeError{PrivilegeCode::Failed,
+                          "AXUIElementCreateApplication failed. HID/CGEvent refused."};
+  }
+  AXUIElementRef found = FindAx(app, target, 0);
+  if (!found) {
+    CFRelease(app);
+    const char* trust = AXIsProcessTrusted() ? "AX miss" : "Accessibility not granted";
+    return PrivilegeError{PrivilegeCode::Failed,
+                          std::string("macOS ") + trust +
+                              " — AXPress only, HID/CGEvent/IOHID refused."};
+  }
+  AXError err = AXUIElementPerformAction(found, kAXPressAction);
+  if (err != kAXErrorSuccess) {
+    err = AXUIElementPerformAction(found, kAXConfirmAction);
+  }
+  CFRelease(found);
+  CFRelease(app);
+  if (err != kAXErrorSuccess) {
+    return PrivilegeError{PrivilegeCode::Failed,
+                          "AXPress/AXConfirm failed. HID/CGEvent/IOHID refused."};
+  }
+  return PrivilegeError{PrivilegeCode::Ok, "AX press (no HID)"};
+}
+
+Result<Framebuffer> CaptureCgWindow(const Rect& r) {
+  if (!RectValid(r)) {
+    return PrivilegeError{PrivilegeCode::Failed, "invalid capture rect"};
+  }
+  const CGRect rect = CGRectMake(r.x, r.y, r.w, r.h);
+  CGImageRef img = CGWindowListCreateImage(
+      rect, kCGWindowListOptionOnScreenOnly, kCGNullWindowID, kCGWindowImageDefault);
+  if (!img) {
+    return PrivilegeError{PrivilegeCode::Failed,
+                          "CGWindowListCreateImage failed (grant Screen Recording). "
+                          "HID/CGEvent capture refused."};
+  }
+  const size_t w = CGImageGetWidth(img);
+  const size_t h = CGImageGetHeight(img);
+  if (w == 0 || h == 0 || w > 8192 || h > 8192) {
+    CGImageRelease(img);
+    return PrivilegeError{PrivilegeCode::Failed,
+                          "CGWindow image empty or too large (Screen Recording?). "
+                          "HID/CGEvent refused."};
+  }
+  Framebuffer fb;
+  fb.width = static_cast<std::int32_t>(w);
+  fb.height = static_cast<std::int32_t>(h);
+  fb.bgra.resize(w * h * 4);
+  CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+  CGContextRef ctx = CGBitmapContextCreate(
+      fb.bgra.data(), w, h, 8, w * 4, cs,
+      kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+  if (!ctx) {
+    if (cs) CGColorSpaceRelease(cs);
+    CGImageRelease(img);
+    return PrivilegeError{PrivilegeCode::Failed, "CGBitmapContextCreate failed"};
+  }
+  CGContextDrawImage(ctx, CGRectMake(0, 0, static_cast<CGFloat>(w), static_cast<CGFloat>(h)), img);
+  CGContextRelease(ctx);
+  CGColorSpaceRelease(cs);
+  CGImageRelease(img);
+  return fb;
+}
+#endif
+
 }  // namespace
+
+const char* MutationBackendName() noexcept {
+#if defined(_WIN32)
+  return "uia+sendinput";
+#elif defined(__APPLE__)
+  return "ax-press";
+#else
+  return "none";
+#endif
+}
+
+bool MutationUsesHid() noexcept {
+#if defined(_WIN32)
+  return true;
+#else
+  return false;
+#endif
+}
 
 const char* StepStatusName(StepStatus s) noexcept {
   switch (s) {
@@ -110,10 +280,7 @@ HybridControlLoop::HybridControlLoop(ProcessPerception perception, LoopConfig co
 }
 
 Result<Framebuffer> HybridControlLoop::CaptureScreen(const Rect& r) {
-#if !defined(_WIN32)
-  (void)r;
-  return PrivilegeError{PrivilegeCode::Unsupported, "GDI capture is Windows-only"};
-#else
+#if defined(_WIN32)
   if (!RectValid(r)) {
     return PrivilegeError{PrivilegeCode::Failed, "invalid capture rect"};
   }
@@ -158,16 +325,18 @@ Result<Framebuffer> HybridControlLoop::CaptureScreen(const Rect& r) {
     return PrivilegeError{PrivilegeCode::Failed, "GetDIBits failed"};
   }
   return fb;
+#elif defined(__APPLE__)
+  return CaptureCgWindow(r);
+#else
+  (void)r;
+  return PrivilegeError{PrivilegeCode::Unsupported,
+                        "Linux: no HID / GDI capture. Viewport is process-memory DIB."};
 #endif
 }
 
 PrivilegeError HybridControlLoop::ExecuteDefault(const ControlNode& target,
                                                  const LoopAction& action) {
-#if !defined(_WIN32)
-  (void)target;
-  (void)action;
-  return PrivilegeError{PrivilegeCode::Unsupported, "UIA execute is Windows-only"};
-#else
+#if defined(_WIN32)
   if (action.kind == ActionKind::Read) {
     return PrivilegeError{PrivilegeCode::Ok, "read — no mutation"};
   }
@@ -234,6 +403,13 @@ PrivilegeError HybridControlLoop::ExecuteDefault(const ControlNode& target,
   in[0].mi.dy = in[1].mi.dy = ny;
   SendInput(2, in, sizeof(INPUT));
   return PrivilegeError{PrivilegeCode::Ok, "SendInput click fallback"};
+#elif defined(__APPLE__)
+  return ExecuteAxPress(target, action);
+#else
+  (void)target;
+  (void)action;
+  return PrivilegeError{PrivilegeCode::Unsupported,
+                        "Linux: no HID mutate, no AT-SPI. Read-only inspect."};
 #endif
 }
 
@@ -372,7 +548,8 @@ LoopStep HybridControlLoop::Run(const LoopAction& action, SinkFn sink) {
   double last_diff = 0;
   for (int attempt = 0; attempt <= config_.max_retries; ++attempt) {
     emit(attempt == 0 ? StepStatus::Executing : StepStatus::Retrying,
-         attempt == 0 ? "Invoke via UIA / click" : "Retry after insufficient pixel-diff");
+         attempt == 0 ? (std::string("mutate via ") + MutationBackendName())
+                      : "Retry after insufficient pixel-diff");
     if (execute_) {
       const PrivilegeError ex = execute_(target, action);
       if (ex.code != PrivilegeCode::Ok && ex.code != PrivilegeCode::Stripped) {
