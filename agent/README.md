@@ -39,7 +39,12 @@ secdogie-agent "..."                                 # claude-sonnet-5 (default)
 secdogie-agent "..." --model gpt-5.5                 # routes to OpenAI
 secdogie-agent "..." --model openai/gpt-5.5          # same, explicit ref
 secdogie-agent "..." --provider openai               # OpenAI's default model
+secdogie-agent "..." --provider openrouter --model openai/gpt-4o
 ```
+
+OpenRouter keys start with `sk-or-` and the model id must stay `vendor/model`
+(e.g. `anthropic/claude-sonnet-4`, `openai/gpt-4o`). A saved OpenRouter
+default is no longer stripped down to a bare `claude-*` id.
 
 The OpenAI provider needs the `openai` package, installed as an extra:
 
@@ -155,11 +160,22 @@ launcher** next to the program — you don't need to touch a terminal:
 | macOS   | `open.command` (first time: right-click → **Open** to get past Gatekeeper) |
 | Linux   | `run.sh` (from a terminal: `./run.sh`) |
 
-On the **first run** the launcher creates a config file and tells you where
-it is; open that file, paste your Anthropic API key after
-`ANTHROPIC_API_KEY=`, save, and launch again. After that it opens a **window
-asking what you want it to do** (that's `--gui` mode), shows you the model's
-plan, and asks you to approve before it acts.
+On the **first run** the launcher asks you to paste an API key (Anthropic,
+OpenAI, OpenRouter `sk-or-…`, or a custom env name) and saves it next to the
+program. After that it opens a **window asking what you want it to do**
+(that's `--gui` mode). Typing the task and clicking Start:
+
+1. shows a **Working…** window while it calls the model (the desktop is not
+   supposed to go blank);
+2. shows the model's plan — **Looks good — go** or Cancel;
+3. asks **Yes/No in a popup before every action** (not a hidden terminal
+   prompt — a windowed exe has no stdin, so a terminal `y/N` used to skip
+   every action with no feedback);
+4. pops an **error dialog** if the model call fails (bad key, unknown
+   OpenRouter model id, no screen capture) instead of exiting mute.
+
+On **macOS** the GUI path always uses Accessibility (`--desktop-ax` /
+AXPress). HID / `CGEvent` / `IOHID` / pyautogui clicks are refused.
 
 **One-file selection window.** Double-clicking `secdogie-agent.exe` itself (no
 launcher, no terminal) pops a small **frosted-glass selection window** built into
@@ -244,13 +260,18 @@ secdogie-agent --gui                 # a window prompts for the task
 secdogie-agent --gui "book a table"  # task given, still shows the plan dialog
 ```
 
-The flow is: (1) if you didn't pass a task, a window asks for it; (2) the
-model looks at your current screen and, **before touching anything**, shows a
-popup restating the task as it understood it plus a short numbered plan — you
-click **Proceed** or **Cancel**; (3) any `ask_user` question during the run
-appears as a Yes/No popup. GUI mode needs tkinter (bundled with standard
-Python; on Linux `sudo apt install python3-tk`). If it isn't available, the
-agent prints a notice and falls back to the terminal automatically.
+The flow is: (1) if you didn't pass a task, a window asks for it; (2) a
+**Working…** window stays up while the model looks at the current screen;
+(3) **before touching anything**, a popup restates the task plus a short
+numbered plan — **Looks good — go** or Cancel; (4) every non-benign action
+gets a **Yes/No popup** (this is *not* the terminal `y/N` — a packaged
+windowed build has no console, so stdin confirmation used to skip every
+click silently); (5) any `ask_user` question is a Yes/No popup; (6) a model
+or capture failure pops an error dialog and stops. GUI mode needs tkinter
+(bundled with standard Python; on Linux `sudo apt install python3-tk`). If
+it isn't available, the agent prints a notice and falls back to the
+terminal automatically. On macOS, `--gui` implies `--desktop-ax`.
+
 
 Requires a GUI session (X11/most desktop environments; Wayland support
 depends on your compositor's support in `mss`/`pyautogui`). It will not do

@@ -140,6 +140,13 @@ def main(argv: list[str] | None = None) -> int:
         )
         gui = False
 
+    # macOS: HID (pyautogui / CGEvent / IOHID) is refused. A GUI task without
+    # --desktop-ax would call the model then skip every click with no window —
+    # the report "I typed a command and nothing happened". Accessibility
+    # (AXPress) is the only mutation backend on Darwin.
+    if gui and sys.platform == "darwin" and not args.desktop_ax:
+        args.desktop_ax = True
+
     # GUI path without a key yet: prompt once here too (covers `--gui` from a
     # terminal, not only the double-click menu which already gated).
     if gui and not args.api_key:

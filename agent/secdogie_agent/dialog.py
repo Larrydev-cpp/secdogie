@@ -180,6 +180,70 @@ def confirm_plan(task: str, plan: str) -> bool:
     return result["ok"]
 
 
+class BusyHandle:
+    """Status window the caller must `.close()`. Never raises on close."""
+
+    def __init__(self, root=None):
+        self._root = root
+
+    def close(self) -> None:
+        root = self._root
+        self._root = None
+        if root is None:
+            return
+        try:
+            root.destroy()
+        except Exception:
+            pass
+
+
+def working(message: str) -> BusyHandle:
+    """A small 'Calling the model…' window so Start isn't a blank desktop.
+
+    Best-effort: if tkinter/display isn't there, returns a no-op handle.
+    The HTTP call runs on this thread, so we `update()` once up front to
+    paint, then the caller blocks until close().
+    """
+    try:
+        tk, _, _ = _import_tk()
+        root = _new_root(tk)
+        pad = tk.Frame(root)
+        pad.pack(padx=22, pady=16)
+        tk.Label(pad, text="Working…", font=("", 13, "bold")).pack(anchor="w")
+        tk.Label(
+            pad,
+            text=message,
+            wraplength=440,
+            justify="left",
+            fg="#555",
+        ).pack(anchor="w", pady=(4, 0))
+        root.update_idletasks()
+        root.update()
+        return BusyHandle(root)
+    except Exception:
+        return BusyHandle(None)
+
+
+def confirm_action(prompt: str, *, high_risk: bool = False) -> bool:
+    """Yes/No popup for a single proposed action. Fail-closed on any error.
+
+    Used by `--gui` instead of `safety.confirm`'s stdin prompt — a windowed
+    exe has no console, so `input()` either hangs forever or hits EOF and
+    skips every action with no window. That was 'I typed a command and
+    nothing happened'.
+    """
+    try:
+        tk, _, messagebox = _import_tk()
+        root = _new_root(tk)
+        root.withdraw()
+        title = "secdogie-agent — HIGH-RISK" if high_risk else "secdogie-agent — execute this?"
+        answer = messagebox.askyesno(title, prompt, parent=root)
+        root.destroy()
+        return bool(answer)
+    except Exception:
+        return False
+
+
 def ask_user(question: str) -> bool:
     tk, _, messagebox = _import_tk()
     root = _new_root(tk)

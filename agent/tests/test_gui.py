@@ -1,6 +1,9 @@
 """GUI/briefing flow tests. tkinter and a display aren't needed: the actual
 window functions are monkeypatched, and we test the orchestration in the loop
 plus the graceful-fallback logic."""
+import sys
+
+import pytest
 from secdogie_agent import actions, cli, dialog, loop, screen
 from secdogie_agent.providers.base import Action, VisionProvider
 
@@ -19,6 +22,19 @@ class ScriptedProvider(VisionProvider):
     def explain_task(self, task, screenshot_png, screen_size):
         self.explain_calls += 1
         return self.plan
+
+
+class _QuietBusy:
+    def close(self):
+        pass
+
+
+@pytest.fixture(autouse=True)
+def _silent_gui_chrome(monkeypatch):
+    """Never open a real Tk window from these tests."""
+    monkeypatch.setattr(dialog, "working", lambda msg: _QuietBusy())
+    monkeypatch.setattr(dialog, "notify", lambda *a, **k: True)
+    monkeypatch.setattr(dialog, "confirm_action", lambda *a, **k: True)
 
 
 def _patch_io(monkeypatch, executed):
@@ -66,18 +82,76 @@ def test_briefing_skipped_when_provider_returns_no_plan(monkeypatch):
     assert rc == 0
 
 
-def test_briefing_failure_does_not_block_run(monkeypatch):
+def test_briefing_failure_stops_gui_run_with_error(monkeypatch):
+    """#39 still left this path mute: explain_task threw, the loop continued
+    (or later returned 1) with no window. After a typed command that is
+    'nothing happened'."""
     executed = []
     _patch_io(monkeypatch, executed)
+    seen = []
+
+    def note(title, message, **k):
+        seen.append((title, message, k))
+        return True
+
+    monkeypatch.setattr(dialog, "notify", note)
 
     class FlakyProvider(ScriptedProvider):
         def explain_task(self, task, screenshot_png, screen_size):
-            raise RuntimeError("api down")
+            raise RuntimeError("401 invalid api key")
 
     monkeypatch.setattr(dialog, "confirm_plan", lambda t, p: (_ for _ in ()).throw(AssertionError()))
     provider = FlakyProvider([{"action": "done", "text": "ok"}])
     rc = loop.run(provider, loop.AgentConfig(task="do it", gui=True, auto=True, max_steps=5))
-    assert rc == 0  # briefing error is swallowed, run proceeds
+    assert rc == 1
+    assert executed == []
+    assert provider.calls == 0
+    assert seen and "did not answer" in seen[0][0]
+
+
+def test_gui_non_auto_confirms_via_dialog_not_stdin(monkeypatch):
+    """The default 'Do a task' card is --gui without --auto. Per-step confirm
+    MUST be a popup. stdin on a windowed exe is EOF → skip every action."""
+    executed = []
+    _patch_io(monkeypatch, executed)
+    monkeypatch.setattr(dialog, "confirm_plan", lambda t, p: True)
+    prompts = []
+    monkeypatch.setattr(
+        dialog, "confirm_action", lambda p, **k: prompts.append(p) or True
+    )
+
+    def boom(prompt):
+        raise AssertionError(f"GUI must not block on stdin: {prompt!r}")
+
+    monkeypatch.setattr("builtins.input", boom)
+    provider = ScriptedProvider(
+        [{"action": "left_click", "x": 1, "y": 1}, {"action": "done", "text": "ok"}],
+        plan="p",
+    )
+    rc = loop.run(
+        provider, loop.AgentConfig(task="do it", gui=True, auto=False, max_steps=5)
+    )
+    assert rc == 0
+    assert executed == ["left_click"]
+    assert prompts and "left_click" in prompts[0]
+
+
+def test_gui_next_action_failure_shows_error(monkeypatch):
+    executed = []
+    _patch_io(monkeypatch, executed)
+    monkeypatch.setattr(dialog, "confirm_plan", lambda t, p: True)
+    seen = []
+    monkeypatch.setattr(dialog, "notify", lambda title, msg, **k: seen.append(title) or True)
+
+    class DeadProvider(ScriptedProvider):
+        def next_action(self, task, screenshot_png, screen_size, history):
+            raise RuntimeError("404 model not found: claude-sonnet-4")
+
+    provider = DeadProvider([], plan="p")
+    rc = loop.run(provider, loop.AgentConfig(task="do it", gui=True, auto=True, max_steps=3))
+    assert rc == 1
+    assert executed == []
+    assert seen and "did not answer" in seen[0]
 
 
 def test_gui_ask_user_uses_dialog(monkeypatch):
@@ -100,6 +174,32 @@ def test_cli_falls_back_to_terminal_when_gui_unavailable(monkeypatch, capsys):
         assert e.code != 0
     err = capsys.readouterr().err
     assert "falling back to the terminal" in err
+
+
+def test_cli_gui_darwin_forces_desktop_ax(monkeypatch):
+    monkeypatch.setattr(cli.sys, "platform", "darwin")
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(dialog, "gui_available", lambda: True)
+    monkeypatch.setattr(dialog, "ask_task", lambda: "zoom the drawing")
+    from secdogie_agent import config as config_mod
+
+    monkeypatch.setattr(config_mod, "has_configured_api_key", lambda: True)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    monkeypatch.setattr("secdogie_agent.cli_common.resolve_provider", lambda *a, **k: object())
+    seen = {}
+
+    def fake_run(provider, config):
+        seen["desktop_ax"] = config.desktop_ax
+        seen["gui"] = config.gui
+        seen["task"] = config.task
+        return 0
+
+    monkeypatch.setattr(cli, "run", fake_run)
+    rc = cli.main(["--gui"])
+    assert rc == 0
+    assert seen.get("gui") is True
+    assert seen.get("desktop_ax") is True
+    assert seen.get("task") == "zoom the drawing"
 
 
 def test_gui_available_returns_bool():
