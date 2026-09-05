@@ -305,25 +305,53 @@ std::string DumpInspectJson(std::uint32_t pid, const InspectConfig& cfg,
   ProcessPerception perception;
   PerceptionSnapshot uia = perception.SnapshotPid(pid);
   Result<InspectSnapshot> mem = InspectPid(pid, cfg);
-  if (!mem) {
-    o.fmt("{\"ok\":false,\"pid\":%u,\"code\":", pid);
-    JsonStr(o, PrivilegeCodeName(mem.error().code));
-    o.puts(",\"detail\":");
-    JsonStr(o, mem.error().detail);
-    o.put('}');
-    return o.s;
-  }
-  const InspectSnapshot& s = mem.value();
-  const std::vector<HybridNode> fused = FuseTree(uia.controls, s.strings, s.strings.size());
+
+  InspectSnapshot empty;
+  empty.pid = pid;
+  empty.image = uia.process.image;
+  empty.token.pid = pid;
+  empty.token.image = uia.process.image;
+  empty.detail = mem ? mem.value().detail : mem.error().detail;
+  empty.stats.handle_closed = true;
+  empty.stats.token_closed = true;
+  const InspectSnapshot& s = mem ? mem.value() : empty;
+  const std::vector<MemoryHit> no_hits;
+  const std::vector<HybridNode> fused =
+      FuseTree(uia.controls, mem ? s.strings : no_hits,
+               mem ? s.strings.size() : 0);
   const std::vector<ControlNode> as_controls = HybridAsControls(fused);
   const ControlNode* found = nullptr;
   if (!find_name.empty()) {
     Selector sel;
     sel.name = find_name;
     found = ProcessPerception::Find(as_controls, sel);
+    if (!found) found = ProcessPerception::Find(uia.controls, sel);
   }
+  const bool ax_ok = !uia.controls.empty();
+  const bool ok = static_cast<bool>(mem) || ax_ok;
+  if (!ok) {
+    o.fmt("{\"ok\":false,\"pid\":%u,\"code\":", pid);
+    JsonStr(o, PrivilegeCodeName(mem.error().code));
+    o.puts(",\"detail\":");
+    JsonStr(o, mem.error().detail);
+    o.puts(",\"uia\":");
+    // still emit the (empty) tree + reason so the operator sees the OS grant, not a blank fail
+    o.put('{');
+    o.puts("\"mode\":");
+    JsonStr(o, "memory");
+    o.puts(",\"detail\":");
+    JsonStr(o, uia.detail);
+    o.puts("}}");
+    return o.s;
+  }
+
   PrivilegeError wall{PrivilegeCode::Ok, "inspect allowed"};
-  if (own) wall = AllowInspect(own.value(), s.token);
+  if (own && mem) wall = AllowInspect(own.value(), s.token);
+  else if (!mem) {
+    wall = PrivilegeError{PrivilegeCode::Ok,
+                          "UI tree only — process memory blocked (SIP / task_for_pid). "
+                          "Not a product refusal."};
+  }
 
   o.puts("{\"ok\":true,\"platform\":");
   JsonStr(o, PlatformName());
@@ -334,8 +362,10 @@ std::string DumpInspectJson(std::uint32_t pid, const InspectConfig& cfg,
 #else
   o.puts(",\"primary\":\"utf-8\",\"secondary\":\"utf-16le\",\"json\":\"utf-8\"}");
 #endif
-  o.fmt(",\"pid\":%u,\"image\":", s.pid);
-  JsonW(o, s.image.empty() ? s.token.image : s.image);
+  o.fmt(",\"pid\":%u,\"memory_ok\":%s,\"ax_ok\":%s,\"image\":", pid,
+        mem ? "true" : "false", ax_ok ? "true" : "false");
+  JsonW(o, s.image.empty() ? (s.token.image.empty() ? uia.process.image : s.token.image)
+                           : s.image);
   o.puts(",\"cmdline\":");
   JsonW(o, s.cmdline);
   o.fmt(",\"rss_kb\":%llu,\"session\":%u,\"detail\":",
@@ -357,7 +387,7 @@ std::string DumpInspectJson(std::uint32_t pid, const InspectConfig& cfg,
   o.put(',');
   DumpUia(o, uia);
   o.put(',');
-  DumpWindowsOf(o, s.pid);
+  DumpWindowsOf(o, pid);
   o.puts(",\"regions\":[");
   for (std::size_t i = 0; i < s.regions.size(); ++i) {
     const RemoteRegion& r = s.regions[i];

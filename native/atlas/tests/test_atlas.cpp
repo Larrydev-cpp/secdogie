@@ -123,6 +123,24 @@ int main() {
     Selector empty;
     Expect(ProcessPerception::Find(roots, empty) == nullptr,
            "empty selector matches nothing", "perception");
+    Selector part;
+    part.name = L"zoom";
+    Expect(ProcessPerception::Find(roots, part) == &roots[0],
+           "Find name contains (Mac AX titles are often a prefix of the button)",
+           "perception");
+    Selector cjk;
+    ControlNode layer;
+    layer.role = ControlRole::Button;
+    layer.name = L"图层尺寸";
+    layer.automation_id = L"LAYER_DIMS";
+    roots.push_back(layer);
+    cjk.name = L"图层";
+    Expect(ProcessPerception::Find(roots, cjk) == &roots[1],
+           "Find CJK substring", "perception");
+    Selector miss2;
+    miss2.name = L"NO_SUCH_CONTROL";
+    Expect(ProcessPerception::Find(roots, miss2) == nullptr,
+           "contains does not invent a hit", "perception");
   }
   {
     Framebuffer a, d;

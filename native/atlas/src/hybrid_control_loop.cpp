@@ -69,13 +69,53 @@ bool WIeq(const std::wstring& a, const std::wstring& b) {
   return true;
 }
 
+bool WContains(const std::wstring& hay, const std::wstring& needle) {
+  if (needle.size() < 2 || needle.size() > hay.size()) return false;
+  std::wstring h = hay;
+  std::wstring n = needle;
+  for (auto& c : h) if (c >= L'A' && c <= L'Z') c = static_cast<wchar_t>(c + 32);
+  for (auto& c : n) if (c >= L'A' && c <= L'Z') c = static_cast<wchar_t>(c + 32);
+  return h.find(n) != std::wstring::npos;
+}
+
 std::wstring CfWide(CFTypeRef v) {
   if (!v || CFGetTypeID(v) != CFStringGetTypeID()) return {};
-  char buf[512];
-  if (!CFStringGetCString(static_cast<CFStringRef>(v), buf, sizeof(buf), kCFStringEncodingUTF8)) {
+  CFStringRef s = static_cast<CFStringRef>(v);
+  const CFIndex n =
+      CFStringGetMaximumSizeForEncoding(CFStringGetLength(s), kCFStringEncodingUTF8) + 1;
+  if (n <= 1) return {};
+  std::string buf(static_cast<std::size_t>(n), '\0');
+  if (!CFStringGetCString(s, buf.data(), static_cast<CFIndex>(buf.size()),
+                          kCFStringEncodingUTF8)) {
     return {};
   }
+  buf.resize(std::strlen(buf.c_str()));
   return Utf8ToWide(buf);
+}
+
+bool AxNameHit(const std::wstring& id, const std::wstring& name, const std::wstring& desc,
+               const ControlNode& target) {
+  if (!target.automation_id.empty()) {
+    return WIeq(id, target.automation_id) || WContains(id, target.automation_id);
+  }
+  if (target.name.empty()) return false;
+  return WIeq(name, target.name) || WIeq(desc, target.name) || WIeq(id, target.name) ||
+         WContains(name, target.name) || WContains(desc, target.name);
+}
+
+AXUIElementRef FindAx(AXUIElementRef el, const ControlNode& target, int depth);
+
+AXUIElementRef FindAxInArray(CFTypeRef children, const ControlNode& target, int depth) {
+  if (!children || CFGetTypeID(children) != CFArrayGetTypeID()) return nullptr;
+  CFArrayRef arr = static_cast<CFArrayRef>(children);
+  AXUIElementRef found = nullptr;
+  const CFIndex n = CFArrayGetCount(arr);
+  for (CFIndex i = 0; i < n && !found; ++i) {
+    AXUIElementRef child = static_cast<AXUIElementRef>(
+        const_cast<void*>(CFArrayGetValueAtIndex(arr, i)));
+    found = FindAx(child, target, depth);
+  }
+  return found;
 }
 
 AXUIElementRef FindAx(AXUIElementRef el, const ControlNode& target, int depth) {
@@ -93,36 +133,32 @@ AXUIElementRef FindAx(AXUIElementRef el, const ControlNode& target, int depth) {
   if (title) CFRelease(title);
   if (desc) CFRelease(desc);
 
-  bool hit = false;
-  if (!target.automation_id.empty() && WIeq(id, target.automation_id)) {
-    hit = true;
-  } else if (target.automation_id.empty() && !target.name.empty() &&
-             (WIeq(name, target.name) || WIeq(d, target.name))) {
-    hit = true;
-  }
-  if (hit) {
+  if (AxNameHit(id, name, d, target)) {
     CFRetain(el);
     return el;
   }
 
-  CFTypeRef children = nullptr;
-  if (AXUIElementCopyAttributeValue(el, kAXChildrenAttribute, &children) != kAXErrorSuccess ||
-      !children) {
-    return nullptr;
+  CFTypeRef kids = nullptr;
+  AXUIElementCopyAttributeValue(el, kAXVisibleChildrenAttribute, &kids);
+  AXUIElementRef found = FindAxInArray(kids, target, depth + 1);
+  if (kids) CFRelease(kids);
+  if (found) return found;
+  kids = nullptr;
+  AXUIElementCopyAttributeValue(el, kAXChildrenAttribute, &kids);
+  found = FindAxInArray(kids, target, depth + 1);
+  if (kids) CFRelease(kids);
+  if (found) return found;
+  kids = nullptr;
+  AXUIElementCopyAttributeValue(el, kAXContentsAttribute, &kids);
+  found = FindAxInArray(kids, target, depth + 1);
+  if (kids) CFRelease(kids);
+  if (found) return found;
+  if (depth == 0) {
+    kids = nullptr;
+    AXUIElementCopyAttributeValue(el, kAXWindowsAttribute, &kids);
+    found = FindAxInArray(kids, target, depth + 1);
+    if (kids) CFRelease(kids);
   }
-  if (CFGetTypeID(children) != CFArrayGetTypeID()) {
-    CFRelease(children);
-    return nullptr;
-  }
-  CFArrayRef arr = static_cast<CFArrayRef>(children);
-  AXUIElementRef found = nullptr;
-  const CFIndex n = CFArrayGetCount(arr);
-  for (CFIndex i = 0; i < n && !found; ++i) {
-    AXUIElementRef child = static_cast<AXUIElementRef>(
-        const_cast<void*>(CFArrayGetValueAtIndex(arr, i)));
-    found = FindAx(child, target, depth + 1);
-  }
-  CFRelease(children);
   return found;
 }
 

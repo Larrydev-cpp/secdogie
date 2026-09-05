@@ -6,7 +6,11 @@
 //   Windows : IUIAutomationTreeWalker of the *target pid's* hwnds
 //   Linux   : process list via /proc; window tree is compositor-dependent
 //             (memory inspect is the live path: process_vm_readv)
-//   macOS   : AXUIElement of the target pid + CGWindowList
+//   macOS   : AXUIElement of the *frontmost / target pid* (title, description,
+//             role description, value, bounds). CGWindowList fallback when
+//             Accessibility is not granted. Screen Recording fills window
+//             titles. task_for_pid is memory-only and is not required to
+//             recognise the UI tree.
 //
 // PROCESS_VM_READ / mach_vm_read / process_vm_readv is used to name modules
 // and to dump *safe* committed pages in memory_inspector.cpp — never to write.

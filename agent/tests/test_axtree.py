@@ -403,7 +403,7 @@ def test_macos_snapshot_none_when_nothing_is_focused(monkeypatch):
     assert desktop_ax._MacosAxProvider(fake).snapshot() is None
 
 
-def test_macos_element_without_a_box_is_skipped(monkeypatch):
+def test_macos_element_without_a_box_is_kept_if_named(monkeypatch):
     boxless = _FakeAXElement({"AXRole": "AXButton", "AXTitle": "NoBox"})  # no position/size
     window = _FakeAXElement({
         "AXRole": "AXWindow",
@@ -415,7 +415,7 @@ def test_macos_element_without_a_box_is_skipped(monkeypatch):
     app = _FakeAXElement({"AXFocusedWindow": window})
     fake = _fake_appservices(monkeypatch, _FakeAXElement({"AXFocusedApplication": app}))
     els = desktop_ax._MacosAxProvider(fake).snapshot()
-    assert [e.name for e in els] == ["App"]  # the boxless button is dropped, walk continues
+    assert [e.name for e in els] == ["App", "NoBox"]
 
 
 def test_macos_geometry_accepts_the_renamed_value_type_constants(monkeypatch):
