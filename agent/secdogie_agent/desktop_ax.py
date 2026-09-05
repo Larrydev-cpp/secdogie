@@ -422,17 +422,22 @@ class _MacosAxProvider:
     def snapshot(self) -> list[axtree.AxElement] | None:
         ax = self._ax
         system = ax.AXUIElementCreateSystemWide()
-        # The focused app, then its focused window -- the same "active window
-        # only" scope the Windows/Linux providers use, so the walk stays bounded.
         app = self._attr(system, ax.kAXFocusedApplicationAttribute)
         if app is None:
             return None
-        window = self._attr(app, ax.kAXFocusedWindowAttribute)
-        if window is None:
-            return None
         out: list[axtree.AxElement] = []
-        self._walk(window, 0, out)
-        return out
+        windows = self._attr(app, getattr(ax, "kAXWindowsAttribute", "AXWindows"))
+        walked = False
+        if windows:
+            for window in list(windows):
+                self._walk(window, 0, out)
+                walked = True
+        if not walked:
+            window = self._attr(app, ax.kAXFocusedWindowAttribute)
+            if window is None:
+                return None
+            self._walk(window, 0, out)
+        return out or None
 
     def _walk(self, element, depth: int, out: list[axtree.AxElement]) -> None:
         el = self._element_of(element)
@@ -444,8 +449,15 @@ class _MacosAxProvider:
             self._walk(child, depth + 1, out)
 
     def _children(self, element) -> list:
-        kids = self._attr(element, self._ax.kAXChildrenAttribute)
-        return list(kids) if kids else []  # a leaf has no AXChildren -> None -> []
+        ax = self._ax
+        vis = self._attr(element, getattr(ax, "kAXVisibleChildrenAttribute", "AXVisibleChildren"))
+        if vis:
+            return list(vis)
+        kids = self._attr(element, ax.kAXChildrenAttribute)
+        if kids:
+            return list(kids)
+        contents = self._attr(element, getattr(ax, "kAXContentsAttribute", "AXContents"))
+        return list(contents) if contents else []
 
     def _attr(self, element, attribute):
         """Read one AX attribute value, or None. pyobjc returns (AXError, value);
@@ -468,16 +480,27 @@ class _MacosAxProvider:
         if not role:
             return None
         geom = self._geometry(element)
-        if geom is None:
-            return None
-        left, top, right, bottom = geom
-        if right <= left or bottom <= top:
-            return None  # zero-area / offscreen elements aren't click targets
         role = str(role)
         if role.startswith("AX"):
-            role = role[2:]  # "AXButton" -> "Button", matching the Windows convention
-        name = self._attr(element, ax.kAXTitleAttribute) or self._attr(element, ax.kAXDescriptionAttribute) or ""
+            role = role[2:]
+        name = (
+            self._attr(element, ax.kAXTitleAttribute)
+            or self._attr(element, ax.kAXDescriptionAttribute)
+            or self._attr(element, getattr(ax, "kAXValueAttribute", "AXValue"))
+            or self._attr(element, getattr(ax, "kAXRoleDescriptionAttribute", "AXRoleDescription"))
+            or ""
+        )
         automation_id = self._attr(element, ax.kAXIdentifierAttribute) or ""
+        if geom is None:
+            if not name and not automation_id:
+                return None
+            left = top = right = bottom = 0
+        else:
+            left, top, right, bottom = geom
+            if right <= left or bottom <= top:
+                if not name and not automation_id:
+                    return None
+                left = top = right = bottom = 0
         return axtree.AxElement(
             role=role,
             name=str(name),
@@ -550,14 +573,19 @@ class _MacosAxProvider:
         if app is None:
             return None
         window = self._attr(app, ax.kAXFocusedWindowAttribute)
-        if window is None:
+        windows = self._attr(app, getattr(ax, "kAXWindowsAttribute", "AXWindows"))
+        roots = list(windows) if windows else ([window] if window is not None else [])
+        if not roots:
             return None
         attrs = _match_kwargs(automation_id, name, role)
         if not attrs:
             return None
         hits: list = []
-        self._find_walk(window, 0, attrs, hits)
-        return hits[0] if hits else None
+        for root in roots:
+            self._find_walk(root, 0, attrs, hits)
+            if hits:
+                return hits[0]
+        return None
 
     def _find_walk(self, element, depth: int, attrs: dict[str, str], hits: list) -> None:
         if _matches(self._element_of(element), **attrs):

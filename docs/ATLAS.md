@@ -42,7 +42,11 @@ native/atlas/atlas_inspect --self --token
 
 1. **Primary targeting** is the OS accessibility tree (Windows UI Automation,
    AT-SPI, AX) — PID, hwnd, bounding box, AutomationId. Enable it with
-   `--desktop-ax`. The live loop prefers `click_element` / native Invoke over
+   `--desktop-ax`. On macOS the native MCT snapshots the **frontmost app**,
+   walks every window (title / description / value / bounds), and falls back
+   to `CGWindowList` when Accessibility is not granted. SIP blocking
+   `task_for_pid` does **not** fail the inspect — the AX/CGWindow tree is
+   enough. The live loop prefers `click_element` / native Invoke over
    guessing a pixel off a downscaled screenshot.
 2. **Verification** is a pixel-diff of the control region before vs after the
    action (`screen.changed_ratio` in the agent loop; `atlas.changed_ratio` /

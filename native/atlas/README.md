@@ -37,7 +37,7 @@ A **job** is a chain of related processes (parent / child / same family / operat
 
 ## What this is
 
-1. **UI tree first, memory on miss.** Windows UIA of the target pid (not the inspector's foreground window). macOS AX of that pid. Linux memory-primary.
+1. **UI tree first, memory on miss.** Windows UIA of the target pid. macOS AX of the **frontmost / target pid** (title, description, value, bounds); CGWindow list if Accessibility is not granted. SIP may block `task_for_pid` — the UI tree still reads. Linux memory-primary.
 2. **Read-only handle.** `PROCESS_VM_READ | QUERY` / `task_for_pid` / `process_vm_readv`. Write bits fail closed, not narrowed.
 3. **Safe pages only.** `PAGE_READONLY` / `PAGE_READWRITE` (Windows), `r`/`rw` maps (Linux), `VM_PROT_READ`/`WRITE` (macOS). Guard / noaccess / execute skipped. 64 KiB chunks. Handle closed before return.
 4. **Token wall.** `TOKEN_QUERY` only. SYSTEM / TI / PPL / higher integrity → `denied-escalate` or `denied-protected`.

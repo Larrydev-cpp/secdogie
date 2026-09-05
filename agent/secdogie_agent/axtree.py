@@ -66,7 +66,8 @@ def find_elements(
     and repetitive, so exact matching keeps a re-find from latching onto a
     lookalike; `selector_for` records the strongest available combination so
     this stays precise. Case-folding matches Atlas `find_control` — UIA names
-    from the model often differ in case from the tree."""
+    from the model often differ in case from the tree. Native MCT `find`
+    additionally allows a substring on macOS AX titles (图层 vs 图层尺寸)."""
     out = []
     for el in elements:
         if automation_id is not None and el.automation_id.casefold() != automation_id.casefold():
