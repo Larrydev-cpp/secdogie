@@ -6,6 +6,9 @@ from secdogie_agent.providers import (
     ANTHROPIC_PROVIDER_ID,
     DEFAULT_MODELS,
     OPENAI_PROVIDER_ID,
+    OPENROUTER_BASE_URL,
+    OPENROUTER_PROVIDER_ID,
+    infer_provider_from_key,
     make_provider,
     normalize_provider,
     resolve_model_provider,
@@ -95,3 +98,42 @@ def test_make_provider_anthropic(monkeypatch):
     p = make_provider(ANTHROPIC_PROVIDER_ID, "claude-sonnet-5", "sk-y")
     assert isinstance(p, AnthropicProvider)
     assert p.model == "claude-sonnet-5"
+
+
+def test_openrouter_ref_keeps_vendor_model():
+    provider, bare = resolve_model_provider("openrouter/anthropic/claude-sonnet-4")
+    assert provider == OPENROUTER_PROVIDER_ID
+    assert bare == "anthropic/claude-sonnet-4"
+
+
+def test_openrouter_alias():
+    assert normalize_provider("OpenRouter") == OPENROUTER_PROVIDER_ID
+    assert normalize_provider("or") == OPENROUTER_PROVIDER_ID
+    assert infer_provider_from_key("sk-or-v1-xxxx") == OPENROUTER_PROVIDER_ID
+    assert infer_provider_from_key("sk-ant-api03-x") == ANTHROPIC_PROVIDER_ID
+
+
+def test_make_provider_openrouter_sets_base_url(monkeypatch):
+    captured = {}
+
+    class _Client:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    import types, sys
+    mod = types.ModuleType("openai")
+    mod.OpenAI = _Client
+    monkeypatch.setitem(sys.modules, "openai", mod)
+    from secdogie_agent.providers.openai_provider import OpenAIProvider
+
+    p = make_provider(OPENROUTER_PROVIDER_ID, "anthropic/claude-sonnet-4", "sk-or-v1-x")
+    assert isinstance(p, OpenAIProvider)
+    assert p.model == "anthropic/claude-sonnet-4"
+    assert captured.get("base_url") == OPENROUTER_BASE_URL
+    assert captured.get("api_key") == "sk-or-v1-x"
+
+
+def test_model_registry_import_does_not_raise():
+    from secdogie_agent.providers import model_registry
+
+    assert "anthropic/claude-sonnet-4" in model_registry.fallback_models()

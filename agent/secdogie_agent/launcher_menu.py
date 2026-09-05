@@ -195,7 +195,8 @@ def show_key_dialog(*, first_run: bool = False) -> bool:
 
         for label, value in (
             ("Anthropic", "anthropic"),
-            ("OpenAI / compatible", "openai"),
+            ("OpenAI", "openai"),
+            ("OpenRouter", "openrouter"),
             ("Custom env name", "custom"),
         ):
             tk.Radiobutton(
@@ -256,7 +257,7 @@ def show_key_dialog(*, first_run: bool = False) -> bool:
         model_entry.pack(fill="x", ipady=6, pady=(2, 4))
         tk.Label(
             pad,
-            text="e.g. claude-sonnet-5 \u00b7 gpt-5.5 \u00b7 deepseek-chat \u00b7 openai/gpt-5.5",
+            text="e.g. claude-sonnet-5 \u00b7 gpt-5.5 \u00b7 openrouter/anthropic/claude-sonnet-4 \u00b7 sk-or- keys auto-detect",
             bg=_BG, fg=_FG_DIM, font=("Segoe UI", 8),
         ).pack(anchor="w", pady=(0, 8))
 
@@ -285,6 +286,8 @@ def show_key_dialog(*, first_run: bool = False) -> bool:
                 return
 
             kind = kind_var.get()
+            if key.startswith("sk-or-"):
+                kind = "openrouter"
             if kind == "custom":
                 env_name = custom_env_var.get().strip()
                 if not env_name:
@@ -293,6 +296,8 @@ def show_key_dialog(*, first_run: bool = False) -> bool:
                 kwargs = {"env_var": env_name}
             elif kind == "openai":
                 kwargs = {"provider": "openai"}
+            elif kind == "openrouter":
+                kwargs = {"provider": "openrouter"}
             else:
                 kwargs = {"provider": "anthropic"}
 

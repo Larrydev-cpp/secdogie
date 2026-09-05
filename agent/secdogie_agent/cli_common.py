@@ -30,9 +30,10 @@ def add_provider_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--provider",
-        choices=["anthropic", "openai"],
+        choices=["anthropic", "openai", "openrouter"],
         default=None,
-        help="force the provider instead of inferring it from the model id",
+        help="force the provider instead of inferring it from the model id "
+        "(openrouter uses https://openrouter.ai/api/v1 with sk-or- keys)",
     )
     parser.add_argument("--api-key", default=None, help="API key for the chosen provider (overrides env/config)")
     parser.add_argument("--config", default=None, help="path to a config file to read the API key/model from")
@@ -187,6 +188,8 @@ def handle_init_config(args: argparse.Namespace, prog: str) -> int:
 
 
 def resolve_provider(args: argparse.Namespace, prog: str) -> VisionProvider | None:
+    from . import dialog
+
     resolved = config_mod.resolve(
         cli_api_key=args.api_key,
         cli_model=args.model,
@@ -194,20 +197,24 @@ def resolve_provider(args: argparse.Namespace, prog: str) -> VisionProvider | No
         cli_provider=args.provider,
     )
     if not resolved.api_key:
-        print(
-            f"error: no API key found for the {resolved.provider} provider. Provide one via "
-            f"--api-key, the {resolved.env_var} environment variable, or a config file (run "
-            f"`{prog} --init-config` to create one).",
-            file=sys.stderr,
+        msg = (
+            f"No API key found for the {resolved.provider} provider. Provide one via "
+            f"--api-key, the {resolved.env_var} environment variable, or Set up / edit API key."
         )
+        print(f"error: {msg}", file=sys.stderr)
+        if _no_console():
+            dialog.notify("secdogie-agent — missing API key", msg, error=True)
         return None
     proxy = getattr(args, "proxy", None)
     try:
         return make_provider(
             resolved.provider, resolved.model, resolved.api_key, proxy=proxy
         )
-    except RuntimeError as e:
+    except Exception as e:
         print(f"error: {e}", file=sys.stderr)
+        if _no_console():
+            from . import dialog
+            dialog.notify("secdogie-agent — cannot start model", str(e), error=True)
         return None
 
 
