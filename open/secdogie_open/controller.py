@@ -1,10 +1,4 @@
-"""Pure-Python state layer: the same "detect windows, launch one agent per
-selection, track status, stop all" logic the old tkinter App class held,
-minus any GUI toolkit. server.py is a thin HTTP/JSON shell around this; this
-module has no import on http.server or any GUI, so it's unit-testable
-directly and reusable if a different front end (or a future key-pool
-dispatcher) wants the same operations without going through HTTP.
-"""
+"""Pure-Python state layer for secdogie-open."""
 from __future__ import annotations
 
 import io
@@ -14,36 +8,33 @@ from dataclasses import dataclass, field
 
 from secdogie_agent import config as config_mod
 from secdogie_agent import screen
-from secdogie_agent.providers import (
-    ANTHROPIC_PROVIDER_ID,
-    DEFAULT_MODELS,
-    OPENAI_PROVIDER_ID,
-    SUGGESTED_MODELS,
-    make_provider,
-)
+from secdogie_agent.providers import ANTHROPIC_PROVIDER_ID, DEFAULT_MODELS, OPENAI_PROVIDER_ID, SUGGESTED_MODELS, make_provider
 from secdogie_agent.providers.base import VisionProvider
+from secdogie_agent.providers.model_registry import fetch_openrouter_catalog
 
 from . import runner, windows
 
 DEFAULT_MODEL = DEFAULT_MODELS[ANTHROPIC_PROVIDER_ID]
 DEFAULT_MAX_STEPS = 50
 THUMB_EDGE = 160
-
-# Provider labels for the web UI's model dropdown. The model ids themselves come
-# from the shared SUGGESTED_MODELS catalog so there's one place to update.
-_PROVIDER_LABELS = {
-    ANTHROPIC_PROVIDER_ID: "Anthropic (Claude)",
-    OPENAI_PROVIDER_ID: "OpenAI (GPT)",
-}
+_PROVIDER_LABELS = {ANTHROPIC_PROVIDER_ID: "Anthropic (Claude)", OPENAI_PROVIDER_ID: "OpenAI (GPT)"}
 
 
 def model_catalog() -> dict:
-    """Data for the web UI's model picker: the suggested models grouped by
-    provider, plus the overall default. The UI still lets the user type any
-    model string (a "Custom" option), so this is a convenience list, not a
-    whitelist."""
+    """Return the live OpenRouter catalogue plus the old static shape for API compatibility."""
+    records = fetch_openrouter_catalog()
+    models = []
+    for item in records:
+        model_id = item["id"]
+        models.append({**item, "id": f"openrouter/{model_id}",
+                       "provider": model_id.split("/", 1)[0] if "/" in model_id else "other"})
     return {
+        # Keep the legacy default/providers keys so older clients/tests keep working.
         "default": DEFAULT_MODEL,
+        "default_openrouter": "openrouter/" + DEFAULT_MODELS["openrouter"],
+        "source": "openrouter",
+        "models": models,
+        "fallback": not any(item.get("context_length") for item in records),
         "providers": [
             {"id": pid, "label": _PROVIDER_LABELS[pid], "models": SUGGESTED_MODELS[pid]}
             for pid in (ANTHROPIC_PROVIDER_ID, OPENAI_PROVIDER_ID)
@@ -54,8 +45,8 @@ def model_catalog() -> dict:
 @dataclass(frozen=True)
 class StartResult:
     started: list[str] = field(default_factory=list)
-    skipped: list[str] = field(default_factory=list)  # already running; not an error
-    error: str | None = None  # set instead of started/skipped when the whole request is rejected
+    skipped: list[str] = field(default_factory=list)
+    error: str | None = None
 
 
 class Controller:
@@ -65,109 +56,67 @@ class Controller:
         self._status: dict[str, tuple[str, str]] = {}
         self._status_queue: queue.Queue[tuple[str, str, str]] = queue.Queue()
         self._lock = threading.Lock()
-        # Moves status_queue entries (posted by runner threads) into
-        # self._status so status_snapshot() can return a point-in-time view
-        # without draining the queue itself -- an HTTP poll that's missed or
-        # coalesced must not lose a status update the way a one-shot queue
-        # drain would.
         self._drain_thread = threading.Thread(target=self._drain_loop, daemon=True)
         self._drain_thread.start()
 
     def _drain_loop(self) -> None:
         while True:
             window_id, status, detail = self._status_queue.get()
-            with self._lock:
-                self._status[window_id] = (status, detail)
+            with self._lock: self._status[window_id] = (status, detail)
 
-    # -- window list ---------------------------------------------------------
     def refresh_windows(self) -> list[windows.WindowInfo]:
-        """Raises windows.NoWindowBackendError if windows can't be listed at
-        all -- callers should surface that message, not an empty list."""
         found = windows.list_windows()
-        with self._lock:
-            self._windows = {w.id: w for w in found}
+        with self._lock: self._windows = {w.id: w for w in found}
         return found
 
     def thumbnail_png(self, window_id: str) -> bytes | None:
-        """A small PNG of the window's current region, or None if the window
-        is unknown or the capture fails -- a thumbnail is a nicety, callers
-        should degrade gracefully (e.g. a placeholder image) rather than error."""
-        with self._lock:
-            win = self._windows.get(window_id)
-        if win is None:
-            return None
+        with self._lock: win = self._windows.get(window_id)
+        if win is None: return None
         try:
             from PIL import Image
-
             png, _size = screen.capture_screenshot(region=win.region)
-            img = Image.open(io.BytesIO(png))
-            img.thumbnail((THUMB_EDGE, THUMB_EDGE))
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            return buf.getvalue()
-        except Exception:
-            return None
+            img = Image.open(io.BytesIO(png)); img.thumbnail((THUMB_EDGE, THUMB_EDGE))
+            buf = io.BytesIO(); img.save(buf, format="PNG"); return buf.getvalue()
+        except Exception: return None
 
-    # -- running ---------------------------------------------------------
-    def start(
-        self,
-        window_ids: list[str],
-        task: str,
-        model: str,
-        max_steps: int,
-        auto: bool,
-        api_key: str = "",
-    ) -> StartResult:
+    def start(self, window_ids: list[str], task: str, model: str = "", max_steps: int = DEFAULT_MAX_STEPS,
+              auto: bool = False, api_key: str = "", models: list[str] | None = None) -> StartResult:
         task = task.strip()
-        if not task:
-            return StartResult(error="Enter a task first.")
-        if not window_ids:
-            return StartResult(error="Select at least one window.")
+        if not task: return StartResult(error="Enter a task first.")
+        if not window_ids: return StartResult(error="Select at least one window.")
+        selected_models = [str(m).strip() for m in (models or [model]) if str(m).strip()]
+        if not selected_models: return StartResult(error="Select at least one model.")
 
-        # A key typed into the web UI wins; blank falls back to the env var /
-        # config file, so existing setups keep working.
-        resolved = config_mod.resolve(cli_api_key=api_key.strip() or None, cli_model=model or None)
-        if not resolved.api_key:
-            return StartResult(
-                error=f"No API key found for the {resolved.provider} provider. Paste one in the "
-                f"API key field above, or set {resolved.env_var} / a secdogie-agent config file, then retry."
-            )
-
-        def provider_factory() -> VisionProvider:
-            return make_provider(resolved.provider, resolved.model, resolved.api_key)
-
-        started: list[str] = []
-        skipped: list[str] = []
+        started: list[str] = []; skipped: list[str] = []
         with self._lock:
-            for window_id in window_ids:
-                win = self._windows.get(window_id)
-                existing = self._runs.get(window_id)
-                if win is None or (existing is not None and existing.is_alive()):
-                    skipped.append(window_id)
-                    continue
-                self._status[window_id] = ("running", "starting")
-                self._runs[window_id] = runner.launch(
-                    win,
-                    provider_factory,
-                    task,
-                    auto=auto,
-                    dry_run=not auto,
-                    max_steps=max_steps,
-                    status_queue=self._status_queue,
-                )
-                started.append(window_id)
+            for model_id in selected_models:
+                resolved = config_mod.resolve(cli_api_key=api_key.strip() or None, cli_model=model_id)
+                if not resolved.api_key:
+                    return StartResult(error=f"No API key found for the {resolved.provider} provider. Paste one in the API key field or set {resolved.env_var}.")
+                for window_id in window_ids:
+                    win = self._windows.get(window_id)
+                    run_key = window_id if len(selected_models) == 1 else f"{window_id}\0{resolved.model}"
+                    existing = self._runs.get(run_key)
+                    if win is None or (existing is not None and existing.is_alive()):
+                        skipped.append(run_key); continue
+                    self._status[window_id] = ("running", f"{resolved.model}: starting")
+
+                    def provider_factory(resolved=resolved) -> VisionProvider:
+                        return make_provider(resolved.provider, resolved.model, resolved.api_key)
+
+                    self._runs[run_key] = runner.launch(
+                        win, provider_factory, task, auto=auto, dry_run=not auto,
+                        max_steps=max_steps, status_queue=self._status_queue, model_label=resolved.model,
+                    )
+                    started.append(run_key)
         return StartResult(started=started, skipped=skipped)
 
     def stop_all(self) -> list[str]:
         stopped: list[str] = []
         with self._lock:
-            for window_id, run in self._runs.items():
-                if run.is_alive():
-                    run.stop()
-                    self._status[window_id] = ("stopping", "")
-                    stopped.append(window_id)
+            for run_key, run in self._runs.items():
+                if run.is_alive(): run.stop(); stopped.append(run_key)
         return stopped
 
     def status_snapshot(self) -> dict[str, tuple[str, str]]:
-        with self._lock:
-            return dict(self._status)
+        with self._lock: return dict(self._status)
