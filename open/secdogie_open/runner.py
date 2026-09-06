@@ -1,15 +1,4 @@
-"""Runs one secdogie-agent loop per selected window, in its own thread,
-each scoped to that window's screen region so several windows can be
-driven at once instead of one agent owning the whole screen.
-
-All windows share whatever single provider/API key the caller resolved --
-today that's the only option secdogie-agent supports. Concurrency here is
-about *scope* (one window each) not about spreading load across several
-API keys; that's future work this lays the groundwork for (see the
-project's multi-key plan), which is why each window gets its own
-VisionProvider instance from `provider_factory` rather than one shared
-instance -- that's the seam a future key pool would hand out from.
-"""
+"""Run one secdogie-agent loop per selected window/model pair."""
 from __future__ import annotations
 
 import queue
@@ -24,14 +13,7 @@ from secdogie_agent.providers.base import VisionProvider
 from . import windows
 from .windows import WindowInfo
 
-# Closed set of states a window run can be in, posted to the status queue
-# alongside the window id and a short human-readable detail string.
-RunStatus = str  # one of: "running", "done", "error", "stopped"
-
-# loop.run()'s process-style exit codes that mean "stopped on purpose", not
-# "something went wrong" -- 5 is our own should_stop cancellation. Mapped to
-# (status, detail); status stays a small closed set for the GUI to key off,
-# detail carries the distinction (e.g. "done" vs "gave up at max_steps").
+RunStatus = str
 _CLEAN_EXIT_CODES = {
     0: ("done", "done"),
     3: ("done", "gave up: reached max_steps without finishing"),
@@ -61,48 +43,32 @@ def launch(
     dry_run: bool,
     max_steps: int,
     status_queue: queue.Queue[tuple[str, RunStatus, str]],
+    model_label: str = "",
 ) -> WindowRun:
-    """Starts a daemon thread running one agent loop scoped to `window`.
-
-    Status updates are posted to `status_queue` as (window.id, status,
-    detail) tuples; the GUI polls that queue on its own thread rather than
-    touching tkinter widgets from a worker thread.
-    """
+    """Start one daemon loop scoped to ``window`` and tagged with its model."""
     stop_event = threading.Event()
 
+    def post(status: RunStatus, detail: str) -> None:
+        prefix = f"{model_label}: " if model_label else ""
+        status_queue.put((window.id, status, prefix + detail))
+
     def body() -> None:
-        status_queue.put((window.id, "running", "starting"))
+        post("running", "starting")
         try:
             provider = provider_factory()
         except Exception as e:
-            status_queue.put((window.id, "error", f"could not set up provider: {e}"))
+            post("error", f"could not set up provider: {e}")
             return
 
-        # Each window's actions run against a backend that re-focuses this
-        # specific window right before every real action -- see actions.execute:
-        # that call happens inside the process-wide input lock, so one window's
-        # click+type always completes (and hands focus to whichever window acts
-        # next) before another window's action can start.
-        # `window_handle` lets the backend switch to this window's virtual
-        # desktop before each capture, so windows on a shared desktop stop
-        # occluding each other's screenshots (see backend.Presentable and
-        # secdogie_agent/vdesktop.py). Put each selected window on its own
-        # virtual desktop and every frame is genuinely that window.
         backend = DesktopBackend(
             activate=lambda: windows.focus_window(window),
             window_handle=window.handle,
         )
-
         config = AgentConfig(
             task=task,
             max_steps=max_steps,
             auto=auto,
             dry_run=dry_run,
-            # open/ has no TTY to answer a per-action prompt (it runs in a daemon
-            # thread), and the web UI already made the user consent to unattended
-            # real actions before starting. That session-level ok stands in for
-            # the per-action high-risk confirm, so don't force one here -- else
-            # every `open` action would silently fail closed with no way to say yes.
             confirm_high_risk=False,
             region=window.region,
             logger_name=f"secdogie_open.{window.id}",
@@ -112,16 +78,20 @@ def launch(
         try:
             rc = run(provider, config)
         except Exception as e:
-            status_queue.put((window.id, "error", str(e)))
+            post("error", str(e))
             return
 
         if rc in _CLEAN_EXIT_CODES:
             status, detail = _CLEAN_EXIT_CODES[rc]
-            status_queue.put((window.id, status, detail))
+            post(status, detail)
         else:
-            status_queue.put((window.id, "error", f"agent loop exited with code {rc}"))
+            post("error", f"agent loop exited with code {rc}")
 
-    thread = threading.Thread(target=body, name=f"secdogie-open:{window.id}", daemon=True)
+    thread = threading.Thread(
+        target=body,
+        name=f"secdogie-open:{window.id}:{model_label or 'model'}",
+        daemon=True,
+    )
     run_handle = WindowRun(window=window, thread=thread, _stop_event=stop_event)
     thread.start()
     return run_handle
