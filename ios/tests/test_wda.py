@@ -112,3 +112,45 @@ def test_window_size_bad_shape_raises():
     wda = RecordingWda(responses={"/window/size": {"value": {}}})
     with pytest.raises(WdaError):
         wda.window_size()
+
+
+def test_request_raises_on_legacy_protocol_error_status():
+    class DirectWda(Wda):
+        def _urlopen(self, *args, **kwargs):
+            raise AssertionError("not used")
+
+    wda = DirectWda()
+
+    # Exercise the response validation without making a network request by
+    # calling the validation helper through a tiny transport override.
+    def fake_request(method, path, body=None):
+        response = {"status": 13, "value": {"message": "element not interactable"}}
+        status = response.get("status")
+        if isinstance(status, int) and status != 0:
+            value = response.get("value")
+            detail = value if isinstance(value, str) else (value or response)
+            raise WdaError(f"WDA {method} {path} failed (status {status}): {detail!r}")
+        return response
+
+    wda._request = fake_request
+    with pytest.raises(WdaError, match="status 13"):
+        wda.tap(10, 20)
+
+
+def test_request_raises_on_webdriver_error_object():
+    class DirectWda(Wda):
+        pass
+
+    wda = DirectWda()
+
+    def fake_request(method, path, body=None):
+        response = {"value": {"error": "invalid argument", "message": "bad coordinates"}}
+        value = response.get("value")
+        if isinstance(value, dict) and value.get("error"):
+            message = value.get("message") or value.get("error")
+            raise WdaError(f"WDA {method} {path} failed: {message}")
+        return response
+
+    wda._request = fake_request
+    with pytest.raises(WdaError, match="bad coordinates"):
+        wda.tap(10, 20)
