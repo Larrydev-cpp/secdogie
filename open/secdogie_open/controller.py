@@ -21,25 +21,24 @@ _PROVIDER_LABELS = {ANTHROPIC_PROVIDER_ID: "Anthropic (Claude)", OPENAI_PROVIDER
 
 
 def model_catalog() -> dict:
-    """Return the live OpenRouter catalogue used by the web model picker."""
+    """Return the live OpenRouter catalogue plus the old static shape for API compatibility."""
     records = fetch_openrouter_catalog()
     models = []
     for item in records:
         model_id = item["id"]
-        models.append({
-            **item,
-            "id": f"openrouter/{model_id}",
-            "provider": model_id.split("/", 1)[0] if "/" in model_id else "other",
-        })
+        models.append({**item, "id": f"openrouter/{model_id}",
+                       "provider": model_id.split("/", 1)[0] if "/" in model_id else "other"})
     return {
-        "default": "openrouter/" + DEFAULT_MODELS["openrouter"],
+        # Keep the legacy default/providers keys so older clients/tests keep working.
+        "default": DEFAULT_MODEL,
+        "default_openrouter": "openrouter/" + DEFAULT_MODELS["openrouter"],
         "source": "openrouter",
         "models": models,
         "fallback": not any(item.get("context_length") for item in records),
-        "legacy": {"providers": [
+        "providers": [
             {"id": pid, "label": _PROVIDER_LABELS[pid], "models": SUGGESTED_MODELS[pid]}
             for pid in (ANTHROPIC_PROVIDER_ID, OPENAI_PROVIDER_ID)
-        ]},
+        ],
     }
 
 
@@ -63,8 +62,7 @@ class Controller:
     def _drain_loop(self) -> None:
         while True:
             window_id, status, detail = self._status_queue.get()
-            with self._lock:
-                self._status[window_id] = (status, detail)
+            with self._lock: self._status[window_id] = (status, detail)
 
     def refresh_windows(self) -> list[windows.WindowInfo]:
         found = windows.list_windows()
@@ -89,10 +87,9 @@ class Controller:
         selected_models = [str(m).strip() for m in (models or [model]) if str(m).strip()]
         if not selected_models: return StartResult(error="Select at least one model.")
 
-        started: list[str] = []
-        skipped: list[str] = []
+        started: list[str] = []; skipped: list[str] = []
         with self._lock:
-            for model_index, model_id in enumerate(selected_models):
+            for model_id in selected_models:
                 resolved = config_mod.resolve(cli_api_key=api_key.strip() or None, cli_model=model_id)
                 if not resolved.api_key:
                     return StartResult(error=f"No API key found for the {resolved.provider} provider. Paste one in the API key field or set {resolved.env_var}.")
