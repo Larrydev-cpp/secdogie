@@ -5,79 +5,48 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>secdogie-open</title>
   <link rel="stylesheet" href="/style.css" />
+  <style>
+    .label-row,.model-toolbar,.model-actions{display:flex;gap:.5rem;align-items:center}
+    .label-row{justify-content:space-between}.count-badge{font-size:11px;color:var(--accent);font-weight:700}
+    .model-toolbar input{flex:1}.model-toolbar button,.model-actions button{min-height:34px;padding:.4rem .7rem;font-size:12px}
+    .model-options{margin-top:.5rem;max-height:300px;overflow:auto;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--bg-muted)}
+    .model-option{display:grid;grid-template-columns:20px 1fr;grid-template-rows:auto auto;column-gap:.65rem;padding:.65rem .75rem;border-bottom:1px solid var(--border);cursor:pointer}
+    .model-option:last-child{border-bottom:0}.model-option:hover,.model-option.selected{background:var(--bg-hover)}
+    .model-option input{grid-row:1/3;width:18px;height:18px;margin:.1rem 0;accent-color:var(--accent)}
+    .model-option-main{font-weight:600;color:var(--text-strong);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .model-option-meta{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .model-actions{justify-content:flex-end;margin-top:.45rem}.model-empty{padding:1rem;text-align:center;color:var(--muted);font-size:12px}
+  </style>
 </head>
 <body>
   <a id="skip-to-main" href="#main-content" class="skip-link">Skip to main content</a>
-
   <header class="topbar">
     <h1>secdogie-open</h1>
     <p>Split the screen by window, drive one secdogie-agent instance per selection.</p>
     <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle light/dark theme">🌙</button>
   </header>
-
   <main id="main-content" tabindex="-1">
     <div id="banner" class="banner" role="alert" aria-live="assertive"></div>
-
     <section class="card" aria-labelledby="task-heading">
       <h2 id="task-heading" style="margin:0 0 0.8rem;font-size:14px;color:var(--text-strong)">Task</h2>
-      <div class="field">
-        <label for="task">Applied to every selected window/model</label>
-        <textarea id="task" placeholder="e.g. open the file menu and save the document"></textarea>
-      </div>
+      <div class="field"><label for="task">Applied to every selected window/model</label><textarea id="task" placeholder="e.g. open the file menu and save the document"></textarea></div>
       <div class="row">
         <div class="field model-field">
-          <div class="label-row">
-            <label for="model-search">Models</label>
-            <span id="model-count" class="count-badge">0 selected</span>
-          </div>
-          <div class="model-toolbar">
-            <input type="search" id="model-search" placeholder="Search OpenRouter models…" autocomplete="off" />
-            <button type="button" id="model-refresh">Refresh</button>
-          </div>
+          <div class="label-row"><label for="model-search">Models</label><span id="model-count" class="count-badge">0 selected</span></div>
+          <div class="model-toolbar"><input type="search" id="model-search" placeholder="Search OpenRouter models…" autocomplete="off" /><button type="button" id="model-refresh">Refresh</button></div>
           <div class="model-options" id="model-options" role="listbox" aria-multiselectable="true" aria-label="OpenRouter models"></div>
-          <div class="model-actions">
-            <button type="button" id="model-select-visible">Select visible</button>
-            <button type="button" id="model-clear">Clear</button>
-          </div>
+          <div class="model-actions"><button type="button" id="model-select-visible">Select visible</button><button type="button" id="model-clear">Clear</button></div>
           <input type="text" id="model-custom" class="model-custom" placeholder="Custom OpenRouter model id (vendor/model)" aria-label="Custom OpenRouter model id" />
           <p class="help">Live catalogue from OpenRouter. Vision-capable models are shown first. Selecting several models runs the same task once per model/window pair.</p>
         </div>
-        <div class="field">
-          <label for="max-steps">Max steps</label>
-          <input type="number" id="max-steps" value="50" min="1" max="100000" />
-        </div>
+        <div class="field"><label for="max-steps">Max steps</label><input type="number" id="max-steps" value="50" min="1" max="100000" /></div>
       </div>
-      <div class="field">
-        <label for="api-key">OpenRouter API key</label>
-        <div class="key-row">
-          <input type="password" id="api-key" autocomplete="off" spellcheck="false" placeholder="sk-or-…" />
-          <button type="button" id="key-toggle" class="key-toggle" aria-label="Show API key" aria-pressed="false">Show</button>
-        </div>
-        <p class="help" id="api-key-help">Used for the selected OpenRouter models. It's kept only in this browser and sent to your local secdogie-open server.</p>
-      </div>
-      <div class="field">
-        <div class="checkbox-row">
-          <input type="checkbox" id="auto" />
-          <div>
-            <label for="auto" style="margin-bottom:0.2rem">Enable real actions (auto-execute)</label>
-            <p class="help" id="auto-help">Off = dry run. On = real clicks/typing against every selected window/model pair. Only turn this on against windows/machines you fully control and can reach immediately to stop.</p>
-          </div>
-        </div>
-      </div>
-      <div class="actions">
-        <button id="refresh" type="button">Refresh windows</button>
-        <button id="start" class="primary" type="button">Run selected models</button>
-        <button id="stop" class="danger" type="button">Stop all</button>
-      </div>
+      <div class="field"><label for="api-key">OpenRouter API key</label><div class="key-row"><input type="password" id="api-key" autocomplete="off" spellcheck="false" placeholder="sk-or-…" /><button type="button" id="key-toggle" class="key-toggle" aria-label="Show API key" aria-pressed="false">Show</button></div><p class="help" id="api-key-help">Used for the selected OpenRouter models. It's kept only in this browser and sent to your local secdogie-open server.</p></div>
+      <div class="field"><div class="checkbox-row"><input type="checkbox" id="auto" /><div><label for="auto" style="margin-bottom:.2rem">Enable real actions (auto-execute)</label><p class="help" id="auto-help">Off = dry run. On = real clicks/typing against every selected window/model pair. Only turn this on against windows/machines you fully control and can reach immediately to stop.</p></div></div></div>
+      <div class="actions"><button id="refresh" type="button">Refresh windows</button><button id="start" class="primary" type="button">Run selected models</button><button id="stop" class="danger" type="button">Stop all</button></div>
     </section>
-
-    <section class="card" aria-labelledby="windows-heading">
-      <h2 id="windows-heading" style="margin:0 0 0.8rem;font-size:14px;color:var(--text-strong)">Windows</h2>
-      <ul id="window-list" class="window-list"></ul>
-      <p id="empty-state" class="empty-state" hidden>No windows found. Try Refresh.</p>
-    </section>
+    <section class="card" aria-labelledby="windows-heading"><h2 id="windows-heading" style="margin:0 0 .8rem;font-size:14px;color:var(--text-strong)">Windows</h2><ul id="window-list" class="window-list"></ul><p id="empty-state" class="empty-state" hidden>No windows found. Try Refresh.</p></section>
   </main>
-
   <script src="/app.js"></script>
 </body>
 </html>
