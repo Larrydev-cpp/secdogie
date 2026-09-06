@@ -54,9 +54,29 @@ class Wda:
                 "and port-forwarded? See ios/README.md."
             ) from e
         try:
-            return json.loads(raw) if raw else {}
+            response = json.loads(raw) if raw else {}
         except json.JSONDecodeError as e:
             raise WdaError(f"WDA {method} {path} returned non-JSON: {raw[:200]!r}") from e
+
+        if not isinstance(response, dict):
+            raise WdaError(f"WDA {method} {path} returned an unexpected JSON shape: {response!r}")
+
+        # WDA has used both the legacy JSON Wire Protocol `status` field and
+        # WebDriver-style error objects. HTTP 200 does not necessarily mean
+        # that the requested action succeeded, so surface protocol-level
+        # failures instead of silently treating them as successful commands.
+        status = response.get("status")
+        if isinstance(status, int) and status != 0:
+            value = response.get("value")
+            detail = value if isinstance(value, str) else (value or response)
+            raise WdaError(f"WDA {method} {path} failed (status {status}): {detail!r}")
+
+        value = response.get("value")
+        if isinstance(value, dict) and value.get("error"):
+            message = value.get("message") or value.get("error")
+            raise WdaError(f"WDA {method} {path} failed: {message}")
+
+        return response
 
     def _session_request(self, method: str, subpath: str, body: dict | None = None) -> dict:
         sid = self.ensure_session()
