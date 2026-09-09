@@ -7,9 +7,12 @@
 //   Linux   : process list via /proc; window tree is compositor-dependent
 //             (memory inspect is the live path: process_vm_readv)
 //   macOS   : AXUIElement of the *frontmost / target pid* (title, description,
-//             role description, value, bounds). CGWindowList fallback when
-//             Accessibility is not granted. Screen Recording fills window
-//             titles. task_for_pid is memory-only and is not required to
+//             role description, value, bounds). The AX tree + bounds IS the
+//             pad — a trackpad / touchscreen analogue. HitTest(x,y) is the
+//             finger; AXPress is the tap. CGWindowList is pixel-diff VERIFY
+//             after mutation, not perception and not inspect graphics.
+//             CGWindowList titles are a fallback when Accessibility is not
+//             granted. task_for_pid is memory-only and is not required to
 //             recognise the UI tree.
 //
 // PROCESS_VM_READ / mach_vm_read / process_vm_readv is used to name modules
@@ -46,6 +49,10 @@ struct Rect {
 };
 
 inline bool RectValid(const Rect& r) noexcept { return r.w > 0 && r.h > 0; }
+
+inline bool RectContains(const Rect& r, std::int32_t x, std::int32_t y) noexcept {
+  return RectValid(r) && x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h;
+}
 
 struct ProcessInfo {
   std::uint32_t pid = 0;
@@ -115,6 +122,10 @@ class ProcessPerception {
                                  const Selector& selector);
   static void Flatten(const std::vector<ControlNode>& roots,
                       std::vector<const ControlNode*>& out);
+  // Deepest / smallest box containing (x, y). The Mac trackpad analogue:
+  // a window also contains the point; the button under the finger is the hit.
+  static const ControlNode* HitTest(const std::vector<ControlNode>& roots,
+                                    std::int32_t x, std::int32_t y);
 
  private:
   PerceptionSnapshot SnapshotWindows();

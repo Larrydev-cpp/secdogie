@@ -1,6 +1,5 @@
 #include "inspect_json.h"
 
-#include "hybrid_control_loop.h"
 #include "hybrid_tree.h"
 #include "privilege_manager.h"
 #include "process_perception.h"
@@ -245,59 +244,6 @@ void DumpHybrid(JsonBuf& o, const std::vector<HybridNode>& nodes) {
 
 }  // namespace
 
-void AttachWindowGraphics(InspectSnapshot& s, std::uint32_t pid,
-                          const PerceptionSnapshot& uia) {
-#if defined(__APPLE__)
-  WindowInfo pick{};
-  std::int64_t best_area = 0;
-  const std::vector<WindowInfo> wins = ProcessPerception::ListWindows();
-  for (const auto& w : wins) {
-    if (w.pid != pid || !w.visible) continue;
-    const std::int64_t area = static_cast<std::int64_t>(w.bounds.w) * w.bounds.h;
-    if (area > best_area) {
-      best_area = area;
-      pick = w;
-    }
-  }
-  if (uia.window.hwnd != 0) {
-    for (const auto& w : wins) {
-      if (w.hwnd == uia.window.hwnd && w.pid == pid && RectValid(w.bounds)) {
-        pick = w;
-        best_area = static_cast<std::int64_t>(w.bounds.w) * w.bounds.h;
-        break;
-      }
-    }
-  }
-  if (pick.hwnd == 0 || !RectValid(pick.bounds) || best_area < 64 * 64) {
-    if (s.detail.find("CGWindow") == std::string::npos) {
-      s.detail +=
-          " macOS: AX tree has names/bounds, not pixels. No CGWindow large enough "
-          "to capture (grant Screen Recording).";
-    }
-    return;
-  }
-  const Result<Framebuffer> cap = HybridControlLoop::CaptureWindow(pick.hwnd);
-  if (!cap) {
-    s.detail += " ";
-    s.detail += cap.error().detail;
-    return;
-  }
-  DibHit d;
-  d.address = pick.hwnd;
-  d.compression = 0;
-  d.source = "cgwindow";
-  FillRgbaPreviewFromBgra(d, cap.value().bgra.data(), cap.value().width, cap.value().height,
-                          640);
-  if (d.rgba.empty()) return;
-  s.dibs.insert(s.dibs.begin(), std::move(d));
-  s.stats.dibs_found = s.dibs.size();
-#else
-  (void)s;
-  (void)pid;
-  (void)uia;
-#endif
-}
-
 const char* PlatformName() noexcept {
 #if defined(_WIN32)
   return "windows";
@@ -369,7 +315,6 @@ std::string DumpInspectJson(std::uint32_t pid, const InspectConfig& cfg,
   empty.stats.handle_closed = true;
   empty.stats.token_closed = true;
   InspectSnapshot owned = mem ? mem.value() : empty;
-  AttachWindowGraphics(owned, pid, uia);
   const InspectSnapshot& s = owned;
   const std::vector<MemoryHit> no_hits;
   const std::vector<HybridNode> fused =
@@ -517,7 +462,10 @@ std::string DumpInspectJson(std::uint32_t pid, const InspectConfig& cfg,
     JsonW(o, found->name);
     o.puts(",\"automation_id\":");
     JsonW(o, found->automation_id);
-    o.fmt(",\"pid\":%u}", found->pid);
+    o.fmt(",\"pid\":%u,\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"role\":", found->pid,
+          found->bounds.x, found->bounds.y, found->bounds.w, found->bounds.h);
+    JsonStr(o, RoleName(found->role));
+    o.put('}');
   } else {
     o.puts("null");
   }

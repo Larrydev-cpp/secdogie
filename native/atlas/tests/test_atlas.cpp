@@ -141,6 +141,27 @@ int main() {
     miss2.name = L"NO_SUCH_CONTROL";
     Expect(ProcessPerception::Find(roots, miss2) == nullptr,
            "contains does not invent a hit", "perception");
+    ControlNode win;
+    win.role = ControlRole::Window;
+    win.name = L"App";
+    win.bounds = {0, 0, 800, 600};
+    ControlNode pane;
+    pane.role = ControlRole::Pane;
+    pane.name = L"Chrome";
+    pane.bounds = {0, 40, 800, 560};
+    pane.children.push_back(btn);
+    win.children.push_back(std::move(pane));
+    std::vector<ControlNode> pad{std::move(win)};
+    const ControlNode* tap = ProcessPerception::HitTest(pad, 50, 22);
+    Expect(tap == &pad[0].children[0].children[0],
+           "HitTest picks the button under the finger, not the window",
+           tap ? RoleName(tap->role) : "null");
+    Expect(ProcessPerception::HitTest(pad, 2, 2) == &pad[0],
+           "HitTest on window chrome (outside pane/button) is the window", "perception");
+    Expect(ProcessPerception::HitTest(pad, 5000, 5000) == nullptr,
+           "HitTest outside everything is null", "perception");
+    Expect(ProcessPerception::HitTest(pad, 50, 50) == &pad[0].children[0],
+           "HitTest on pane (outside button) is the pane", "perception");
   }
   {
     Framebuffer a, d;

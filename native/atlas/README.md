@@ -9,7 +9,7 @@ C++20. Three first-class operator OSes, **same source**. No TODOs, no empty func
 |---|---|---|---|
 | **Windows** | `IUIAutomationTreeWalker` of the *target PID's* hwnds | `OpenProcess` `VM_READ\|QUERY` → `VirtualQueryEx` → `ReadProcessMemory` + SEH | UTF-16LE primary, UTF-8 secondary. JSON is UTF-8. |
 | **Linux** | compositor / AT-SPI not linked; memory is the live path | `/proc/<pid>/maps` → `process_vm_readv` | UTF-8 primary (CJK kept). UTF-16LE only if it is real wide text, not ASCII-pair garbage. |
-| **macOS** | `AXUIElementCreateApplication(pid)` — names, bounds, values. **Not pixels.** Inspect graphics is `CGWindowListCreateImage` of the target window (Screen Recording). | `task_for_pid` → `mach_vm_region` (`shared`, not `share_mode`) → `mach_vm_read_overwrite` (optional; SIP may block; graphics do not use it) | Same as Linux. AX titles via `kCFStringEncodingUTF8`. |
+| **macOS** | `AXUIElementCreateApplication(pid)` — names, bounds, values. **This is the pad** (trackpad / touchscreen analogue): `HitTest(x,y)` → deepest AX node → `AXPress`. CGWindow is pixel-diff VERIFY after a tap, not inspect graphics. | `task_for_pid` → `mach_vm_region` (`shared`, not `share_mode`) → `mach_vm_read_overwrite` (optional; SIP may block; the pad does not use it) | Same as Linux. AX titles via `kCFStringEncodingUTF8`. |
 
 Long-lived branches (same tree, README lead-in differs):
 
@@ -31,13 +31,13 @@ atlas_mct.exe --listen 127.0.0.1:17890
 # GET  /health  GET /list
 ```
 
-Commands: `list` · `inspect <pid|name>` · `find <control>` · `chain` / `串联` · `link <pid>` · `job report` / `报表` · `graphics`. Same read-only inspect as `atlas_inspect`.
+Commands: `list` · `inspect <pid|name>` · `find <control>` · `touch <x> <y>` / `点 <x> <y>` · `chain` / `串联` · `link <pid>` · `job report` / `报表` · `graphics`. Same read-only inspect as `atlas_inspect`. `touch` is a hit-test of the live AX/UIA tree (the Mac pad); it does not synthesize HID.
 
 A **job** is a chain of related processes (parent / child / same family / operator `link` — CAD drawing + report workbook, acad + accoreconsole). One unread PID, a dead related process, or a jittered inspect is **isolated**: last-known snapshot is kept, the vanished PID stays on the chain, the rest of the job continues. The whole job only fails if every stage fails with no last-known snapshot.
 
 ## What this is
 
-1. **UI tree first, memory on miss.** Windows UIA of the target pid. macOS AX of the **frontmost / target pid** (title, description, value, bounds) — the tree cannot reconstruct a drawing. Window pixels are `CGWindowListCreateImage` of that pid's window (Screen Recording grant), stuffed into inspect `dibs` with `source=cgwindow`. SIP may block `task_for_pid` — the UI tree and the window image still read. Linux memory-primary.
+1. **UI tree first, memory on miss.** Windows UIA of the target pid. macOS AX of the **frontmost / target pid** (title, description, value, bounds) is a **trackpad**: names/roles/bounds are the surface, `HitTest(x,y)` is the finger, `AXPress` is the tap. The tree is not an image and inspect does not stuff CGWindow pixels into `dibs`. `CGWindowListCreateImage` is loop pixel-diff VERIFY after mutation (Screen Recording grant). SIP may block `task_for_pid` — the UI tree still reads. Linux memory-primary.
 2. **Read-only handle.** `PROCESS_VM_READ | QUERY` / `task_for_pid` / `process_vm_readv`. Write bits fail closed, not narrowed.
 3. **Safe pages only.** `PAGE_READONLY` / `PAGE_READWRITE` (Windows), `r`/`rw` maps (Linux), `VM_PROT_READ`/`WRITE` (macOS). Guard / noaccess / execute skipped. 64 KiB chunks. Handle closed before return.
 4. **Token wall.** `TOKEN_QUERY` only. SYSTEM / TI / PPL / higher integrity → `denied-escalate` or `denied-protected`.

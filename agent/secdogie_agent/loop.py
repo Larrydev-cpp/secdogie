@@ -479,23 +479,28 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 if config.region is not None:
                     action = action.translated(config.region[0], config.region[1])
                 if omitted_image and action.kind in harness.PIXEL_KINDS:
-                    # Model guessed coordinates of an image it was never shown.
-                    # Don't click blindly -- ask it to use a listed ref or look.
-                    logger.info(
-                        "harness: refusing pixel action '%s' on an accessibility-only turn",
-                        action.kind,
+                    darwin_tap = (
+                        sys.platform == "darwin" and action.kind in harness.TOUCH_KINDS
                     )
-                    history.append(HistoryStep(
-                        action=action,
-                        result=(
-                            "no screenshot was sent this step; use click_element / type "
-                            "with a listed ref, or look if you need pixels"
-                        ),
-                    ))
-                    if len(history) > HISTORY_KEEP:
-                        del history[:-HISTORY_KEEP]
-                    refresh_view = True
-                    continue
+                    if not darwin_tap:
+                        # Model guessed coordinates of an image it was never shown.
+                        # Don't click blindly -- ask it to use a listed ref or look.
+                        # Darwin left_click is a trackpad tap against the AX listing.
+                        logger.info(
+                            "harness: refusing pixel action '%s' on an accessibility-only turn",
+                            action.kind,
+                        )
+                        history.append(HistoryStep(
+                            action=action,
+                            result=(
+                                "no screenshot was sent this step; use click_element / type "
+                                "with a listed ref, or look if you need pixels"
+                            ),
+                        ))
+                        if len(history) > HISTORY_KEEP:
+                            del history[:-HISTORY_KEEP]
+                        refresh_view = True
+                        continue
                 if action.kind == "click_element" or (action.kind == "type" and action.element):
                     el = elements.resolve_ref(step_targets, action.element)
                     if el is None:
@@ -774,8 +779,9 @@ def _deliver_action(backend: Backend, action, el) -> tuple[str, str]:
     accessibility action (`invoke_element`: UIA Invoke / AXPress).
 
     Windows: on a miss, rewrite to `left_click` (SendInput / pyautogui).
-    macOS: never rewrite to a mouse click — pyautogui is Quartz HID
-    (`CGEventPost`). AX miss is a refused result, not a HID fallback.
+    macOS: the AX tree is a trackpad. `click_element` miss and coordinate
+    `left_click` / `double_click` hit-test the live tree then AXPress.
+    Never rewrite to a mouse click — pyautogui is Quartz HID (`CGEventPost`).
     Linux keeps the mouse rewrite (X11/Wayland), matching the native
     loop which does not mutate at all.
 
@@ -788,13 +794,16 @@ def _deliver_action(backend: Backend, action, el) -> tuple[str, str]:
         return harnessed, action.kind
     exec_action = action
     exec_kind = action.kind
+    if sys.platform == "darwin" and action.kind in harness.TOUCH_KINDS:
+        touched = harness.press_point(backend, action.x, action.y)
+        if touched is not None:
+            return touched, action.kind
+        return (
+            "macOS tap is AX hit-test + AXPress only; "
+            "HID/CGEvent/IOHID/pyautogui click refused.",
+            action.kind,
+        )
     if action.kind == "click_element":
-        if sys.platform == "darwin":
-            return (
-                "macOS click_element is AXPress only; "
-                "HID/CGEvent/IOHID/pyautogui click refused.",
-                action.kind,
-            )
         exec_action = replace(action, kind="left_click")
         exec_kind = "left_click"
     return backend.execute(exec_action), exec_kind

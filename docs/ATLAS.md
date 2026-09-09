@@ -44,17 +44,19 @@ native/atlas/atlas_inspect --self --token
    AT-SPI, AX) — PID, hwnd, bounding box, AutomationId. Enable it with
    `--desktop-ax`. On macOS the native MCT snapshots the **frontmost app**,
    walks every window (title / description / value / bounds), and falls back
-   to `CGWindowList` when Accessibility is not granted. SIP blocking
-   `task_for_pid` does **not** fail the inspect — the AX/CGWindow tree is
-   enough. The live loop prefers `click_element` / native Invoke over
-   guessing a pixel off a downscaled screenshot.
+   to `CGWindowList` when Accessibility is not granted. The AX tree is a
+   **trackpad**: `HitTest(x,y)` picks the deepest control, `AXPress` taps it.
+   SIP blocking `task_for_pid` does **not** fail the inspect — the AX tree is
+   enough. The live loop prefers `click_element` / native Invoke, and on
+   Darwin `left_click` is a hit-test tap, never HID.
 2. **Verification** is a pixel-diff of the control region before vs after the
    action (`screen.changed_ratio` in the agent loop; `atlas.changed_ratio` /
    C++ `PixelDiff` for the native path). No visible mutation → retry → fail.
    A no-mutation step is never recorded as success.
 3. **Mutation is per-OS.** Windows: UIA Invoke, then documented `SendInput`.
-   macOS: `AXPress` / `AXConfirm` only — `click_element` is **never** rewritten
-   to `left_click` (pyautogui on Darwin is Quartz HID / `CGEventPost`). Linux:
+   macOS: `AXPress` / `AXConfirm` only. Coordinate `left_click` hit-tests the
+   AX tree then AXPresses — **never** rewritten to pyautogui (Quartz HID /
+   `CGEventPost`). Linux:
    no native mutate. A no-mutation step is never recorded as success.
 4. **`click_element` is in the retry-safe set.** A miss retries along the
    **same delivery path** (Invoke / AXPress again). On Windows only, a miss

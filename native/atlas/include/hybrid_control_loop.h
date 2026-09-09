@@ -3,8 +3,10 @@
 // Dual-tier control loop. Mutation is per-OS and never HID on Darwin:
 //
 //   Windows : UIA Invoke / Toggle, then documented SendInput click.
-//   macOS   : AXUIElementPerformAction(kAXPressAction) only.
-//             CGEventPost / IOHID / Quartz HID click is refused.
+//   macOS   : AX tree is a trackpad. Hit-test (x,y) → deepest AX node →
+//             AXUIElementPerformAction(kAXPressAction). CGEventPost /
+//             IOHID / Quartz HID click is refused. CGWindow capture is
+//             pixel-diff VERIFY after the tap, not perception.
 //   Linux   : no mutate. Memory inspect only (no AT-SPI, no HID).
 //
 // Verify: capture of the control (inflated) before and after; mean-absolute
@@ -48,6 +50,9 @@ struct LoopAction {
   ActionKind kind = ActionKind::Invoke;
   Selector selector;
   bool high_risk = false;
+  bool has_point = false;
+  std::int32_t x = 0;
+  std::int32_t y = 0;
 };
 
 struct Framebuffer {
@@ -108,7 +113,8 @@ class HybridControlLoop {
   // Default capture: GDI BitBlt (Windows) / CGWindowListCreateImage (macOS).
   // Default execute: UIA+SendInput (Windows) / AXPress (macOS, never HID).
   static Result<Framebuffer> CaptureScreen(const Rect& r);
-  // macOS: CGWindowListCreateImage of one window id (Screen Recording).
+  // macOS: CGWindowListCreateImage of one window id — loop pixel-diff VERIFY
+  // only. Not inspect graphics, not the Mac "image". The pad is the AX tree.
   // Not HID. Windows/Linux: unsupported — graphics there is heap DIB / none.
   static Result<Framebuffer> CaptureWindow(std::uint64_t hwnd);
   static PrivilegeError ExecuteDefault(const ControlNode& target,

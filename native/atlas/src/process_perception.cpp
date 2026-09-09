@@ -288,6 +288,27 @@ const ControlNode* ProcessPerception::Find(const std::vector<ControlNode>& roots
   return nullptr;
 }
 
+const ControlNode* ProcessPerception::HitTest(const std::vector<ControlNode>& roots,
+                                              std::int32_t x, std::int32_t y) {
+  const ControlNode* best = nullptr;
+  std::int64_t best_area = 0;
+  int best_depth = -1;
+  const auto walk = [&](auto& self, const ControlNode& n, int depth) -> void {
+    if (RectContains(n.bounds, x, y)) {
+      const std::int64_t area =
+          static_cast<std::int64_t>(n.bounds.w) * static_cast<std::int64_t>(n.bounds.h);
+      if (!best || area < best_area || (area == best_area && depth > best_depth)) {
+        best = &n;
+        best_area = area;
+        best_depth = depth;
+      }
+    }
+    for (const auto& c : n.children) self(self, c, depth + 1);
+  };
+  for (const auto& r : roots) walk(walk, r, 0);
+  return best;
+}
+
 std::vector<WindowInfo> ProcessPerception::ListWindows() {
   std::vector<WindowInfo> out;
 #if defined(_WIN32)

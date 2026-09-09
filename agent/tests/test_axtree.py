@@ -446,6 +446,18 @@ def test_macos_press_performs_axpress_without_a_mouse(monkeypatch):
     assert provider.press(name="NoSuch") is False
 
 
+def test_macos_press_at_hits_the_button_under_the_finger(monkeypatch):
+    fake = _fake_appservices(monkeypatch, _macos_focused_window_with_button())
+    provider = desktop_ax._MacosAxProvider(fake)
+    el = provider.hit_test(150, 120)
+    assert el is not None and el.name == "Save"
+    assert provider.hit_test(10, 10).name == "App"  # window chrome, not the button
+    assert provider.hit_test(5000, 5000) is None
+    assert provider.press_at(150, 120) is True
+    assert fake._perform_calls and fake._perform_calls[-1][1] == "AXPress"
+    assert provider.press_at(5000, 5000) is False
+
+
 def test_macos_set_value_writes_axvalue(monkeypatch):
     field = _FakeAXElement({
         "AXRole": "AXTextField",

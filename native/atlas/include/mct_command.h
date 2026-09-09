@@ -30,6 +30,7 @@ enum class MctOp {
   List,
   Inspect,
   Find,
+  Touch,
   Graphics,
   Status,
   Mapped,

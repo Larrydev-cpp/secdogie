@@ -87,16 +87,6 @@ static std::string RegionKind(const RemoteRegion& r) {
   return "other";
 }
 
-static const char* PlatformName() {
-#if defined(_WIN32)
-  return "windows";
-#elif defined(__APPLE__)
-  return "macos";
-#else
-  return "linux";
-#endif
-}
-
 static void Usage() {
   std::fputs(
       "atlas_inspect — Model Control Terminal (Windows / Linux / macOS)\n"
@@ -556,10 +546,8 @@ int main(int argc, char** argv) {
   empty.stats.handle_closed = true;
   empty.stats.token_closed = true;
   InspectSnapshot owned = mem ? mem.value() : empty;
-  AttachWindowGraphics(owned, pid, uia);
   const bool ax_ok = !uia.controls.empty();
-  const bool gfx_ok = !owned.dibs.empty();
-  if (!mem && !ax_ok && !gfx_ok) {
+  if (!mem && !ax_ok) {
     if (json) {
       std::printf("{\"ok\":false,\"pid\":%u,\"code\":", pid);
       JsonStr(PrivilegeCodeName(mem.error().code));
