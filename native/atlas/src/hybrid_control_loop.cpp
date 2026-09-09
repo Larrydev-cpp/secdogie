@@ -497,14 +497,20 @@ LoopStep HybridControlLoop::Run(const LoopAction& action, SinkFn sink) {
       return step;
     }
     InspectConfig ic;
-    ic.max_strings = 8192;
-    ic.max_bytes = 32ull * 1024ull * 1024ull;
+    ic.max_strings = 2048;
+    ic.max_bytes = 8ull * 1024ull * 1024ull;
     Result<InspectSnapshot> mem{PrivilegeError{PrivilegeCode::Failed, "pending"}};
     for (int i = 0; i < 3; ++i) {
       mem = InspectPid(pid, ic);
       if (mem) break;
+      const PrivilegeCode code = mem.error().code;
+      if (code == PrivilegeCode::AccessDenied || code == PrivilegeCode::DeniedProtected ||
+          code == PrivilegeCode::Unsupported || code == PrivilegeCode::DeniedEmpty ||
+          code == PrivilegeCode::NoSession) {
+        break;
+      }
       emit(StepStatus::Retrying, "memory inspect jitter, retry " + std::to_string(i + 1));
-      Nap(80 << i);
+      Nap(40 << i);
     }
     if (!mem) {
       found = ProcessPerception::Find(last_.controls, action.selector);
@@ -574,7 +580,7 @@ LoopStep HybridControlLoop::Run(const LoopAction& action, SinkFn sink) {
   for (int i = 0; i < 3; ++i) {
     before = capture_(cap);
     if (before) break;
-    Nap(80 << i);
+    Nap(40 << i);
   }
   if (!before) {
     emit(StepStatus::Failed, "pre-capture failed: " + before.error().detail);
@@ -598,7 +604,7 @@ LoopStep HybridControlLoop::Run(const LoopAction& action, SinkFn sink) {
     for (int i = 0; i < 3; ++i) {
       after = capture_(cap);
       if (after) break;
-      Nap(40 << i);
+      Nap(20 << i);
     }
     if (!after) {
       emit(StepStatus::Retrying, "post-capture jitter: " + after.error().detail);

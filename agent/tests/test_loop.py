@@ -23,7 +23,7 @@ class ScriptedProvider(VisionProvider):
 
 @pytest.fixture(autouse=True)
 def _no_real_sleep(monkeypatch):
-    # The loop's action_pause defaults to 0.15s; never actually sleep in tests.
+    # The loop's action_pause defaults to 0.06s; never actually sleep in tests.
     # Tests that assert on the pause re-patch this to record the durations.
     monkeypatch.setattr(loop.time, "sleep", lambda s: None)
 

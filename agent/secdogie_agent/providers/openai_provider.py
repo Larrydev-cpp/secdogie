@@ -27,7 +27,7 @@ def _make_http_client(proxy: str | None):
         import httpx
     except ImportError as e:
         raise RuntimeError("httpx is required for proxy support") from e
-    return httpx.Client(proxy=proxy, timeout=60.0)
+    return httpx.Client(proxy=proxy, timeout=httpx.Timeout(45.0, connect=8.0))
 
 
 class OpenAIProvider(VisionProvider):

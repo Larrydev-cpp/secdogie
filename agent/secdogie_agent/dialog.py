@@ -80,7 +80,7 @@ def ask_task(default: str = "") -> str | None:
     tk.Label(pad, text="What should it do?", font=("", 13, "bold")).pack(anchor="w")
     tk.Label(
         pad,
-        text="Describe the task in plain language. It will show a plan first and ask before each step.",
+        text="Describe the task in plain language. Approve once, then it runs. High-risk steps still ask.",
         wraplength=480,
         justify="left",
         fg="#555",
@@ -143,7 +143,7 @@ def confirm_plan(task: str, plan: str) -> bool:
     tk.Label(pad, text="Ready to start?", font=("", 13, "bold")).pack(anchor="w")
     tk.Label(
         pad,
-        text="Review what it understood. Nothing has been clicked yet.",
+        text="Nothing has been clicked yet. Approve and it runs — high-risk steps still ask.",
         fg="#555",
         wraplength=520,
         justify="left",

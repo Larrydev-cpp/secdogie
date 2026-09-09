@@ -165,14 +165,14 @@ OpenAI, OpenRouter `sk-or-…`, or a custom env name) and saves it next to the
 program. After that it opens a **window asking what you want it to do**
 (that's `--gui` mode). Typing the task and clicking Start:
 
-1. shows a **Working…** window while it calls the model (the desktop is not
-   supposed to go blank);
-2. shows the model's plan — **Looks good — go** or Cancel;
-3. asks **Yes/No in a popup before every action** (not a hidden terminal
-   prompt — a windowed exe has no stdin, so a terminal `y/N` used to skip
-   every action with no feedback);
+1. shows a **plan** (a local restatement — not an extra model round-trip);
+   **Looks good — go** or Cancel;
+2. **runs** clicks and typing without a popup on every step (that was the
+   slow path: each Yes/No stole focus from the app being driven);
+3. still asks before **high-risk** steps (open a file/URL);
 4. pops an **error dialog** if the model call fails (bad key, unknown
-   OpenRouter model id, no screen capture) instead of exiting mute.
+   model). `--confirm-each` restores the old per-step Yes/No. `--model-briefing`
+   asks the model to write the plan from a screenshot first.
 
 On **macOS** the GUI path always uses Accessibility (`--desktop-ax` /
 AXPress). HID / `CGEvent` / `IOHID` / pyautogui clicks are refused.
@@ -261,16 +261,15 @@ secdogie-agent --gui "book a table"  # task given, still shows the plan dialog
 ```
 
 The flow is: (1) if you didn't pass a task, a window asks for it; (2) a
-**Working…** window stays up while the model looks at the current screen;
-(3) **before touching anything**, a popup restates the task plus a short
-numbered plan — **Looks good — go** or Cancel; (4) every non-benign action
-gets a **Yes/No popup** (this is *not* the terminal `y/N` — a packaged
-windowed build has no console, so stdin confirmation used to skip every
-click silently); (5) any `ask_user` question is a Yes/No popup; (6) a model
-or capture failure pops an error dialog and stops. GUI mode needs tkinter
-(bundled with standard Python; on Linux `sudo apt install python3-tk`). If
-it isn't available, the agent prints a notice and falls back to the
-terminal automatically. On macOS, `--gui` implies `--desktop-ax`.
+popup restates the task — **Looks good — go** or Cancel — **without** an
+extra model round-trip; (3) clicks and typing then run (high-risk still
+asks); (4) `--confirm-each` restores a Yes/No popup per action; (5) any
+`ask_user` question is a Yes/No popup; (6) a model or capture failure pops
+an error dialog and stops. GUI mode needs tkinter (bundled with standard
+Python; on Linux `sudo apt install python3-tk`). If it isn't available, the
+agent prints a notice and falls back to the terminal automatically. On
+macOS, `--gui` implies `--desktop-ax`. `--fast` tightens capture and pauses
+further (1024px long-edge).
 
 
 Requires a GUI session (X11/most desktop environments; Wayland support
@@ -344,9 +343,10 @@ Extra knobs:
 | `--window "Title"` | pin the agent to the window with this exact title: forced frontmost (past Windows' ForegroundLockTimeout) and confirmed focused before every action |
 | `--grid` | overlay a labeled coordinate grid on the screenshot to give the model anchor points (helps on cluttered screens) |
 | `--max-image-edge N` | trade detail vs. speed/cost; higher keeps small text legible, lower is faster/cheaper |
-| `--move-duration S` | seconds to glide the cursor to a target (default 0.15; smoother, triggers hover events) |
-| `--settle S` | seconds to hover before clicking (default 0.05; lets the UI react) |
-| `--action-pause S` | seconds to wait *after* each action before the next screenshot (default 0.4). This is the timing safeguard: without it a fast model takes the next screenshot before a slow-animating app has updated, sees a stale frame, and repeats itself. Lower is faster but riskier; `0` disables. |
+| `--move-duration S` | seconds to glide the cursor to a target (default 0.05; smoother, triggers hover events) |
+| `--settle S` | seconds to hover before clicking (default 0.02; lets the UI react) |
+| `--action-pause S` | seconds to wait *after* each action before the next screenshot (default 0.06). Lower is faster but riskier; `0` disables. |
+| `--fast` | 1024px long-edge, 40ms action pause, 30ms cursor move |
 | `--stall-limit N` | stop if the model picks the same action against an unchanged screen `N` times in a row (default 4) — the action isn't landing (a dead control, a frozen render), so bail with exit code 6 instead of spinning to `--max-steps`. `0` disables. |
 | `--plan` | decompose the task into sub-tasks up front and work one at a time (see below). |
 | `--subtask-step-limit N` | with `--plan`, skip a sub-task that runs `N` steps without finishing (default 15; `0` disables). |
@@ -493,7 +493,7 @@ fact** to cross-run memory when `--memory` is on, see above), plus `done` and
 non-ASCII text (ASCII goes through real keystrokes), and it puts your previous
 clipboard contents back after pasting — a run that types one line of Chinese
 won't quietly destroy something you were about to paste yourself. Two honest
-limits: the restore waits ~0.15s for the target app to read the paste, so there
+limits: the restore waits ~0.06s for the target app to read the paste, so there
 is a brief window where the clipboard is ours; and a clipboard holding
 something that isn't text (an image, a file list) can't be read back to be
 restored, so it's cleared instead of left holding the agent's text.

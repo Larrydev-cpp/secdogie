@@ -39,7 +39,7 @@ MENU_CHOICES: tuple[MenuChoice, ...] = (
     MenuChoice(
         "task",
         "Do a task",
-        "Type what you want. A window shows the plan, then asks before every step.",
+        "Type what you want. Approve once, then it runs. High-risk steps still ask.",
         ("--gui", "--desktop-ax"),
     ),
     MenuChoice(
@@ -55,9 +55,15 @@ MENU_CHOICES: tuple[MenuChoice, ...] = (
         ("--gui", "--desktop-ax"),
     ),
     MenuChoice(
+        "step",
+        "Ask every step",
+        "Yes/No popup before each click. Slower, same as the old careful path.",
+        ("--gui", "--desktop-ax", "--confirm-each"),
+    ),
+    MenuChoice(
         "auto",
         "Run without asking (careful)",
-        "No per-step confirmation. High-risk actions still ask.",
+        "No plan dialog, no per-step confirm. High-risk actions still ask.",
         ("--gui", "--desktop-ax", "--auto"),
     ),
     MenuChoice(

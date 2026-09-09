@@ -48,9 +48,9 @@ def test_briefing_cancel_stops_before_acting(monkeypatch):
     _patch_io(monkeypatch, executed)
     monkeypatch.setattr(dialog, "confirm_plan", lambda task, plan: False)
     provider = ScriptedProvider([{"action": "left_click", "x": 1, "y": 1}], plan="my plan")
-    rc = loop.run(provider, loop.AgentConfig(task="do it", gui=True, auto=True, max_steps=5))
+    rc = loop.run(provider, loop.AgentConfig(task="do it", gui=True, auto=False, max_steps=5))
     assert rc == 2
-    assert provider.explain_calls == 1
+    assert provider.explain_calls == 0  # local briefing, no extra vision call
     assert provider.calls == 0  # never asked for an action
     assert executed == []
 
@@ -63,29 +63,27 @@ def test_briefing_proceed_runs_the_loop(monkeypatch):
         [{"action": "left_click", "x": 1, "y": 1}, {"action": "done", "text": "ok"}],
         plan="my plan",
     )
-    rc = loop.run(provider, loop.AgentConfig(task="do it", gui=True, auto=True, max_steps=5))
+    rc = loop.run(provider, loop.AgentConfig(task="do it", gui=True, auto=False, max_steps=5))
     assert rc == 0
-    assert provider.explain_calls == 1
+    assert provider.explain_calls == 0
     assert executed == ["left_click"]
 
 
-def test_briefing_skipped_when_provider_returns_no_plan(monkeypatch):
+def test_auto_gui_skips_briefing(monkeypatch):
     executed = []
     _patch_io(monkeypatch, executed)
-    # confirm_plan must NOT be called if there's no plan to show.
+
     def boom(*a, **k):
-        raise AssertionError("confirm_plan should not be called without a plan")
+        raise AssertionError("confirm_plan should not run under --auto")
 
     monkeypatch.setattr(dialog, "confirm_plan", boom)
     provider = ScriptedProvider([{"action": "done", "text": "ok"}], plan=None)
     rc = loop.run(provider, loop.AgentConfig(task="do it", gui=True, auto=True, max_steps=5))
     assert rc == 0
+    assert provider.explain_calls == 0
 
 
-def test_briefing_failure_stops_gui_run_with_error(monkeypatch):
-    """#39 still left this path mute: explain_task threw, the loop continued
-    (or later returned 1) with no window. After a typed command that is
-    'nothing happened'."""
+def test_model_briefing_failure_stops_gui_run_with_error(monkeypatch):
     executed = []
     _patch_io(monkeypatch, executed)
     seen = []
@@ -102,16 +100,19 @@ def test_briefing_failure_stops_gui_run_with_error(monkeypatch):
 
     monkeypatch.setattr(dialog, "confirm_plan", lambda t, p: (_ for _ in ()).throw(AssertionError()))
     provider = FlakyProvider([{"action": "done", "text": "ok"}])
-    rc = loop.run(provider, loop.AgentConfig(task="do it", gui=True, auto=True, max_steps=5))
+    rc = loop.run(
+        provider,
+        loop.AgentConfig(task="do it", gui=True, auto=True, model_briefing=True, max_steps=5),
+    )
     assert rc == 1
     assert executed == []
     assert provider.calls == 0
     assert seen and "did not answer" in seen[0][0]
 
 
-def test_gui_non_auto_confirms_via_dialog_not_stdin(monkeypatch):
-    """The default 'Do a task' card is --gui without --auto. Per-step confirm
-    MUST be a popup. stdin on a windowed exe is EOF → skip every action."""
+def test_gui_runs_after_plan_without_per_step_popup(monkeypatch):
+    """Default --gui (Do a task): one plan dialog, then clicks run. Per-step
+    Yes/No was the 'control is very slow' path and stole focus every frame."""
     executed = []
     _patch_io(monkeypatch, executed)
     monkeypatch.setattr(dialog, "confirm_plan", lambda t, p: True)
@@ -130,6 +131,28 @@ def test_gui_non_auto_confirms_via_dialog_not_stdin(monkeypatch):
     )
     rc = loop.run(
         provider, loop.AgentConfig(task="do it", gui=True, auto=False, max_steps=5)
+    )
+    assert rc == 0
+    assert executed == ["left_click"]
+    assert prompts == []
+
+
+def test_gui_confirm_each_still_pops(monkeypatch):
+    executed = []
+    _patch_io(monkeypatch, executed)
+    monkeypatch.setattr(dialog, "confirm_plan", lambda t, p: True)
+    prompts = []
+    monkeypatch.setattr(
+        dialog, "confirm_action", lambda p, **k: prompts.append(p) or True
+    )
+    monkeypatch.setattr("builtins.input", lambda prompt: (_ for _ in ()).throw(AssertionError()))
+    provider = ScriptedProvider(
+        [{"action": "left_click", "x": 1, "y": 1}, {"action": "done", "text": "ok"}],
+        plan="p",
+    )
+    rc = loop.run(
+        provider,
+        loop.AgentConfig(task="do it", gui=True, auto=False, confirm_each=True, max_steps=5),
     )
     assert rc == 0
     assert executed == ["left_click"]
@@ -200,6 +223,29 @@ def test_cli_gui_darwin_forces_desktop_ax(monkeypatch):
     assert seen.get("gui") is True
     assert seen.get("desktop_ax") is True
     assert seen.get("task") == "zoom the drawing"
+
+
+def test_cli_fast_tightens_capture_knobs(monkeypatch):
+    monkeypatch.setattr(dialog, "gui_available", lambda: True)
+    from secdogie_agent import config as config_mod
+
+    monkeypatch.setattr(config_mod, "has_configured_api_key", lambda: True)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    monkeypatch.setattr("secdogie_agent.cli_common.resolve_provider", lambda *a, **k: object())
+    seen = {}
+
+    def fake_run(provider, config):
+        seen["edge"] = config.max_image_edge
+        seen["pause"] = config.action_pause
+        seen["move"] = config.move_duration
+        return 0
+
+    monkeypatch.setattr(cli, "run", fake_run)
+    rc = cli.main(["--gui", "--fast", "do it"])
+    assert rc == 0
+    assert seen["edge"] == 1024
+    assert seen["pause"] == 0.04
+    assert seen["move"] == 0.03
 
 
 def test_gui_available_returns_bool():

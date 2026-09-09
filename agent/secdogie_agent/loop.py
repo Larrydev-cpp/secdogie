@@ -69,10 +69,10 @@ class AgentConfig:
     gui: bool = False
     watch: bool = False
     watch_interval: float = 2.0
-    action_pause: float = 0.15
+    action_pause: float = 0.06
     stall_limit: int = 4
-    max_transient_retries: int = 4
-    transient_backoff_base: float = 2.0
+    max_transient_retries: int = 3
+    transient_backoff_base: float = 1.0
     # Post-action visual verify is useful for clicks that may miss, but expensive
     # (extra capture + diff). Limit the default path to the cheap click-like
     # set; type/key/open rarely need a pixel check and used to pile screenshots.
@@ -92,6 +92,14 @@ class AgentConfig:
     trace_path: str | None = None
     memory_path: str | None = None
     require_focus: bool = False
+    # GUI: after the operator approves the plan, low-risk steps run without a
+    # Yes/No popup (high-risk still asks). --confirm-each restores per-step
+    # dialogs. A popup every click was the "control is very slow" report:
+    # each dialog also steals focus from the target app.
+    confirm_each: bool = False
+    # Extra vision call that restates the task. Off by default — that round
+    # trip was a full screenshot upload before anything moved.
+    model_briefing: bool = False
 
 
 def coalesce_element_targets(live, last) -> tuple[list, list, bool]:
@@ -174,7 +182,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
         )
     backend.setup(logger)
 
-    if config.gui:
+    if config.gui and (not config.auto or config.model_briefing or config.confirm_each):
         briefing_rc = _run_briefing(provider, config, logger, backend)
         if briefing_rc is not None:
             return briefing_rc
@@ -370,38 +378,35 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                         "target rather than repeating the same click."
                     )
                 action = None
-                busy = _busy(config, "Asking the model for the next action…")
-                try:
-                    for attempt in range(config.max_transient_retries + 1):
-                        try:
-                            action = provider.next_action(step_task, model_png, model_size, history)
-                            break
-                        except Exception as e:
-                            if attempt >= config.max_transient_retries or not is_transient(e):
-                                logger.error("provider failed to produce an action: %s", e)
-                                _alert(
-                                    config,
-                                    "secdogie-agent — the model did not answer",
-                                    "Your command was received, but the model call failed "
-                                    "before any action.\n\n"
-                                    f"{e}\n\n"
-                                    "Check the API key, provider, and model id. "
-                                    "OpenRouter needs a vendor/model id "
-                                    "(e.g. openai/gpt-4o or anthropic/claude-sonnet-4).",
-                                )
-                                return 1
-                            delay = min(config.transient_backoff_base * (2 ** attempt), 60.0)
-                            logger.warning(
-                                "model call failed (%s); backing off %.1fs and retrying (%d/%d)",
-                                e, delay, attempt + 1, config.max_transient_retries,
+                # No Working… window per step: creating/destroying Tk every
+                # frame steals focus from the target app.
+                for attempt in range(config.max_transient_retries + 1):
+                    try:
+                        action = provider.next_action(step_task, model_png, model_size, history)
+                        break
+                    except Exception as e:
+                        if attempt >= config.max_transient_retries or not is_transient(e):
+                            logger.error("provider failed to produce an action: %s", e)
+                            _alert(
+                                config,
+                                "secdogie-agent — the model did not answer",
+                                "Your command was received, but the model call failed "
+                                "before any action.\n\n"
+                                f"{e}\n\n"
+                                "Check the API key, provider, and model id. "
+                                "OpenRouter needs a vendor/model id "
+                                "(e.g. openai/gpt-4o or anthropic/claude-sonnet-4).",
                             )
-                            time.sleep(delay)
-                            if config.should_stop is not None and config.should_stop():
-                                logger.info("stopped externally while backing off")
-                                return 5
-                finally:
-                    if busy is not None:
-                        busy.close()
+                            return 1
+                        delay = min(config.transient_backoff_base * (2 ** attempt), 20.0)
+                        logger.warning(
+                            "model call failed (%s); backing off %.1fs and retrying (%d/%d)",
+                            e, delay, attempt + 1, config.max_transient_retries,
+                        )
+                        time.sleep(delay)
+                        if config.should_stop is not None and config.should_stop():
+                            logger.info("stopped externally while backing off")
+                            return 5
                 action = action.scaled(scale)
                 if config.region is not None:
                     action = action.translated(config.region[0], config.region[1])
@@ -581,7 +586,10 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             # Mutating actions under --auto are allowed without extra prompt (operator chose --auto);
             # --read-only already blocked them above.
             force_confirm = is_high_risk and config.confirm_high_risk
-            needs_confirm = action.kind not in _BENIGN and (not config.auto or force_confirm)
+            if config.gui and not config.confirm_each:
+                needs_confirm = force_confirm
+            else:
+                needs_confirm = action.kind not in _BENIGN and (not config.auto or force_confirm)
             if needs_confirm:
                 if config.auto and force_confirm:
                     logger.warning("HIGH-RISK action '%s' needs confirmation even under --auto", action.kind)
@@ -627,10 +635,14 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             if config.action_pause > 0 and action.kind not in _BENIGN:
                 time.sleep(config.action_pause)
 
-            # Only run the extra post-action capture+diff for click-like actions.
-            # Type/key/open/drag change the UI less predictably (or not at all in
-            # the short window) and were the main source of screenshot pile-up.
-            if executed_ok and config.verify_actions and exec_kind in _RETRY_SAFE:
+            # Pixel-diff verify is an extra full-screen capture. Skip it when
+            # the OS accessibility invoke already reported success.
+            ax_invoke = (
+                executed_ok
+                and action.kind == "click_element"
+                and exec_kind == "click_element"
+            )
+            if executed_ok and config.verify_actions and exec_kind in _RETRY_SAFE and not ax_invoke:
                 result = _verify_and_maybe_retry(
                     backend, action, raw_png, result, config, logger, harness_el=harness_el,
                 )
@@ -766,38 +778,50 @@ def _verify_and_maybe_retry(
 
 
 def _run_briefing(provider: VisionProvider, config: AgentConfig, logger, backend: Backend) -> int | None:
-    busy = _busy(config, "Calling the model with your task…")
-    try:
-        try:
-            raw_png, real_size = backend.capture(config.region)
-        except screen.CaptureError as e:
-            logger.error("%s", e)
-            _alert(config, "secdogie-agent — cannot capture the screen", str(e))
-            return 4
+    """Pre-flight confirm. Default is a local restatement — no extra vision call.
 
-        model_png, _size, _scale = screen.prepare_for_model(
-            raw_png, real_size, max_edge=config.max_image_edge
-        )
+    The previous path uploaded a screenshot and waited on explain_task before
+    anything moved. That was a full model RTT and a second failure mode if
+    the key/model was wrong. Pass --model-briefing to restore it.
+    """
+    if config.model_briefing:
+        busy = _busy(config, "Calling the model with your task…")
         try:
-            plan = provider.explain_task(config.task, model_png, real_size)
-        except Exception as e:
-            logger.warning("could not get a task briefing from the model: %s", e)
-            _alert(
-                config,
-                "secdogie-agent — the model did not answer",
-                "Your command was received, but the model call failed before any action.\n\n"
-                f"{e}\n\n"
-                "Check the API key, provider, and model id. "
-                "OpenRouter needs a vendor/model id "
-                "(e.g. openai/gpt-4o or anthropic/claude-sonnet-4).",
+            try:
+                raw_png, real_size = backend.capture(config.region)
+            except screen.CaptureError as e:
+                logger.error("%s", e)
+                _alert(config, "secdogie-agent — cannot capture the screen", str(e))
+                return 4
+
+            model_png, _size, _scale = screen.prepare_for_model(
+                raw_png, real_size, max_edge=config.max_image_edge
             )
-            return 1
-    finally:
-        if busy is not None:
-            busy.close()
-
-    if not plan:
-        return None
+            try:
+                plan = provider.explain_task(config.task, model_png, real_size)
+            except Exception as e:
+                logger.warning("could not get a task briefing from the model: %s", e)
+                _alert(
+                    config,
+                    "secdogie-agent — the model did not answer",
+                    "Your command was received, but the model call failed before any action.\n\n"
+                    f"{e}\n\n"
+                    "Check the API key, provider, and model id. "
+                    "OpenRouter needs a vendor/model id "
+                    "(e.g. openai/gpt-4o or anthropic/claude-sonnet-4).",
+                )
+                return 1
+        finally:
+            if busy is not None:
+                busy.close()
+        if not plan:
+            return None
+    else:
+        plan = (
+            "I'll look at the current screen and carry this out one action at a time.\n\n"
+            f"{config.task}\n\n"
+            "Clicks and typing run after you approve. Opening a file or URL will still ask."
+        )
 
     logger.info("task briefing:\n%s", plan)
     if not dialog.confirm_plan(config.task, plan):

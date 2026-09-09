@@ -241,7 +241,7 @@ std::uint32_t MctEnsureFixture() {
   const std::uint32_t pid = pi.dwProcessId;
   CloseHandle(pi.hThread);
   CloseHandle(pi.hProcess);
-  Sleep(150);
+  Sleep(80);
   return pid;
 #else
   const pid_t child = fork();
@@ -256,7 +256,7 @@ std::uint32_t MctEnsureFixture() {
     _exit(127);
   }
   if (child < 0) return 0;
-  usleep(150000);
+  usleep(80000);
   return static_cast<std::uint32_t>(child);
 #endif
 }

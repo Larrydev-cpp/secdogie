@@ -63,6 +63,14 @@ def test_default_prepare_is_jpeg():
     assert scale == 1.0
 
 
+def test_default_max_edge_is_the_speed_cap():
+    assert screen.DEFAULT_MAX_EDGE == 1280
+    png = _png(2560, 1440)
+    out, (mw, mh), scale = screen.prepare_for_model(png, (2560, 1440))
+    assert max(mw, mh) == 1280
+    assert screen.media_type_for(out) == "image/jpeg"
+
+
 def test_action_scaled_maps_coordinates():
     a = Action.from_dict({"action": "left_click", "x": 100, "y": 50})
     b = a.scaled(2.0)
@@ -137,8 +145,6 @@ def test_changed_ratio_mismatched_sizes_counts_as_fully_changed():
 
 
 def test_capture_screenshot_region_grabs_only_that_box(monkeypatch):
-    import mss
-
     grabbed = {}
 
     class FakeShot:
@@ -152,23 +158,15 @@ def test_capture_screenshot_region_grabs_only_that_box(monkeypatch):
             grabbed["monitor"] = monitor
             return FakeShot()
 
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            return False
-
-    monkeypatch.setattr(mss, "mss", lambda: FakeSct())
+    monkeypatch.setattr(screen, "_mss", lambda: FakeSct())
 
     png, size = screen.capture_screenshot(region=(100, 200, 50, 40))
     assert grabbed["monitor"] == {"left": 100, "top": 200, "width": 50, "height": 40}
     assert size == (50, 40)
-    assert png  # real mss.tools.to_png ran against the fake capture and produced bytes
+    assert png.startswith(b"\x89PNG")
 
 
 def test_capture_screenshot_no_region_uses_primary_monitor(monkeypatch):
-    import mss
-
     grabbed = {}
 
     class FakeShot:
@@ -185,13 +183,7 @@ def test_capture_screenshot_no_region_uses_primary_monitor(monkeypatch):
             grabbed["monitor"] = monitor
             return FakeShot()
 
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            return False
-
-    monkeypatch.setattr(mss, "mss", lambda: FakeSct())
+    monkeypatch.setattr(screen, "_mss", lambda: FakeSct())
 
     screen.capture_screenshot()
     assert grabbed["monitor"] == FakeSct.monitors[1]  # picks the primary monitor, not the combined one

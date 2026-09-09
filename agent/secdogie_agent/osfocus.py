@@ -37,8 +37,8 @@ CANNOT_FORCE = "cannot-force"  # the platform forbids it (Wayland) -- ask the us
 TIMEOUT = "timeout"          # tried, but focus never landed within the deadline
 UNSUPPORTED = "unsupported"  # no way to even attempt on this platform/build
 
-_DEFAULT_SETTLE_S = 1.0
-_DEFAULT_POLL_S = 0.03
+_DEFAULT_SETTLE_S = 0.35
+_DEFAULT_POLL_S = 0.02
 
 
 def display_server() -> str:
