@@ -378,35 +378,39 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                         "target rather than repeating the same click."
                     )
                 action = None
-                # No Working… window per step: creating/destroying Tk every
-                # frame steals focus from the target app.
-                for attempt in range(config.max_transient_retries + 1):
-                    try:
-                        action = provider.next_action(step_task, model_png, model_size, history)
-                        break
-                    except Exception as e:
-                        if attempt >= config.max_transient_retries or not is_transient(e):
-                            logger.error("provider failed to produce an action: %s", e)
-                            _alert(
-                                config,
-                                "secdogie-agent — the model did not answer",
-                                "Your command was received, but the model call failed "
-                                "before any action.\n\n"
-                                f"{e}\n\n"
-                                "Check the API key, provider, and model id. "
-                                "OpenRouter needs a vendor/model id "
-                                "(e.g. openai/gpt-4o or anthropic/claude-sonnet-4).",
+                busy = _busy(config, "Asking the model for the next action…") if step == 1 else None
+                try:
+                    for attempt in range(config.max_transient_retries + 1):
+                        try:
+                            action = provider.next_action(step_task, model_png, model_size, history)
+                            break
+                        except Exception as e:
+                            if attempt >= config.max_transient_retries or not is_transient(e):
+                                logger.error("provider failed to produce an action: %s", e)
+                                _alert(
+                                    config,
+                                    "secdogie-agent — the model did not answer",
+                                    "Your command was received, but the model call failed "
+                                    "before any action.\n\n"
+                                    f"{e}\n\n"
+                                    "Check the API key, provider, and model id. "
+                                    "OpenRouter needs a vendor/model id "
+                                    "(e.g. openai/gpt-4o or anthropic/claude-sonnet-4).",
+                                )
+                                return 1
+                            delay = min(config.transient_backoff_base * (2 ** attempt), 20.0)
+                            logger.warning(
+                                "model call failed (%s); backing off %.1fs and retrying (%d/%d)",
+                                e, delay, attempt + 1, config.max_transient_retries,
                             )
-                            return 1
-                        delay = min(config.transient_backoff_base * (2 ** attempt), 20.0)
-                        logger.warning(
-                            "model call failed (%s); backing off %.1fs and retrying (%d/%d)",
-                            e, delay, attempt + 1, config.max_transient_retries,
-                        )
-                        time.sleep(delay)
-                        if config.should_stop is not None and config.should_stop():
-                            logger.info("stopped externally while backing off")
-                            return 5
+                            time.sleep(delay)
+                            if config.should_stop is not None and config.should_stop():
+                                logger.info("stopped externally while backing off")
+                                return 5
+                finally:
+                    if busy is not None:
+                        busy.close()
+
                 action = action.scaled(scale)
                 if config.region is not None:
                     action = action.translated(config.region[0], config.region[1])

@@ -143,7 +143,7 @@ def confirm_plan(task: str, plan: str) -> bool:
     tk.Label(pad, text="Ready to start?", font=("", 13, "bold")).pack(anchor="w")
     tk.Label(
         pad,
-        text="Nothing has been clicked yet. Approve and it runs — high-risk steps still ask.",
+        text="Nothing has been clicked yet. Approve, then a Working window stays up while the model looks at the screen.",
         fg="#555",
         wraplength=520,
         justify="left",

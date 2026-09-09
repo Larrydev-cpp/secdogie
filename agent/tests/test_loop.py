@@ -353,3 +353,38 @@ def test_loop_click_element_uses_last_known_when_tree_empty(monkeypatch):
     assert rc == 0
     assert executed == ["invoke", "invoke"]
     assert calls["n"] >= 2
+
+
+def test_gui_first_step_shows_working(monkeypatch):
+    """After the plan, step 1 must show Working so the desktop is not blank."""
+    from secdogie_agent import loop as loop_mod
+    from secdogie_agent.providers.base import Action
+    from secdogie_agent.backend import Backend
+
+    class Cap(Backend):
+        def capture(self, region=None):
+            return b"\x89PNG", (10, 10)
+        def execute(self, action):
+            return "ok"
+
+    seen = {"working": 0, "plan": 0}
+
+    class Handle:
+        def close(self):
+            seen["closed"] = True
+
+    monkeypatch.setattr(loop_mod.dialog, "confirm_plan", lambda *a, **k: (seen.__setitem__("plan", 1) or True))
+    monkeypatch.setattr(loop_mod.dialog, "working", lambda msg: seen.__setitem__("working", seen["working"] + 1) or Handle())
+    monkeypatch.setattr(loop_mod.dialog, "notify", lambda *a, **k: True)
+    monkeypatch.setattr(loop_mod.screen, "prepare_for_model", lambda *a, **k: (b"x", (10, 10), 1.0))
+
+    class Prov:
+        def next_action(self, *a, **k):
+            return Action(kind="done", raw={})
+        def explain_task(self, *a, **k):
+            raise AssertionError("default path must not call explain_task")
+
+    cfg = loop_mod.AgentConfig(task="zoom fit", gui=True, max_steps=1, auto=False, backend=Cap())
+    assert loop_mod.run(Prov(), cfg) == 0
+    assert seen["plan"] == 1
+    assert seen["working"] >= 1
