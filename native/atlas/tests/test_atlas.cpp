@@ -308,6 +308,27 @@ int main() {
 #endif
     (void)cap;
   }
+  {
+    const Result<Framebuffer> win = HybridControlLoop::CaptureWindow(1);
+#if defined(__APPLE__)
+    if (!win) {
+      Expect(win.error().detail.find("HID") == std::string::npos ||
+                 win.error().detail.find("refused") != std::string::npos,
+             "macOS CaptureWindow is CGWindow, not HID", win.error().detail.c_str());
+    }
+#elif defined(_WIN32)
+    Expect(!win, "Windows CaptureWindow is not the inspect graphics path",
+           win ? "ok" : PrivilegeCodeName(win.error().code));
+#else
+    Expect(!win && win.error().code == PrivilegeCode::Unsupported,
+           "Linux CaptureWindow is not HID",
+           win ? "ok" : PrivilegeCodeName(win.error().code));
+    Expect(win.error().detail.find("HID") != std::string::npos ||
+               win.error().detail.find("DIB") != std::string::npos,
+           "Linux CaptureWindow names DIB / not HID", win.error().detail.c_str());
+#endif
+    (void)win;
+  }
 
   RunMemoryInspectorTests();
   RunMctTests();

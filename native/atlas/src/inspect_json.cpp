@@ -1,5 +1,6 @@
 #include "inspect_json.h"
 
+#include "hybrid_control_loop.h"
 #include "hybrid_tree.h"
 #include "privilege_manager.h"
 #include "process_perception.h"
@@ -244,6 +245,59 @@ void DumpHybrid(JsonBuf& o, const std::vector<HybridNode>& nodes) {
 
 }  // namespace
 
+void AttachWindowGraphics(InspectSnapshot& s, std::uint32_t pid,
+                          const PerceptionSnapshot& uia) {
+#if defined(__APPLE__)
+  WindowInfo pick{};
+  std::int64_t best_area = 0;
+  const std::vector<WindowInfo> wins = ProcessPerception::ListWindows();
+  for (const auto& w : wins) {
+    if (w.pid != pid || !w.visible) continue;
+    const std::int64_t area = static_cast<std::int64_t>(w.bounds.w) * w.bounds.h;
+    if (area > best_area) {
+      best_area = area;
+      pick = w;
+    }
+  }
+  if (uia.window.hwnd != 0) {
+    for (const auto& w : wins) {
+      if (w.hwnd == uia.window.hwnd && w.pid == pid && RectValid(w.bounds)) {
+        pick = w;
+        best_area = static_cast<std::int64_t>(w.bounds.w) * w.bounds.h;
+        break;
+      }
+    }
+  }
+  if (pick.hwnd == 0 || !RectValid(pick.bounds) || best_area < 64 * 64) {
+    if (s.detail.find("CGWindow") == std::string::npos) {
+      s.detail +=
+          " macOS: AX tree has names/bounds, not pixels. No CGWindow large enough "
+          "to capture (grant Screen Recording).";
+    }
+    return;
+  }
+  const Result<Framebuffer> cap = HybridControlLoop::CaptureWindow(pick.hwnd);
+  if (!cap) {
+    s.detail += " ";
+    s.detail += cap.error().detail;
+    return;
+  }
+  DibHit d;
+  d.address = pick.hwnd;
+  d.compression = 0;
+  d.source = "cgwindow";
+  FillRgbaPreviewFromBgra(d, cap.value().bgra.data(), cap.value().width, cap.value().height,
+                          640);
+  if (d.rgba.empty()) return;
+  s.dibs.insert(s.dibs.begin(), std::move(d));
+  s.stats.dibs_found = s.dibs.size();
+#else
+  (void)s;
+  (void)pid;
+  (void)uia;
+#endif
+}
+
 const char* PlatformName() noexcept {
 #if defined(_WIN32)
   return "windows";
@@ -314,7 +368,9 @@ std::string DumpInspectJson(std::uint32_t pid, const InspectConfig& cfg,
   empty.detail = mem ? mem.value().detail : mem.error().detail;
   empty.stats.handle_closed = true;
   empty.stats.token_closed = true;
-  const InspectSnapshot& s = mem ? mem.value() : empty;
+  InspectSnapshot owned = mem ? mem.value() : empty;
+  AttachWindowGraphics(owned, pid, uia);
+  const InspectSnapshot& s = owned;
   const std::vector<MemoryHit> no_hits;
   const std::vector<HybridNode> fused =
       FuseTree(uia.controls, mem ? s.strings : no_hits,
@@ -419,9 +475,11 @@ std::string DumpInspectJson(std::uint32_t pid, const InspectConfig& cfg,
   for (std::size_t i = 0; i < s.dibs.size(); ++i) {
     if (i) o.put(',');
     o.fmt("{\"address\":%llu,\"width\":%d,\"height\":%d,\"bit_count\":%u,\"compression\":%u,"
-          "\"preview\":",
+          "\"source\":",
           static_cast<unsigned long long>(s.dibs[i].address), s.dibs[i].width, s.dibs[i].height,
           s.dibs[i].bit_count, s.dibs[i].compression);
+    JsonStr(o, s.dibs[i].source.empty() ? "heap" : s.dibs[i].source);
+    o.puts(",\"preview\":");
     if (s.dibs[i].rgba.empty()) o.puts("null");
     else JsonB64(o, s.dibs[i].rgba.data(), s.dibs[i].rgba.size());
     o.put('}');

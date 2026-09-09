@@ -238,6 +238,51 @@ Result<Framebuffer> CaptureCgWindow(const Rect& r) {
   CGImageRelease(img);
   return fb;
 }
+
+Result<Framebuffer> CaptureCgWindowId(std::uint64_t hwnd) {
+  if (hwnd == 0 || hwnd > 0xffffffffull) {
+    return PrivilegeError{PrivilegeCode::Failed, "macOS: no CGWindow id to capture"};
+  }
+  const CGWindowID wid = static_cast<CGWindowID>(hwnd);
+  // IncludingWindow + CGRectNull = that window's backing store, not a
+  // compositor grab of whatever happens to sit in a screen rect. AX has
+  // names/bounds only — this is the actual drawing. Screen Recording grant
+  // required. Not a HID / CGEvent / IOHID tap.
+  CGImageRef img = CGWindowListCreateImage(
+      CGRectNull, kCGWindowListOptionIncludingWindow, wid,
+      kCGWindowImageBoundsIgnoreFraming | kCGWindowImageNominalResolution);
+  if (!img) {
+    return PrivilegeError{PrivilegeCode::Failed,
+                          "CGWindowListCreateImage(window) failed. Grant Screen "
+                          "Recording. AX tree is not an image. HID/CGEvent refused."};
+  }
+  const size_t w = CGImageGetWidth(img);
+  const size_t h = CGImageGetHeight(img);
+  if (w == 0 || h == 0 || w > 8192 || h > 8192) {
+    CGImageRelease(img);
+    return PrivilegeError{PrivilegeCode::Failed,
+                          "CGWindow image empty (Screen Recording not granted?). "
+                          "AX cannot build pixels. HID/CGEvent refused."};
+  }
+  Framebuffer fb;
+  fb.width = static_cast<std::int32_t>(w);
+  fb.height = static_cast<std::int32_t>(h);
+  fb.bgra.resize(w * h * 4);
+  CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+  CGContextRef ctx = CGBitmapContextCreate(
+      fb.bgra.data(), w, h, 8, w * 4, cs,
+      kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+  if (!ctx) {
+    if (cs) CGColorSpaceRelease(cs);
+    CGImageRelease(img);
+    return PrivilegeError{PrivilegeCode::Failed, "CGBitmapContextCreate failed"};
+  }
+  CGContextDrawImage(ctx, CGRectMake(0, 0, static_cast<CGFloat>(w), static_cast<CGFloat>(h)), img);
+  CGContextRelease(ctx);
+  CGColorSpaceRelease(cs);
+  CGImageRelease(img);
+  return fb;
+}
 #endif
 
 }  // namespace
@@ -367,6 +412,20 @@ Result<Framebuffer> HybridControlLoop::CaptureScreen(const Rect& r) {
   (void)r;
   return PrivilegeError{PrivilegeCode::Unsupported,
                         "Linux: no HID / GDI capture. Viewport is process-memory DIB."};
+#endif
+}
+
+Result<Framebuffer> HybridControlLoop::CaptureWindow(std::uint64_t hwnd) {
+#if defined(__APPLE__)
+  return CaptureCgWindowId(hwnd);
+#elif defined(_WIN32)
+  (void)hwnd;
+  return PrivilegeError{PrivilegeCode::Unsupported,
+                        "Windows inspect graphics is heap DIB; loop capture is GDI BitBlt."};
+#else
+  (void)hwnd;
+  return PrivilegeError{PrivilegeCode::Unsupported,
+                        "Linux: no window capture. Viewport is process-memory DIB. Not HID."};
 #endif
 }
 

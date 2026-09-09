@@ -25,6 +25,8 @@ through the harness; pixels remain the fallback, not the default.
 """
 from __future__ import annotations
 
+import sys
+
 from .axtree import AxElement
 
 # Roles whose value can be set without synthesizing keystrokes. Same three
@@ -77,15 +79,25 @@ def should_omit_screenshot(
     *,
     refresh_view: bool,
     boost_detail: bool,
+    platform: str | None = None,
 ) -> bool:
     """True when the AX listing is enough for this step: skip the image block.
 
     Always send pixels on the first frame / after `look` (`refresh_view`),
     after a miss (`boost_detail`), or when the tree is empty (CAD canvas,
     games, custom-drawn UI -- vision is the only sense). Subsequent steps
-    with a healthy listing omit the image: that's the token win, and the
-    model can still `look` the moment pixels actually matter.
+    with a healthy listing omit the image on Windows/Linux: that's the token
+    win, and the model can still `look` the moment pixels actually matter.
+
+    Darwin never omits. The AX tree is chrome (title, role, bounds) — it
+    cannot reconstruct a CAD/Metal/OpenGL drawing. Pixels come from
+    Screen Recording (`mss` / CGWindow), not from the tree. `--gui` forces
+    `--desktop-ax` on Mac, so omitting here left the model blind after
+    frame 1.
     """
+    plat = sys.platform if platform is None else platform
+    if plat == "darwin":
+        return False
     if refresh_view or boost_detail:
         return False
     return bool(targets)

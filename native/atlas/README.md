@@ -9,7 +9,7 @@ C++20. Three first-class operator OSes, **same source**. No TODOs, no empty func
 |---|---|---|---|
 | **Windows** | `IUIAutomationTreeWalker` of the *target PID's* hwnds | `OpenProcess` `VM_READ\|QUERY` → `VirtualQueryEx` → `ReadProcessMemory` + SEH | UTF-16LE primary, UTF-8 secondary. JSON is UTF-8. |
 | **Linux** | compositor / AT-SPI not linked; memory is the live path | `/proc/<pid>/maps` → `process_vm_readv` | UTF-8 primary (CJK kept). UTF-16LE only if it is real wide text, not ASCII-pair garbage. |
-| **macOS** | `AXUIElementCreateApplication(pid)` | `task_for_pid` → `mach_vm_region` (`shared`, not `share_mode`) → `mach_vm_read_overwrite` | Same as Linux. AX titles via `kCFStringEncodingUTF8`. |
+| **macOS** | `AXUIElementCreateApplication(pid)` — names, bounds, values. **Not pixels.** Inspect graphics is `CGWindowListCreateImage` of the target window (Screen Recording). | `task_for_pid` → `mach_vm_region` (`shared`, not `share_mode`) → `mach_vm_read_overwrite` (optional; SIP may block; graphics do not use it) | Same as Linux. AX titles via `kCFStringEncodingUTF8`. |
 
 Long-lived branches (same tree, README lead-in differs):
 
@@ -37,7 +37,7 @@ A **job** is a chain of related processes (parent / child / same family / operat
 
 ## What this is
 
-1. **UI tree first, memory on miss.** Windows UIA of the target pid. macOS AX of the **frontmost / target pid** (title, description, value, bounds); CGWindow list if Accessibility is not granted. SIP may block `task_for_pid` — the UI tree still reads. Linux memory-primary.
+1. **UI tree first, memory on miss.** Windows UIA of the target pid. macOS AX of the **frontmost / target pid** (title, description, value, bounds) — the tree cannot reconstruct a drawing. Window pixels are `CGWindowListCreateImage` of that pid's window (Screen Recording grant), stuffed into inspect `dibs` with `source=cgwindow`. SIP may block `task_for_pid` — the UI tree and the window image still read. Linux memory-primary.
 2. **Read-only handle.** `PROCESS_VM_READ | QUERY` / `task_for_pid` / `process_vm_readv`. Write bits fail closed, not narrowed.
 3. **Safe pages only.** `PAGE_READONLY` / `PAGE_READWRITE` (Windows), `r`/`rw` maps (Linux), `VM_PROT_READ`/`WRITE` (macOS). Guard / noaccess / execute skipped. 64 KiB chunks. Handle closed before return.
 4. **Token wall.** `TOKEN_QUERY` only. SYSTEM / TI / PPL / higher integrity → `denied-escalate` or `denied-protected`.

@@ -23,7 +23,23 @@ def test_should_omit_screenshot_only_when_the_tree_is_healthy_and_we_are_not_loo
     assert harness.should_omit_screenshot(targets, refresh_view=True, boost_detail=False) is False
     assert harness.should_omit_screenshot(targets, refresh_view=False, boost_detail=True) is False
     assert harness.should_omit_screenshot([], refresh_view=False, boost_detail=False) is False
-    assert harness.should_omit_screenshot(targets, refresh_view=False, boost_detail=False) is True
+    assert harness.should_omit_screenshot(
+        targets, refresh_view=False, boost_detail=False, platform="linux"
+    ) is True
+    assert harness.should_omit_screenshot(
+        targets, refresh_view=False, boost_detail=False, platform="win32"
+    ) is True
+
+
+def test_darwin_never_omits_screenshot_ax_is_not_an_image():
+    """macOS AX is chrome only. CAD/Metal views have no AX pixels."""
+    targets = elements.interactable_targets(_tree())
+    assert harness.should_omit_screenshot(
+        targets, refresh_view=False, boost_detail=False, platform="darwin"
+    ) is False
+    assert harness.should_omit_screenshot(
+        [], refresh_view=False, boost_detail=False, platform="darwin"
+    ) is False
 
 
 def test_is_editable_matches_all_three_platform_vocabularies():

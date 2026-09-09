@@ -1,4 +1,5 @@
 #include "hybrid_tree.h"
+#include "inspect_json.h"
 #include "memory_inspector.h"
 #include "privilege_manager.h"
 #include "process_perception.h"
@@ -336,10 +337,12 @@ static void DumpFull(const InspectSnapshot& s, const std::vector<HybridNode>& fu
   for (std::size_t i = 0; i < s.dibs.size(); ++i) {
     if (i) std::putchar(',');
     std::printf("{\"address\":%llu,\"width\":%d,\"height\":%d,\"bit_count\":%u,"
-                "\"compression\":%u,\"preview\":",
+                "\"compression\":%u,\"source\":",
                 static_cast<unsigned long long>(s.dibs[i].address),
                 s.dibs[i].width, s.dibs[i].height, s.dibs[i].bit_count,
                 s.dibs[i].compression);
+    JsonStr(s.dibs[i].source.empty() ? "heap" : s.dibs[i].source);
+    std::printf(",\"preview\":");
     if (s.dibs[i].rgba.empty()) {
       std::fputs("null", stdout);
     } else {
@@ -544,7 +547,19 @@ int main(int argc, char** argv) {
   ProcessPerception perception;
   PerceptionSnapshot uia = perception.SnapshotPid(pid);
   Result<InspectSnapshot> mem = InspectPid(pid, cfg);
-  if (!mem) {
+  InspectSnapshot empty;
+  empty.pid = pid;
+  empty.image = uia.process.image;
+  empty.token.pid = pid;
+  empty.token.image = uia.process.image;
+  empty.detail = mem ? mem.value().detail : mem.error().detail;
+  empty.stats.handle_closed = true;
+  empty.stats.token_closed = true;
+  InspectSnapshot owned = mem ? mem.value() : empty;
+  AttachWindowGraphics(owned, pid, uia);
+  const bool ax_ok = !uia.controls.empty();
+  const bool gfx_ok = !owned.dibs.empty();
+  if (!mem && !ax_ok && !gfx_ok) {
     if (json) {
       std::printf("{\"ok\":false,\"pid\":%u,\"code\":", pid);
       JsonStr(PrivilegeCodeName(mem.error().code));
@@ -557,7 +572,7 @@ int main(int argc, char** argv) {
     }
     return 1;
   }
-  const InspectSnapshot& s = mem.value();
+  const InspectSnapshot& s = owned;
   const std::vector<HybridNode> fused = FuseTree(uia.controls, s.strings, s.strings.size());
   const std::vector<ControlNode> as_controls = HybridAsControls(fused);
   const ControlNode* found = nullptr;

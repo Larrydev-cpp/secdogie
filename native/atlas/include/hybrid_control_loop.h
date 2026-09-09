@@ -108,6 +108,9 @@ class HybridControlLoop {
   // Default capture: GDI BitBlt (Windows) / CGWindowListCreateImage (macOS).
   // Default execute: UIA+SendInput (Windows) / AXPress (macOS, never HID).
   static Result<Framebuffer> CaptureScreen(const Rect& r);
+  // macOS: CGWindowListCreateImage of one window id (Screen Recording).
+  // Not HID. Windows/Linux: unsupported — graphics there is heap DIB / none.
+  static Result<Framebuffer> CaptureWindow(std::uint64_t hwnd);
   static PrivilegeError ExecuteDefault(const ControlNode& target,
                                        const LoopAction& action);
 

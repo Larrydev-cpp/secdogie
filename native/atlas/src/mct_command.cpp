@@ -447,7 +447,8 @@ std::string ExecMctLine(MctState& st, const std::string& line) {
         st.last_pid = st.pid;
       }
       return Wrap(a.ok || a.stale, "graphics",
-                  a.stale ? "viewport from last-known (isolated)" : "viewport from process memory",
+                  a.stale ? "viewport from last-known (isolated)"
+                          : "viewport from window capture / process memory",
                   std::string("\"pid\":") + std::to_string(st.pid) +
                       ",\"tab\":\"graphics\",\"stale\":" + (a.stale ? "true" : "false") +
                       ",\"snapshot\":" + (a.json.empty() ? "null" : a.json));

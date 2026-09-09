@@ -273,7 +273,10 @@ asks); (4) `--confirm-each` restores a Yes/No popup per action; (5) any
 an error dialog and stops. GUI mode needs tkinter (bundled with standard
 Python; on Linux `sudo apt install python3-tk`). If it isn't available, the
 agent prints a notice and falls back to the terminal automatically. On
-macOS, `--gui` implies `--desktop-ax`. `--fast` tightens capture and pauses
+macOS, `--gui` implies `--desktop-ax`. The AX listing is chrome only (names,
+bounds). It cannot reconstruct a CAD/Metal drawing, so Darwin **never omits
+the screenshot** — pixels come from Screen Recording (`mss` / CGWindow),
+mutation stays AXPress (never HID). `--fast` tightens capture and pauses
 further (1024px long-edge).
 
 
