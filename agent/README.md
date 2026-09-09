@@ -165,14 +165,19 @@ OpenAI, OpenRouter `sk-or-…`, or a custom env name) and saves it next to the
 program. After that it opens a **window asking what you want it to do**
 (that's `--gui` mode). Typing the task and clicking Start:
 
-1. shows a **plan** (a local restatement — not an extra model round-trip);
-   **Looks good — go** or Cancel;
+1. opens a **persistent operator console** (task, live status, log, STOP) that
+   stays on screen for the whole run — a windowed exe is never a silent
+   background process after Start;
 2. **runs** clicks and typing without a popup on every step (that was the
    slow path: each Yes/No stole focus from the app being driven);
-3. still asks before **high-risk** steps (open a file/URL);
-4. pops an **error dialog** if the model call fails (bad key, unknown
+3. still asks in the console before **high-risk** steps (open a file/URL);
+4. logs an **error in the console** if the model call fails (bad key, unknown
    model). `--confirm-each` restores the old per-step Yes/No. `--model-briefing`
    asks the model to write the plan from a screenshot first.
+
+On Windows the console is `WS_EX_NOACTIVATE` + always-on-top: it does not steal
+focus from the app being driven, and it stays on the taskbar (not a tool
+window). Close or STOP ends the run.
 
 On **macOS** the GUI path always uses Accessibility (`--desktop-ax` /
 AXPress). HID / `CGEvent` / `IOHID` / pyautogui clicks are refused.

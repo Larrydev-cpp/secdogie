@@ -100,6 +100,29 @@ class AgentConfig:
     # Extra vision call that restates the task. Off by default — that round
     # trip was a full screenshot upload before anything moved.
     model_briefing: bool = False
+    # Operator HUD / tests: live status from the worker thread. When set, GUI
+    # mode does not create per-step tk windows (those destroyed themselves and
+    # left a windowed exe with no window — the latent background process).
+    on_event: Callable[[str, dict], None] | None = None
+    approve_plan: Callable[[str, str], bool] | None = None
+    approve_action: Callable[[str, bool], bool] | None = None
+    ask_operator: Callable[[str], bool] | None = None
+    notify_operator: Callable[[str, str], None] | None = None
+
+
+def _emit(config: AgentConfig, event: str, **payload) -> None:
+    cb = config.on_event
+    if cb is None:
+        return
+    try:
+        cb(event, payload)
+    except Exception:
+        pass
+
+
+def _done(config: AgentConfig, rc: int) -> int:
+    _emit(config, "finished", rc=rc)
+    return rc
 
 
 def coalesce_element_targets(live, last) -> tuple[list, list, bool]:
@@ -133,23 +156,43 @@ def _present(backend, logger) -> None:
 
 def _alert(config: AgentConfig, title: str, message: str) -> None:
     """Surface a failure in GUI mode. Windowed exe has no stderr the operator sees."""
+    if config.notify_operator is not None:
+        try:
+            config.notify_operator(title, message)
+            return
+        except Exception:
+            pass
+    _emit(config, "error", title=title, message=message)
     if config.gui:
         dialog.notify(title, message, error=True)
 
 
 def _confirm_step(config: AgentConfig, prompt: str, *, high_risk: bool = False) -> bool:
-    """Per-step approval. GUI uses a popup; terminal uses stdin y/N.
+    """Per-step approval. HUD/GUI uses a window; terminal uses stdin y/N.
 
     A windowed build's stdin is EOF or a hang — `safety.confirm` would skip
     every action (or freeze) with no window. That is the 'command did nothing'
     report after filling an API key.
     """
+    if config.approve_action is not None:
+        try:
+            return bool(config.approve_action(prompt, high_risk))
+        except Exception:
+            return False
     if config.gui:
         return dialog.confirm_action(prompt, high_risk=high_risk)
     return safety.confirm(prompt)
 
 
+class _NullBusy:
+    def close(self) -> None:
+        return None
+
+
 def _busy(config: AgentConfig, message: str):
+    _emit(config, "busy", message=message)
+    if config.on_event is not None:
+        return _NullBusy()
     return dialog.working(message) if config.gui else None
 
 
@@ -182,10 +225,26 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
         )
     backend.setup(logger)
 
+    _emit(config, "start", task=config.task)
     if config.gui and (not config.auto or config.model_briefing or config.confirm_each):
-        briefing_rc = _run_briefing(provider, config, logger, backend)
-        if briefing_rc is not None:
-            return briefing_rc
+        # Persistent HUD: Start already approved the task. Don't pop a second
+        # plan window (and don't leave a gap with no window). Log the local
+        # restatement and run. --model-briefing / --confirm-each keep the old
+        # confirm.
+        if (
+            config.on_event is not None
+            and not config.model_briefing
+            and not config.confirm_each
+        ):
+            local = (
+                "I'll look at the current screen and carry this out one action at a time. "
+                "Clicks and typing run now. Opening a file or URL will still ask. STOP ends the run."
+            )
+            _emit(config, "briefing", text=local)
+        else:
+            briefing_rc = _run_briefing(provider, config, logger, backend)
+            if briefing_rc is not None:
+                return _done(config, briefing_rc)
 
     effective_task = config.task + _WATCH_DIRECTIVE if config.watch else config.task
     if config.watch:
@@ -245,7 +304,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                         "aborting (exit 7). Check the --window title, or pass --no-require-focus "
                         "to continue anyway."
                     )
-                    return 7
+                    return _done(config, 7)
                 logger.warning(
                     "could not bring the target window to the foreground; the run will act on "
                     "whatever window is frontmost instead -- check the --window title, and note "
@@ -256,14 +315,14 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 logger.error(
                     "require-focus: initial focus assertion failed; aborting (exit 7): %s", e
                 )
-                return 7
+                return _done(config, 7)
             logger.warning("initial focus assertion failed (proceeding anyway): %s", e)
 
     try:
         for step in range(1, config.max_steps + 1):
             if config.should_stop is not None and config.should_stop():
                 logger.info("stopped externally after %d step(s)", step - 1)
-                return 5
+                return _done(config, 5)
 
             if config.watch and step > 1:
                 time.sleep(config.watch_interval)
@@ -275,7 +334,11 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             except screen.CaptureError as e:
                 logger.error("%s", e)
                 _alert(config, "secdogie-agent — cannot capture the screen", str(e))
-                return 4
+                return _done(config, 4)
+
+            _emit(
+                config, "capture", step=step, width=real_size[0], height=real_size[1]
+            )
 
             frame_hash = hashlib.blake2b(raw_png, digest_size=16).digest()
 
@@ -289,7 +352,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     subtask_started = step
                     if plan.is_done:
                         logger.warning("plan ended with %d skipped sub-task(s)", len(plan.skipped))
-                        return 3
+                        return _done(config, 3)
                     continue
 
             action = None
@@ -378,7 +441,8 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                         "target rather than repeating the same click."
                     )
                 action = None
-                busy = _busy(config, "Asking the model for the next action…") if step == 1 else None
+                _emit(config, "model", step=step)
+                busy = _busy(config, "Asking the model for the next action…")
                 try:
                     for attempt in range(config.max_transient_retries + 1):
                         try:
@@ -397,7 +461,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                                     "OpenRouter needs a vendor/model id "
                                     "(e.g. openai/gpt-4o or anthropic/claude-sonnet-4).",
                                 )
-                                return 1
+                                return _done(config, 1)
                             delay = min(config.transient_backoff_base * (2 ** attempt), 20.0)
                             logger.warning(
                                 "model call failed (%s); backing off %.1fs and retrying (%d/%d)",
@@ -406,7 +470,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                             time.sleep(delay)
                             if config.should_stop is not None and config.should_stop():
                                 logger.info("stopped externally while backing off")
-                                return 5
+                                return _done(config, 5)
                 finally:
                     if busy is not None:
                         busy.close()
@@ -455,6 +519,13 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                         action = replace(action, x=el.center[0], y=el.center[1])
 
             reasoning = action.reasoning or action.raw.get("reasoning", "")
+            _emit(
+                config,
+                "action",
+                step=step,
+                kind=action.kind,
+                reasoning=(reasoning or "")[:240],
+            )
 
             def record_result(result: str, *, action=action, raw_png=raw_png, reasoning=reasoning) -> None:
                 history.append(HistoryStep(action=action, result=result))
@@ -497,7 +568,8 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                         logger.info("saved macro: %s (%d step(s))", config.macro_path, len(macro_recorder.steps))
                     except OSError as e:
                         logger.warning("could not save macro %s (%s); the run still succeeded", config.macro_path, e)
-                return 0 if (plan is None or not plan.skipped) else 3
+                _emit(config, "done", summary=summary or "")
+                return _done(config, 0 if (plan is None or not plan.skipped) else 3)
 
             if action.kind == "look":
                 refresh_view = True
@@ -509,14 +581,16 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             if action.kind == "ask_user":
                 question = action.text or action.raw.get("text", "")
                 logger.info("model is asking: %s", question)
-                if config.gui:
+                if config.ask_operator is not None:
+                    allowed = bool(config.ask_operator(question))
+                elif config.gui:
                     allowed = dialog.ask_user(question)
                 else:
                     print(f"\n[secdogie-agent] the model is asking: {question}")
                     allowed = safety.confirm("Allow the agent to continue?")
                 if not allowed:
                     logger.info("user declined to continue after ask_user")
-                    return 2
+                    return _done(config, 2)
                 record_result("user confirmed, continuing")
                 continue
 
@@ -580,7 +654,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                             "stalled: '%s' repeated %d times with no screen change; stopping",
                             action.kind, stall_count,
                         )
-                        return 6
+                        return _done(config, 6)
                 else:
                     stall_count = 0
                 prev_exec_sig, prev_exec_frame = sig, frame_hash
@@ -631,7 +705,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                                 "require-focus: action ran without confirmed focus; aborting (exit 7)"
                             )
                             record_result(result)
-                            return 7
+                            return _done(config, 7)
             except Exception as e:
                 result = f"error: {e}"
                 logger.error("action failed: %s", e)
@@ -659,10 +733,17 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     macro_recorder.record_step(replayed_step)
                 else:
                     macro_recorder.record(action, result, backend, real_size, frame_png=raw_png)
+            _emit(
+                config,
+                "result",
+                step=step,
+                kind=action.kind,
+                result=str(result)[:240],
+            )
             record_result(result)
 
         logger.warning("reached max_steps (%d) without the model signaling done", config.max_steps)
-        return 3
+        return _done(config, 3)
     finally:
         if memory is not None:
             memory.close()
@@ -828,7 +909,12 @@ def _run_briefing(provider: VisionProvider, config: AgentConfig, logger, backend
         )
 
     logger.info("task briefing:\n%s", plan)
-    if not dialog.confirm_plan(config.task, plan):
+    approver = config.approve_plan
+    if approver is None and config.gui:
+        approver = dialog.confirm_plan
+    if approver is None:
+        return None
+    if not approver(config.task, plan):
         logger.info("user cancelled at the task briefing")
         return 2
     return None

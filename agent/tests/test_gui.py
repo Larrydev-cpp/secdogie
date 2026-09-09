@@ -241,6 +241,7 @@ def test_cli_fast_tightens_capture_knobs(monkeypatch):
         return 0
 
     monkeypatch.setattr(cli, "run", fake_run)
+    monkeypatch.setattr(cli, "run_gui_session", lambda p, c: fake_run(p, c))
     rc = cli.main(["--gui", "--fast", "do it"])
     assert rc == 0
     assert seen["edge"] == 1024

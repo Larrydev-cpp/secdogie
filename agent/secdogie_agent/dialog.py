@@ -31,6 +31,9 @@ EXAMPLE_TASKS: tuple[tuple[str, str], ...] = (
 )
 
 
+from . import theme as ui
+
+
 class GuiUnavailableError(RuntimeError):
     """tkinter is missing, or there is no display to show a window on."""
 
@@ -64,9 +67,46 @@ def _import_tk():
 def _new_root(tk):
     root = tk.Tk()
     root.title("secdogie-agent")
+    root.configure(bg=ui.BG)
     root.attributes("-topmost", True)
     root.lift()
     return root
+
+
+def _frame(tk, parent):
+    return tk.Frame(parent, bg=ui.BG)
+
+
+def _label(tk, parent, text, *, bold=False, muted=False, wrap=0, size=10):
+    return tk.Label(
+        parent,
+        text=text,
+        bg=ui.BG,
+        fg=ui.MUTED if muted else ui.FG,
+        font=ui.font(size, bold=bold),
+        wraplength=wrap,
+        justify="left",
+        anchor="w",
+    )
+
+
+def _btn(tk, parent, text, command, *, primary=False, width=12):
+    return tk.Button(
+        parent,
+        text=text,
+        command=command,
+        width=width,
+        bg=ui.ACCENT if primary else ui.SURFACE_2,
+        fg=ui.ACCENT_FG if primary else ui.FG,
+        activebackground=ui.ACCENT if primary else ui.SURFACE,
+        activeforeground=ui.ACCENT_FG if primary else ui.FG,
+        relief="flat",
+        font=ui.font(10, bold=primary),
+        highlightthickness=0,
+        bd=0,
+        cursor="hand2",
+        pady=4,
+    )
 
 
 def ask_task(default: str = "") -> str | None:
@@ -74,23 +114,37 @@ def ask_task(default: str = "") -> str | None:
     root = _new_root(tk)
     result: dict[str, str | None] = {"task": None}
 
-    pad = tk.Frame(root)
+    pad = _frame(tk, root)
     pad.pack(padx=16, pady=14, fill="both", expand=True)
 
-    tk.Label(pad, text="What should it do?", font=("", 13, "bold")).pack(anchor="w")
-    tk.Label(
+    _label(tk, pad, "What should it do?", bold=True, size=13).pack(anchor="w")
+    _label(
+        tk,
         pad,
-        text="Describe the task in plain language. Approve once, then it runs. High-risk steps still ask.",
-        wraplength=480,
-        justify="left",
-        fg="#555",
+        "Describe the task. Start opens a console that stays on screen — STOP anytime. High-risk steps still ask.",
+        muted=True,
+        wrap=480,
     ).pack(anchor="w", pady=(4, 8))
 
-    tk.Label(pad, text="Try an example:", font=("", 9), fg="#666").pack(anchor="w")
-    chips = tk.Frame(pad)
+    _label(tk, pad, "Try an example:", muted=True, size=9).pack(anchor="w")
+    chips = _frame(tk, pad)
     chips.pack(anchor="w", pady=(2, 10))
 
-    entry = scrolledtext.ScrolledText(pad, width=58, height=6, wrap="word")
+    entry = scrolledtext.ScrolledText(
+        pad,
+        width=58,
+        height=6,
+        wrap="word",
+        bg=ui.SURFACE,
+        fg=ui.FG,
+        insertbackground=ui.FG,
+        relief="flat",
+        font=ui.font(10),
+        highlightthickness=1,
+        highlightbackground=ui.BORDER,
+        highlightcolor=ui.BORDER,
+        bd=0,
+    )
     entry.insert("1.0", default)
     entry.pack(fill="both", expand=True, pady=(0, 10))
     entry.focus_set()
@@ -107,6 +161,15 @@ def ask_task(default: str = "") -> str | None:
             command=lambda t=full: use_example(t),
             padx=8,
             pady=2,
+            bg=ui.SURFACE_2,
+            fg=ui.FG,
+            activebackground=ui.SURFACE,
+            activeforeground=ui.FG,
+            relief="flat",
+            highlightthickness=0,
+            bd=0,
+            cursor="hand2",
+            font=ui.font(9),
         )
         btn.pack(side="left", padx=(0, 6))
 
@@ -118,10 +181,10 @@ def ask_task(default: str = "") -> str | None:
         result["task"] = None
         root.destroy()
 
-    buttons = tk.Frame(pad)
+    buttons = _frame(tk, pad)
     buttons.pack(anchor="e")
-    tk.Button(buttons, text="Cancel", command=cancel, width=10).pack(side="right", padx=(6, 0))
-    tk.Button(buttons, text="Start", command=submit, width=10, default="active").pack(side="right")
+    _btn(tk, buttons, "Cancel", cancel, width=10).pack(side="right", padx=(6, 0))
+    _btn(tk, buttons, "Start", submit, primary=True, width=10).pack(side="right")
 
     root.protocol("WM_DELETE_WINDOW", cancel)
     root.bind("<Escape>", lambda _e: cancel())
@@ -137,23 +200,36 @@ def confirm_plan(task: str, plan: str) -> bool:
     root = _new_root(tk)
     result = {"ok": False}
 
-    pad = tk.Frame(root)
+    pad = _frame(tk, root)
     pad.pack(padx=16, pady=14, fill="both", expand=True)
 
-    tk.Label(pad, text="Ready to start?", font=("", 13, "bold")).pack(anchor="w")
-    tk.Label(
+    _label(tk, pad, "Ready to start?", bold=True, size=13).pack(anchor="w")
+    _label(
+        tk,
         pad,
-        text="Nothing has been clicked yet. Approve, then a Working window stays up while the model looks at the screen.",
-        fg="#555",
-        wraplength=520,
-        justify="left",
+        "Nothing has been clicked yet. Approve, then the operator console stays up while it runs.",
+        muted=True,
+        wrap=520,
     ).pack(anchor="w", pady=(2, 10))
 
-    tk.Label(pad, text="Your task", font=("", 10, "bold")).pack(anchor="w")
-    tk.Label(pad, text=task, wraplength=520, justify="left").pack(anchor="w", pady=(0, 8))
+    _label(tk, pad, "Your task", bold=True).pack(anchor="w")
+    _label(tk, pad, task, wrap=520).pack(anchor="w", pady=(0, 8))
 
-    tk.Label(pad, text="Its plan", font=("", 10, "bold")).pack(anchor="w")
-    box = scrolledtext.ScrolledText(pad, width=68, height=12, wrap="word")
+    _label(tk, pad, "Its plan", bold=True).pack(anchor="w")
+    box = scrolledtext.ScrolledText(
+        pad,
+        width=68,
+        height=12,
+        wrap="word",
+        bg=ui.SURFACE,
+        fg=ui.FG,
+        relief="flat",
+        font=ui.font(10),
+        highlightthickness=1,
+        highlightbackground=ui.BORDER,
+        highlightcolor=ui.BORDER,
+        bd=0,
+    )
     box.insert("1.0", plan)
     box.configure(state="disabled")
     box.pack(fill="both", expand=True, pady=(0, 10))
@@ -166,12 +242,10 @@ def confirm_plan(task: str, plan: str) -> bool:
         result["ok"] = False
         root.destroy()
 
-    buttons = tk.Frame(pad)
+    buttons = _frame(tk, pad)
     buttons.pack(anchor="e")
-    tk.Button(buttons, text="Cancel", command=cancel, width=12).pack(side="right", padx=(6, 0))
-    tk.Button(buttons, text="Looks good — go", command=proceed, width=16, default="active").pack(
-        side="right"
-    )
+    _btn(tk, buttons, "Cancel", cancel, width=12).pack(side="right", padx=(6, 0))
+    _btn(tk, buttons, "Looks good — go", proceed, primary=True, width=16).pack(side="right")
 
     root.protocol("WM_DELETE_WINDOW", cancel)
     root.bind("<Escape>", lambda _e: cancel())
@@ -207,16 +281,10 @@ def working(message: str) -> BusyHandle:
     try:
         tk, _, _ = _import_tk()
         root = _new_root(tk)
-        pad = tk.Frame(root)
+        pad = _frame(tk, root)
         pad.pack(padx=22, pady=16)
-        tk.Label(pad, text="Working…", font=("", 13, "bold")).pack(anchor="w")
-        tk.Label(
-            pad,
-            text=message,
-            wraplength=440,
-            justify="left",
-            fg="#555",
-        ).pack(anchor="w", pady=(4, 0))
+        _label(tk, pad, "Working…", bold=True, size=13).pack(anchor="w")
+        _label(tk, pad, message, muted=True, wrap=440).pack(anchor="w", pady=(4, 0))
         root.update_idletasks()
         root.update()
         return BusyHandle(root)
