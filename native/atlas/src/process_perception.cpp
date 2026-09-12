@@ -36,6 +36,7 @@
 #include <unistd.h>
 #if defined(__APPLE__)
 #include <ApplicationServices/ApplicationServices.h>
+#include <CoreServices/CoreServices.h>
 #include <cstring>
 #include <libproc.h>
 #include <sys/sysctl.h>
@@ -307,6 +308,80 @@ const ControlNode* ProcessPerception::HitTest(const std::vector<ControlNode>& ro
   };
   for (const auto& r : roots) walk(walk, r, 0);
   return best;
+}
+
+std::vector<ControlNode> WindowPad(std::uint32_t pid) {
+  std::vector<ControlNode> out;
+  for (const auto& w : ProcessPerception::ListWindows()) {
+    if (pid != 0 && w.pid != pid) continue;
+    if (!RectValid(w.bounds)) continue;
+    ControlNode n;
+    n.role = ControlRole::Window;
+    n.pid = w.pid;
+    n.hwnd = w.hwnd;
+    n.bounds = w.bounds;
+    n.name = w.title.empty() ? w.class_name : w.title;
+    n.id = WideToUtf8(n.name.empty() ? L"window" : n.name);
+    n.enabled = w.visible;
+    out.push_back(std::move(n));
+  }
+  return out;
+}
+
+PadGrants QueryPadGrants() noexcept {
+  PadGrants g;
+#if defined(_WIN32)
+  g.accessibility = true;
+  g.screen_recording = false;
+  g.pad = "uia";
+  g.detail = "Windows: UIA tree is the pad. No TCC.";
+#elif defined(__APPLE__)
+  g.accessibility = AXIsProcessTrusted();
+  g.screen_recording = CGPreflightScreenCaptureAccess();
+  g.pad = g.accessibility ? "ax" : "cgwindow";
+  if (g.accessibility) {
+    g.detail =
+        "macOS: AX tree (fine pad) + CopyElementAtPosition (OS finger). "
+        "AXPress tap. HID refused.";
+  } else {
+    g.detail =
+        "macOS: Accessibility off — coarse pad is CGWindow bounds (no Screen "
+        "Recording needed). Grant Accessibility on the host app (Terminal / "
+        "atlas_mct.app) in System Settings → Privacy & Security → Accessibility. "
+        "Screen Recording only fills titles + pixel-diff verify. Never HID.";
+  }
+#else
+  g.accessibility = false;
+  g.screen_recording = false;
+  g.pad = "memory";
+  g.detail = "Linux: no AT-SPI mutate. Memory inspect is the live path.";
+#endif
+  return g;
+}
+
+void RequestPadGrants() {
+#if defined(__APPLE__)
+  const void* keys[] = {kAXTrustedCheckOptionPrompt};
+  const void* vals[] = {kCFBooleanTrue};
+  CFDictionaryRef opts = CFDictionaryCreate(kCFAllocatorDefault, keys, vals, 1,
+                                            &kCFTypeDictionaryKeyCallBacks,
+                                            &kCFTypeDictionaryValueCallBacks);
+  (void)AXIsProcessTrustedWithOptions(opts);
+  if (opts) CFRelease(opts);
+  (void)CGRequestScreenCaptureAccess();
+  if (!AXIsProcessTrusted()) {
+    CFURLRef url = CFURLCreateWithString(
+        kCFAllocatorDefault,
+        CFSTR("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"),
+        nullptr);
+    if (url) {
+      LSOpenCFURLRef(url, nullptr);
+      CFRelease(url);
+    }
+  }
+#else
+  /* Windows UIA / Linux memory: nothing to prompt. */
+#endif
 }
 
 std::vector<WindowInfo> ProcessPerception::ListWindows() {
@@ -893,6 +968,7 @@ PerceptionSnapshot ProcessPerception::SnapshotPid(std::uint32_t pid) {
   AXUIElementRef app = AXUIElementCreateApplication(static_cast<pid_t>(pid));
   std::size_t remaining = ProcessPerception::kMaxTreeNodes;
   if (app) {
+    AXUIElementSetMessagingTimeout(app, 1.5f);
     CFTypeRef wins = nullptr;
     const AXError err = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute, &wins);
     if (err == kAXErrorSuccess && wins && CFGetTypeID(wins) == CFArrayGetTypeID()) {
@@ -919,27 +995,39 @@ PerceptionSnapshot ProcessPerception::SnapshotPid(std::uint32_t pid) {
     }
     CFRelease(app);
   }
-  if (!snap.controls.empty()) {
+  bool any_box = false;
+  for (const auto& c : snap.controls) {
+    if (RectValid(c.bounds)) {
+      any_box = true;
+      break;
+    }
+  }
+  if (any_box) {
     snap.mode = PerceptionMode::Uia;
     snap.window.pid = pid;
     snap.window.title = snap.controls.front().name;
     snap.window.bounds = snap.controls.front().bounds;
     snap.window.hwnd = snap.controls.front().hwnd;
-    snap.detail = trusted ? "AXUIElement snapshot ok (per-pid, title/description/bounds)"
-                          : "AX tree partial (Accessibility not granted for full chrome)";
+    snap.detail = trusted
+                      ? "macOS: AX tree (fine pad) + bounds. HitTest / "
+                        "CopyElementAtPosition then AXPress. HID refused."
+                      : "macOS: AX tree partial (Accessibility not granted for full chrome). "
+                        "Window bounds still form a coarse pad.";
   } else {
     AttachCgWindows(snap, pid);
     if (!snap.controls.empty()) {
       snap.mode = PerceptionMode::VisionFallback;
       snap.detail =
-          trusted ? "macOS: AX windows empty; CGWindow list of this pid (Screen Recording "
-                    "fills titles)."
-                  : "macOS: Accessibility not granted. CGWindow list only — grant "
-                    "Accessibility for the control tree, Screen Recording for titles.";
+          trusted ? "macOS: AX windows empty; CGWindow bounds of this pid are the coarse pad "
+                    "(Screen Recording fills titles)."
+                  : "macOS: Accessibility not granted. Coarse pad is CGWindow bounds — grant "
+                    "Accessibility on the host app (Terminal / atlas_mct) for the fine AX "
+                    "tree. Screen Recording only fills titles. Never HID. Run: grant";
     } else {
       snap.detail =
-          "macOS: no AX windows and no CGWindow for pid. Grant Accessibility + Screen "
-          "Recording. Memory inspect is separate (SIP may block task_for_pid).";
+          "macOS: no AX windows and no CGWindow for pid. Grant Accessibility "
+          "(System Settings → Privacy & Security → Accessibility) on the host. "
+          "Memory inspect is separate (SIP may block task_for_pid). Run: grant";
     }
   }
   return snap;

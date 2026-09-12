@@ -162,6 +162,15 @@ int main() {
            "HitTest outside everything is null", "perception");
     Expect(ProcessPerception::HitTest(pad, 50, 50) == &pad[0].children[0],
            "HitTest on pane (outside button) is the pane", "perception");
+    const PadGrants grants = QueryPadGrants();
+#if defined(_WIN32)
+    Expect(grants.pad == "uia" && grants.accessibility, "Windows pad is UIA", grants.pad.c_str());
+#elif defined(__APPLE__)
+    Expect(grants.pad == "ax" || grants.pad == "cgwindow", "macOS pad is ax or cgwindow",
+           grants.pad.c_str());
+#else
+    Expect(grants.pad == "memory", "Linux pad is memory", grants.pad.c_str());
+#endif
   }
   {
     Framebuffer a, d;

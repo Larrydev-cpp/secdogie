@@ -514,10 +514,34 @@ class _MacosAxProvider:
         return el
 
     def press_at(self, x: int, y: int) -> bool:
-        """AXPress the deepest node under (x, y). Never HID / CGEvent."""
+        """AXPress the deepest node under (x, y). Never HID / CGEvent.
+
+        Prefer the OS finger `AXUIElementCopyElementAtPosition` (true trackpad
+        hit). Fall back to walking AXPosition/AXSize boxes when the copy-at
+        API is missing or returns nothing.
+        """
+        ax = self._ax
+        system = ax.AXUIElementCreateSystemWide()
+        app = self._attr(system, ax.kAXFocusedApplicationAttribute)
+        copy_at = getattr(ax, "AXUIElementCopyElementAtPosition", None)
+        if app is not None and callable(copy_at):
+            try:
+                err, el = copy_at(app, float(x), float(y), None)
+            except TypeError:
+                try:
+                    err, el = copy_at(app, float(x), float(y))
+                except Exception:
+                    err, el = 1, None
+            except Exception:
+                err, el = 1, None
+            if err == 0 and el is not None:
+                return self._ax_press(el)
         ax_el, _el = self._hit_ax(x, y)
         if ax_el is None:
             return False
+        return self._ax_press(ax_el)
+
+    def _ax_press(self, ax_el) -> bool:
         action = getattr(self._ax, "kAXPressAction", "AXPress")
         confirm = getattr(self._ax, "kAXConfirmAction", "AXConfirm")
         try:

@@ -327,6 +327,9 @@ MctOp ParseMctLine(const std::string& line, std::string* arg) {
     return MctOp::Graphics;
   }
   if (h == "status" || h == "health") return MctOp::Status;
+  if (h == "grant" || h == "grants" || head == "权限" || head == "授权" || h == "tcc") {
+    return MctOp::Grant;
+  }
   if (h == "mapped" || head == "映射") return MctOp::Mapped;
   if (h == "inspect" || h == "open" || h == "pid" || head == "检查" || head == "打开") {
     if (arg && arg->empty()) *arg = "atlas_target";
@@ -392,13 +395,23 @@ std::string ExecMctLine(MctState& st, const std::string& line) {
     case MctOp::Help:
       return Wrap(true, "help",
                   "list · inspect <pid|name> · find <control> · touch <x> <y> · 点 <x> <y> · "
-                  "chain · link <pid> · job report · 报表 · graphics · mapped on|off · status · "
-                  "clear",
+                  "grant · 授权 · chain · link <pid> · job report · 报表 · graphics · mapped "
+                  "on|off · status · clear",
                   "\"kind\":\"app\"");
-    case MctOp::Status:
-      return Wrap(true, "status", "atlas_mct 应用程式 loopback, read-only",
-                  std::string("\"platform\":\"") + PlatformName() + "\",\"kind\":\"app\",\"pid\":" +
-                      std::to_string(st.pid));
+    case MctOp::Status: {
+      const PadGrants g = QueryPadGrants();
+      return Wrap(true, "status", "atlas_mct 应用程式 loopback, read-only · pad " + g.pad,
+                  std::string("\"platform\":\"") + PlatformName() +
+                      "\",\"kind\":\"app\",\"pid\":" + std::to_string(st.pid) + ",\"grants\":" +
+                      DumpPadGrantsJson());
+    }
+    case MctOp::Grant: {
+      RequestPadGrants();
+      const PadGrants g = QueryPadGrants();
+      return Wrap(true, "grant", g.detail,
+                  std::string("\"platform\":\"") + PlatformName() + "\",\"grants\":" +
+                      DumpPadGrantsJson());
+    }
     case MctOp::Clear:
       st.pid = 0;
       st.find.clear();
@@ -493,6 +506,11 @@ std::string ExecMctLine(MctState& st, const std::string& line) {
       ProcessPerception perception;
       PerceptionSnapshot uia = perception.SnapshotPid(st.pid);
       const ControlNode* hit = ProcessPerception::HitTest(uia.controls, x, y);
+      std::vector<ControlNode> window_pad;
+      if (!hit) {
+        window_pad = WindowPad(st.pid);
+        hit = ProcessPerception::HitTest(window_pad, x, y);
+      }
       if (hit) {
         if (!hit->name.empty()) st.find = hit->name;
         else if (!hit->automation_id.empty()) st.find = hit->automation_id;
@@ -503,6 +521,8 @@ std::string ExecMctLine(MctState& st, const std::string& line) {
       extra += hit ? DumpControlHit(*hit) : "null";
       extra += ",\"nodes\":";
       extra += std::to_string(uia.controls.size());
+      extra += ",\"grants\":";
+      extra += DumpPadGrantsJson();
       std::string label;
       if (hit) {
         label = WideToUtf8(hit->name);
@@ -512,7 +532,7 @@ std::string ExecMctLine(MctState& st, const std::string& line) {
       return Wrap(hit != nullptr, "touch",
                   hit ? ("HIT " + label + " @ " + std::to_string(x) + "," + std::to_string(y))
                       : ("MISS " + std::to_string(x) + "," + std::to_string(y) +
-                         " — no AX/UIA node under the point"),
+                         " — no AX/UIA/window node under the point. On macOS run: grant"),
                   extra);
     }
     case MctOp::Graphics: {

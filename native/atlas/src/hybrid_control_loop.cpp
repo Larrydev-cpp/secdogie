@@ -243,6 +243,16 @@ AXUIElementRef FindAxHitTest(AXUIElementRef root, std::int32_t x, std::int32_t y
   return best;
 }
 
+AXUIElementRef CopyAtPosition(AXUIElementRef app, std::int32_t x, std::int32_t y) {
+  if (!app) return nullptr;
+  AXUIElementRef el = nullptr;
+  const AXError err =
+      AXUIElementCopyElementAtPosition(app, static_cast<float>(x), static_cast<float>(y), &el);
+  if (err == kAXErrorSuccess && el) return el;
+  if (el) CFRelease(el);
+  return nullptr;
+}
+
 PrivilegeError ExecuteAxPress(const ControlNode& target, const LoopAction& action) {
   if (action.kind == ActionKind::Read) {
     return PrivilegeError{PrivilegeCode::Ok, "read — no mutation"};
@@ -259,7 +269,25 @@ PrivilegeError ExecuteAxPress(const ControlNode& target, const LoopAction& actio
     return PrivilegeError{PrivilegeCode::Failed,
                           "AXUIElementCreateApplication failed. HID/CGEvent refused."};
   }
-  AXUIElementRef found = FindAx(app, target, 0);
+  AXUIElementSetMessagingTimeout(app, 1.5f);
+  AXUIElementRef found = nullptr;
+  if (action.has_point) {
+    found = CopyAtPosition(app, action.x, action.y);
+  }
+  if (!found && RectValid(target.bounds)) {
+    found = CopyAtPosition(app, target.bounds.x + target.bounds.w / 2,
+                           target.bounds.y + target.bounds.h / 2);
+  }
+  if (!found && action.has_point) {
+    // System-wide is Apple's documented OS finger (z-order, any app).
+    AXUIElementRef sys = AXUIElementCreateSystemWide();
+    if (sys) {
+      AXUIElementSetMessagingTimeout(sys, 1.5f);
+      found = CopyAtPosition(sys, action.x, action.y);
+      CFRelease(sys);
+    }
+  }
+  if (!found) found = FindAx(app, target, 0);
   if (!found && RectValid(target.bounds)) {
     const std::int32_t cx = target.bounds.x + target.bounds.w / 2;
     const std::int32_t cy = target.bounds.y + target.bounds.h / 2;
@@ -273,7 +301,8 @@ PrivilegeError ExecuteAxPress(const ControlNode& target, const LoopAction& actio
     const char* trust = AXIsProcessTrusted() ? "AX miss" : "Accessibility not granted";
     return PrivilegeError{PrivilegeCode::Failed,
                           std::string("macOS ") + trust +
-                              " — AXPress only, HID/CGEvent/IOHID refused."};
+                              " — AXPress only, HID/CGEvent/IOHID refused. "
+                              "Grant Accessibility on the host app. Run: grant"};
   }
   AXError err = AXUIElementPerformAction(found, kAXPressAction);
   if (err != kAXErrorSuccess) {

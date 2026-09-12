@@ -33,6 +33,7 @@ enum class MctOp {
   Touch,
   Graphics,
   Status,
+  Grant,
   Mapped,
   Clear,
   Chain,

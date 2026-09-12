@@ -11,7 +11,7 @@
 namespace secdogie::atlas {
 
 const char* PlatformName() noexcept;
-
+std::string DumpPadGrantsJson();
 std::string DumpListJson();
 std::string DumpInspectJson(std::uint32_t pid, const InspectConfig& cfg,
                             const std::wstring& find_name);

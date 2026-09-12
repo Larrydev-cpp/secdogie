@@ -45,10 +45,17 @@ native/atlas/atlas_inspect --self --token
    `--desktop-ax`. On macOS the native MCT snapshots the **frontmost app**,
    walks every window (title / description / value / bounds), and falls back
    to `CGWindowList` when Accessibility is not granted. The AX tree is a
-   **trackpad**: `HitTest(x,y)` picks the deepest control, `AXPress` taps it.
-   SIP blocking `task_for_pid` does **not** fail the inspect — the AX tree is
-   enough. The live loop prefers `click_element` / native Invoke, and on
-   Darwin `left_click` is a hit-test tap, never HID.
+   **trackpad**: names / roles / bounds are the fine pad;
+   `AXUIElementCopyElementAtPosition` is Apple's OS finger (z-order hit);
+   `HitTest(x,y)` walks boxes if the copy-at API misses; `AXPress` taps.
+   Screen Recording is **not** required to list window **bounds** — those
+   are the coarse pad when Accessibility is off. `CGPreflightScreenCaptureAccess`
+   / `CGRequestScreenCaptureAccess` are the documented Screen Recording
+   APIs (do not infer from `kCGWindowName` being nil). `grant` / `授权`
+   prompts Accessibility (`AXIsProcessTrustedWithOptions`) and opens
+   System Settings. TCC attributes a CLI to the **host app** (Terminal /
+   iTerm / `atlas_mct.app`), not a child binary. SIP blocking
+   `task_for_pid` does **not** fail the inspect — the pad still reads.
 2. **Verification** is a pixel-diff of the control region before vs after the
    action (`screen.changed_ratio` in the agent loop; `atlas.changed_ratio` /
    C++ `PixelDiff` for the native path). No visible mutation → retry → fail.

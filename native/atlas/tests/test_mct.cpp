@@ -120,6 +120,8 @@ void RunMctTests() {
     Expect(ParseMctLine("点 10 20", &arg) == MctOp::Touch && arg == "10 20", "parse 点 x y",
            arg.c_str());
     Expect(ParseMctLine("hit 1,2", &arg) == MctOp::Touch, "parse hit", "op");
+    Expect(ParseMctLine("grant", &arg) == MctOp::Grant, "parse grant", "op");
+    Expect(ParseMctLine("授权", &arg) == MctOp::Grant, "parse 授权", "op");
     Expect(ParseMctLine("图层尺寸", &arg) == MctOp::Find, "bare CJK is find", "op");
   }
   {

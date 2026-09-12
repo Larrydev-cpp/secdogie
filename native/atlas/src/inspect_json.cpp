@@ -21,6 +21,7 @@ struct JsonBuf {
   void puts(const char* t) {
     if (t) s.append(t);
   }
+  void puts(const std::string& t) { s.append(t); }
   void append(const char* p, std::size_t n) { s.append(p, n); }
   void fmt(const char* f, ...) {
     char stack[512];
@@ -254,6 +255,21 @@ const char* PlatformName() noexcept {
 #endif
 }
 
+std::string DumpPadGrantsJson() {
+  JsonBuf o;
+  const PadGrants g = QueryPadGrants();
+  o.puts("{\"accessibility\":");
+  o.puts(g.accessibility ? "true" : "false");
+  o.puts(",\"screen_recording\":");
+  o.puts(g.screen_recording ? "true" : "false");
+  o.puts(",\"pad\":");
+  JsonStr(o, g.pad);
+  o.puts(",\"detail\":");
+  JsonStr(o, g.detail);
+  o.put('}');
+  return o.s;
+}
+
 std::string DumpListJson() {
   JsonBuf o;
   const std::vector<ListedProcess> procs = ProcessPerception::ListProcesses();
@@ -270,6 +286,8 @@ std::string DumpListJson() {
   } else {
     o.puts("null");
   }
+  o.puts(",\"grants\":");
+  o.puts(DumpPadGrantsJson());
   o.puts(",\"processes\":[");
   for (std::size_t i = 0; i < procs.size(); ++i) {
     if (i) o.put(',');
@@ -372,6 +390,9 @@ std::string DumpInspectJson(std::uint32_t pid, const InspectConfig& cfg,
   o.fmt(",\"rss_kb\":%llu,\"session\":%u,\"detail\":",
         static_cast<unsigned long long>(s.rss_kb), s.session_id);
   JsonStr(o, s.detail);
+  o.put(',');
+  o.puts("\"grants\":");
+  o.puts(DumpPadGrantsJson());
   o.put(',');
   DumpToken(o, s.token);
   o.puts(",\"wall\":{\"code\":");
