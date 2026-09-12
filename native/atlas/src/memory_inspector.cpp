@@ -427,6 +427,42 @@ void ExtractStrings(const std::uint8_t* data, std::size_t n, std::uint64_t base,
 #endif
 }
 
+void FillRgbaPreviewFromBgra(DibHit& d, const std::uint8_t* bgra, int src_w, int src_h,
+                             int max_edge) {
+  d.rgba.clear();
+  if (!bgra || src_w <= 0 || src_h <= 0) return;
+  if (max_edge <= 0) max_edge = 640;
+  int dw = src_w;
+  int dh = src_h;
+  const int edge = src_w > src_h ? src_w : src_h;
+  if (edge > max_edge) {
+    dw = (std::max)(1, src_w * max_edge / edge);
+    dh = (std::max)(1, src_h * max_edge / edge);
+  }
+  d.width = dw;
+  d.height = dh;
+  d.bit_count = 32;
+  d.rgba.assign(static_cast<std::size_t>(dw) * static_cast<std::size_t>(dh) * 4, 255);
+  for (int y = 0; y < dh; ++y) {
+    const int sy = y * src_h / dh;
+    for (int x = 0; x < dw; ++x) {
+      const int sx = x * src_w / dw;
+      const std::uint8_t* s =
+          bgra + (static_cast<std::size_t>(sy) * static_cast<std::size_t>(src_w) +
+                  static_cast<std::size_t>(sx)) *
+                     4;
+      std::uint8_t* t =
+          d.rgba.data() +
+          (static_cast<std::size_t>(y) * static_cast<std::size_t>(dw) + static_cast<std::size_t>(x)) *
+              4;
+      t[0] = s[2];
+      t[1] = s[1];
+      t[2] = s[0];
+      t[3] = s[3] ? s[3] : 255;
+    }
+  }
+}
+
 void ExtractDibs(const std::uint8_t* data, std::size_t n, std::uint64_t base,
                  const InspectConfig& cfg, std::vector<DibHit>& out) {
   (void)cfg;
@@ -494,6 +530,7 @@ void ExtractDibs(const std::uint8_t* data, std::size_t n, std::uint64_t base,
     d.height = h;
     d.bit_count = biBitCount;
     d.compression = biCompression;
+    d.source = "heap";
     if ((biBitCount == 24 || biBitCount == 32) && pix_off + bytes <= n) {
       fill_rgba(d, data + pix_off, stride, biHeight > 0, biBitCount / 8);
     }

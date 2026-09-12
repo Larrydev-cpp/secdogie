@@ -85,6 +85,9 @@ struct DibHit {
   std::uint32_t compression = 0;
   // Top-down RGBA preview, empty when pixels were not in this chunk.
   std::vector<std::uint8_t> rgba;
+  // "heap" (process memory DIB). Inspect does not attach window pixels.
+  // macOS CGWindow capture is loop pixel-diff VERIFY only — the pad is AX.
+  std::string source;
 };
 
 struct PeHit {
@@ -145,6 +148,11 @@ void ExtractStrings(const std::uint8_t* data, std::size_t n, std::uint64_t base,
 
 void ExtractDibs(const std::uint8_t* data, std::size_t n, std::uint64_t base,
                  const InspectConfig& cfg, std::vector<DibHit>& out);
+
+// Downscale a BGRA framebuffer into d.rgba (top-down RGBA). Sets width/height/
+// bit_count. Heap DIB previews; not used to fake a Mac window image.
+void FillRgbaPreviewFromBgra(DibHit& d, const std::uint8_t* bgra, int src_w, int src_h,
+                             int max_edge);
 
 void ExtractPe(const std::uint8_t* data, std::size_t n, std::uint64_t base,
                std::vector<PeHit>& out);

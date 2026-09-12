@@ -115,6 +115,13 @@ void RunMctTests() {
     Expect(ParseMctLine("find Zoom Extents", &arg) == MctOp::Find && arg == "Zoom Extents",
            "parse find", arg.c_str());
     Expect(ParseMctLine("graphics", &arg) == MctOp::Graphics, "parse graphics", "op");
+    Expect(ParseMctLine("touch 150 120", &arg) == MctOp::Touch && arg == "150 120",
+           "parse touch x y", arg.c_str());
+    Expect(ParseMctLine("点 10 20", &arg) == MctOp::Touch && arg == "10 20", "parse 点 x y",
+           arg.c_str());
+    Expect(ParseMctLine("hit 1,2", &arg) == MctOp::Touch, "parse hit", "op");
+    Expect(ParseMctLine("grant", &arg) == MctOp::Grant, "parse grant", "op");
+    Expect(ParseMctLine("授权", &arg) == MctOp::Grant, "parse 授权", "op");
     Expect(ParseMctLine("图层尺寸", &arg) == MctOp::Find, "bare CJK is find", "op");
   }
   {
@@ -122,6 +129,10 @@ void RunMctTests() {
     const std::string help = ExecMctLine(st, "help");
     Expect(help.find("\"ok\":true") != std::string::npos && help.find("inspect") != std::string::npos,
            "ExecMctLine help is JSON", help.c_str());
+    Expect(help.find("touch") != std::string::npos, "help lists touch", help.c_str());
+    const std::string bad = ExecMctLine(st, "touch");
+    Expect(bad.find("\"ok\":false") != std::string::npos && bad.find("usage") != std::string::npos,
+           "touch without coords is usage", bad.c_str());
   }
   {
     ListenSpec spec;

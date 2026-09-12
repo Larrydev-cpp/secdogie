@@ -6,27 +6,27 @@ with the real screen if we control the scaling ourselves. `prepare_for_model`
 resizes the capture to a known size, and `scale` is the exact factor to map
 the model's coordinates back to real screen pixels (see loop.py).
 
-Latency note: the image sent to the model is JPEG by default (~5–15	imes smaller
-than PNG at the same resolution). Capture for verification / macros stays PNG.
-Default long-edge is 1536 (was 1280) so dense UI / CAD detail remains usable;
-raise further with --max-image-edge when a region truly needs magnification.
+Latency: JPEG to the model; PNG only for verify/macros. Capture reuses one
+mss handle per thread and writes PNG at compress_level=1 (the previous
+mss.tools.to_png zlib-6 pass was often slower than the grab itself).
+Resize uses bilinear — LANCZOS on a 4K frame was tens of milliseconds for
+no aiming gain. Default long-edge is 1280 (was 1536): enough for UI/CAD
+chrome, ~40% fewer pixels on the wire. Raise with --max-image-edge.
 """
 from __future__ import annotations
 
 import io
+import threading
 
 # Long-edge cap for the image sent to the model.
-# 1536 balances detail (CAD labels, dense UI, fine click targets) against
-# token/upload cost. JPEG keeps payloads small even at this size; for extreme
-# magnification / dense engineering drawings raise further with
-# --max-image-edge 1920 (or higher). Previous defaults were 1568 then 1280.
-DEFAULT_MAX_EDGE = 1536
+# 1280 is the speed default. CAD labels / dense drawings: --max-image-edge 1920.
+DEFAULT_MAX_EDGE = 1280
 
-# JPEG quality for model-bound frames. 85 keeps small text/icons and CAD
-# annotations readable while remaining compact; raise via
-# prepare_for_model(quality=...) or a higher --max-image-edge when a region
-# truly needs more magnification.
-DEFAULT_JPEG_QUALITY = 85
+# JPEG quality for model-bound frames. 75 stays readable for icons/text and
+# is ~30% smaller/faster to upload than 85. Raise via prepare_for_model(quality=).
+DEFAULT_JPEG_QUALITY = 75
+
+_tls = threading.local()
 
 
 class CaptureError(RuntimeError):
@@ -38,6 +38,28 @@ class CaptureError(RuntimeError):
 class NoDisplayError(CaptureError):
     """Raised when there is no graphical session to screenshot -- e.g. running
     over SSH to a headless box, or inside a container with no X display."""
+
+
+def _mss():
+    """One mss instance per thread. Constructing/destroying it every frame
+    was a large fraction of capture time on Windows."""
+    import mss
+
+    sct = getattr(_tls, "sct", None)
+    if sct is None:
+        sct = mss.mss()
+        _tls.sct = sct
+    return sct
+
+
+def _grab(region: tuple[int, int, int, int] | None = None):
+    sct = _mss()
+    if region is not None:
+        left, top, width, height = region
+        monitor = {"left": left, "top": top, "width": width, "height": height}
+    else:
+        monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+    return sct.grab(monitor)
 
 
 def capture_screenshot(
@@ -52,23 +74,20 @@ def capture_screenshot(
     region's (left, top) back onto any resulting action coordinates before
     execution, since pyautogui always acts in absolute screen coordinates.
     """
-    import mss
-    import mss.tools
+    from PIL import Image
 
     try:
-        with mss.mss() as sct:
-            if region is not None:
-                left, top, width, height = region
-                monitor = {"left": left, "top": top, "width": width, "height": height}
-            else:
-                monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
-            shot = sct.grab(monitor)
-            png_bytes = mss.tools.to_png(shot.rgb, shot.size)
-            return png_bytes, (shot.size[0], shot.size[1])
+        shot = _grab(region)
+        size = (shot.size[0], shot.size[1])
+        img = Image.frombytes("RGB", size, shot.rgb)
+        out = io.BytesIO()
+        # compress_level=1 is several times faster than zlib-6 and the loop
+        # immediately JPEGs this for the model anyway.
+        img.save(out, format="PNG", compress_level=1)
+        return out.getvalue(), size
+    except CaptureError:
+        raise
     except Exception as e:
-        # mss raises assorted backend-specific errors (X connection failures,
-        # etc.) when there's no usable display; normalize them into one clear
-        # message rather than dumping a backend traceback on the user.
         raise NoDisplayError(
             "could not capture a screenshot: no graphical display is available. "
             "secdogie-agent controls a desktop, so it must run in a graphical "
@@ -84,11 +103,9 @@ def primary_size() -> tuple[int, int]:
     layer captures a window *around* a moving target, and mss.grab errors (or
     returns garbage) if that window pokes past the monitor bounds.
     """
-    import mss
-
-    with mss.mss() as sct:
-        m = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
-        return m["width"], m["height"]
+    sct = _mss()
+    m = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+    return m["width"], m["height"]
 
 
 def media_type_for(image_bytes: bytes) -> str:
@@ -158,7 +175,7 @@ def crop_anchor(frame_png: bytes, cx: int, cy: int, box: int = 64) -> tuple[byte
         top = max(0, min(cy - bh // 2, h - bh))
         patch = gray.crop((left, top, left + bw, top + bh))
         out = io.BytesIO()
-        patch.save(out, format="PNG")
+        patch.save(out, format="PNG", compress_level=1)
         return out.getvalue(), cx - left, cy - top
 
 
@@ -178,7 +195,7 @@ def prepare_for_model(
         real_x = round(model_x * scale)
     Aspect ratio is preserved, so a single scalar is exact for both axes.
 
-    Default `format` is JPEG (quality 85): much smaller than PNG for the same
+    Default `format` is JPEG (quality 75): much smaller than PNG for the same
     resolution, which dominates end-to-end latency on vision API calls. Use
     format="png" when lossless is required (tests, grid debugging). For parts
     that need extra magnification, pass a larger max_edge (e.g. 1920).
@@ -193,7 +210,9 @@ def prepare_for_model(
         factor = max_edge / longest  # < 1, we are shrinking
         model_w = max(1, round(real_w * factor))
         model_h = max(1, round(real_h * factor))
-        img = img.resize((model_w, model_h), Image.LANCZOS)
+        # Bilinear is enough for a screenshot the model will JPEG anyway;
+        # LANCZOS was the slow path on 4K frames.
+        img = img.resize((model_w, model_h), Image.BILINEAR)
     else:
         model_w, model_h = real_w, real_h
 
@@ -206,11 +225,10 @@ def prepare_for_model(
     out = io.BytesIO()
     fmt = (format or "jpeg").lower()
     if fmt in ("jpg", "jpeg"):
-        # Grid overlays stay readable at quality 85; avoid progressive JPEG so
-        # providers that only accept baseline images keep working.
-        img.save(out, format="JPEG", quality=max(40, min(95, int(quality))), optimize=True)
+        # optimize=True is a second Huffman pass — extra CPU, tiny size win.
+        img.save(out, format="JPEG", quality=max(40, min(95, int(quality))), optimize=False)
     else:
-        img.save(out, format="PNG")
+        img.save(out, format="PNG", compress_level=1)
     return out.getvalue(), (img.width, img.height), scale
 
 

@@ -29,7 +29,7 @@ native/atlas/atlas_inspect --self --token
 
 ## 双层循环
 
-1. **主定位**走操作系统无障碍树（Windows UI Automation / AT-SPI / AX）——PID、hwnd、包围盒、AutomationId。用 `--desktop-ax` 打开。macOS 原生 MCT 抓**前台应用**的全部窗口（标题 / 描述 / 值 / 包围盒）；辅助功能未授权时回退 `CGWindowList`。SIP 挡住 `task_for_pid` **不会**让 inspect 整单失败——AX/CGWindow 树已经够用。实循环优先 `click_element` / 原生 Invoke，而不是在缩小后的截图上猜像素。
+1. **主定位**走操作系统无障碍树（Windows UI Automation / AT-SPI / AX）——PID、hwnd、包围盒、AutomationId。用 `--desktop-ax` 打开。macOS 原生 MCT **既读 AX 树又以触控板出发**：标题 / 角色 / 包围盒是细触面；`AXUIElementCopyElementAtPosition` 是系统手指（按窗口 z 序命中）；盒子命中测试是回退；`AXPress` 是轻点。辅助功能未授权时**不拒绝**：`CGWindowList` 的窗口框（不需要屏幕录制）是粗触面。屏幕录制只填标题和循环像素校验，用 `CGPreflightScreenCaptureAccess` / `CGRequestScreenCaptureAccess` 探测，不要靠 `kCGWindowName` 是否为空。指令 `grant` / `授权` 弹出辅助功能授权并打开系统设置。TCC 记在宿主（Terminal / iTerm / atlas_mct.app）上，不是子进程。SIP 挡住 `task_for_pid` **不会**让 inspect 整单失败。实循环优先 `click_element` / 原生 Invoke；Darwin 上 `left_click` 也是命中测试 + AXPress，不是 HID。
 2. **核验**是动作前后控件区域的 pixel-diff（agent 循环里的 `screen.changed_ratio`；原生路径是 `atlas.changed_ratio` / C++ `PixelDiff`）。没有可见突变 → 重试 → 失败。无突变的步骤永远不会被记成成功。
 3. **突变按操作系统分开。** Windows：UIA Invoke，再走文档化的 `SendInput`。macOS：**只**走 `AXPress` / `AXConfirm`——`click_element` **不会**改写成 `left_click`（Darwin 上的 pyautogui 就是 Quartz HID / `CGEventPost`）。Linux：原生不做突变。无突变的步骤永远不会被记成成功。
 4. **`click_element` 在可重试集合里。** 未命中按**同一投递路径**重试（再 Invoke / AXPress）。只有 Windows 才会改写成 `left_click`。不会把生的 `click_element` 交给 `backend.execute`（那不是后端动词）。

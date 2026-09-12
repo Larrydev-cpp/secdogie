@@ -162,6 +162,97 @@ AXUIElementRef FindAx(AXUIElementRef el, const ControlNode& target, int depth) {
   return found;
 }
 
+bool AxGeom(AXUIElementRef el, Rect* out) {
+  if (!el || !out) return false;
+  CFTypeRef pos = nullptr;
+  CFTypeRef size = nullptr;
+  AXUIElementCopyAttributeValue(el, kAXPositionAttribute, &pos);
+  AXUIElementCopyAttributeValue(el, kAXSizeAttribute, &size);
+  CGPoint pt{};
+  CGSize sz{};
+  bool ok = false;
+  if (pos && size && CFGetTypeID(pos) == AXValueGetTypeID() &&
+      CFGetTypeID(size) == AXValueGetTypeID()) {
+    if (AXValueGetValue(static_cast<AXValueRef>(pos), kAXValueCGPointType, &pt) &&
+        AXValueGetValue(static_cast<AXValueRef>(size), kAXValueCGSizeType, &sz) &&
+        sz.width > 0 && sz.height > 0) {
+      out->x = static_cast<std::int32_t>(pt.x);
+      out->y = static_cast<std::int32_t>(pt.y);
+      out->w = static_cast<std::int32_t>(sz.width);
+      out->h = static_cast<std::int32_t>(sz.height);
+      ok = RectValid(*out);
+    }
+  }
+  if (pos) CFRelease(pos);
+  if (size) CFRelease(size);
+  return ok;
+}
+
+void WalkAxHit(AXUIElementRef el, std::int32_t x, std::int32_t y, int depth,
+               AXUIElementRef* best, std::int64_t* best_area, int* best_depth) {
+  if (!el || !best || !best_area || !best_depth || depth > ProcessPerception::kMaxTreeDepth) {
+    return;
+  }
+  Rect r;
+  if (AxGeom(el, &r) && RectContains(r, x, y)) {
+    const std::int64_t area =
+        static_cast<std::int64_t>(r.w) * static_cast<std::int64_t>(r.h);
+    if (!*best || area < *best_area || (area == *best_area && depth > *best_depth)) {
+      if (*best) CFRelease(*best);
+      CFRetain(el);
+      *best = el;
+      *best_area = area;
+      *best_depth = depth;
+    }
+  }
+  const auto walk_arr = [&](CFTypeRef kids) {
+    if (!kids || CFGetTypeID(kids) != CFArrayGetTypeID()) return;
+    CFArrayRef arr = static_cast<CFArrayRef>(kids);
+    const CFIndex n = CFArrayGetCount(arr);
+    for (CFIndex i = 0; i < n; ++i) {
+      AXUIElementRef child = static_cast<AXUIElementRef>(
+          const_cast<void*>(CFArrayGetValueAtIndex(arr, i)));
+      WalkAxHit(child, x, y, depth + 1, best, best_area, best_depth);
+    }
+  };
+  CFTypeRef kids = nullptr;
+  AXUIElementCopyAttributeValue(el, kAXVisibleChildrenAttribute, &kids);
+  walk_arr(kids);
+  if (kids) CFRelease(kids);
+  kids = nullptr;
+  AXUIElementCopyAttributeValue(el, kAXChildrenAttribute, &kids);
+  walk_arr(kids);
+  if (kids) CFRelease(kids);
+  kids = nullptr;
+  AXUIElementCopyAttributeValue(el, kAXContentsAttribute, &kids);
+  walk_arr(kids);
+  if (kids) CFRelease(kids);
+  if (depth == 0) {
+    kids = nullptr;
+    AXUIElementCopyAttributeValue(el, kAXWindowsAttribute, &kids);
+    walk_arr(kids);
+    if (kids) CFRelease(kids);
+  }
+}
+
+AXUIElementRef FindAxHitTest(AXUIElementRef root, std::int32_t x, std::int32_t y) {
+  AXUIElementRef best = nullptr;
+  std::int64_t best_area = 0;
+  int best_depth = -1;
+  WalkAxHit(root, x, y, 0, &best, &best_area, &best_depth);
+  return best;
+}
+
+AXUIElementRef CopyAtPosition(AXUIElementRef app, std::int32_t x, std::int32_t y) {
+  if (!app) return nullptr;
+  AXUIElementRef el = nullptr;
+  const AXError err =
+      AXUIElementCopyElementAtPosition(app, static_cast<float>(x), static_cast<float>(y), &el);
+  if (err == kAXErrorSuccess && el) return el;
+  if (el) CFRelease(el);
+  return nullptr;
+}
+
 PrivilegeError ExecuteAxPress(const ControlNode& target, const LoopAction& action) {
   if (action.kind == ActionKind::Read) {
     return PrivilegeError{PrivilegeCode::Ok, "read — no mutation"};
@@ -178,13 +269,40 @@ PrivilegeError ExecuteAxPress(const ControlNode& target, const LoopAction& actio
     return PrivilegeError{PrivilegeCode::Failed,
                           "AXUIElementCreateApplication failed. HID/CGEvent refused."};
   }
-  AXUIElementRef found = FindAx(app, target, 0);
+  AXUIElementSetMessagingTimeout(app, 1.5f);
+  AXUIElementRef found = nullptr;
+  if (action.has_point) {
+    found = CopyAtPosition(app, action.x, action.y);
+  }
+  if (!found && RectValid(target.bounds)) {
+    found = CopyAtPosition(app, target.bounds.x + target.bounds.w / 2,
+                           target.bounds.y + target.bounds.h / 2);
+  }
+  if (!found && action.has_point) {
+    // System-wide is Apple's documented OS finger (z-order, any app).
+    AXUIElementRef sys = AXUIElementCreateSystemWide();
+    if (sys) {
+      AXUIElementSetMessagingTimeout(sys, 1.5f);
+      found = CopyAtPosition(sys, action.x, action.y);
+      CFRelease(sys);
+    }
+  }
+  if (!found) found = FindAx(app, target, 0);
+  if (!found && RectValid(target.bounds)) {
+    const std::int32_t cx = target.bounds.x + target.bounds.w / 2;
+    const std::int32_t cy = target.bounds.y + target.bounds.h / 2;
+    found = FindAxHitTest(app, cx, cy);
+  }
+  if (!found && action.has_point) {
+    found = FindAxHitTest(app, action.x, action.y);
+  }
   if (!found) {
     CFRelease(app);
     const char* trust = AXIsProcessTrusted() ? "AX miss" : "Accessibility not granted";
     return PrivilegeError{PrivilegeCode::Failed,
                           std::string("macOS ") + trust +
-                              " — AXPress only, HID/CGEvent/IOHID refused."};
+                              " — AXPress only, HID/CGEvent/IOHID refused. "
+                              "Grant Accessibility on the host app. Run: grant"};
   }
   AXError err = AXUIElementPerformAction(found, kAXPressAction);
   if (err != kAXErrorSuccess) {
@@ -218,6 +336,51 @@ Result<Framebuffer> CaptureCgWindow(const Rect& r) {
     return PrivilegeError{PrivilegeCode::Failed,
                           "CGWindow image empty or too large (Screen Recording?). "
                           "HID/CGEvent refused."};
+  }
+  Framebuffer fb;
+  fb.width = static_cast<std::int32_t>(w);
+  fb.height = static_cast<std::int32_t>(h);
+  fb.bgra.resize(w * h * 4);
+  CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+  CGContextRef ctx = CGBitmapContextCreate(
+      fb.bgra.data(), w, h, 8, w * 4, cs,
+      kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+  if (!ctx) {
+    if (cs) CGColorSpaceRelease(cs);
+    CGImageRelease(img);
+    return PrivilegeError{PrivilegeCode::Failed, "CGBitmapContextCreate failed"};
+  }
+  CGContextDrawImage(ctx, CGRectMake(0, 0, static_cast<CGFloat>(w), static_cast<CGFloat>(h)), img);
+  CGContextRelease(ctx);
+  CGColorSpaceRelease(cs);
+  CGImageRelease(img);
+  return fb;
+}
+
+Result<Framebuffer> CaptureCgWindowId(std::uint64_t hwnd) {
+  if (hwnd == 0 || hwnd > 0xffffffffull) {
+    return PrivilegeError{PrivilegeCode::Failed, "macOS: no CGWindow id to capture"};
+  }
+  const CGWindowID wid = static_cast<CGWindowID>(hwnd);
+  // IncludingWindow + CGRectNull = that window's backing store for
+  // pixel-diff VERIFY after an AXPress. Not perception. The Mac pad is
+  // the AX tree (names/roles/bounds). Screen Recording grant required
+  // for verify only. Not a HID / CGEvent / IOHID tap.
+  CGImageRef img = CGWindowListCreateImage(
+      CGRectNull, kCGWindowListOptionIncludingWindow, wid,
+      kCGWindowImageBoundsIgnoreFraming | kCGWindowImageNominalResolution);
+  if (!img) {
+    return PrivilegeError{PrivilegeCode::Failed,
+                          "CGWindowListCreateImage(window) failed. Grant Screen "
+                          "Recording. AX tree is not an image. HID/CGEvent refused."};
+  }
+  const size_t w = CGImageGetWidth(img);
+  const size_t h = CGImageGetHeight(img);
+  if (w == 0 || h == 0 || w > 8192 || h > 8192) {
+    CGImageRelease(img);
+    return PrivilegeError{PrivilegeCode::Failed,
+                          "CGWindow image empty (Screen Recording not granted?). "
+                          "AX cannot build pixels. HID/CGEvent refused."};
   }
   Framebuffer fb;
   fb.width = static_cast<std::int32_t>(w);
@@ -370,6 +533,20 @@ Result<Framebuffer> HybridControlLoop::CaptureScreen(const Rect& r) {
 #endif
 }
 
+Result<Framebuffer> HybridControlLoop::CaptureWindow(std::uint64_t hwnd) {
+#if defined(__APPLE__)
+  return CaptureCgWindowId(hwnd);
+#elif defined(_WIN32)
+  (void)hwnd;
+  return PrivilegeError{PrivilegeCode::Unsupported,
+                        "Windows inspect graphics is heap DIB; loop capture is GDI BitBlt."};
+#else
+  (void)hwnd;
+  return PrivilegeError{PrivilegeCode::Unsupported,
+                        "Linux: no window capture. Viewport is process-memory DIB. Not HID."};
+#endif
+}
+
 PrivilegeError HybridControlLoop::ExecuteDefault(const ControlNode& target,
                                                  const LoopAction& action) {
 #if defined(_WIN32)
@@ -476,6 +653,13 @@ LoopStep HybridControlLoop::Run(const LoopAction& action, SinkFn sink) {
   const ControlNode* found = ProcessPerception::Find(current.controls, action.selector);
   PerceptionMode mode = current.mode;
 
+  if (!found && action.has_point) {
+    found = ProcessPerception::HitTest(current.controls, action.x, action.y);
+    if (found) {
+      emit(StepStatus::Targeting, "hit-test current tree (trackpad)");
+    }
+  }
+
   if (!found) {
     emit(StepStatus::Fallback, "UIA miss — falling back to last-known / vision.");
     if (!config_.vision_fallback) {
@@ -483,6 +667,9 @@ LoopStep HybridControlLoop::Run(const LoopAction& action, SinkFn sink) {
       return step;
     }
     found = ProcessPerception::Find(last_.controls, action.selector);
+    if (!found && action.has_point) {
+      found = ProcessPerception::HitTest(last_.controls, action.x, action.y);
+    }
     mode = PerceptionMode::VisionFallback;
     step.mode = mode;
   }
@@ -497,14 +684,20 @@ LoopStep HybridControlLoop::Run(const LoopAction& action, SinkFn sink) {
       return step;
     }
     InspectConfig ic;
-    ic.max_strings = 8192;
-    ic.max_bytes = 32ull * 1024ull * 1024ull;
+    ic.max_strings = 2048;
+    ic.max_bytes = 8ull * 1024ull * 1024ull;
     Result<InspectSnapshot> mem{PrivilegeError{PrivilegeCode::Failed, "pending"}};
     for (int i = 0; i < 3; ++i) {
       mem = InspectPid(pid, ic);
       if (mem) break;
+      const PrivilegeCode code = mem.error().code;
+      if (code == PrivilegeCode::AccessDenied || code == PrivilegeCode::DeniedProtected ||
+          code == PrivilegeCode::Unsupported || code == PrivilegeCode::DeniedEmpty ||
+          code == PrivilegeCode::NoSession) {
+        break;
+      }
       emit(StepStatus::Retrying, "memory inspect jitter, retry " + std::to_string(i + 1));
-      Nap(80 << i);
+      Nap(40 << i);
     }
     if (!mem) {
       found = ProcessPerception::Find(last_.controls, action.selector);
@@ -574,7 +767,7 @@ LoopStep HybridControlLoop::Run(const LoopAction& action, SinkFn sink) {
   for (int i = 0; i < 3; ++i) {
     before = capture_(cap);
     if (before) break;
-    Nap(80 << i);
+    Nap(40 << i);
   }
   if (!before) {
     emit(StepStatus::Failed, "pre-capture failed: " + before.error().detail);
@@ -598,7 +791,7 @@ LoopStep HybridControlLoop::Run(const LoopAction& action, SinkFn sink) {
     for (int i = 0; i < 3; ++i) {
       after = capture_(cap);
       if (after) break;
-      Nap(40 << i);
+      Nap(20 << i);
     }
     if (!after) {
       emit(StepStatus::Retrying, "post-capture jitter: " + after.error().detail);

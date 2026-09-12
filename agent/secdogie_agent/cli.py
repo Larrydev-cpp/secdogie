@@ -7,6 +7,20 @@ from . import cli_common, dialog, dpi, frozen_runtime, launcher_menu, osfocus
 from .loop import AgentConfig, run
 
 
+def run_gui_session(provider, config: AgentConfig) -> int:
+    """Keep a visible operator console for the whole GUI run.
+
+    Windowed exe previously `return run(...)` after the task/plan dialogs
+    destroyed themselves. The process then had no window while the model
+    HTTP call ran — that is the 'latent background process' report.
+    """
+    from .hud import OperatorHud
+
+    console = OperatorHud(task=config.task)
+    console.attach(config)
+    return console.run_worker(lambda: run(provider, config))
+
+
 def main(argv: list[str] | None = None) -> int:
     # FIRST of all: declare DPI awareness, before any window (the tkinter menu),
     # capture (mss), or input (pyautogui) exists -- otherwise a scaled Windows
@@ -222,7 +236,10 @@ def main(argv: list[str] | None = None) -> int:
             pass
         cfg_kwargs["trace_path"] = str(base / f"secdogie-trace-{stamp}.jsonl")
 
-    return run(provider, AgentConfig(**cfg_kwargs))
+    agent_config = AgentConfig(**cfg_kwargs)
+    if gui:
+        return run_gui_session(provider, agent_config)
+    return run(provider, agent_config)
 
 
 if __name__ == "__main__":

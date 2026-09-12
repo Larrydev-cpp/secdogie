@@ -358,6 +358,7 @@ def _fake_appservices(monkeypatch, system_element):
         kAXValueAttribute="AXValue",
         AXUIElementPerformAction=lambda element, action: perform_calls.append((element, action)) or 0,
         AXUIElementSetAttributeValue=lambda element, attribute, value: set_calls.append((element, attribute, value)) or 0,
+        AXUIElementCopyElementAtPosition=lambda *_a, **_k: (1, None),
     )
     fake._perform_calls = perform_calls
     fake._set_calls = set_calls
@@ -444,6 +445,42 @@ def test_macos_press_performs_axpress_without_a_mouse(monkeypatch):
     assert provider.press(automation_id="saveBtn", role="Button") is True
     assert fake._perform_calls and fake._perform_calls[0][1] == "AXPress"
     assert provider.press(name="NoSuch") is False
+
+
+def test_macos_press_at_hits_the_button_under_the_finger(monkeypatch):
+    fake = _fake_appservices(monkeypatch, _macos_focused_window_with_button())
+    provider = desktop_ax._MacosAxProvider(fake)
+    el = provider.hit_test(150, 120)
+    assert el is not None and el.name == "Save"
+    assert provider.hit_test(10, 10).name == "App"  # window chrome, not the button
+    assert provider.hit_test(5000, 5000) is None
+    assert provider.press_at(150, 120) is True
+    assert fake._perform_calls and fake._perform_calls[-1][1] == "AXPress"
+    assert provider.press_at(5000, 5000) is False
+
+
+def test_macos_press_at_prefers_copy_element_at_position(monkeypatch):
+    """The OS finger (CopyElementAtPosition) beats walking AX boxes."""
+    fake = _fake_appservices(monkeypatch, _macos_focused_window_with_button())
+    finger = _FakeAXElement({
+        "AXRole": "AXButton",
+        "AXTitle": "OSFinger",
+        "AXIdentifier": "finger",
+        "AXPosition": _FakeAXValue(_FakePoint(10, 10)),
+        "AXSize": _FakeAXValue(_FakeSize(20, 20)),
+    })
+    calls: list[tuple[float, float]] = []
+
+    def copy_at(_app, x, y, *_rest):
+        calls.append((float(x), float(y)))
+        return (0, finger)
+
+    fake.AXUIElementCopyElementAtPosition = copy_at
+    provider = desktop_ax._MacosAxProvider(fake)
+    assert provider.press_at(150, 120) is True
+    assert calls and calls[0] == (150.0, 120.0)
+    assert fake._perform_calls[-1][0] is finger
+    assert fake._perform_calls[-1][1] == "AXPress"
 
 
 def test_macos_set_value_writes_axvalue(monkeypatch):

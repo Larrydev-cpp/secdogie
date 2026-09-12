@@ -508,6 +508,90 @@ class _MacosAxProvider:
             bounds=(left, top, right, bottom),
         )
 
+    def hit_test(self, x: int, y: int) -> axtree.AxElement | None:
+        """Tightest AX element whose box contains (x, y). The trackpad read."""
+        _ax_el, el = self._hit_ax(x, y)
+        return el
+
+    def press_at(self, x: int, y: int) -> bool:
+        """AXPress the deepest node under (x, y). Never HID / CGEvent.
+
+        Prefer the OS finger `AXUIElementCopyElementAtPosition` (true trackpad
+        hit). Fall back to walking AXPosition/AXSize boxes when the copy-at
+        API is missing or returns nothing.
+        """
+        ax = self._ax
+        system = ax.AXUIElementCreateSystemWide()
+        app = self._attr(system, ax.kAXFocusedApplicationAttribute)
+        copy_at = getattr(ax, "AXUIElementCopyElementAtPosition", None)
+        if app is not None and callable(copy_at):
+            try:
+                err, el = copy_at(app, float(x), float(y), None)
+            except TypeError:
+                try:
+                    err, el = copy_at(app, float(x), float(y))
+                except Exception:
+                    err, el = 1, None
+            except Exception:
+                err, el = 1, None
+            if err == 0 and el is not None:
+                return self._ax_press(el)
+        ax_el, _el = self._hit_ax(x, y)
+        if ax_el is None:
+            return False
+        return self._ax_press(ax_el)
+
+    def _ax_press(self, ax_el) -> bool:
+        action = getattr(self._ax, "kAXPressAction", "AXPress")
+        confirm = getattr(self._ax, "kAXConfirmAction", "AXConfirm")
+        try:
+            err = self._ax.AXUIElementPerformAction(ax_el, action)
+            if err == 0:
+                return True
+            err = self._ax.AXUIElementPerformAction(ax_el, confirm)
+            return err == 0
+        except Exception:
+            return False
+
+    def _hit_ax(self, x: int, y: int):
+        """(AXUIElement, AxElement) of the smallest box containing (x, y)."""
+        ax = self._ax
+        system = ax.AXUIElementCreateSystemWide()
+        app = self._attr(system, ax.kAXFocusedApplicationAttribute)
+        if app is None:
+            return None, None
+        window = self._attr(app, ax.kAXFocusedWindowAttribute)
+        windows = self._attr(app, getattr(ax, "kAXWindowsAttribute", "AXWindows"))
+        roots = list(windows) if windows else ([window] if window is not None else [])
+        if not roots:
+            return None, None
+        best_ax = None
+        best_el = None
+        best_area = None
+        best_depth = -1
+
+        def walk(element, depth: int) -> None:
+            nonlocal best_ax, best_el, best_area, best_depth
+            el = self._element_of(element)
+            if el is not None and el.contains(x, y) and el.area > 0:
+                if (
+                    best_el is None
+                    or el.area < best_area
+                    or (el.area == best_area and depth > best_depth)
+                ):
+                    best_ax = element
+                    best_el = el
+                    best_area = el.area
+                    best_depth = depth
+            if depth >= MAX_TREE_DEPTH:
+                return
+            for child in self._children(element):
+                walk(child, depth + 1)
+
+        for root in roots:
+            walk(root, 0)
+        return best_ax, best_el
+
     def _geometry(self, element) -> tuple[int, int, int, int] | None:
         """(left, top, right, bottom) in screen pixels from AXPosition + AXSize,
         or None if either is unreadable. Each attribute is an AXValue that must be

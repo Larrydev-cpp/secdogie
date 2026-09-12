@@ -39,7 +39,7 @@ MENU_CHOICES: tuple[MenuChoice, ...] = (
     MenuChoice(
         "task",
         "Do a task",
-        "Type what you want. A window shows the plan, then asks before every step.",
+        "Type what you want. A console stays on screen with STOP. High-risk steps still ask.",
         ("--gui", "--desktop-ax"),
     ),
     MenuChoice(
@@ -55,9 +55,15 @@ MENU_CHOICES: tuple[MenuChoice, ...] = (
         ("--gui", "--desktop-ax"),
     ),
     MenuChoice(
+        "step",
+        "Ask every step",
+        "Yes/No popup before each click. Slower, same as the old careful path.",
+        ("--gui", "--desktop-ax", "--confirm-each"),
+    ),
+    MenuChoice(
         "auto",
         "Run without asking (careful)",
-        "No per-step confirmation. High-risk actions still ask.",
+        "No plan dialog, no per-step confirm. High-risk actions still ask.",
         ("--gui", "--desktop-ax", "--auto"),
     ),
     MenuChoice(
@@ -90,13 +96,13 @@ def should_offer(argv: list[str]) -> bool:
 
 # Palette: a dark glass panel. On Windows the acrylic tint below shows through
 # these; elsewhere they're just a good-looking dark UI.
-_BG = "#1f1a22"          # panel base (also the acrylic fallback colour)
-_CARD = "#332d38"        # card at rest
-_CARD_HOVER = "#4a4252"  # card under the pointer
-_FG = "#ffffff"
-_FG_DIM = "#b9b3c0"
-_ACCENT = "#7c6aef"      # soft purple for the save button
-_WARN = "#e0b060"
+_BG = "#0a0b0d"          # panel base (also the acrylic fallback colour)
+_CARD = "#191c21"        # card at rest
+_CARD_HOVER = "#242830"  # card under the pointer
+_FG = "#ecece8"
+_FG_DIM = "#8b8d92"
+_ACCENT = "#c5cbd4"      # cool gray, same as Atlas
+_WARN = "#c4b49a"
 
 
 def _apply_windows_glass(root) -> None:
@@ -129,7 +135,7 @@ def _apply_windows_glass(root) -> None:
 
         accent = ACCENT_POLICY()
         accent.AccentState = 4  # ACCENT_ENABLE_ACRYLICBLURBEHIND (1803+)
-        accent.GradientColor = 0xCC221A22  # 0xAABBGGRR: dark tint at ~80%
+        accent.GradientColor = 0xCC0D0B0A  # 0xAABBGGRR: near-black tint at ~80%
         data = WINCOMPATTRDATA()
         data.Attribute = 19  # WCA_ACCENT_POLICY
         data.Data = ctypes.cast(ctypes.pointer(accent), ctypes.c_void_p)

@@ -3,6 +3,7 @@
 // JSON dump for atlas_inspect / atlas_mct. Always UTF-8. Never '?'.
 
 #include "memory_inspector.h"
+#include "process_perception.h"
 
 #include <cstdint>
 #include <string>
@@ -10,7 +11,7 @@
 namespace secdogie::atlas {
 
 const char* PlatformName() noexcept;
-
+std::string DumpPadGrantsJson();
 std::string DumpListJson();
 std::string DumpInspectJson(std::uint32_t pid, const InspectConfig& cfg,
                             const std::wstring& find_name);

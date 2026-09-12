@@ -69,10 +69,10 @@ class AgentConfig:
     gui: bool = False
     watch: bool = False
     watch_interval: float = 2.0
-    action_pause: float = 0.15
+    action_pause: float = 0.06
     stall_limit: int = 4
-    max_transient_retries: int = 4
-    transient_backoff_base: float = 2.0
+    max_transient_retries: int = 3
+    transient_backoff_base: float = 1.0
     # Post-action visual verify is useful for clicks that may miss, but expensive
     # (extra capture + diff). Limit the default path to the cheap click-like
     # set; type/key/open rarely need a pixel check and used to pile screenshots.
@@ -92,6 +92,37 @@ class AgentConfig:
     trace_path: str | None = None
     memory_path: str | None = None
     require_focus: bool = False
+    # GUI: after the operator approves the plan, low-risk steps run without a
+    # Yes/No popup (high-risk still asks). --confirm-each restores per-step
+    # dialogs. A popup every click was the "control is very slow" report:
+    # each dialog also steals focus from the target app.
+    confirm_each: bool = False
+    # Extra vision call that restates the task. Off by default — that round
+    # trip was a full screenshot upload before anything moved.
+    model_briefing: bool = False
+    # Operator HUD / tests: live status from the worker thread. When set, GUI
+    # mode does not create per-step tk windows (those destroyed themselves and
+    # left a windowed exe with no window — the latent background process).
+    on_event: Callable[[str, dict], None] | None = None
+    approve_plan: Callable[[str, str], bool] | None = None
+    approve_action: Callable[[str, bool], bool] | None = None
+    ask_operator: Callable[[str], bool] | None = None
+    notify_operator: Callable[[str, str], None] | None = None
+
+
+def _emit(config: AgentConfig, event: str, **payload) -> None:
+    cb = config.on_event
+    if cb is None:
+        return
+    try:
+        cb(event, payload)
+    except Exception:
+        pass
+
+
+def _done(config: AgentConfig, rc: int) -> int:
+    _emit(config, "finished", rc=rc)
+    return rc
 
 
 def coalesce_element_targets(live, last) -> tuple[list, list, bool]:
@@ -125,23 +156,43 @@ def _present(backend, logger) -> None:
 
 def _alert(config: AgentConfig, title: str, message: str) -> None:
     """Surface a failure in GUI mode. Windowed exe has no stderr the operator sees."""
+    if config.notify_operator is not None:
+        try:
+            config.notify_operator(title, message)
+            return
+        except Exception:
+            pass
+    _emit(config, "error", title=title, message=message)
     if config.gui:
         dialog.notify(title, message, error=True)
 
 
 def _confirm_step(config: AgentConfig, prompt: str, *, high_risk: bool = False) -> bool:
-    """Per-step approval. GUI uses a popup; terminal uses stdin y/N.
+    """Per-step approval. HUD/GUI uses a window; terminal uses stdin y/N.
 
     A windowed build's stdin is EOF or a hang — `safety.confirm` would skip
     every action (or freeze) with no window. That is the 'command did nothing'
     report after filling an API key.
     """
+    if config.approve_action is not None:
+        try:
+            return bool(config.approve_action(prompt, high_risk))
+        except Exception:
+            return False
     if config.gui:
         return dialog.confirm_action(prompt, high_risk=high_risk)
     return safety.confirm(prompt)
 
 
+class _NullBusy:
+    def close(self) -> None:
+        return None
+
+
 def _busy(config: AgentConfig, message: str):
+    _emit(config, "busy", message=message)
+    if config.on_event is not None:
+        return _NullBusy()
     return dialog.working(message) if config.gui else None
 
 
@@ -174,10 +225,26 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
         )
     backend.setup(logger)
 
-    if config.gui:
-        briefing_rc = _run_briefing(provider, config, logger, backend)
-        if briefing_rc is not None:
-            return briefing_rc
+    _emit(config, "start", task=config.task)
+    if config.gui and (not config.auto or config.model_briefing or config.confirm_each):
+        # Persistent HUD: Start already approved the task. Don't pop a second
+        # plan window (and don't leave a gap with no window). Log the local
+        # restatement and run. --model-briefing / --confirm-each keep the old
+        # confirm.
+        if (
+            config.on_event is not None
+            and not config.model_briefing
+            and not config.confirm_each
+        ):
+            local = (
+                "I'll look at the current screen and carry this out one action at a time. "
+                "Clicks and typing run now. Opening a file or URL will still ask. STOP ends the run."
+            )
+            _emit(config, "briefing", text=local)
+        else:
+            briefing_rc = _run_briefing(provider, config, logger, backend)
+            if briefing_rc is not None:
+                return _done(config, briefing_rc)
 
     effective_task = config.task + _WATCH_DIRECTIVE if config.watch else config.task
     if config.watch:
@@ -237,7 +304,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                         "aborting (exit 7). Check the --window title, or pass --no-require-focus "
                         "to continue anyway."
                     )
-                    return 7
+                    return _done(config, 7)
                 logger.warning(
                     "could not bring the target window to the foreground; the run will act on "
                     "whatever window is frontmost instead -- check the --window title, and note "
@@ -248,14 +315,14 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 logger.error(
                     "require-focus: initial focus assertion failed; aborting (exit 7): %s", e
                 )
-                return 7
+                return _done(config, 7)
             logger.warning("initial focus assertion failed (proceeding anyway): %s", e)
 
     try:
         for step in range(1, config.max_steps + 1):
             if config.should_stop is not None and config.should_stop():
                 logger.info("stopped externally after %d step(s)", step - 1)
-                return 5
+                return _done(config, 5)
 
             if config.watch and step > 1:
                 time.sleep(config.watch_interval)
@@ -267,7 +334,11 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             except screen.CaptureError as e:
                 logger.error("%s", e)
                 _alert(config, "secdogie-agent — cannot capture the screen", str(e))
-                return 4
+                return _done(config, 4)
+
+            _emit(
+                config, "capture", step=step, width=real_size[0], height=real_size[1]
+            )
 
             frame_hash = hashlib.blake2b(raw_png, digest_size=16).digest()
 
@@ -281,7 +352,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     subtask_started = step
                     if plan.is_done:
                         logger.warning("plan ended with %d skipped sub-task(s)", len(plan.skipped))
-                        return 3
+                        return _done(config, 3)
                     continue
 
             action = None
@@ -370,6 +441,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                         "target rather than repeating the same click."
                     )
                 action = None
+                _emit(config, "model", step=step)
                 busy = _busy(config, "Asking the model for the next action…")
                 try:
                     for attempt in range(config.max_transient_retries + 1):
@@ -389,8 +461,8 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                                     "OpenRouter needs a vendor/model id "
                                     "(e.g. openai/gpt-4o or anthropic/claude-sonnet-4).",
                                 )
-                                return 1
-                            delay = min(config.transient_backoff_base * (2 ** attempt), 60.0)
+                                return _done(config, 1)
+                            delay = min(config.transient_backoff_base * (2 ** attempt), 20.0)
                             logger.warning(
                                 "model call failed (%s); backing off %.1fs and retrying (%d/%d)",
                                 e, delay, attempt + 1, config.max_transient_retries,
@@ -398,31 +470,37 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                             time.sleep(delay)
                             if config.should_stop is not None and config.should_stop():
                                 logger.info("stopped externally while backing off")
-                                return 5
+                                return _done(config, 5)
                 finally:
                     if busy is not None:
                         busy.close()
+
                 action = action.scaled(scale)
                 if config.region is not None:
                     action = action.translated(config.region[0], config.region[1])
                 if omitted_image and action.kind in harness.PIXEL_KINDS:
-                    # Model guessed coordinates of an image it was never shown.
-                    # Don't click blindly -- ask it to use a listed ref or look.
-                    logger.info(
-                        "harness: refusing pixel action '%s' on an accessibility-only turn",
-                        action.kind,
+                    darwin_tap = (
+                        sys.platform == "darwin" and action.kind in harness.TOUCH_KINDS
                     )
-                    history.append(HistoryStep(
-                        action=action,
-                        result=(
-                            "no screenshot was sent this step; use click_element / type "
-                            "with a listed ref, or look if you need pixels"
-                        ),
-                    ))
-                    if len(history) > HISTORY_KEEP:
-                        del history[:-HISTORY_KEEP]
-                    refresh_view = True
-                    continue
+                    if not darwin_tap:
+                        # Model guessed coordinates of an image it was never shown.
+                        # Don't click blindly -- ask it to use a listed ref or look.
+                        # Darwin left_click is a trackpad tap against the AX listing.
+                        logger.info(
+                            "harness: refusing pixel action '%s' on an accessibility-only turn",
+                            action.kind,
+                        )
+                        history.append(HistoryStep(
+                            action=action,
+                            result=(
+                                "no screenshot was sent this step; use click_element / type "
+                                "with a listed ref, or look if you need pixels"
+                            ),
+                        ))
+                        if len(history) > HISTORY_KEEP:
+                            del history[:-HISTORY_KEEP]
+                        refresh_view = True
+                        continue
                 if action.kind == "click_element" or (action.kind == "type" and action.element):
                     el = elements.resolve_ref(step_targets, action.element)
                     if el is None:
@@ -446,6 +524,13 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                         action = replace(action, x=el.center[0], y=el.center[1])
 
             reasoning = action.reasoning or action.raw.get("reasoning", "")
+            _emit(
+                config,
+                "action",
+                step=step,
+                kind=action.kind,
+                reasoning=(reasoning or "")[:240],
+            )
 
             def record_result(result: str, *, action=action, raw_png=raw_png, reasoning=reasoning) -> None:
                 history.append(HistoryStep(action=action, result=result))
@@ -488,7 +573,8 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                         logger.info("saved macro: %s (%d step(s))", config.macro_path, len(macro_recorder.steps))
                     except OSError as e:
                         logger.warning("could not save macro %s (%s); the run still succeeded", config.macro_path, e)
-                return 0 if (plan is None or not plan.skipped) else 3
+                _emit(config, "done", summary=summary or "")
+                return _done(config, 0 if (plan is None or not plan.skipped) else 3)
 
             if action.kind == "look":
                 refresh_view = True
@@ -500,14 +586,16 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             if action.kind == "ask_user":
                 question = action.text or action.raw.get("text", "")
                 logger.info("model is asking: %s", question)
-                if config.gui:
+                if config.ask_operator is not None:
+                    allowed = bool(config.ask_operator(question))
+                elif config.gui:
                     allowed = dialog.ask_user(question)
                 else:
                     print(f"\n[secdogie-agent] the model is asking: {question}")
                     allowed = safety.confirm("Allow the agent to continue?")
                 if not allowed:
                     logger.info("user declined to continue after ask_user")
-                    return 2
+                    return _done(config, 2)
                 record_result("user confirmed, continuing")
                 continue
 
@@ -571,7 +659,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                             "stalled: '%s' repeated %d times with no screen change; stopping",
                             action.kind, stall_count,
                         )
-                        return 6
+                        return _done(config, 6)
                 else:
                     stall_count = 0
                 prev_exec_sig, prev_exec_frame = sig, frame_hash
@@ -581,7 +669,10 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             # Mutating actions under --auto are allowed without extra prompt (operator chose --auto);
             # --read-only already blocked them above.
             force_confirm = is_high_risk and config.confirm_high_risk
-            needs_confirm = action.kind not in _BENIGN and (not config.auto or force_confirm)
+            if config.gui and not config.confirm_each:
+                needs_confirm = force_confirm
+            else:
+                needs_confirm = action.kind not in _BENIGN and (not config.auto or force_confirm)
             if needs_confirm:
                 if config.auto and force_confirm:
                     logger.warning("HIGH-RISK action '%s' needs confirmation even under --auto", action.kind)
@@ -619,7 +710,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                                 "require-focus: action ran without confirmed focus; aborting (exit 7)"
                             )
                             record_result(result)
-                            return 7
+                            return _done(config, 7)
             except Exception as e:
                 result = f"error: {e}"
                 logger.error("action failed: %s", e)
@@ -627,10 +718,14 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             if config.action_pause > 0 and action.kind not in _BENIGN:
                 time.sleep(config.action_pause)
 
-            # Only run the extra post-action capture+diff for click-like actions.
-            # Type/key/open/drag change the UI less predictably (or not at all in
-            # the short window) and were the main source of screenshot pile-up.
-            if executed_ok and config.verify_actions and exec_kind in _RETRY_SAFE:
+            # Pixel-diff verify is an extra full-screen capture. Skip it when
+            # the OS accessibility invoke already reported success.
+            ax_invoke = (
+                executed_ok
+                and action.kind == "click_element"
+                and exec_kind == "click_element"
+            )
+            if executed_ok and config.verify_actions and exec_kind in _RETRY_SAFE and not ax_invoke:
                 result = _verify_and_maybe_retry(
                     backend, action, raw_png, result, config, logger, harness_el=harness_el,
                 )
@@ -643,10 +738,17 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     macro_recorder.record_step(replayed_step)
                 else:
                     macro_recorder.record(action, result, backend, real_size, frame_png=raw_png)
+            _emit(
+                config,
+                "result",
+                step=step,
+                kind=action.kind,
+                result=str(result)[:240],
+            )
             record_result(result)
 
         logger.warning("reached max_steps (%d) without the model signaling done", config.max_steps)
-        return 3
+        return _done(config, 3)
     finally:
         if memory is not None:
             memory.close()
@@ -677,8 +779,9 @@ def _deliver_action(backend: Backend, action, el) -> tuple[str, str]:
     accessibility action (`invoke_element`: UIA Invoke / AXPress).
 
     Windows: on a miss, rewrite to `left_click` (SendInput / pyautogui).
-    macOS: never rewrite to a mouse click — pyautogui is Quartz HID
-    (`CGEventPost`). AX miss is a refused result, not a HID fallback.
+    macOS: the AX tree is a trackpad. `click_element` miss and coordinate
+    `left_click` / `double_click` hit-test the live tree then AXPress.
+    Never rewrite to a mouse click — pyautogui is Quartz HID (`CGEventPost`).
     Linux keeps the mouse rewrite (X11/Wayland), matching the native
     loop which does not mutate at all.
 
@@ -691,13 +794,16 @@ def _deliver_action(backend: Backend, action, el) -> tuple[str, str]:
         return harnessed, action.kind
     exec_action = action
     exec_kind = action.kind
+    if sys.platform == "darwin" and action.kind in harness.TOUCH_KINDS:
+        touched = harness.press_point(backend, action.x, action.y)
+        if touched is not None:
+            return touched, action.kind
+        return (
+            "macOS tap is AX hit-test + AXPress only; "
+            "HID/CGEvent/IOHID/pyautogui click refused.",
+            action.kind,
+        )
     if action.kind == "click_element":
-        if sys.platform == "darwin":
-            return (
-                "macOS click_element is AXPress only; "
-                "HID/CGEvent/IOHID/pyautogui click refused.",
-                action.kind,
-            )
         exec_action = replace(action, kind="left_click")
         exec_kind = "left_click"
     return backend.execute(exec_action), exec_kind
@@ -766,41 +872,58 @@ def _verify_and_maybe_retry(
 
 
 def _run_briefing(provider: VisionProvider, config: AgentConfig, logger, backend: Backend) -> int | None:
-    busy = _busy(config, "Calling the model with your task…")
-    try:
-        try:
-            raw_png, real_size = backend.capture(config.region)
-        except screen.CaptureError as e:
-            logger.error("%s", e)
-            _alert(config, "secdogie-agent — cannot capture the screen", str(e))
-            return 4
+    """Pre-flight confirm. Default is a local restatement — no extra vision call.
 
-        model_png, _size, _scale = screen.prepare_for_model(
-            raw_png, real_size, max_edge=config.max_image_edge
-        )
+    The previous path uploaded a screenshot and waited on explain_task before
+    anything moved. That was a full model RTT and a second failure mode if
+    the key/model was wrong. Pass --model-briefing to restore it.
+    """
+    if config.model_briefing:
+        busy = _busy(config, "Calling the model with your task…")
         try:
-            plan = provider.explain_task(config.task, model_png, real_size)
-        except Exception as e:
-            logger.warning("could not get a task briefing from the model: %s", e)
-            _alert(
-                config,
-                "secdogie-agent — the model did not answer",
-                "Your command was received, but the model call failed before any action.\n\n"
-                f"{e}\n\n"
-                "Check the API key, provider, and model id. "
-                "OpenRouter needs a vendor/model id "
-                "(e.g. openai/gpt-4o or anthropic/claude-sonnet-4).",
+            try:
+                raw_png, real_size = backend.capture(config.region)
+            except screen.CaptureError as e:
+                logger.error("%s", e)
+                _alert(config, "secdogie-agent — cannot capture the screen", str(e))
+                return 4
+
+            model_png, _size, _scale = screen.prepare_for_model(
+                raw_png, real_size, max_edge=config.max_image_edge
             )
-            return 1
-    finally:
-        if busy is not None:
-            busy.close()
-
-    if not plan:
-        return None
+            try:
+                plan = provider.explain_task(config.task, model_png, real_size)
+            except Exception as e:
+                logger.warning("could not get a task briefing from the model: %s", e)
+                _alert(
+                    config,
+                    "secdogie-agent — the model did not answer",
+                    "Your command was received, but the model call failed before any action.\n\n"
+                    f"{e}\n\n"
+                    "Check the API key, provider, and model id. "
+                    "OpenRouter needs a vendor/model id "
+                    "(e.g. openai/gpt-4o or anthropic/claude-sonnet-4).",
+                )
+                return 1
+        finally:
+            if busy is not None:
+                busy.close()
+        if not plan:
+            return None
+    else:
+        plan = (
+            "I'll look at the current screen and carry this out one action at a time.\n\n"
+            f"{config.task}\n\n"
+            "Clicks and typing run after you approve. Opening a file or URL will still ask."
+        )
 
     logger.info("task briefing:\n%s", plan)
-    if not dialog.confirm_plan(config.task, plan):
+    approver = config.approve_plan
+    if approver is None and config.gui:
+        approver = dialog.confirm_plan
+    if approver is None:
+        return None
+    if not approver(config.task, plan):
         logger.info("user cancelled at the task briefing")
         return 2
     return None

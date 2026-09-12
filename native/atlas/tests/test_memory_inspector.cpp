@@ -426,6 +426,22 @@ void RunMemoryInspectorTests() {
            hits.empty() ? "miss" : "ok");
   }
   {
+    unsigned char bgra[8 * 8 * 4];
+    std::memset(bgra, 0, sizeof(bgra));
+    bgra[0] = 10;
+    bgra[1] = 20;
+    bgra[2] = 30;
+    bgra[3] = 255;
+    DibHit d;
+    FillRgbaPreviewFromBgra(d, bgra, 8, 8, 4);
+    Expect(d.width == 4 && d.height == 4 && d.bit_count == 32 && d.rgba.size() == 4 * 4 * 4,
+           "FillRgbaPreviewFromBgra downscales and keeps RGBA",
+           "size");
+    Expect(d.rgba[0] == 30 && d.rgba[1] == 20 && d.rgba[2] == 10 && d.rgba[3] == 255,
+           "FillRgbaPreviewFromBgra swaps BGRA to RGBA",
+           "channels");
+  }
+  {
     TokenSnapshot self;
     self.pid = 10;
     self.integrity = Integrity::Medium;

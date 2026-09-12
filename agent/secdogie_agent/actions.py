@@ -3,10 +3,11 @@
 `done` and `ask_user` are handled by the agent loop, not here -- they end
 or pause the loop rather than performing an OS-level action.
 
-Movement is deliberately not instantaneous: teleporting the cursor and
+Movement is deliberately short, not instantaneous: teleporting the cursor and
 clicking in the same tick makes some apps miss hover/focus events. We move
-over a short duration and pause briefly before clicking, which is both more
-reliable and closer to human input.
+over a brief duration and pause before clicking. Defaults are the speed
+path (50ms move / 20ms settle); raise with --move-duration / --settle if a
+target app needs a longer hover.
 """
 from __future__ import annotations
 
@@ -20,9 +21,9 @@ from collections.abc import Callable
 
 from .providers.base import Action
 
-DEFAULT_MOVE_DURATION = 0.15
-DEFAULT_SETTLE = 0.05
-CLIPBOARD_SETTLE = 0.15
+DEFAULT_MOVE_DURATION = 0.05
+DEFAULT_SETTLE = 0.02
+CLIPBOARD_SETTLE = 0.06
 
 _CLIPBOARD_HELP = (
     "typing non-ASCII text (e.g. Chinese) needs clipboard access. Install "

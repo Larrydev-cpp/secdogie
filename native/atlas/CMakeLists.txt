@@ -43,6 +43,7 @@ if (APPLE)
     "-framework ApplicationServices"
     "-framework CoreFoundation"
     "-framework CoreGraphics"
+    "-framework CoreServices"
   )
 endif()
 

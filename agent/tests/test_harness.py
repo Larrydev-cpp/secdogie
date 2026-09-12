@@ -23,7 +23,26 @@ def test_should_omit_screenshot_only_when_the_tree_is_healthy_and_we_are_not_loo
     assert harness.should_omit_screenshot(targets, refresh_view=True, boost_detail=False) is False
     assert harness.should_omit_screenshot(targets, refresh_view=False, boost_detail=True) is False
     assert harness.should_omit_screenshot([], refresh_view=False, boost_detail=False) is False
-    assert harness.should_omit_screenshot(targets, refresh_view=False, boost_detail=False) is True
+    assert harness.should_omit_screenshot(
+        targets, refresh_view=False, boost_detail=False, platform="linux"
+    ) is True
+    assert harness.should_omit_screenshot(
+        targets, refresh_view=False, boost_detail=False, platform="win32"
+    ) is True
+
+
+def test_darwin_omits_screenshot_when_ax_listing_is_healthy():
+    """macOS AX is the trackpad. Tokens skip the image when the tree is live."""
+    targets = elements.interactable_targets(_tree())
+    assert harness.should_omit_screenshot(
+        targets, refresh_view=False, boost_detail=False, platform="darwin"
+    ) is True
+    assert harness.should_omit_screenshot(
+        [], refresh_view=False, boost_detail=False, platform="darwin"
+    ) is False
+    assert harness.should_omit_screenshot(
+        targets, refresh_view=True, boost_detail=False, platform="darwin"
+    ) is False
 
 
 def test_is_editable_matches_all_three_platform_vocabularies():
@@ -75,6 +94,34 @@ def test_invoke_element_none_when_press_refuses_or_is_missing():
 
     assert DesktopBackend(ax_provider=SnapshotOnly()).invoke_element(el) is None
     assert DesktopBackend().invoke_element(el) is None  # no provider at all
+
+
+def test_press_point_uses_press_at_then_snapshot_hit_test():
+    class Pad(FakeAx):
+        def __init__(self):
+            super().__init__(_tree())
+            self.press_at_calls: list[tuple[int, int]] = []
+
+        def press_at(self, x, y):
+            self.press_at_calls.append((x, y))
+            return True
+
+    pad = Pad()
+    b = DesktopBackend(ax_provider=pad)
+    result = harness.press_point(b, 150, 120)
+    assert result is not None and "hit-test" in result and "HID" in result
+    assert pad.press_at_calls == [(150, 120)]
+
+    class NoPressAt(FakeAx):
+        pass
+
+    b2 = DesktopBackend(ax_provider=NoPressAt(_tree()))
+    result2 = harness.press_point(b2, 150, 120)
+    assert result2 is not None and "Save" in result2
+    assert b2.ax_provider.press_calls
+
+    assert harness.press_point(DesktopBackend(), 1, 1) is None
+    assert harness.press_point(DesktopBackend(ax_provider=FakeAx(_tree())), 5000, 5000) is None
 
 
 def test_set_element_value_calls_set_value_and_falls_back_when_refused():

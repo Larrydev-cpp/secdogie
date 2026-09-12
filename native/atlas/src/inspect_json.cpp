@@ -21,6 +21,7 @@ struct JsonBuf {
   void puts(const char* t) {
     if (t) s.append(t);
   }
+  void puts(const std::string& t) { s.append(t); }
   void append(const char* p, std::size_t n) { s.append(p, n); }
   void fmt(const char* f, ...) {
     char stack[512];
@@ -254,6 +255,21 @@ const char* PlatformName() noexcept {
 #endif
 }
 
+std::string DumpPadGrantsJson() {
+  JsonBuf o;
+  const PadGrants g = QueryPadGrants();
+  o.puts("{\"accessibility\":");
+  o.puts(g.accessibility ? "true" : "false");
+  o.puts(",\"screen_recording\":");
+  o.puts(g.screen_recording ? "true" : "false");
+  o.puts(",\"pad\":");
+  JsonStr(o, g.pad);
+  o.puts(",\"detail\":");
+  JsonStr(o, g.detail);
+  o.put('}');
+  return o.s;
+}
+
 std::string DumpListJson() {
   JsonBuf o;
   const std::vector<ListedProcess> procs = ProcessPerception::ListProcesses();
@@ -270,6 +286,8 @@ std::string DumpListJson() {
   } else {
     o.puts("null");
   }
+  o.puts(",\"grants\":");
+  o.puts(DumpPadGrantsJson());
   o.puts(",\"processes\":[");
   for (std::size_t i = 0; i < procs.size(); ++i) {
     if (i) o.put(',');
@@ -314,7 +332,8 @@ std::string DumpInspectJson(std::uint32_t pid, const InspectConfig& cfg,
   empty.detail = mem ? mem.value().detail : mem.error().detail;
   empty.stats.handle_closed = true;
   empty.stats.token_closed = true;
-  const InspectSnapshot& s = mem ? mem.value() : empty;
+  InspectSnapshot owned = mem ? mem.value() : empty;
+  const InspectSnapshot& s = owned;
   const std::vector<MemoryHit> no_hits;
   const std::vector<HybridNode> fused =
       FuseTree(uia.controls, mem ? s.strings : no_hits,
@@ -372,6 +391,9 @@ std::string DumpInspectJson(std::uint32_t pid, const InspectConfig& cfg,
         static_cast<unsigned long long>(s.rss_kb), s.session_id);
   JsonStr(o, s.detail);
   o.put(',');
+  o.puts("\"grants\":");
+  o.puts(DumpPadGrantsJson());
+  o.put(',');
   DumpToken(o, s.token);
   o.puts(",\"wall\":{\"code\":");
   JsonStr(o, PrivilegeCodeName(wall.code));
@@ -419,9 +441,11 @@ std::string DumpInspectJson(std::uint32_t pid, const InspectConfig& cfg,
   for (std::size_t i = 0; i < s.dibs.size(); ++i) {
     if (i) o.put(',');
     o.fmt("{\"address\":%llu,\"width\":%d,\"height\":%d,\"bit_count\":%u,\"compression\":%u,"
-          "\"preview\":",
+          "\"source\":",
           static_cast<unsigned long long>(s.dibs[i].address), s.dibs[i].width, s.dibs[i].height,
           s.dibs[i].bit_count, s.dibs[i].compression);
+    JsonStr(o, s.dibs[i].source.empty() ? "heap" : s.dibs[i].source);
+    o.puts(",\"preview\":");
     if (s.dibs[i].rgba.empty()) o.puts("null");
     else JsonB64(o, s.dibs[i].rgba.data(), s.dibs[i].rgba.size());
     o.put('}');
@@ -459,7 +483,10 @@ std::string DumpInspectJson(std::uint32_t pid, const InspectConfig& cfg,
     JsonW(o, found->name);
     o.puts(",\"automation_id\":");
     JsonW(o, found->automation_id);
-    o.fmt(",\"pid\":%u}", found->pid);
+    o.fmt(",\"pid\":%u,\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"role\":", found->pid,
+          found->bounds.x, found->bounds.y, found->bounds.w, found->bounds.h);
+    JsonStr(o, RoleName(found->role));
+    o.put('}');
   } else {
     o.puts("null");
   }

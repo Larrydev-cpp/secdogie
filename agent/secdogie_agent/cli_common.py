@@ -120,7 +120,24 @@ def add_loop_args(parser: argparse.ArgumentParser) -> None:
         type=float,
         default=None,
         help="seconds to wait after each action before the next screenshot, so the UI can react "
-        "(default 0.15; lower is faster but risks acting on a stale frame; 0 disables)",
+        "(default 0.06; lower is faster but risks acting on a stale frame; 0 disables)",
+    )
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="tighter capture/pause (1024px long-edge, 40ms action pause, 30ms cursor move). "
+        "CAD drawings that need more pixels should omit this and pass --max-image-edge 1920",
+    )
+    parser.add_argument(
+        "--confirm-each",
+        action="store_true",
+        help="with --gui, pop Yes/No before every action instead of running after the plan",
+    )
+    parser.add_argument(
+        "--model-briefing",
+        action="store_true",
+        help="with --gui, ask the model to write a plan from a screenshot before acting "
+        "(an extra vision round-trip; off by default)",
     )
     parser.add_argument(
         "--stall-limit",
@@ -239,6 +256,17 @@ def loop_config_kwargs(args: argparse.Namespace, *, task: str, backend=None) -> 
         kwargs["action_pause"] = args.action_pause
     if args.stall_limit is not None:
         kwargs["stall_limit"] = args.stall_limit
+    if getattr(args, "confirm_each", False):
+        kwargs["confirm_each"] = True
+    if getattr(args, "model_briefing", False):
+        kwargs["model_briefing"] = True
+    if getattr(args, "fast", False):
+        if args.max_image_edge is None:
+            kwargs["max_image_edge"] = 1024
+        if args.action_pause is None:
+            kwargs["action_pause"] = 0.04
+        kwargs["move_duration"] = 0.03
+        kwargs["settle"] = 0.01
     if getattr(args, "plan", False):
         kwargs["plan"] = True
     if getattr(args, "subtask_step_limit", None) is not None:

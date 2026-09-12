@@ -194,6 +194,46 @@ const ListedProcess* Resolve(const std::vector<ListedProcess>& procs, const std:
   return best_s >= 25 ? best : nullptr;
 }
 
+bool ParseXy(const std::string& arg, int* x, int* y) {
+  if (!x || !y) return false;
+  std::string t;
+  t.reserve(arg.size());
+  for (char c : arg) t.push_back((c == ',' || c == ';' || c == ':') ? ' ' : c);
+  int a = 0;
+  int b = 0;
+  if (std::sscanf(t.c_str(), "%d %d", &a, &b) == 2) {
+    *x = a;
+    *y = b;
+    return true;
+  }
+  return false;
+}
+
+std::string DumpControlHit(const ControlNode& n) {
+  std::string o = "{\"id\":";
+  o += JsonEscapeValue(n.id);
+  o += ",\"name\":";
+  o += JsonEscapeValue(WideToUtf8(n.name));
+  o += ",\"automation_id\":";
+  o += JsonEscapeValue(WideToUtf8(n.automation_id));
+  o += ",\"role\":";
+  o += JsonEscapeValue(RoleName(n.role));
+  o += ",\"pid\":";
+  o += std::to_string(n.pid);
+  o += ",\"x\":";
+  o += std::to_string(n.bounds.x);
+  o += ",\"y\":";
+  o += std::to_string(n.bounds.y);
+  o += ",\"w\":";
+  o += std::to_string(n.bounds.w);
+  o += ",\"h\":";
+  o += std::to_string(n.bounds.h);
+  o += ",\"enabled\":";
+  o += n.enabled ? "true" : "false";
+  o += "}";
+  return o;
+}
+
 std::string Wrap(bool ok, const std::string& op, const std::string& result,
                  const std::string& extra) {
   std::string o = "{\"ok\":";
@@ -241,7 +281,7 @@ std::uint32_t MctEnsureFixture() {
   const std::uint32_t pid = pi.dwProcessId;
   CloseHandle(pi.hThread);
   CloseHandle(pi.hProcess);
-  Sleep(150);
+  Sleep(80);
   return pid;
 #else
   const pid_t child = fork();
@@ -256,7 +296,7 @@ std::uint32_t MctEnsureFixture() {
     _exit(127);
   }
   if (child < 0) return 0;
-  usleep(150000);
+  usleep(80000);
   return static_cast<std::uint32_t>(child);
 #endif
 }
@@ -287,12 +327,19 @@ MctOp ParseMctLine(const std::string& line, std::string* arg) {
     return MctOp::Graphics;
   }
   if (h == "status" || h == "health") return MctOp::Status;
+  if (h == "grant" || h == "grants" || head == "权限" || head == "授权" || h == "tcc") {
+    return MctOp::Grant;
+  }
   if (h == "mapped" || head == "映射") return MctOp::Mapped;
   if (h == "inspect" || h == "open" || h == "pid" || head == "检查" || head == "打开") {
     if (arg && arg->empty()) *arg = "atlas_target";
     return MctOp::Inspect;
   }
   if (h == "find" || head == "查找" || head == "找" || h == "lock") return MctOp::Find;
+  if (h == "touch" || h == "hit" || h == "tap" || head == "点" || head == "触" ||
+      head == "触摸" || head == "点击") {
+    return MctOp::Touch;
+  }
   if (h == "chain" || h == "related" || head == "串联" || head == "关联" || head == "链路") {
     return MctOp::Chain;
   }
@@ -347,13 +394,24 @@ std::string ExecMctLine(MctState& st, const std::string& line) {
   switch (op) {
     case MctOp::Help:
       return Wrap(true, "help",
-                  "list · inspect <pid|name> · find <control> · chain · link <pid> · "
-                  "job report · 报表 · graphics · mapped on|off · status · clear",
+                  "list · inspect <pid|name> · find <control> · touch <x> <y> · 点 <x> <y> · "
+                  "grant · 授权 · chain · link <pid> · job report · 报表 · graphics · mapped "
+                  "on|off · status · clear",
                   "\"kind\":\"app\"");
-    case MctOp::Status:
-      return Wrap(true, "status", "atlas_mct 应用程式 loopback, read-only",
-                  std::string("\"platform\":\"") + PlatformName() + "\",\"kind\":\"app\",\"pid\":" +
-                      std::to_string(st.pid));
+    case MctOp::Status: {
+      const PadGrants g = QueryPadGrants();
+      return Wrap(true, "status", "atlas_mct 应用程式 loopback, read-only · pad " + g.pad,
+                  std::string("\"platform\":\"") + PlatformName() +
+                      "\",\"kind\":\"app\",\"pid\":" + std::to_string(st.pid) + ",\"grants\":" +
+                      DumpPadGrantsJson());
+    }
+    case MctOp::Grant: {
+      RequestPadGrants();
+      const PadGrants g = QueryPadGrants();
+      return Wrap(true, "grant", g.detail,
+                  std::string("\"platform\":\"") + PlatformName() + "\",\"grants\":" +
+                      DumpPadGrantsJson());
+    }
     case MctOp::Clear:
       st.pid = 0;
       st.find.clear();
@@ -432,6 +490,51 @@ std::string ExecMctLine(MctState& st, const std::string& line) {
                       (a.stale ? "true" : "false") + ",\"snapshot\":" +
                       (a.json.empty() ? "null" : a.json));
     }
+    case MctOp::Touch: {
+      int x = 0;
+      int y = 0;
+      if (!ParseXy(arg, &x, &y)) {
+        return Wrap(false, "touch", "usage: touch <x> <y> · 点 <x> <y>", "");
+      }
+      if (st.pid == 0) {
+        MctEnsureFixture();
+        const auto procs = ProcessPerception::ListProcesses();
+        const ListedProcess* p = Resolve(procs, "");
+        if (p) st.pid = p->pid;
+      }
+      if (st.pid == 0) return Wrap(false, "touch", "no readable target", "");
+      ProcessPerception perception;
+      PerceptionSnapshot uia = perception.SnapshotPid(st.pid);
+      const ControlNode* hit = ProcessPerception::HitTest(uia.controls, x, y);
+      std::vector<ControlNode> window_pad;
+      if (!hit) {
+        window_pad = WindowPad(st.pid);
+        hit = ProcessPerception::HitTest(window_pad, x, y);
+      }
+      if (hit) {
+        if (!hit->name.empty()) st.find = hit->name;
+        else if (!hit->automation_id.empty()) st.find = hit->automation_id;
+      }
+      std::string extra = std::string("\"pid\":") + std::to_string(st.pid) +
+                          ",\"x\":" + std::to_string(x) + ",\"y\":" + std::to_string(y) +
+                          ",\"tab\":\"graphics\",\"found\":";
+      extra += hit ? DumpControlHit(*hit) : "null";
+      extra += ",\"nodes\":";
+      extra += std::to_string(uia.controls.size());
+      extra += ",\"grants\":";
+      extra += DumpPadGrantsJson();
+      std::string label;
+      if (hit) {
+        label = WideToUtf8(hit->name);
+        if (label.empty()) label = hit->id;
+        if (label.empty()) label = RoleName(hit->role);
+      }
+      return Wrap(hit != nullptr, "touch",
+                  hit ? ("HIT " + label + " @ " + std::to_string(x) + "," + std::to_string(y))
+                      : ("MISS " + std::to_string(x) + "," + std::to_string(y) +
+                         " — no AX/UIA/window node under the point. On macOS run: grant"),
+                  extra);
+    }
     case MctOp::Graphics: {
       if (st.pid == 0) {
         MctEnsureFixture();
@@ -447,7 +550,8 @@ std::string ExecMctLine(MctState& st, const std::string& line) {
         st.last_pid = st.pid;
       }
       return Wrap(a.ok || a.stale, "graphics",
-                  a.stale ? "viewport from last-known (isolated)" : "viewport from process memory",
+                  a.stale ? "viewport from last-known (isolated)"
+                          : "viewport from AX/UIA hit-map (trackpad) / process memory",
                   std::string("\"pid\":") + std::to_string(st.pid) +
                       ",\"tab\":\"graphics\",\"stale\":" + (a.stale ? "true" : "false") +
                       ",\"snapshot\":" + (a.json.empty() ? "null" : a.json));

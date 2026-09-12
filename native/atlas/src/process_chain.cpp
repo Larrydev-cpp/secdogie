@@ -251,7 +251,7 @@ InspectAttempt InspectWithRetry(std::uint32_t pid, const InspectConfig& cfg,
       return a;
     }
     a.detail = json.size() > 180 ? json.substr(0, 180) : json;
-    if (i + 1 < retries) SleepMs(80 << i);
+    if (i + 1 < retries) SleepMs(40 << i);
   }
   if (last_known && last_known->find("\"ok\":true") != std::string::npos) {
     a.stale = true;
