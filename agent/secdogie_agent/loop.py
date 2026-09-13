@@ -10,7 +10,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
-from . import actions, dialog, elements, harness, safety, screen
+from . import actions, ax_image, dialog, elements, harness, safety, screen
 from .backend import Backend, DesktopBackend, ElementAware
 from .macro import Macro, MacroRecorder, MacroStep, resolve_replay_step
 from .memory import Memory, SecretRefused
@@ -152,6 +152,26 @@ def _present(backend, logger) -> None:
             )
     except Exception as e:
         logger.warning("could not present the target window before capture: %s", e)
+
+
+def _grab_step_frame(backend, config: AgentConfig, logger) -> tuple[bytes, tuple[int, int], str]:
+    """Return (png, size, source). Darwin builds an AX-box figure. Never mss.
+
+    source is `ax-pad` or `screenshot`. CaptureError on Darwin falls back to
+    an empty pad so a missing Screen Recording grant cannot abort the run.
+    """
+    if harness.uses_ax_pad():
+        png, size = ax_image.render_from_backend(backend, region=config.region)
+        return png, size, "ax-pad"
+    try:
+        png, size = backend.capture(config.region)
+        return png, size, "screenshot"
+    except screen.CaptureError:
+        if sys.platform == "darwin":
+            logger.warning("screenshot refused on Darwin; building an AX pad instead")
+            png, size = ax_image.render_from_backend(backend, region=config.region)
+            return png, size, "ax-pad"
+        raise
 
 
 def _alert(config: AgentConfig, title: str, message: str) -> None:
@@ -330,14 +350,19 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             _present(backend, logger)
 
             try:
-                raw_png, real_size = backend.capture(config.region)
+                raw_png, real_size, frame_source = _grab_step_frame(backend, config, logger)
             except screen.CaptureError as e:
                 logger.error("%s", e)
                 _alert(config, "secdogie-agent — cannot capture the screen", str(e))
                 return _done(config, 4)
 
             _emit(
-                config, "capture", step=step, width=real_size[0], height=real_size[1]
+                config,
+                "capture",
+                step=step,
+                width=real_size[0],
+                height=real_size[1],
+                source=frame_source,
             )
 
             frame_hash = hashlib.blake2b(raw_png, digest_size=16).digest()
@@ -396,7 +421,30 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 omit_image = element_first and harness.should_omit_screenshot(
                     step_targets, refresh_view=refresh_view, boost_detail=boost_detail
                 )
-                if omit_image:
+                if frame_source == "ax-pad":
+                    # Mac image is the AX box map. Never omit the figure, never
+                    # call Screen Recording. Reuse last pad when the tree hash
+                    # is unchanged and the model did not ask to look.
+                    if (
+                        last_model_frame is not None
+                        and not refresh_view
+                        and not boost_detail
+                        and screen_unchanged
+                    ):
+                        model_png, model_size, scale = last_model_frame
+                    else:
+                        edge = config.max_image_edge
+                        if boost_detail:
+                            edge = max(edge, min(1920, int(edge * 1.25)))
+                        model_png, model_size, scale = screen.prepare_for_model(
+                            raw_png, real_size, max_edge=edge, grid=config.grid
+                        )
+                        cached_frame = (model_png, model_size, scale)
+                        last_model_frame = (model_png, model_size, scale)
+                        last_sent_hash = frame_hash
+                        boost_detail = False
+                    omitted_image = False
+                elif omit_image:
                     # Structured-first: the listing is the live UI. Don't spend
                     # image tokens; the model can `look` the moment pixels matter.
                     model_png, model_size, scale = None, real_size, 1.0
@@ -432,6 +480,8 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                         step_task += f"\n\nWhat you remember from earlier runs:\n{recalled}"
                 if listing:
                     step_task += f"\n\n{listing}"
+                if frame_source == "ax-pad":
+                    step_task += f"\n\n{harness.AX_PAD_NOTE}"
                 if omitted_image:
                     step_task += f"\n\n{harness.OMIT_IMAGE_NOTE}"
                 if screen_unchanged:
@@ -580,7 +630,10 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 refresh_view = True
                 boost_detail = True  # next prepare uses higher max_edge for the detail the model asked for
                 logger.info("step %d: model requested a fresh look%s", step, f" -- {reasoning}" if reasoning else "")
-                record_result("will capture a fresh screenshot on the next step")
+                if frame_source == "ax-pad" or harness.uses_ax_pad():
+                    record_result("will rebuild the AX pad on the next step (no screenshot)")
+                else:
+                    record_result("will capture a fresh screenshot on the next step")
                 continue
 
             if action.kind == "ask_user":
@@ -726,12 +779,16 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 and exec_kind == "click_element"
             )
             if executed_ok and config.verify_actions and exec_kind in _RETRY_SAFE and not ax_invoke:
-                result = _verify_and_maybe_retry(
-                    backend, action, raw_png, result, config, logger, harness_el=harness_el,
-                )
-                if _NO_CHANGE_NOTE in result:
-                    # Next frame needs more detail so the model can re-aim.
-                    boost_detail = True
+                if frame_source == "ax-pad" or harness.uses_ax_pad():
+                    # Pixel-diff needs Screen Recording. The pad already moved
+                    # via AXPress; do not grab CGWindow / mss to "verify".
+                    pass
+                else:
+                    result = _verify_and_maybe_retry(
+                        backend, action, raw_png, result, config, logger, harness_el=harness_el,
+                    )
+                    if _NO_CHANGE_NOTE in result:
+                        boost_detail = True
 
             if executed_ok and macro_recorder is not None:
                 if from_replay:
@@ -811,10 +868,11 @@ def _deliver_action(backend: Backend, action, el) -> tuple[str, str]:
 
 def _build_plan(provider: VisionProvider, config: AgentConfig, logger, backend: Backend) -> Plan | None:
     try:
-        raw_png, real_size = backend.capture(config.region)
+        raw_png, real_size, source = _grab_step_frame(backend, config, logger)
     except screen.CaptureError as e:
         logger.warning("could not capture a screenshot to plan (%s); running unplanned", e)
         return None
+    _ = source
     model_png, _size, _scale = screen.prepare_for_model(raw_png, real_size, max_edge=config.max_image_edge)
     try:
         subtasks = provider.plan_task(config.task, model_png, real_size)
@@ -882,11 +940,13 @@ def _run_briefing(provider: VisionProvider, config: AgentConfig, logger, backend
         busy = _busy(config, "Calling the model with your task…")
         try:
             try:
-                raw_png, real_size = backend.capture(config.region)
+                raw_png, real_size, _source = _grab_step_frame(backend, config, logger)
             except screen.CaptureError as e:
-                logger.error("%s", e)
-                _alert(config, "secdogie-agent — cannot capture the screen", str(e))
-                return 4
+                if config.model_briefing and not harness.uses_ax_pad():
+                    logger.error("%s", e)
+                    _alert(config, "secdogie-agent — cannot capture the screen", str(e))
+                    return 4
+                raw_png, real_size = ax_image.render_from_backend(backend, region=config.region)
 
             model_png, _size, _scale = screen.prepare_for_model(
                 raw_png, real_size, max_edge=config.max_image_edge
