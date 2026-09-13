@@ -63,22 +63,34 @@ PIXEL_KINDS = frozenset(
 # Darwin: these kinds are a finger on the AX pad, not a screenshot click.
 TOUCH_KINDS = frozenset({"left_click", "double_click", "click_element"})
 
+AX_PAD_NOTE = (
+    "AX PAD VIEW: the attached figure is a map of accessibility boxes "
+    "(role / name / bounds), not a screen capture. Coordinates are real "
+    "screen pixels on that pad. Prefer click_element / type by ref; "
+    "left_click is AXUIElementCopyElementAtPosition then AXPress. "
+    "look rebuilds this pad. Screen Recording is not used."
+)
 OMIT_IMAGE_NOTE = (
     "ACCESSIBILITY-ONLY VIEW: no screenshot is attached this step. The element "
     "list above is the live UI (re-read this turn). Prefer "
     '{"action": "click_element", "element": "eN"} or '
-    '{"action": "type", "element": "eN", "text": "..."} -- those are delivered '
-    "through the accessibility API and do not move the real cursor. On macOS "
-    "the listing is a trackpad: "
+    '{"action": "type", "element": "eN", "text": "..."}. On macOS the listing '
+    "is a trackpad and the attached figure is an AX box map (not a screen "
+    "capture). "
     '{"action": "left_click", "x": ..., "y": ...} hit-tests the AX tree and '
-    "AXPresses (never HID). If your target is not listed (a CAD canvas, a "
-    'custom-drawn control, fine text), reply {"action": "look"} to get pixels.'
+    "AXPresses (never HID). If your target is not listed, reply "
+    '{"action": "look"} to rebuild the AX pad — that is still not a screenshot.'
 )
 
 
 def is_editable(el: AxElement) -> bool:
     """True if `el` is a text field we can fill via SetValue rather than typing."""
     return el.role.strip().lower() in EDIT_ROLES
+
+
+def uses_ax_pad(platform: str | None = None) -> bool:
+    """True on macOS: the model image is an AX schematic, never mss / CGWindow."""
+    return (platform or sys.platform) == "darwin"
 
 
 def should_omit_screenshot(
@@ -96,13 +108,14 @@ def should_omit_screenshot(
     with a healthy listing omit the image: that's the token win, and the
     model can still `look` the moment pixels actually matter.
 
-    Darwin is included. The AX tree is the trackpad (names, roles, bounds);
-    `left_click` hit-tests it and AXPresses. Pixels are verify / `look`, not
-    the pad.
+    Darwin always omits *screenshots*. The loop attaches an AX-box figure
+    instead; `look` rebuilds that pad. Screen Recording is not required.
     """
+    plat = platform or sys.platform
+    if plat == "darwin":
+        return True
     if refresh_view or boost_detail:
         return False
-    _ = platform or sys.platform
     return bool(targets)
 
 
