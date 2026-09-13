@@ -55,3 +55,9 @@ def test_interactable_refs_match_listing_order():
     assert [el.name for el in targets] == ["Save", "Filename"]
     png, _ = ax_image.render(_tree(), targets=targets)
     assert png[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_role_tints_are_not_purple():
+    tab = ax_image._ROLE_FILL["tab"]
+    assert tab != (88, 64, 148)
+    assert tab[0] < 140 or tab[2] < tab[1] + 40

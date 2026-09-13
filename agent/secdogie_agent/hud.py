@@ -8,7 +8,11 @@ This console stays up for the whole run. The agent loop runs on a worker
 thread; tkinter stays on the main thread. High-risk confirms are answered
 here (never a second root). On Windows the HWND is WS_EX_NOACTIVATE so the
 HUD does not steal focus from the app being driven, and it stays on the
-taskbar (not a tool window) so it cannot vanish into the tray.
+taskbar (not a tool window) so it cannot vanish into the tray. On Darwin
+the Aqua utility style is noActivates for the same reason.
+
+Tk() is inside the import try: CI / ssh sessions have no DISPLAY, and a
+headless construct must not TclError.
 """
 from __future__ import annotations
 
@@ -97,6 +101,8 @@ class OperatorHud:
         self._dot = None
         self._log = None
         self._stop_btn = None
+        self._grant_btn = None
+        self._pad_lbl = None
         self._confirm_fr = None
         self._confirm_lbl = None
         self._pending: dict | None = None
@@ -173,175 +179,249 @@ class OperatorHud:
         try:
             import tkinter as tk
             from tkinter import scrolledtext
+
+            root = tk.Tk()
         except Exception:
             self._root = None
             return
 
-        root = tk.Tk()
         self._tk = tk
-        root.title("secdogie · operator")
+        root.title("secdogie · 操作台")
         root.configure(bg=ui.BG)
         root.resizable(True, True)
-        try:
-            root.attributes("-topmost", True)
-        except Exception:
-            pass
         root.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        pad = tk.Frame(root, bg=ui.BG, padx=14, pady=12)
+        pad = tk.Frame(root, bg=ui.BG, padx=16, pady=14)
         pad.pack(fill="both", expand=True)
 
         head = tk.Frame(pad, bg=ui.BG)
         head.pack(fill="x")
+        titles = tk.Frame(head, bg=ui.BG)
+        titles.pack(side="left", fill="x", expand=True)
         tk.Label(
-            head,
-            text="SECDOGIE",
+            titles,
+            text="secdogie",
+            bg=ui.BG,
+            fg=ui.FG,
+            font=ui.font(18, bold=True),
+        ).pack(anchor="w")
+        tk.Label(
+            titles,
+            text="操作台  operator",
             bg=ui.BG,
             fg=ui.MUTED,
-            font=ui.font(9, bold=True),
-        ).pack(side="left")
-        tk.Label(
-            head,
-            text="operator",
-            bg=ui.BG,
-            fg=ui.SUBTLE,
-            font=ui.font(9),
-        ).pack(side="left", padx=(8, 0))
+            font=ui.font(11),
+        ).pack(anchor="w")
 
+        stop_wrap = tk.Frame(head, bg=ui.DENY, height=ui.TAP, width=88)
+        stop_wrap.pack(side="right")
+        stop_wrap.pack_propagate(False)
         self._stop_btn = tk.Button(
-            head,
-            text="STOP",
+            stop_wrap,
+            text="停止",
             command=self._on_stop,
             bg=ui.DENY,
-            fg=ui.BG,
+            fg="#ffffff",
             activebackground=ui.DENY,
-            activeforeground=ui.BG,
+            activeforeground="#ffffff",
             relief="flat",
-            font=ui.font(9, bold=True),
-            padx=12,
-            pady=4,
+            font=ui.font(15, bold=True),
             cursor="hand2",
             highlightthickness=0,
             bd=0,
         )
-        self._stop_btn.pack(side="right")
+        self._stop_btn.pack(fill="both", expand=True)
 
-        status_row = tk.Frame(pad, bg=ui.BG)
-        status_row.pack(fill="x", pady=(10, 8))
+        status_card = tk.Frame(pad, bg=ui.SURFACE, padx=14, pady=12)
+        status_card.pack(fill="x", pady=(14, 8))
+        status_row = tk.Frame(status_card, bg=ui.SURFACE)
+        status_row.pack(fill="x")
         self._dot = tk.Canvas(
-            status_row, width=10, height=10, bg=ui.BG, highlightthickness=0, bd=0
+            status_row, width=12, height=12, bg=ui.SURFACE, highlightthickness=0, bd=0
         )
         self._dot.pack(side="left", pady=2)
-        self._dot_id = self._dot.create_oval(1, 1, 9, 9, fill=ui.WARN, outline="")
+        self._dot_id = self._dot.create_oval(2, 2, 10, 10, fill=ui.WARN, outline="")
         self._status = tk.Label(
             status_row,
-            text="Starting…",
-            bg=ui.BG,
+            text="正在启动…  Starting",
+            bg=ui.SURFACE,
             fg=ui.FG,
-            font=ui.font(11, bold=True),
+            font=ui.font(13, bold=True),
             anchor="w",
         )
         self._status.pack(side="left", fill="x", expand=True, padx=(8, 0))
 
+        self._pad_lbl = tk.Label(
+            status_card,
+            text="",
+            bg=ui.SURFACE,
+            fg=ui.MUTED,
+            font=ui.font(11),
+            anchor="w",
+            wraplength=360,
+            justify="left",
+        )
+        self._pad_lbl.pack(fill="x", pady=(8, 0))
+
+        if sys.platform == "darwin":
+            grant_wrap = tk.Frame(status_card, bg=ui.ACCENT, height=ui.TAP)
+            grant_wrap.pack(fill="x", pady=(10, 0))
+            grant_wrap.pack_propagate(False)
+            self._grant_btn = tk.Button(
+                grant_wrap,
+                text="授权  Grant",
+                command=self._on_grant,
+                bg=ui.ACCENT,
+                fg=ui.ACCENT_FG,
+                activebackground=ui.ACCENT,
+                activeforeground=ui.ACCENT_FG,
+                relief="flat",
+                font=ui.font(15, bold=True),
+                cursor="hand2",
+                highlightthickness=0,
+                bd=0,
+            )
+            self._grant_btn.pack(fill="both", expand=True)
+            self._refresh_pad_chip()
+
+        task_card = tk.Frame(pad, bg=ui.SURFACE, padx=14, pady=12)
+        task_card.pack(fill="x", pady=(0, 8))
         tk.Label(
-            pad,
-            text="TASK",
-            bg=ui.BG,
+            task_card,
+            text="任务  TASK",
+            bg=ui.SURFACE,
             fg=ui.SUBTLE,
-            font=ui.font(8, bold=True),
+            font=ui.font(10, bold=True),
             anchor="w",
         ).pack(fill="x")
-        task_lbl = tk.Label(
-            pad,
-            text=self.task or "(no task)",
-            bg=ui.BG,
+        tk.Label(
+            task_card,
+            text=self.task or "（无任务）",
+            bg=ui.SURFACE,
             fg=ui.FG,
-            font=ui.font(10),
+            font=ui.font(13),
             wraplength=400,
             justify="left",
             anchor="w",
-        )
-        task_lbl.pack(fill="x", pady=(2, 10))
+        ).pack(fill="x", pady=(4, 0))
 
+        log_card = tk.Frame(pad, bg=ui.SURFACE, padx=10, pady=10)
+        log_card.pack(fill="both", expand=True, pady=(0, 8))
         tk.Label(
-            pad,
-            text="LOG",
-            bg=ui.BG,
+            log_card,
+            text="日志  LOG",
+            bg=ui.SURFACE,
             fg=ui.SUBTLE,
-            font=ui.font(8, bold=True),
+            font=ui.font(10, bold=True),
             anchor="w",
-        ).pack(fill="x")
+        ).pack(fill="x", padx=4)
         log = scrolledtext.ScrolledText(
-            pad,
+            log_card,
             height=14,
             wrap="word",
             bg=ui.SURFACE,
             fg=ui.FG,
             insertbackground=ui.FG,
             relief="flat",
-            font=ui.font(9, mono=True),
-            highlightthickness=1,
-            highlightbackground=ui.BORDER,
-            highlightcolor=ui.BORDER,
+            font=ui.font(11, mono=True),
+            highlightthickness=0,
             bd=0,
             state="disabled",
         )
-        log.pack(fill="both", expand=True, pady=(4, 8))
+        log.pack(fill="both", expand=True, pady=(4, 0))
         self._log = log
 
-        self._confirm_fr = tk.Frame(pad, bg=ui.SURFACE_2, padx=10, pady=8)
+        self._confirm_fr = tk.Frame(pad, bg=ui.SURFACE_2, padx=14, pady=12)
         self._confirm_lbl = tk.Label(
             self._confirm_fr,
             text="",
             bg=ui.SURFACE_2,
             fg=ui.FG,
-            font=ui.font(10),
+            font=ui.font(13),
             wraplength=380,
             justify="left",
             anchor="w",
         )
-        self._confirm_lbl.pack(fill="x", pady=(0, 8))
+        self._confirm_lbl.pack(fill="x", pady=(0, 10))
         btns = tk.Frame(self._confirm_fr, bg=ui.SURFACE_2)
-        btns.pack(anchor="e")
+        btns.pack(fill="x")
+        skip_wrap = tk.Frame(btns, bg=ui.SURFACE, height=ui.TAP, width=96)
+        skip_wrap.pack(side="right", padx=(8, 0))
+        skip_wrap.pack_propagate(False)
         tk.Button(
-            btns,
-            text="Skip",
+            skip_wrap,
+            text="跳过",
             command=lambda: self._answer(False),
             bg=ui.SURFACE,
             fg=ui.FG,
             relief="flat",
-            font=ui.font(9),
-            padx=10,
-            pady=4,
+            font=ui.font(14),
             highlightthickness=0,
             bd=0,
-        ).pack(side="right", padx=(6, 0))
+            cursor="hand2",
+        ).pack(fill="both", expand=True)
+        allow_wrap = tk.Frame(btns, bg=ui.ACCENT, height=ui.TAP, width=128)
+        allow_wrap.pack(side="right")
+        allow_wrap.pack_propagate(False)
         self._allow_btn = tk.Button(
-            btns,
-            text="Allow",
+            allow_wrap,
+            text="允许",
             command=lambda: self._answer(True),
             bg=ui.ACCENT,
             fg=ui.ACCENT_FG,
             relief="flat",
-            font=ui.font(9, bold=True),
-            padx=12,
-            pady=4,
+            font=ui.font(15, bold=True),
             highlightthickness=0,
             bd=0,
+            cursor="hand2",
         )
-        self._allow_btn.pack(side="right")
+        self._allow_btn.pack(fill="both", expand=True)
 
         self._root = root
         root.update_idletasks()
-        w, h = 440, 540
+        w, h = 420, 620
         try:
             sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
             root.geometry(f"{w}x{h}+{max(16, sw - w - 28)}+{max(16, sh - h - 72)}")
         except Exception:
             root.geometry(f"{w}x{h}")
-        _no_activate(root)
+        ui.apply_glass(root)
+        ui.apply_hud_behavior(root)
         root.after(50, self._pump)
-        self._append("console ready — this window stays up until you close it")
+        self._append("console ready — 此窗口会一直留在屏幕上直到你关闭")
+
+    def _refresh_pad_chip(self) -> None:
+        if self._pad_lbl is None:
+            return
+        try:
+            from . import desktop_ax
+
+            g = desktop_ax.query_pad_grants()
+        except Exception:
+            return
+        pad = str(g.get("pad") or "?")
+        ax = "开" if g.get("accessibility") else "关"
+        rec = "开" if g.get("screen_recording") else "关"
+        self._pad_lbl.configure(text=f"触控板 {pad}  ·  辅助功能 {ax}  ·  屏幕录制 {rec}")
+
+    def _on_grant(self) -> None:
+        try:
+            from . import desktop_ax
+
+            g = desktop_ax.request_pad_grants()
+        except Exception as e:
+            self._append(f"grant failed: {e}")
+            return
+        pad = g.get("pad") or "?"
+        self._append(
+            f"grant  pad={pad}  ax={'on' if g.get('accessibility') else 'off'}  "
+            f"screen={'on' if g.get('screen_recording') else 'off'}"
+        )
+        detail = str(g.get("detail") or "")
+        if detail:
+            self._append(detail)
+        self._refresh_pad_chip()
+        self._set_status("running", detail or f"pad {pad}")
 
     def _pump(self) -> None:
         if self._root is None or self._closed:
@@ -363,31 +443,31 @@ class OperatorHud:
             prompt = str(payload.get("prompt") or "")
             if payload.get("kind") == "plan":
                 prompt = payload.get("plan") or prompt
-                self._set_status("waiting", "Approve the plan")
-                self._allow_btn.configure(text="Looks good — go")
+                self._set_status("waiting", "批准计划  Approve the plan")
+                self._allow_btn.configure(text="看起来好 — 开始")
             elif payload.get("kind") == "ask":
-                self._set_status("waiting", "The model is asking")
-                self._allow_btn.configure(text="Yes, continue")
+                self._set_status("waiting", "模型在问  The model is asking")
+                self._allow_btn.configure(text="是，继续")
             elif payload.get("high_risk"):
-                self._set_status("waiting", "HIGH-RISK — confirm")
-                self._allow_btn.configure(text="Allow")
+                self._set_status("waiting", "高风险 — 确认  HIGH-RISK")
+                self._allow_btn.configure(text="允许")
             else:
-                self._set_status("waiting", "Confirm this step")
-                self._allow_btn.configure(text="Allow")
+                self._set_status("waiting", "确认这一步  Confirm")
+                self._allow_btn.configure(text="允许")
             self._confirm_lbl.configure(text=prompt[:800] or "(no prompt)")
             self._confirm_fr.pack(fill="x", pady=(0, 4))
             self._append("waiting for operator: " + prompt.replace("\n", " ")[:180])
             return
         if kind == "stop":
-            self._set_status("stopping", "Stopping…")
+            self._set_status("stopping", "正在停止…")
             self._append("stop requested")
             return
         if kind == "start":
-            self._set_status("running", "Starting")
+            self._set_status("running", "启动中")
             self._append("task: " + str(payload.get("task") or self.task)[:240])
             return
         if kind == "briefing":
-            self._set_status("running", "Plan ready — running")
+            self._set_status("running", "计划就绪 — 运行中")
             text = str(payload.get("text") or "")
             if text:
                 self._append(text.replace("\n", " / ")[:240])
@@ -400,12 +480,17 @@ class OperatorHud:
         if kind == "capture":
             w, h = payload.get("width"), payload.get("height")
             step = payload.get("step")
-            self._set_status("capture", f"Step {step} · capturing")
-            self._append(f"step {step}  capture  {w}×{h}")
+            source = str(payload.get("source") or "")
+            if source == "ax-pad":
+                self._set_status("capture", f"Step {step} · AX 触控板")
+                self._append(f"step {step}  ax-pad  {w}×{h}")
+            else:
+                self._set_status("capture", f"Step {step} · capturing")
+                self._append(f"step {step}  capture  {w}×{h}")
             return
         if kind == "model":
             step = payload.get("step")
-            self._set_status("model", f"Step {step} · asking the model")
+            self._set_status("model", f"Step {step} · 询问模型")
             return
         if kind == "action":
             step = payload.get("step")
@@ -424,7 +509,7 @@ class OperatorHud:
             return
         if kind == "done":
             summary = str(payload.get("summary") or "done")
-            self._set_status("done", "Done")
+            self._set_status("done", "完成")
             self._append("done: " + summary[:240])
             return
         if kind == "error":
@@ -442,25 +527,33 @@ class OperatorHud:
     def _on_finished(self, rc: int) -> None:
         self.bridge.rc = rc
         labels = {
-            0: ("done", "Done"),
-            2: ("stopped", "Cancelled"),
-            3: ("stopped", "Stopped (max steps)"),
-            4: ("error", "Cannot capture the screen"),
-            5: ("stopped", "Stopped"),
-            6: ("error", "Stalled"),
-            7: ("error", "Focus failed"),
+            0: ("done", "完成  Done"),
+            2: ("stopped", "已取消"),
+            3: ("stopped", "已停（步数用尽）"),
+            4: ("error", "无法构建触控板 / 无法截屏"),
+            5: ("stopped", "已停止"),
+            6: ("error", "卡住了"),
+            7: ("error", "前台焦点失败"),
         }
         phase, text = labels.get(rc, ("error", f"Exit {rc}"))
         if rc == 1:
-            phase, text = "error", "The model did not answer"
+            phase, text = "error", "模型没有回答"
         self._set_status(phase, text)
         self._append(f"finished  rc={rc}")
         self._hide_confirm(False)
         if self._stop_btn is not None:
             self._stop_btn.configure(
-                text="Close", command=self._destroy, bg=ui.ACCENT, fg=ui.ACCENT_FG,
-                activebackground=ui.ACCENT, activeforeground=ui.ACCENT_FG,
+                text="关闭",
+                command=self._destroy,
+                bg=ui.ACCENT,
+                fg=ui.ACCENT_FG,
+                activebackground=ui.ACCENT,
+                activeforeground=ui.ACCENT_FG,
             )
+            try:
+                self._stop_btn.master.configure(bg=ui.ACCENT)
+            except Exception:
+                pass
 
     def _answer(self, ok: bool) -> None:
         box = self._pending
@@ -484,7 +577,7 @@ class OperatorHud:
         self.bridge.request_stop()
         if self._pending is not None:
             self._answer(False)
-        self._set_status("stopping", "Stopping…")
+        self._set_status("stopping", "正在停止…")
 
     def _on_close(self) -> None:
         self.bridge.request_stop()
@@ -539,41 +632,3 @@ class OperatorHud:
             log.configure(state="disabled")
         except Exception:
             pass
-
-
-def _no_activate(root) -> None:
-    """Windows: stay visible on the taskbar, never steal foreground.
-
-    WS_EX_TOOLWINDOW is deliberately not set — that hides the window from the
-    taskbar and is exactly the 'latent background process' look.
-    """
-    if sys.platform != "win32":
-        return
-    try:
-        import ctypes
-
-        user32 = ctypes.windll.user32
-        hwnd = user32.GetParent(root.winfo_id()) or root.winfo_id()
-        GWL_EXSTYLE = -20
-        WS_EX_NOACTIVATE = 0x08000000
-        WS_EX_TOPMOST = 0x00000008
-        SWP_NOSIZE = 0x0001
-        SWP_NOMOVE = 0x0002
-        SWP_NOACTIVATE = 0x0010
-        SWP_SHOWWINDOW = 0x0040
-        HWND_TOPMOST = -1
-        style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-        user32.SetWindowLongW(
-            hwnd, GWL_EXSTYLE, (style | WS_EX_NOACTIVATE | WS_EX_TOPMOST) & ~0x00000080
-        )
-        user32.SetWindowPos(
-            hwnd,
-            HWND_TOPMOST,
-            0,
-            0,
-            0,
-            0,
-            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
-        )
-    except Exception:
-        pass

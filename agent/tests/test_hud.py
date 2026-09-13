@@ -4,7 +4,6 @@ protocol is what the loop and CLI attach to."""
 from __future__ import annotations
 
 import threading
-import time
 
 from secdogie_agent import actions, cli, dialog, hud, loop, screen
 from secdogie_agent.providers.base import Action, VisionProvider
@@ -236,3 +235,21 @@ def test_run_worker_headless_runs_inline():
         except Exception:
             break
     assert "finished" in kinds
+
+
+def test_hud_construct_swallows_tk_failure(monkeypatch):
+    """CI has no DISPLAY. Tk() must not TclError out of OperatorHud."""
+    import builtins
+
+    real = builtins.__import__
+
+    def no_tk(name, *a, **k):
+        if name == "tkinter" or (isinstance(name, str) and name.startswith("tkinter.")):
+            raise ImportError("no tk")
+        return real(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", no_tk)
+    console = hud.OperatorHud(task="zoom the drawing")
+    assert console._root is None
+    assert console.bridge is not None
+    assert console.run_worker(lambda: 7) == 7

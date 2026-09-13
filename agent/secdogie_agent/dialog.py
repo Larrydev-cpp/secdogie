@@ -10,6 +10,8 @@ to the terminal.
 """
 from __future__ import annotations
 
+from . import theme as ui
+
 # One-click starters shown in the task dialog. CAD-first (commercial focus).
 EXAMPLE_TASKS: tuple[tuple[str, str], ...] = (
     (
@@ -29,9 +31,6 @@ EXAMPLE_TASKS: tuple[tuple[str, str], ...] = (
         "Open Notepad and type: Hello from secdogie",
     ),
 )
-
-
-from . import theme as ui
 
 
 class GuiUnavailableError(RuntimeError):
@@ -68,8 +67,11 @@ def _new_root(tk):
     root = tk.Tk()
     root.title("secdogie-agent")
     root.configure(bg=ui.BG)
-    root.attributes("-topmost", True)
-    root.lift()
+    try:
+        root.attributes("-topmost", True)
+        root.lift()
+    except Exception:
+        pass
     return root
 
 
@@ -91,22 +93,27 @@ def _label(tk, parent, text, *, bold=False, muted=False, wrap=0, size=10):
 
 
 def _btn(tk, parent, text, command, *, primary=False, width=12):
-    return tk.Button(
-        parent,
+    bg = ui.ACCENT if primary else ui.SURFACE_2
+    fg = ui.ACCENT_FG if primary else ui.FG
+    wrap = tk.Frame(parent, bg=bg, height=ui.TAP)
+    wrap.pack_propagate(False)
+    btn = tk.Button(
+        wrap,
         text=text,
         command=command,
         width=width,
-        bg=ui.ACCENT if primary else ui.SURFACE_2,
-        fg=ui.ACCENT_FG if primary else ui.FG,
-        activebackground=ui.ACCENT if primary else ui.SURFACE,
-        activeforeground=ui.ACCENT_FG if primary else ui.FG,
+        bg=bg,
+        fg=fg,
+        activebackground=bg,
+        activeforeground=fg,
         relief="flat",
-        font=ui.font(10, bold=primary),
+        font=ui.font(15, bold=primary),
         highlightthickness=0,
         bd=0,
         cursor="hand2",
-        pady=4,
     )
+    btn.pack(fill="both", expand=True)
+    return wrap
 
 
 def ask_task(default: str = "") -> str | None:
@@ -115,9 +122,9 @@ def ask_task(default: str = "") -> str | None:
     result: dict[str, str | None] = {"task": None}
 
     pad = _frame(tk, root)
-    pad.pack(padx=16, pady=14, fill="both", expand=True)
+    pad.pack(padx=18, pady=16, fill="both", expand=True)
 
-    _label(tk, pad, "What should it do?", bold=True, size=13).pack(anchor="w")
+    _label(tk, pad, "要它做什么？", bold=True, size=17).pack(anchor="w")
     _label(
         tk,
         pad,
@@ -126,7 +133,7 @@ def ask_task(default: str = "") -> str | None:
         wrap=480,
     ).pack(anchor="w", pady=(4, 8))
 
-    _label(tk, pad, "Try an example:", muted=True, size=9).pack(anchor="w")
+    _label(tk, pad, "试一个例子  Try an example", muted=True, size=11).pack(anchor="w")
     chips = _frame(tk, pad)
     chips.pack(anchor="w", pady=(2, 10))
 
@@ -139,14 +146,14 @@ def ask_task(default: str = "") -> str | None:
         fg=ui.FG,
         insertbackground=ui.FG,
         relief="flat",
-        font=ui.font(10),
+        font=ui.font(13),
         highlightthickness=1,
         highlightbackground=ui.BORDER,
         highlightcolor=ui.BORDER,
         bd=0,
     )
     entry.insert("1.0", default)
-    entry.pack(fill="both", expand=True, pady=(0, 10))
+    entry.pack(fill="both", expand=True, pady=(0, 12))
     entry.focus_set()
 
     def use_example(text: str) -> None:
@@ -159,8 +166,8 @@ def ask_task(default: str = "") -> str | None:
             chips,
             text=label,
             command=lambda t=full: use_example(t),
-            padx=8,
-            pady=2,
+            padx=10,
+            pady=8,
             bg=ui.SURFACE_2,
             fg=ui.FG,
             activebackground=ui.SURFACE,
@@ -169,9 +176,9 @@ def ask_task(default: str = "") -> str | None:
             highlightthickness=0,
             bd=0,
             cursor="hand2",
-            font=ui.font(9),
+            font=ui.font(11),
         )
-        btn.pack(side="left", padx=(0, 6))
+        btn.pack(side="left", padx=(0, 8))
 
     def submit() -> None:
         result["task"] = entry.get("1.0", "end").strip()
@@ -182,13 +189,17 @@ def ask_task(default: str = "") -> str | None:
         root.destroy()
 
     buttons = _frame(tk, pad)
-    buttons.pack(anchor="e")
-    _btn(tk, buttons, "Cancel", cancel, width=10).pack(side="right", padx=(6, 0))
-    _btn(tk, buttons, "Start", submit, primary=True, width=10).pack(side="right")
+    buttons.pack(anchor="e", fill="x")
+    _btn(tk, buttons, "取消", cancel, width=10).pack(side="right", padx=(8, 0), ipadx=8)
+    _btn(tk, buttons, "开始", submit, primary=True, width=10).pack(side="right", ipadx=12)
 
     root.protocol("WM_DELETE_WINDOW", cancel)
     root.bind("<Escape>", lambda _e: cancel())
     root.bind("<Control-Return>", lambda _e: submit())
+    try:
+        ui.apply_glass(root)
+    except Exception:
+        pass
     root.mainloop()
 
     task = result["task"]
@@ -201,9 +212,9 @@ def confirm_plan(task: str, plan: str) -> bool:
     result = {"ok": False}
 
     pad = _frame(tk, root)
-    pad.pack(padx=16, pady=14, fill="both", expand=True)
+    pad.pack(padx=18, pady=16, fill="both", expand=True)
 
-    _label(tk, pad, "Ready to start?", bold=True, size=13).pack(anchor="w")
+    _label(tk, pad, "可以开始了吗？", bold=True, size=17).pack(anchor="w")
     _label(
         tk,
         pad,
@@ -212,10 +223,10 @@ def confirm_plan(task: str, plan: str) -> bool:
         wrap=520,
     ).pack(anchor="w", pady=(2, 10))
 
-    _label(tk, pad, "Your task", bold=True).pack(anchor="w")
+    _label(tk, pad, "你的任务", bold=True).pack(anchor="w")
     _label(tk, pad, task, wrap=520).pack(anchor="w", pady=(0, 8))
 
-    _label(tk, pad, "Its plan", bold=True).pack(anchor="w")
+    _label(tk, pad, "它的计划", bold=True).pack(anchor="w")
     box = scrolledtext.ScrolledText(
         pad,
         width=68,
@@ -224,7 +235,7 @@ def confirm_plan(task: str, plan: str) -> bool:
         bg=ui.SURFACE,
         fg=ui.FG,
         relief="flat",
-        font=ui.font(10),
+        font=ui.font(13),
         highlightthickness=1,
         highlightbackground=ui.BORDER,
         highlightcolor=ui.BORDER,
@@ -232,7 +243,7 @@ def confirm_plan(task: str, plan: str) -> bool:
     )
     box.insert("1.0", plan)
     box.configure(state="disabled")
-    box.pack(fill="both", expand=True, pady=(0, 10))
+    box.pack(fill="both", expand=True, pady=(0, 12))
 
     def proceed() -> None:
         result["ok"] = True
@@ -243,12 +254,16 @@ def confirm_plan(task: str, plan: str) -> bool:
         root.destroy()
 
     buttons = _frame(tk, pad)
-    buttons.pack(anchor="e")
-    _btn(tk, buttons, "Cancel", cancel, width=12).pack(side="right", padx=(6, 0))
-    _btn(tk, buttons, "Looks good — go", proceed, primary=True, width=16).pack(side="right")
+    buttons.pack(anchor="e", fill="x")
+    _btn(tk, buttons, "取消", cancel, width=12).pack(side="right", padx=(8, 0), ipadx=8)
+    _btn(tk, buttons, "看起来好 — 开始", proceed, primary=True, width=16).pack(side="right", ipadx=12)
 
     root.protocol("WM_DELETE_WINDOW", cancel)
     root.bind("<Escape>", lambda _e: cancel())
+    try:
+        ui.apply_glass(root)
+    except Exception:
+        pass
     root.mainloop()
 
     return result["ok"]
@@ -282,9 +297,13 @@ def working(message: str) -> BusyHandle:
         tk, _, _ = _import_tk()
         root = _new_root(tk)
         pad = _frame(tk, root)
-        pad.pack(padx=22, pady=16)
-        _label(tk, pad, "Working…", bold=True, size=13).pack(anchor="w")
+        pad.pack(padx=22, pady=18)
+        _label(tk, pad, "进行中…", bold=True, size=17).pack(anchor="w")
         _label(tk, pad, message, muted=True, wrap=440).pack(anchor="w", pady=(4, 0))
+        try:
+            ui.apply_glass(root)
+        except Exception:
+            pass
         root.update_idletasks()
         root.update()
         return BusyHandle(root)
@@ -304,7 +323,7 @@ def confirm_action(prompt: str, *, high_risk: bool = False) -> bool:
         tk, _, messagebox = _import_tk()
         root = _new_root(tk)
         root.withdraw()
-        title = "secdogie-agent — HIGH-RISK" if high_risk else "secdogie-agent — execute this?"
+        title = "secdogie-agent — 高风险" if high_risk else "secdogie-agent — 执行这一步？"
         answer = messagebox.askyesno(title, prompt, parent=root)
         root.destroy()
         return bool(answer)
@@ -316,7 +335,7 @@ def ask_user(question: str) -> bool:
     tk, _, messagebox = _import_tk()
     root = _new_root(tk)
     root.withdraw()
-    answer = messagebox.askyesno("secdogie-agent is asking", question, parent=root)
+    answer = messagebox.askyesno("secdogie-agent 在问", question, parent=root)
     root.destroy()
     return bool(answer)
 

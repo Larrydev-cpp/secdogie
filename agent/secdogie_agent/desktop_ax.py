@@ -682,3 +682,101 @@ class _MacosAxProvider:
                 return
             self._find_walk(child, depth + 1, attrs, hits)
 
+
+def query_pad_grants() -> dict[str, object]:
+    """TCC / OS grants for the pad. Never HID. Never elevate.
+
+    pad: "ax" | "cgwindow" | "uia" | "memory"
+    """
+    if sys.platform.startswith("win"):
+        return {
+            "accessibility": True,
+            "screen_recording": False,
+            "pad": "uia",
+            "detail": "Windows: UIA tree is the pad. No TCC.",
+        }
+    if sys.platform != "darwin":
+        return {
+            "accessibility": False,
+            "screen_recording": False,
+            "pad": "memory",
+            "detail": "Linux: no AT-SPI mutate. Memory inspect is the live path.",
+        }
+    ax_ok = False
+    rec_ok = False
+    try:
+        from ApplicationServices import AXIsProcessTrusted
+
+        ax_ok = bool(AXIsProcessTrusted())
+    except Exception:
+        ax_ok = False
+    try:
+        from Quartz import CGPreflightScreenCaptureAccess
+
+        rec_ok = bool(CGPreflightScreenCaptureAccess())
+    except Exception:
+        rec_ok = False
+    pad = "ax" if ax_ok else "cgwindow"
+    if ax_ok:
+        detail = (
+            "macOS: AX tree (fine pad) + CopyElementAtPosition (OS finger). "
+            "AXPress tap. HID refused."
+        )
+    else:
+        detail = (
+            "macOS: Accessibility off — coarse pad is CGWindow bounds (no Screen "
+            "Recording needed). Grant Accessibility on the host app (Terminal / "
+            ".app) in System Settings → Privacy & Security → Accessibility. "
+            "Screen Recording only fills titles + pixel-diff verify. Never HID."
+        )
+    return {
+        "accessibility": ax_ok,
+        "screen_recording": rec_ok,
+        "pad": pad,
+        "detail": detail,
+    }
+
+
+def request_pad_grants() -> dict[str, object]:
+    """Prompt TCC for Accessibility + Screen Recording. Never fail-closed.
+
+    Accessibility is the pad. Screen Recording is titles + verify only.
+    Prompting happens on THIS process — TCC keys off the host app
+    (Terminal / .app), not a child binary. Never HID, never elevate.
+    """
+    if sys.platform != "darwin":
+        return query_pad_grants()
+    try:
+        from ApplicationServices import AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt
+
+        AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: True})
+    except Exception:
+        try:
+            from ApplicationServices import AXIsProcessTrustedWithOptions
+
+            AXIsProcessTrustedWithOptions({"AXTrustedCheckOptionPrompt": True})
+        except Exception:
+            pass
+    try:
+        from Quartz import CGRequestScreenCaptureAccess
+
+        CGRequestScreenCaptureAccess()
+    except Exception:
+        pass
+    grants = query_pad_grants()
+    if not grants.get("accessibility"):
+        try:
+            import subprocess
+
+            subprocess.Popen(
+                [
+                    "open",
+                    "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
+    return grants
+
