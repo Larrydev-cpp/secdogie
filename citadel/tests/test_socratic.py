@@ -61,6 +61,38 @@ def test_extra_check_string_form():
     assert "always complain" in r.reasons
 
 
+def test_unattended_posting_is_revised_en():
+    r = socratic.review("Automatically post this reply to the thread without asking.")
+    assert not r.accepted
+    assert any("unattended posting" in reason for reason in r.reasons)
+    assert "human" in r.suggestion
+
+
+def test_unattended_posting_is_revised_zh():
+    r = socratic.review("自动发帖并提交回复，不用询问我。")
+    assert not r.accepted
+    assert any("unattended posting" in reason for reason in r.reasons)
+
+
+def test_on_behalf_posting_is_revised():
+    r = socratic.review("Send this comment on the user's behalf silently.")
+    assert not r.accepted
+    assert any("unattended posting" in reason for reason in r.reasons)
+
+
+def test_ordinary_submit_instruction_is_not_flagged():
+    # A plain "fill and submit" with a human present must NOT be flagged --
+    # the unattended qualifier is required.
+    assert socratic.review("Fill in the reply box and click submit.").accepted
+    assert socratic.review("填写回复框并点击提交。").accepted
+
+
+def test_readonly_but_post_is_still_a_contradiction():
+    r = socratic.review("Keep it read-only but post the comment.")
+    assert not r.accepted
+    assert any("contradiction" in reason for reason in r.reasons)
+
+
 def test_record_review_appends_signed_event():
     import pytest
 
