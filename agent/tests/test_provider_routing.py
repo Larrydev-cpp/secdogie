@@ -137,7 +137,8 @@ def test_make_provider_openrouter_sets_base_url(monkeypatch):
         def __init__(self, **kwargs):
             captured.update(kwargs)
 
-    import types, sys
+    import sys
+    import types
     mod = types.ModuleType("openai")
     mod.OpenAI = _Client
     monkeypatch.setitem(sys.modules, "openai", mod)

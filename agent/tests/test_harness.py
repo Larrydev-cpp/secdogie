@@ -32,17 +32,19 @@ def test_should_omit_screenshot_only_when_the_tree_is_healthy_and_we_are_not_loo
 
 
 def test_darwin_omits_screenshot_when_ax_listing_is_healthy():
-    """macOS AX is the trackpad. Tokens skip the image when the tree is live."""
+    """macOS never sends a screenshot. The loop paints an AX pad instead."""
     targets = elements.interactable_targets(_tree())
     assert harness.should_omit_screenshot(
         targets, refresh_view=False, boost_detail=False, platform="darwin"
     ) is True
     assert harness.should_omit_screenshot(
         [], refresh_view=False, boost_detail=False, platform="darwin"
-    ) is False
+    ) is True
     assert harness.should_omit_screenshot(
         targets, refresh_view=True, boost_detail=False, platform="darwin"
-    ) is False
+    ) is True
+    assert harness.uses_ax_pad("darwin") is True
+    assert harness.uses_ax_pad("linux") is False
 
 
 def test_is_editable_matches_all_three_platform_vocabularies():
@@ -293,3 +295,42 @@ def test_pixel_guess_on_an_ax_only_turn_is_refused_not_clicked(monkeypatch):
     )
     assert rc == 0
     assert executed == []  # the guessed click was never delivered
+
+
+def test_darwin_loop_builds_ax_pad_and_never_screenshots(monkeypatch):
+    """Mac run must keep going when capture raises — the image is the AX map."""
+    monkeypatch.setattr(loop.sys, "platform", "darwin")
+    monkeypatch.setattr(harness.sys, "platform", "darwin")
+
+    def _boom(region=None):
+        raise screen.NoDisplayError("no Screen Recording")
+
+    monkeypatch.setattr(screen, "capture_screenshot", _boom)
+    backend = DesktopBackend(ax_provider=FakeAx(_tree()))
+
+    def _explode(action, **kw):
+        raise AssertionError("HID execute must not run")
+
+    from secdogie_agent import actions
+
+    monkeypatch.setattr(actions, "execute", _explode)
+    provider = RecordingProvider(
+        [
+            {"action": "click_element", "element": "e1"},
+            {"action": "look"},
+            {"action": "done", "text": "ok"},
+        ]
+    )
+    rc = loop.run(
+        provider,
+        loop.AgentConfig(
+            task="t", auto=True, max_steps=8, desktop_ax=True, backend=backend,
+            verify_actions=True,
+        ),
+    )
+    assert rc == 0
+    assert len(provider.shots) == 3
+    for shot in provider.shots:
+        assert shot and len(shot) > 32
+        assert shot[:8] != b"fake-png"
+    assert harness.AX_PAD_NOTE[:10] in provider.tasks[0]

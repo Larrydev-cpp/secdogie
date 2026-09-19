@@ -3,6 +3,7 @@ queries, DesktopBackend's Locatable wiring against a fake provider, and the
 platform factory's graceful no-op. The live UI-Automation walk (desktop_ax's
 _WindowsUiaProvider) is on-machine and not tested here -- the point of the seam
 is that the matching brain (axtree) is provable without a desktop."""
+import subprocess
 import sys
 
 from secdogie_agent import axtree, desktop_ax
@@ -481,6 +482,37 @@ def test_macos_press_at_prefers_copy_element_at_position(monkeypatch):
     assert calls and calls[0] == (150.0, 120.0)
     assert fake._perform_calls[-1][0] is finger
     assert fake._perform_calls[-1][1] == "AXPress"
+
+
+def test_query_pad_grants_linux_is_memory(monkeypatch):
+    monkeypatch.setattr(desktop_ax.sys, "platform", "linux")
+    g = desktop_ax.query_pad_grants()
+    assert g["pad"] == "memory"
+    assert g["accessibility"] is False
+    assert g["screen_recording"] is False
+
+
+def test_query_pad_grants_windows_is_uia(monkeypatch):
+    monkeypatch.setattr(desktop_ax.sys, "platform", "win32")
+    g = desktop_ax.query_pad_grants()
+    assert g["pad"] == "uia"
+    assert g["accessibility"] is True
+
+
+def test_request_pad_grants_never_raises_off_darwin(monkeypatch):
+    monkeypatch.setattr(desktop_ax.sys, "platform", "linux")
+    g = desktop_ax.request_pad_grants()
+    assert g["pad"] == "memory"
+
+
+def test_request_pad_grants_darwin_degrades_without_frameworks(monkeypatch):
+    monkeypatch.setattr(desktop_ax.sys, "platform", "darwin")
+    monkeypatch.setattr(
+        subprocess, "Popen", lambda *a, **k: type("P", (), {"pid": 0})()
+    )
+    g = desktop_ax.request_pad_grants()
+    assert g["pad"] in ("ax", "cgwindow")
+    assert "detail" in g
 
 
 def test_macos_set_value_writes_axvalue(monkeypatch):
