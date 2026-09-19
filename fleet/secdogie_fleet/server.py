@@ -15,6 +15,7 @@ import logging
 import socket
 import threading
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from .coordinator import Coordinator
 from .protocol import (
@@ -27,6 +28,9 @@ from .protocol import (
     from_json,
     to_json,
 )
+
+if TYPE_CHECKING:  # annotations only -- never import PyNaCl on the unsigned path
+    from secdogie_identity import Allowlist, Identity
 
 
 class FleetServer:
@@ -45,6 +49,8 @@ class FleetServer:
         max_attempts: int = 2,
         logger: logging.Logger | None = None,
         on_event: Callable[[str, Message], None] | None = None,
+        signer: Identity | None = None,
+        node_allowlist: Allowlist | None = None,
     ):
         self.log = logger or logging.getLogger("secdogie_fleet.server")
         self._lock = threading.RLock()
@@ -53,6 +59,21 @@ class FleetServer:
         )
         self._conns: dict[str, socket.socket] = {}  # node_id -> its socket
         self._on_event = on_event
+
+        # Secure mode: when a node_allowlist is set we verify every inbound line
+        # and refuse a node_id reused by a different DID; when a signer is set we
+        # sign every coordinator->node line. Both stay lazy so the unsigned path
+        # never imports PyNaCl. `_node_dids` binds node_id -> its authorized DID.
+        self._signer = signer
+        self._node_allowlist = node_allowlist
+        self._node_dids: dict[str, str] = {}
+        self._sign = None
+        self._verify = None
+        if signer is not None or node_allowlist is not None:
+            from .secure import signed_to_json, verify_and_from_json
+
+            self._sign = signed_to_json
+            self._verify = verify_and_from_json
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._sock.bind((host, port))
@@ -158,7 +179,11 @@ class FleetServer:
             self.log.warning("cannot reach node %s (no connection)", node_id)
             return
         try:
-            conn.sendall((to_json(msg) + "\n").encode("utf-8"))
+            if self._sign is not None and self._signer is not None:
+                text = self._sign(msg, self._signer)
+            else:
+                text = to_json(msg)
+            conn.sendall((text + "\n").encode("utf-8"))
         except OSError as e:
             self.log.warning("send to %s failed (%s); dropping it", node_id, e)
             self.coordinator.on_node_lost(node_id)
@@ -183,17 +208,42 @@ class FleetServer:
                     line = line.strip()
                     if not line:
                         continue
-                    try:
-                        msg = from_json(line.decode("utf-8"))
-                    except (UnicodeDecodeError, ProtocolError, json.JSONDecodeError) as e:
-                        self.log.warning("bad message from %s: %s", addr, e)
-                        continue
-                    if msg.__class__.__name__.lower() not in NODE_KINDS and not isinstance(
-                        msg, (Hello, Status, Result)
-                    ):
-                        self.log.warning("ignoring coordinator-kind from node %s", addr)
-                        continue
+                    signer: str | None = None
+                    if self._verify is not None:
+                        try:
+                            msg, signer = self._verify(
+                                line.decode("utf-8"), self._node_allowlist, expect=NODE_KINDS
+                            )
+                        except (UnicodeDecodeError, ProtocolError, json.JSONDecodeError) as e:
+                            self.log.warning("rejected message from %s: %s", addr, e)
+                            continue
+                    else:
+                        try:
+                            msg = from_json(line.decode("utf-8"))
+                        except (UnicodeDecodeError, ProtocolError, json.JSONDecodeError) as e:
+                            self.log.warning("bad message from %s: %s", addr, e)
+                            continue
+                        if msg.__class__.__name__.lower() not in NODE_KINDS and not isinstance(
+                            msg, (Hello, Status, Result)
+                        ):
+                            self.log.warning("ignoring coordinator-kind from node %s", addr)
+                            continue
                     with self._lock:
+                        if signer is not None:
+                            # Bind node_id -> its DID on first sight; refuse a
+                            # different DID reusing an established node_id (the
+                            # hijack the unsigned path could not prevent).
+                            mid = getattr(msg, "node_id", None)
+                            if mid is not None:
+                                bound = self._node_dids.get(mid)
+                                if bound is None:
+                                    self._node_dids[mid] = signer
+                                elif bound != signer:
+                                    self.log.warning(
+                                        "refusing node_id %s from DID %s (bound to %s)",
+                                        mid, signer, bound,
+                                    )
+                                    continue
                         if isinstance(msg, Hello):
                             node_id = msg.node_id
                             self._conns[node_id] = conn

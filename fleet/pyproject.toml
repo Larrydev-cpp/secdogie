@@ -18,6 +18,9 @@ dependencies = []
 [project.optional-dependencies]
 # Convenience for setting up a guest: pull the agent in alongside the node.
 node = ["secdogie-agent"]
+# DID-signed transport (secure mode: --identity / --authorized). Only the
+# opt-in secure path imports it; the pure coordinator core stays stdlib-only.
+secure = ["secdogie-identity"]
 
 [project.scripts]
 secdogie-fleet = "secdogie_fleet.cli:main"

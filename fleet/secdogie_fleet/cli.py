@@ -29,12 +29,28 @@ def _setup_logging(verbose: bool) -> logging.Logger:
     return logging.getLogger("secdogie_fleet")
 
 
+def _load_identity_and_allowlist(args):
+    """Resolve --identity / --authorized into (Identity|None, Allowlist|None).
+    Only imports secdogie_identity when one of them is given."""
+    if not args.identity and not args.authorized:
+        return None, None
+    from secdogie_identity import Allowlist, Identity
+
+    identity = Identity.load(args.identity) if args.identity else None
+    allowlist = Allowlist.load(args.authorized) if args.authorized else None
+    return identity, allowlist
+
+
 def _run_coordinator(args) -> int:
     log = _setup_logging(args.verbose)
+    signer, node_allowlist = _load_identity_and_allowlist(args)
+    if signer is not None or node_allowlist is not None:
+        log.info("secure mode: DID signing on, %d authorized node DID(s)",
+                 len(node_allowlist) if node_allowlist is not None else 0)
     server = FleetServer(
         host=args.host, port=args.port,
         max_concurrent=args.max_concurrent, max_attempts=args.max_attempts,
-        logger=log,
+        logger=log, signer=signer, node_allowlist=node_allowlist,
     )
     server.start()
     log.info("waiting for nodes to dial in on %s:%d", *server.address)
@@ -93,10 +109,16 @@ def _run_node(args) -> int:
         return 2
 
     node_id = args.node_id or node_mod.default_node_id()
+    identity, coordinator_allowlist = _load_identity_and_allowlist(args)
+    if identity is not None or coordinator_allowlist is not None:
+        log.info("secure mode: signing as %s", identity.did if identity else "(no key)")
     delay = 1.0
     while True:
         try:
-            node_mod.connect_and_serve(host, port, node_id=node_id, label=args.label, logger=log)
+            node_mod.connect_and_serve(
+                host, port, node_id=node_id, label=args.label,
+                identity=identity, coordinator_allowlist=coordinator_allowlist, logger=log,
+            )
             delay = 1.0  # a clean disconnect resets the backoff
         except (OSError, ConnectionError) as e:
             log.warning("cannot reach coordinator %s:%d (%s)", host, port, e)
@@ -140,6 +162,11 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--max-attempts", type=int, default=2,
                    help="how many desktops may try a task before it's marked failed (default: 2)")
     c.add_argument("--poll", type=float, default=5.0, help="seconds between status printouts")
+    c.add_argument("--identity", default=None, metavar="KEYFILE",
+                   help="this coordinator's DID signing key (secdogie-identity genkey); "
+                        "signs coordinator->node messages")
+    c.add_argument("--authorized", default=None, metavar="ALLOWLIST",
+                   help="file of authorized node DIDs; only signed messages from these are accepted")
     c.set_defaults(func=_run_coordinator)
 
     n = sub.add_parser("node", help="run a node (inside each VM / session)")
@@ -147,6 +174,10 @@ def main(argv: list[str] | None = None) -> int:
     n.add_argument("--label", default="", help="human-readable name for this desktop, e.g. win11-vm-1")
     n.add_argument("--node-id", default=None, help="stable id (default: hostname + random suffix)")
     n.add_argument("--once", action="store_true", help="don't reconnect after the coordinator goes away")
+    n.add_argument("--identity", default=None, metavar="KEYFILE",
+                   help="this node's DID signing key (secdogie-identity genkey); signs node->coordinator")
+    n.add_argument("--authorized", default=None, metavar="ALLOWLIST",
+                   help="file of authorized coordinator DIDs; only signed messages from these are accepted")
     n.set_defaults(func=_run_node)
 
     args = parser.parse_args(argv)

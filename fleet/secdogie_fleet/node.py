@@ -25,6 +25,7 @@ import socket
 import threading
 import uuid
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from .protocol import (
     COORDINATOR_KINDS,
@@ -38,6 +39,9 @@ from .protocol import (
     from_json,
     to_json,
 )
+
+if TYPE_CHECKING:  # annotations only -- never import PyNaCl on the unsigned path
+    from secdogie_identity import Allowlist, Identity
 
 # AgentConfig fields a coordinator is allowed to set through `assign.options`.
 # An allowlist, not a passthrough: an assignment must not be able to reach
@@ -244,15 +248,29 @@ def connect_and_serve(
     node_id: str | None = None,
     label: str = "",
     run_task: Callable[..., tuple[int, str]] = run_agent_task,
+    identity: Identity | None = None,
+    coordinator_allowlist: Allowlist | None = None,
     logger: logging.Logger | None = None,
 ) -> None:
     """Dial the coordinator and serve assignments until the socket closes.
 
     One connection, newline-delimited JSON both ways. Returns when the
     coordinator disconnects; the CLI wraps this in a reconnect loop.
+
+    Secure mode: pass `identity` to sign this node's outbound messages, and
+    `coordinator_allowlist` to verify (and reject unauthorized) inbound ones.
+    Both stay lazy so the unsigned path never imports PyNaCl.
     """
     log = logger or logging.getLogger("secdogie_fleet.node")
     nid = node_id or default_node_id()
+
+    sign = None
+    verify = None
+    if identity is not None or coordinator_allowlist is not None:
+        from .secure import signed_to_json, verify_and_from_json
+
+        sign = signed_to_json
+        verify = verify_and_from_json
 
     with socket.create_connection((host, port)) as sock:
         # So a coordinator that dies silently (host sleeps, network blackholes)
@@ -265,7 +283,8 @@ def connect_and_serve(
         lock = threading.Lock()
 
         def send(msg: Message) -> None:
-            line = (to_json(msg) + "\n").encode("utf-8")
+            text = sign(msg, identity) if sign is not None and identity is not None else to_json(msg)
+            line = (text + "\n").encode("utf-8")
             with lock:  # the worker thread and the main loop both send
                 sock.sendall(line)
 
@@ -289,8 +308,13 @@ def connect_and_serve(
                 if not raw.strip():
                     continue
                 try:
-                    msg = from_json(raw.decode("utf-8"), expect=COORDINATOR_KINDS)
+                    if verify is not None and coordinator_allowlist is not None:
+                        msg, _signer = verify(
+                            raw.decode("utf-8"), coordinator_allowlist, expect=COORDINATOR_KINDS
+                        )
+                    else:
+                        msg = from_json(raw.decode("utf-8"), expect=COORDINATOR_KINDS)
                 except (ProtocolError, UnicodeDecodeError, json.JSONDecodeError) as e:
-                    log.warning("ignoring bad message from coordinator: %s", e)
+                    log.warning("ignoring bad/unauthorized message from coordinator: %s", e)
                     continue
                 node.handle(msg)
