@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secdogie-identity"
+version = "0.5.0"
+description = "Ed25519 DID identities (@Larryx) for secdogie: sign and verify commands and node handshakes, with a did:key identifier and an authorized-node allowlist."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# One crypto dependency, PyNaCl -- the Python binding to libsodium, the exact C
+# library the tunnel already links. Ed25519 signing lives in that one audited
+# core; nothing here is hand-rolled.
+dependencies = ["pynacl>=1.5"]
+
+[project.scripts]
+secdogie-identity = "secdogie_identity.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["secdogie_identity*"]
