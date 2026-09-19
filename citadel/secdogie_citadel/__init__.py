@@ -8,9 +8,10 @@ peers -- the durable state layer the supervised Citadel runs on. One dependency
 """
 from __future__ import annotations
 
+from . import sync
 from .goals import Goal, GoalTree, build_goal_tree
 from .journal import GENESIS, Journal
 
 __version__ = "0.5.0"
 
-__all__ = ["Journal", "GENESIS", "GoalTree", "Goal", "build_goal_tree"]
+__all__ = ["Journal", "GENESIS", "GoalTree", "Goal", "build_goal_tree", "sync"]
