@@ -237,6 +237,17 @@ static void hub_handle_datagram(sdtp_hub_config *cfg, int tun_fd, int udp_fd,
         p->have_addr = 1;
         if (type != SDTP_MSG_DATA || pt_len == 0) return;
 
+        /* Cryptokey routing: the decrypted packet's SOURCE IP must be the
+         * sending peer's own tunnel IP. This stops an authenticated peer from
+         * spoofing another peer's address (to a third client or toward the
+         * hub's kernel), and drops non-IPv4 / malformed plaintext instead of
+         * handing it to the TUN. */
+        uint32_t src_ip;
+        if (sdtp_hub_parse_ipv4_src(pt_buf, pt_len, &src_ip) != 0 || src_ip != p->tunnel_ip) {
+            sdtp_log("hub: dropping spoofed/non-IPv4 inner packet from peer %zu", (size_t)idx);
+            return;
+        }
+
         /* Route the decrypted inner packet by its destination IP. */
         uint32_t dst;
         if (sdtp_hub_parse_ipv4_dst(pt_buf, pt_len, &dst) != 0 || dst == cfg->self_ip) {

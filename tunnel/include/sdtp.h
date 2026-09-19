@@ -22,7 +22,7 @@
 #define SDTP_REPLAY_WINDOW_BITS 2048
 
 /* Wire sizes (all fields packed big-endian, no compiler padding relied on --
- * these are serialized by hand in wire.c, never memcpy'd as structs). */
+ * these are serialized by hand in handshake.c / data.c, never memcpy'd as structs). */
 #define SDTP_MSG1_LEN (1 + SDTP_SESSION_ID_LEN + SDTP_KEY_LEN + SDTP_KEY_LEN + 8 + SDTP_MAC_LEN)
 #define SDTP_MSG2_LEN (1 + SDTP_SESSION_ID_LEN + SDTP_KEY_LEN + 16 + SDTP_AEAD_TAG_LEN)
 #define SDTP_DATA_HDR_LEN (1 + SDTP_SESSION_ID_LEN + 8)

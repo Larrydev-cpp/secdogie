@@ -13,8 +13,17 @@ VPN, not as a replacement for WireGuard or IPsec in production.
   TUN device.
 - Goal: small, auditable C codebase (a few hundred lines), no custom crypto
   primitives — only composition of libsodium primitives.
-- Non-goal (v1): multi-peer routing, rekeying of long-lived sessions, roaming
-  across multiple source addresses, post-quantum resistance.
+- Now implemented (beyond the original single-tunnel v1): **multi-peer routing**
+  via the optional hub mode (`hub.c`), and **roaming across source addresses** —
+  the point-to-point server/client and the hub all adopt a peer's latest source
+  address on each authenticated packet (keyed by the 8-byte session id, so a
+  session survives a NAT rebind). The hub enforces **cryptokey routing**: a
+  decrypted packet's inner source IP must equal the sending peer's tunnel IP, so
+  an authenticated peer cannot spoof another's address (`hub.c`,
+  `sdtp_hub_parse_ipv4_src`).
+- Still non-goals: rekeying of long-lived sessions (keys live for the process;
+  liveness drives a full re-handshake), NAT hole punching / traffic obfuscation,
+  IPv6, and post-quantum resistance.
 
 ## Identity
 
@@ -41,18 +50,22 @@ session_id      u8[8]   random, chosen by I
 i_static_pk     u8[32]
 i_eph_pk        u8[32]
 timestamp_ns    u64     big-endian, wall clock
-mac1            u8[16]  crypto_auth over the preceding fields, keyed with
-                        BLAKE2b("SDTP-mac1" || R_static_pk)[0:32]
+mac1            u8[16]  keyed BLAKE2b-128 over the preceding fields
+                        (libsodium crypto_generichash, 16-byte output), keyed
+                        with BLAKE2b("SDTP-mac1" || R_static_pk)[0:32]
+                        -- NOT libsodium crypto_auth
 ```
 
 `mac1` is not secrecy — it is a cheap proof that the sender has *looked up*
 `R`'s public key, filtering random internet noise / naive scanners before R
 does any DH math (same purpose as WireGuard's mac1).
 
-R validates: mac1, and `timestamp_ns` is within a 60s window of local time
-**and** strictly greater than the last accepted timestamp seen from this
-`i_static_pk` (per-peer monotonic counter — the anti-replay for the
-handshake itself).
+R validates, in order: `mac1`; that the initiator's `i_static_pk` byte-equals a
+configured, expected peer static key (`handshake.c` — this is the actual
+authentication gate, checked before the timestamp); and that `timestamp_ns` is
+within a 60s window of local time **and** strictly greater than the last accepted
+timestamp seen from this `i_static_pk` (per-peer monotonic counter — the
+anti-replay for the handshake itself).
 
 R then generates a fresh ephemeral keypair and computes three DH shared
 secrets:
@@ -163,11 +176,11 @@ guarantees above.
 
 - No session rekeying — a session's keys live as long as the process does.
   Restart both sides periodically for fresh forward secrecy.
-- No peer roaming: a session is bound to the source `(ip, port)` of message
-  1; if the client's address changes mid-session the tunnel must
-  re-handshake. (A hub does adopt a client's latest source address on each
-  authenticated data packet, so a client's NAT rebind is tolerated once it
-  sends again.)
+- Peer roaming IS supported: all three modes (point-to-point server and client,
+  and the hub) adopt a peer's latest source address on each *authenticated*
+  data/keepalive packet, keyed by the session id — so a NAT rebind is tolerated
+  without a re-handshake. There is no roaming rate limit / hysteresis: the last
+  authenticated packet wins.
 - Point-to-point per session — `server`/`client` carry one peer each. A `hub`
   terminates many client tunnels, but it is a decrypting hub-and-spoke node,
   not a mesh and not end-to-end between clients.
