@@ -8,10 +8,14 @@ peers -- the durable state layer the supervised Citadel runs on. One dependency
 """
 from __future__ import annotations
 
-from . import sync
+from . import socratic, sync
 from .goals import Goal, GoalTree, build_goal_tree
 from .journal import GENESIS, Journal
+from .socratic import Review, review
 
 __version__ = "0.5.0"
 
-__all__ = ["Journal", "GENESIS", "GoalTree", "Goal", "build_goal_tree", "sync"]
+__all__ = [
+    "Journal", "GENESIS", "GoalTree", "Goal", "build_goal_tree",
+    "sync", "socratic", "review", "Review",
+]
