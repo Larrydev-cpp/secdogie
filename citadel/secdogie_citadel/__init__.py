@@ -12,10 +12,12 @@ from . import socratic, sync
 from .goals import Goal, GoalTree, build_goal_tree
 from .journal import GENESIS, Journal
 from .socratic import Review, review
+from .supervisor import Supervisor, agent_run_task, terminal_confirm
 
 __version__ = "0.5.0"
 
 __all__ = [
     "Journal", "GENESIS", "GoalTree", "Goal", "build_goal_tree",
     "sync", "socratic", "review", "Review",
+    "Supervisor", "agent_run_task", "terminal_confirm",
 ]

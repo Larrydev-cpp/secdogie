@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-_STATUSES = ("pending", "active", "done")
+_STATUSES = ("pending", "active", "done", "failed")
 
 
 @dataclass
