@@ -34,6 +34,7 @@ jobs:
         include:
           - dir: agent
             extras: "[reflex]"  # so the reflex layer's numpy-backed tests run
+          - dir: identity   # DID signing (@Larryx); pynacl comes as a hard dep
           - dir: handoff
           - dir: aim
             needs_handoff: true
@@ -49,6 +50,10 @@ jobs:
             needs_agent: true
           - dir: fleet      # protocol/coordinator are pure; a node needs the agent it drives
             needs_agent: true
+            needs_identity: true   # so the DID-signed secure-transport tests run (not skip)
+          - dir: console    # web control console over the fleet, operator-DID gated
+            needs_identity: true
+            needs_fleet: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -67,6 +72,12 @@ jobs:
           fi
           if [ "${{ matrix.needs_handoff }}" = "true" ]; then
             pip install -e ../handoff
+          fi
+          if [ "${{ matrix.needs_identity }}" = "true" ]; then
+            pip install -e ../identity
+          fi
+          if [ "${{ matrix.needs_fleet }}" = "true" ]; then
+            pip install -e ../fleet
           fi
           pip install -e ".${{ matrix.extras }}" pytest
 
