@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secdogie-desktop"
+version = "0.5.0"
+description = "A native desktop window (tkinter) to control a secdogie fleet: live nodes/tasks and submit/stop/pause/resume, with operator-DID-signed commands."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# tkinter ships with Python. The window reuses the console's control logic and
+# drives a fleet coordinator; identity is for signing operator commands.
+dependencies = ["secdogie-console", "secdogie-fleet", "secdogie-identity"]
+
+[project.scripts]
+secdogie-desktop = "secdogie_desktop.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["secdogie_desktop*"]

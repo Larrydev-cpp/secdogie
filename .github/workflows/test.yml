@@ -54,6 +54,10 @@ jobs:
           - dir: console    # web control console over the fleet, operator-DID gated
             needs_identity: true
             needs_fleet: true
+          - dir: desktop    # native tkinter window; viewmodel is tested headless
+            needs_identity: true
+            needs_fleet: true
+            needs_console: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -78,6 +82,9 @@ jobs:
           fi
           if [ "${{ matrix.needs_fleet }}" = "true" ]; then
             pip install -e ../fleet
+          fi
+          if [ "${{ matrix.needs_console }}" = "true" ]; then
+            pip install -e ../console
           fi
           pip install -e ".${{ matrix.extras }}" pytest
 
