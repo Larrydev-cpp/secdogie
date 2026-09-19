@@ -36,7 +36,10 @@ windows-ax = ["uiautomation>=2.0"]
 # interface; without it the feature no-ops and capture falls back to raising the
 # window on a single desktop.
 windows-vdesktop = ["comtypes>=1.2"]
-macos-ax = ["pyobjc-framework-ApplicationServices>=9.0"]
+# macOS accessibility (desktop_ax.py) + window capture (mac_capture.py). Quartz
+# provides CGWindowListCreateImage, used to capture the target window for the
+# model when the accessibility tree can't describe custom-drawn content.
+macos-ax = ["pyobjc-framework-ApplicationServices>=9.0", "pyobjc-framework-Quartz>=9.0"]
 
 [project.scripts]
 secdogie-agent = "secdogie_agent.cli:main"

@@ -15,6 +15,17 @@ int sdtp_hub_parse_ipv4_dst(const uint8_t *pkt, size_t len, uint32_t *dst_out) {
     return 0;
 }
 
+int sdtp_hub_parse_ipv4_src(const uint8_t *pkt, size_t len, uint32_t *src_out) {
+    /* Source address is at offset 12 of the IPv4 header. Used for cryptokey
+     * routing: the hub rejects a decrypted packet whose source is not the
+     * sending peer's own tunnel IP, so an authenticated peer cannot spoof
+     * another peer's address. */
+    if (len < 20) return -1;
+    if ((pkt[0] >> 4) != 4) return -1;
+    memcpy(src_out, pkt + 12, 4); /* copy, not cast: the packet buffer is unaligned */
+    return 0;
+}
+
 int sdtp_hub_find_peer_by_session_id(const sdtp_hub_peer *peers, size_t n,
                                      const uint8_t session_id[SDTP_SESSION_ID_LEN]) {
     for (size_t i = 0; i < n; i++) {

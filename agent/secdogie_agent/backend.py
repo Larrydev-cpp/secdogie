@@ -13,6 +13,7 @@ via `AgentConfig.backend`, reusing everything else unchanged.
 """
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
@@ -166,6 +167,23 @@ class DesktopBackend:
             logger.warning("pyautogui unavailable (%s); only --dry-run will work", e)
 
     def capture(self, region: tuple[int, int, int, int] | None):
+        # macOS, element-aware (--desktop-ax): the tree is primary, and a
+        # screenshot is only wanted when the tree can't describe the content.
+        # Capture the target WINDOW (Quartz) rather than the whole display via
+        # mss -- mss grabs everything and, without Screen Recording permission,
+        # silently returns a black frame. A TCC denial surfaces as a
+        # CaptureError (actionable); anything else falls back to mss.
+        if region is None and self.ax_provider is not None and sys.platform == "darwin":
+            from . import mac_capture
+
+            try:
+                shot = mac_capture.capture_target_window_png()
+            except mac_capture.ScreenRecordingDenied:
+                raise
+            except Exception:
+                shot = None  # Quartz missing / no window -> whole-screen fallback
+            if shot is not None:
+                return shot
         return screen.capture_screenshot(region=region)
 
     # -- Presentable (backend.py): only meaningful for a window-scoped backend.

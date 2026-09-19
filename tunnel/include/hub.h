@@ -52,6 +52,9 @@ typedef struct {
 /* Parse the destination IPv4 address (network byte order) out of an inner IP
  * packet. Returns 0 on success, -1 if the buffer is too short or not IPv4. */
 int sdtp_hub_parse_ipv4_dst(const uint8_t *pkt, size_t len, uint32_t *dst_out);
+/* Parse the inner IPv4 source address (offset 12). Returns 0 on success, -1 for
+ * a too-short or non-IPv4 packet. Used for cryptokey routing in the hub. */
+int sdtp_hub_parse_ipv4_src(const uint8_t *pkt, size_t len, uint32_t *src_out);
 
 /* Index of the established peer whose session has this session_id, or -1. */
 int sdtp_hub_find_peer_by_session_id(const sdtp_hub_peer *peers, size_t n,

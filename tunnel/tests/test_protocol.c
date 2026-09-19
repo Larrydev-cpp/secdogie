@@ -140,6 +140,28 @@ static void test_hub_parse_ipv4_dst(void) {
     CHECK(sdtp_hub_parse_ipv4_dst(pkt, sizeof(pkt), &dst) == -1, "parse_ipv4_dst rejects a non-IPv4 packet");
 }
 
+static void test_hub_parse_ipv4_src(void) {
+    uint8_t pkt[20];
+    memset(pkt, 0, sizeof(pkt));
+    pkt[0] = 0x45; /* version 4, IHL 5 */
+    pkt[12] = 10; pkt[13] = 66; pkt[14] = 0; pkt[15] = 2; /* source 10.66.0.2 */
+    uint32_t src = 0;
+    CHECK(sdtp_hub_parse_ipv4_src(pkt, sizeof(pkt), &src) == 0, "parse_ipv4_src accepts a v4 packet");
+    uint8_t *b = (uint8_t *)&src;
+    CHECK(b[0] == 10 && b[1] == 66 && b[2] == 0 && b[3] == 2, "parsed source is network-order 10.66.0.2");
+
+    CHECK(sdtp_hub_parse_ipv4_src(pkt, 19, &src) == -1, "parse_ipv4_src rejects a too-short buffer");
+    pkt[0] = 0x60; /* version 6 */
+    CHECK(sdtp_hub_parse_ipv4_src(pkt, sizeof(pkt), &src) == -1, "parse_ipv4_src rejects a non-IPv4 packet");
+
+    /* Cryptokey routing: a source that isn't the sender's tunnel IP is spoofed;
+     * the hub compares this parsed value to peers[idx].tunnel_ip and drops the
+     * packet on a mismatch. */
+    pkt[0] = 0x45; pkt[15] = 9; /* source now 10.66.0.9, not the sender's 10.66.0.2 */
+    CHECK(sdtp_hub_parse_ipv4_src(pkt, sizeof(pkt), &src) == 0 && ((uint8_t *)&src)[3] == 9,
+          "a spoofed source (not the sender's tunnel IP) is parsed for the hub's check");
+}
+
 static uint32_t ip_be(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
     uint8_t bytes[4] = {a, b, c, d};
     uint32_t v;
@@ -279,6 +301,7 @@ int main(void) {
     test_wrong_peer_rejected();
     test_replayed_handshake_rejected();
     test_hub_parse_ipv4_dst();
+    test_hub_parse_ipv4_src();
     test_hub_peer_lookup();
     test_hub_two_client_session_demux();
     test_udp_recv_batch();
