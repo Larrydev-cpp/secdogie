@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secdogie-citadel"
+version = "0.5.0"
+description = "The Citadel state substrate: a signed, append-only event journal (DID-authored, hash-chained, convergent) and a DAG goal tree projected from it."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# Signing/verification only; storage is stdlib sqlite3, no network here.
+dependencies = ["secdogie-identity"]
+
+[project.scripts]
+secdogie-citadel = "secdogie_citadel.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["secdogie_citadel*"]

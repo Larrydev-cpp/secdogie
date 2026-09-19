@@ -1,0 +1,11 @@
+.venv/
+.build-venv/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+
+# journals + keys are local state / secrets
+*.db
+*.key
