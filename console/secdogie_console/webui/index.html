@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>secdogie console</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header>
+    <h1>secdogie <span class="dim">console</span></h1>
+    <span id="conn" class="pill">connecting…</span>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>New task</h2>
+      <div id="signed-note" class="note" hidden>
+        Commands require an operator-DID signature; use a signed client. This
+        form is for loopback (unsigned) mode.
+      </div>
+      <form id="submit-form">
+        <input id="task" type="text" placeholder="describe a task for an idle node" autocomplete="off" />
+        <label class="check"><input id="auto" type="checkbox" /> auto</label>
+        <button type="submit">Submit</button>
+      </form>
+      <div id="submit-msg" class="msg"></div>
+    </section>
+
+    <section class="card">
+      <h2>Nodes</h2>
+      <table id="nodes"><thead><tr><th>node</th><th>label</th><th>caps</th><th>task</th></tr></thead><tbody></tbody></table>
+      <div id="nodes-empty" class="dim">no nodes connected</div>
+    </section>
+
+    <section class="card">
+      <h2>Tasks</h2>
+      <table id="tasks"><thead><tr><th>id</th><th>state</th><th>task</th><th>where</th><th></th></tr></thead><tbody></tbody></table>
+      <div id="tasks-empty" class="dim">no tasks yet</div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
