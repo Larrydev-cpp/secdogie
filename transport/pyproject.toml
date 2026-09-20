@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secdogie-transport"
+version = "0.5.0"
+description = "A P2P-ready peer/session/endpoint transport model: upper layers depend on an authenticated peer session (a DID bound to a transport key) instead of a hub socket."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# Peer identity comes from a verified DID<->transport binding.
+dependencies = ["secdogie-identity"]
+
+[tool.setuptools.packages.find]
+include = ["secdogie_transport*"]
