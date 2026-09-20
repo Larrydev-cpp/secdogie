@@ -77,15 +77,6 @@ class HubTransport(Transport):
         return sorted(self._sessions)
 
 
-class DirectUDPTransport(Transport):
-    """Placeholder for the Phase 2.10 peer-to-peer transport. Implements the same
-    interface so upper layers are unchanged; not built yet."""
-
-    def register(self, session: Session, deliver: DeliverFn) -> bool:  # pragma: no cover - not implemented
-        raise NotImplementedError("DirectUDPTransport arrives in Phase 2.10")
-
-    def route(self, from_did: str, to_did: str, message: bytes) -> bool:  # pragma: no cover
-        raise NotImplementedError("DirectUDPTransport arrives in Phase 2.10")
-
-    def migrate(self, did: str, endpoint: Endpoint) -> bool:  # pragma: no cover
-        raise NotImplementedError("DirectUDPTransport arrives in Phase 2.10")
+# The real peer-to-peer transport lives in udp.py (DirectUDPTransport), which
+# implements this same Transport interface over UDP -- imported at the package
+# level so upper layers are unchanged whether they use the hub or direct path.

@@ -11,7 +11,8 @@ from __future__ import annotations
 from .endpoint import Endpoint, EndpointSet
 from .peer import PeerIdentity
 from .session import Session
-from .transport import DirectUDPTransport, HubTransport, Transport
+from .transport import HubTransport, Transport
+from .udp import DirectUDPTransport, UDPChannel
 
 __version__ = "0.5.0"
 
@@ -23,4 +24,5 @@ __all__ = [
     "Transport",
     "HubTransport",
     "DirectUDPTransport",
+    "UDPChannel",
 ]
