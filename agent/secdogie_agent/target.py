@@ -85,6 +85,29 @@ def unique_identity_match(
     return (VALID, found) if found is not None else (GONE, None)
 
 
+def identity_key(el: _Identifiable) -> str:
+    """A stable, case-normalized id naming a target: its automation_id when
+    present, else ``role:name``. ``""`` for an anonymous control (nothing names
+    it). This is the single definition of "the id that names a target", shared by
+    the target layer here and the action-plan gate (citadel.action_gate), so both
+    agree on what "the same target" means."""
+    aid = (getattr(el, "automation_id", "") or "").strip()
+    if aid:
+        return f"id={aid.casefold()}"
+    role = (getattr(el, "role", "") or "").strip().casefold()
+    name = (getattr(el, "name", "") or "").strip().casefold()
+    if role or name:
+        return f"{role}:{name}"
+    return ""
+
+
+def present_keys(snapshot: Sequence[_Identifiable]) -> frozenset[str]:
+    """The identity keys currently on screen (anonymous controls dropped). Feed
+    this to the action gate's ``target_present_ids`` so it can tell that a named
+    target the plan refers to is no longer present."""
+    return frozenset(k for el in snapshot if (k := identity_key(el)))
+
+
 def _center(bounds: tuple[int, int, int, int]) -> tuple[int, int]:
     left, top, right, bottom = bounds
     return ((left + right) // 2, (top + bottom) // 2)
@@ -111,6 +134,12 @@ class AXTargetRef:
     @property
     def center(self) -> tuple[int, int]:
         return _center(self.bounds)
+
+    @property
+    def key(self) -> str:
+        """This ref's identity key -- what the action gate matches against the
+        current on-screen ``present_keys``."""
+        return identity_key(self)
 
     @classmethod
     def from_element(
@@ -232,6 +261,8 @@ __all__ = [
     "MOVED",
     "gen_gate",
     "unique_identity_match",
+    "identity_key",
+    "present_keys",
     "AXTargetRef",
     "TargetResolution",
     "resolve",

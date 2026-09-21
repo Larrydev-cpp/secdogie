@@ -115,6 +115,33 @@ def test_resolve_gone_when_absent():
     assert target.resolve(ref, [], current_generation=1).verdict == target.GONE
 
 
+# --- identity keys (the 2.5 <-> 2.6 connective tissue) ----------------------
+
+
+def test_identity_key_prefers_automation_id_then_role_name():
+    assert target.identity_key(AxElement("Button", "Save", "save", (0, 0, 1, 1))) == "id=save"
+    assert target.identity_key(AxElement("Button", "OK", "", (0, 0, 1, 1))) == "button:ok"
+    # case-normalized so presence checks are case-insensitive (matches matching)
+    assert target.identity_key(AxElement("BUTTON", "Ok", "", (0, 0, 1, 1))) == "button:ok"
+    # anonymous control -> no key
+    assert target.identity_key(AxElement("", "", "", (0, 0, 1, 1))) == ""
+
+
+def test_present_keys_drops_anonymous_and_dedupes():
+    els = [
+        AxElement("Button", "Save", "save", (0, 0, 1, 1)),
+        AxElement("", "", "", (0, 0, 1, 1)),  # anonymous -> dropped
+        AxElement("Button", "OK", "", (0, 0, 1, 1)),
+    ]
+    assert target.present_keys(els) == frozenset({"id=save", "button:ok"})
+
+
+def test_axtargetref_key_matches_module_function():
+    el = AxElement("Button", "Save", "save", (0, 0, 20, 10))
+    ref = target.AXTargetRef.from_element(el, window_id=1, app_pid=1, generation=1)
+    assert ref.key == target.identity_key(el) == "id=save"
+
+
 # --- atlas.run_hybrid_step integration --------------------------------------
 
 

@@ -68,7 +68,7 @@
 - **指令级苏格拉底门**(已建成):`citadel/socratic.py` —— `review(instruction)` 审查
   指令**质量**(空指令 / 自相矛盾 / 无人值守的发布 / 轮询 / 过长),这是**应用层的代码质量判断**,
   不是执行层的安全绕过。
-- **计划级苏格拉底门**(Phase 2.6,规划中):在动作计划层给出
+- **计划级苏格拉底门**(Phase 2.6,已建成):`citadel/action_gate.py` —— 在动作计划层给出
   `GateDecision(allow | reject | rewrite | request_reobserve)`,检重复/空操作/目标错配/
   陈旧目标/破坏性链条/缺验证/超预算/越权。**门只判定,不执行**——执行仍要过 Safety 与 HITL。
 
@@ -119,7 +119,7 @@ flowchart TB
         sync -.->|复制经签名的证据| direct
     end
     subgraph MIND["④ 苏格拉底质询 (citadel/socratic.py)"]
-        gate["指令门(已建) → 计划门(2.6)"]
+        gate["指令门 + 计划门(action_gate)"]
     end
     subgraph ACT["⑤ 受认证设备实战 (agent/ · native/atlas · desktop/ · console/)"]
         obs["观测融合: AX + DIB(引用) + 像素 → Observation"]
@@ -155,8 +155,8 @@ flowchart TB
 | `tunnel/` (C) | libsodium 加密隧道(机密性) | ② | ✅ 已建成 |
 | `fleet/` | DID 安全协调面 | ① | ✅ 已建成 |
 | `desktop/` · `console/` | 原生 GUI / 本地控制台(DID 门控) | ④ | ✅ 已建成 |
-| 计划门 `GateDecision` | 动作计划级苏格拉底门(2.6) | ③ | 🔜 规划中 |
-| `AXTargetRef` | AX 不透明目标 + 代际,修 TOCTOU(2.5) | ④ | 🔜 规划中 |
+| `citadel/action_gate.py` | 动作计划级苏格拉底门 `GateDecision`(2.6) | ③ | ✅ 已建成 |
+| `agent/target.py` | AX 不透明目标 + 代际,修 TOCTOU(2.5) | ④ | ✅ 已建成 |
 | run 闭环 | Agent↔Citadel 运行状态串联(2.7) | ③④ | 🔜 规划中 |
 | `Capability` | 签名能力授权模型(2.9) | ④ | 🔜 规划中 |
 
@@ -186,8 +186,8 @@ physical action = 显式 capability。能力模型**永不**包含
 | 2.2 | Peer/Session/Endpoint 抽象 + HubTransport | ✅ |
 | 2.3 | StateDelta / StateStore(非伪 CRDT) | ✅ |
 | 2.4 | 观测融合(AX/DIB/像素,DIB 按引用) | ✅ |
-| 2.5 | AX 不透明目标 / 代际(修 TOCTOU) | 🔜 下一步 |
-| 2.6 | 动作计划级苏格拉底门 | 🔜 |
+| 2.5 | AX 不透明目标 / 代际(修 TOCTOU) | ✅ |
+| 2.6 | 动作计划级苏格拉底门 | ✅ |
 | 2.7 | Agent↔Citadel run 闭环 | 🔜 |
 | 2.8 | 崩溃恢复升级(先重观测再重试) | 🔜(基础已具备) |
 | 2.9 | 能力授权模型 | 🔜 |
