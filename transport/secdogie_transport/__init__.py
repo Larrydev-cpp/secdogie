@@ -10,11 +10,12 @@ from __future__ import annotations
 
 from .endpoint import Endpoint, EndpointSet
 from .peer import PeerIdentity
+from .rendezvous import RendezvousClient, RendezvousServer
 from .session import Session
 from .transport import HubTransport, Transport
 from .udp import DirectUDPTransport, UDPChannel
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 __all__ = [
     "PeerIdentity",
@@ -25,4 +26,6 @@ __all__ = [
     "HubTransport",
     "DirectUDPTransport",
     "UDPChannel",
+    "RendezvousServer",
+    "RendezvousClient",
 ]

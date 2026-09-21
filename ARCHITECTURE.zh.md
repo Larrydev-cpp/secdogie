@@ -144,6 +144,7 @@ flowchart TB
 | `identity/binding.py` | DID ↔ 传输密钥绑定(2.1) | ① | ✅ 已建成 |
 | `transport/` | Peer/Session/Endpoint + `HubTransport`(2.2) | ①② | ✅ 已建成 |
 | `transport/udp.py` | `DirectUDPTransport` 真 P2P(2.10 提前) | ② | ✅ 已建成 |
+| `transport/rendezvous.py` | Rendezvous + 反射端点发现(STUN/AutoNAT,DID 签名) | ①② | ✅ 已建成 |
 | `citadel/journal.py` | 签名哈希链事件日志 | ② | ✅ 已建成 |
 | `citadel/state.py` | `StateDelta` / `StateStore`(2.3) | ② | ✅ 已建成 |
 | `citadel/sync.py` | 反熵复制 | ② | ✅ 已建成 |
@@ -191,7 +192,7 @@ physical action = 显式 capability。能力模型**永不**包含
 | 2.7 | Agent↔Citadel run 闭环 | 🔜 |
 | 2.8 | 崩溃恢复升级(先重观测再重试) | 🔜(基础已具备) |
 | 2.9 | 能力授权模型 | 🔜 |
-| 2.10 | P2P 直连传输 / rendezvous | ✅ 传输已实现,rendezvous 编排规划中 |
+| 2.10 | P2P 直连传输 / rendezvous | ✅ 传输 + rendezvous/反射端点发现已实现;直连升级(DCUtR 式)推进中 |
 
 完整审计与冲突记录见 [`docs/AUDIT-P2P-ALIGNMENT.zh.md`](docs/AUDIT-P2P-ALIGNMENT.zh.md)。
 
