@@ -8,10 +8,11 @@ peers -- the durable state layer the supervised Citadel runs on. One dependency
 """
 from __future__ import annotations
 
-from . import action_gate, socratic, state, sync
+from . import action_gate, replication, socratic, state, sync
 from .action_gate import GateContext, GateDecision, PlannedAction, gate
 from .goals import Goal, GoalTree, build_goal_tree
 from .journal import GENESIS, Journal
+from .replication import ReplicationPeer
 from .socratic import Review, review
 from .state import StateDelta, StateStore, record_state
 from .supervisor import Supervisor, agent_run_task, terminal_confirm
@@ -24,4 +25,5 @@ __all__ = [
     "Supervisor", "agent_run_task", "terminal_confirm",
     "state", "StateStore", "StateDelta", "record_state",
     "action_gate", "gate", "PlannedAction", "GateContext", "GateDecision",
+    "replication", "ReplicationPeer",
 ]

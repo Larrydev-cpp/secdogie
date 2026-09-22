@@ -149,7 +149,8 @@ flowchart TB
 | `transport/membership.py` | 成员/端点 gossip 反熵(自签名记录、LWW、去中心收敛) | ①② | ✅ 已建成 |
 | `citadel/journal.py` | 签名哈希链事件日志 | ② | ✅ 已建成 |
 | `citadel/state.py` | `StateDelta` / `StateStore`(2.3) | ② | ✅ 已建成 |
-| `citadel/sync.py` | 反熵复制 | ② | ✅ 已建成 |
+| `citadel/sync.py` | 反熵复制(have/want builder,传输无关) | ② | ✅ 已建成 |
+| `citadel/replication.py` | 把签名日志/状态收敛承载到 DID 认证传输(Replication.1,双重认证) | ② | ✅ 已建成 |
 | `citadel/socratic.py` | 指令级苏格拉底门 | ③ | ✅ 已建成 |
 | `citadel/supervisor.py` | 受监督持久节点、从日志恢复 | ④ | ✅ 已建成(2.8 增强规划中) |
 | `agent/observation.py` | 观测融合、DIB 按引用桥接(2.4) | ④ | ✅ 已建成 |
