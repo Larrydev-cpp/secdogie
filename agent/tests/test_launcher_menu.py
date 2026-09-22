@@ -96,6 +96,7 @@ def test_menu_flag_shows_the_chooser_and_runs_the_choice():
 
     with mock.patch.object(m, "show_menu", return_value=["--gui", "--dry-run"]) as sm, \
          mock.patch.object(cli, "run", return_value=0) as run, \
+         mock.patch.object(cli, "run_gui_session", side_effect=lambda p, c: run(p, c)), \
          mock.patch("secdogie_agent.cli_common.resolve_provider", return_value=object()), \
          mock.patch("secdogie_agent.dialog.gui_available", return_value=True), \
          mock.patch("secdogie_agent.dialog.ask_task", return_value="a task"), \

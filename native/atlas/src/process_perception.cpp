@@ -694,27 +694,29 @@ void EnsureAxPrompt() {
 bool AxPoint(CFTypeRef v, CGPoint* out) {
   if (!v || !out || CFGetTypeID(v) != AXValueGetTypeID()) return false;
   AXValueRef av = static_cast<AXValueRef>(v);
-  if (AXValueGetValue(av, kAXValueCGPointType, out)) return true;
+  // Xcode 26 SDK: AXValueGetValue takes AXValueType (CF_ENUM), not the old
+  // `const UInt32` kAXValueCGPointType aliases. Try the new name first.
 #if defined(kAXValueTypeCGPoint)
-  if (static_cast<int>(kAXValueTypeCGPoint) != static_cast<int>(kAXValueCGPointType) &&
-      AXValueGetValue(av, kAXValueTypeCGPoint, out)) {
-    return true;
-  }
+  if (AXValueGetValue(av, kAXValueTypeCGPoint, out)) return true;
 #endif
+#if defined(kAXValueCGPointType)
+  return AXValueGetValue(av, static_cast<AXValueType>(kAXValueCGPointType), out);
+#else
   return false;
+#endif
 }
 
 bool AxSize(CFTypeRef v, CGSize* out) {
   if (!v || !out || CFGetTypeID(v) != AXValueGetTypeID()) return false;
   AXValueRef av = static_cast<AXValueRef>(v);
-  if (AXValueGetValue(av, kAXValueCGSizeType, out)) return true;
 #if defined(kAXValueTypeCGSize)
-  if (static_cast<int>(kAXValueTypeCGSize) != static_cast<int>(kAXValueCGSizeType) &&
-      AXValueGetValue(av, kAXValueTypeCGSize, out)) {
-    return true;
-  }
+  if (AXValueGetValue(av, kAXValueTypeCGSize, out)) return true;
 #endif
+#if defined(kAXValueCGSizeType)
+  return AXValueGetValue(av, static_cast<AXValueType>(kAXValueCGSizeType), out);
+#else
   return false;
+#endif
 }
 
 ControlRole AxRole(CFStringRef role) {
@@ -875,9 +877,17 @@ std::uint32_t FrontmostPidMac() {
         AXUIElementCopyAttributeValue(sys, kAXFocusedApplicationAttribute, &app) ==
             kAXErrorSuccess &&
         app) {
-      CFTypeRef pidv = nullptr;
       pid_t focused = 0;
-      if (AXUIElementCopyAttributeValue(static_cast<AXUIElementRef>(app), kAXPIDAttribute,
+      // kAXPIDAttribute was dropped from the public HIServices headers on
+      // recent SDKs. AXUIElementGetPid is the documented call.
+      if (AXUIElementGetPid(static_cast<AXUIElementRef>(app), &focused) == kAXErrorSuccess &&
+          focused > 0) {
+        CFRelease(app);
+        CFRelease(sys);
+        return static_cast<std::uint32_t>(focused);
+      }
+      CFTypeRef pidv = nullptr;
+      if (AXUIElementCopyAttributeValue(static_cast<AXUIElementRef>(app), CFSTR("AXPID"),
                                         &pidv) == kAXErrorSuccess &&
           pidv && CFGetTypeID(pidv) == CFNumberGetTypeID()) {
         CFNumberGetValue(static_cast<CFNumberRef>(pidv), kCFNumberSInt32Type, &focused);

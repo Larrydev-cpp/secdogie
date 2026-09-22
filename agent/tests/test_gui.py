@@ -218,6 +218,7 @@ def test_cli_gui_darwin_forces_desktop_ax(monkeypatch):
         return 0
 
     monkeypatch.setattr(cli, "run", fake_run)
+    monkeypatch.setattr(cli, "run_gui_session", lambda p, c: fake_run(p, c))
     rc = cli.main(["--gui"])
     assert rc == 0
     assert seen.get("gui") is True

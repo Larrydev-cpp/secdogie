@@ -148,6 +148,27 @@ def test_start_launches_selected_windows_and_reports_done(monkeypatch):
     assert _wait_until(lambda: c.status_snapshot().get(win.id) == ("done", "done"))
 
 
+def test_start_empty_model_falls_back_to_default(monkeypatch):
+    win = _window("w1")
+    monkeypatch.setattr(controller_mod.windows, "list_windows", lambda: [win])
+    seen = {}
+
+    def fake_resolve(**kw):
+        seen.update(kw)
+        return _resolved()
+
+    monkeypatch.setattr(controller_mod.config_mod, "resolve", fake_resolve)
+    monkeypatch.setattr(controller_mod, "make_provider", lambda provider, model, key: "the-provider")
+    monkeypatch.setattr(runner, "run", lambda provider, config: 0)
+
+    c = Controller()
+    c.refresh_windows()
+    result = c.start(window_ids=[win.id], task="do it", model="", max_steps=5, auto=True)
+    assert result.error is None
+    assert seen["cli_model"] == controller_mod.DEFAULT_MODEL
+    c._runs[win.id].thread.join(timeout=2)
+
+
 def test_start_forwards_typed_api_key_and_model_to_resolve(monkeypatch):
     # A key typed into the web UI must reach config resolution as cli_api_key
     # (trimmed); the model flows through as cli_model.

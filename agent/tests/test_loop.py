@@ -383,8 +383,8 @@ def test_loop_click_element_uses_last_known_when_tree_empty(monkeypatch):
 def test_gui_first_step_shows_working(monkeypatch):
     """After the plan, step 1 must show Working so the desktop is not blank."""
     from secdogie_agent import loop as loop_mod
-    from secdogie_agent.providers.base import Action
     from secdogie_agent.backend import Backend
+    from secdogie_agent.providers.base import Action
 
     class Cap(Backend):
         def capture(self, region=None):

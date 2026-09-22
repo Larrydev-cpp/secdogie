@@ -173,9 +173,27 @@ bool AxGeom(AXUIElementRef el, Rect* out) {
   bool ok = false;
   if (pos && size && CFGetTypeID(pos) == AXValueGetTypeID() &&
       CFGetTypeID(size) == AXValueGetTypeID()) {
-    if (AXValueGetValue(static_cast<AXValueRef>(pos), kAXValueCGPointType, &pt) &&
-        AXValueGetValue(static_cast<AXValueRef>(size), kAXValueCGSizeType, &sz) &&
-        sz.width > 0 && sz.height > 0) {
+    AXValueRef pv = static_cast<AXValueRef>(pos);
+    AXValueRef sv = static_cast<AXValueRef>(size);
+    bool got_pt = false;
+    bool got_sz = false;
+#if defined(kAXValueTypeCGPoint)
+    got_pt = AXValueGetValue(pv, kAXValueTypeCGPoint, &pt);
+#endif
+#if defined(kAXValueCGPointType)
+    if (!got_pt) {
+      got_pt = AXValueGetValue(pv, static_cast<AXValueType>(kAXValueCGPointType), &pt);
+    }
+#endif
+#if defined(kAXValueTypeCGSize)
+    got_sz = AXValueGetValue(sv, kAXValueTypeCGSize, &sz);
+#endif
+#if defined(kAXValueCGSizeType)
+    if (!got_sz) {
+      got_sz = AXValueGetValue(sv, static_cast<AXValueType>(kAXValueCGSizeType), &sz);
+    }
+#endif
+    if (got_pt && got_sz && sz.width > 0 && sz.height > 0) {
       out->x = static_cast<std::int32_t>(pt.x);
       out->y = static_cast<std::int32_t>(pt.y);
       out->w = static_cast<std::int32_t>(sz.width);
@@ -344,7 +362,8 @@ Result<Framebuffer> CaptureCgWindow(const Rect& r) {
   CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
   CGContextRef ctx = CGBitmapContextCreate(
       fb.bgra.data(), w, h, 8, w * 4, cs,
-      kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+      static_cast<CGBitmapInfo>(static_cast<unsigned>(kCGImageAlphaPremultipliedFirst) |
+                                static_cast<unsigned>(kCGBitmapByteOrder32Little)));
   if (!ctx) {
     if (cs) CGColorSpaceRelease(cs);
     CGImageRelease(img);
@@ -389,7 +408,8 @@ Result<Framebuffer> CaptureCgWindowId(std::uint64_t hwnd) {
   CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
   CGContextRef ctx = CGBitmapContextCreate(
       fb.bgra.data(), w, h, 8, w * 4, cs,
-      kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+      static_cast<CGBitmapInfo>(static_cast<unsigned>(kCGImageAlphaPremultipliedFirst) |
+                                static_cast<unsigned>(kCGBitmapByteOrder32Little)));
   if (!ctx) {
     if (cs) CGColorSpaceRelease(cs);
     CGImageRelease(img);

@@ -23,6 +23,8 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 
+from . import theme as ui
+
 # -- the choices (pure data: provable without a display) -----------------------
 
 
@@ -94,61 +96,11 @@ def should_offer(argv: list[str]) -> bool:
 
 # -- the window (on-machine: needs tkinter + a display) ------------------------
 
-# Palette: a dark glass panel. On Windows the acrylic tint below shows through
-# these; elsewhere they're just a good-looking dark UI.
-_BG = "#0a0b0d"          # panel base (also the acrylic fallback colour)
-_CARD = "#191c21"        # card at rest
-_CARD_HOVER = "#242830"  # card under the pointer
-_FG = "#ecece8"
-_FG_DIM = "#8b8d92"
-_ACCENT = "#c5cbd4"      # cool gray, same as Atlas
-_WARN = "#c4b49a"
+# Palette lives in theme.py so HUD / dialog / launcher are one language.
 
 
 def _apply_windows_glass(root) -> None:
-    """Acrylic blur-behind + rounded corners via the OS compositor. Windows
-    only, best-effort: any failure (old build, unexpected pyinstaller/tk HWND
-    shape) leaves the plain dark panel, never an error."""
-    if not sys.platform.startswith("win"):
-        return
-    try:
-        import ctypes
-
-        class ACCENT_POLICY(ctypes.Structure):
-            _fields_ = [
-                ("AccentState", ctypes.c_int),
-                ("Flags", ctypes.c_int),
-                ("GradientColor", ctypes.c_uint),
-                ("AnimationId", ctypes.c_int),
-            ]
-
-        class WINCOMPATTRDATA(ctypes.Structure):
-            _fields_ = [
-                ("Attribute", ctypes.c_int),
-                ("Data", ctypes.c_void_p),
-                ("SizeOfData", ctypes.c_size_t),
-            ]
-
-        user32 = ctypes.windll.user32
-        # tkinter's winfo_id is a child; the top-level HWND is its parent.
-        hwnd = user32.GetParent(root.winfo_id()) or root.winfo_id()
-
-        accent = ACCENT_POLICY()
-        accent.AccentState = 4  # ACCENT_ENABLE_ACRYLICBLURBEHIND (1803+)
-        accent.GradientColor = 0xCC0D0B0A  # 0xAABBGGRR: near-black tint at ~80%
-        data = WINCOMPATTRDATA()
-        data.Attribute = 19  # WCA_ACCENT_POLICY
-        data.Data = ctypes.cast(ctypes.pointer(accent), ctypes.c_void_p)
-        data.SizeOfData = ctypes.sizeof(accent)
-        user32.SetWindowCompositionAttribute(hwnd, ctypes.byref(data))
-
-        # Windows 11 rounded corners (no-op error on Win10 -- fine).
-        pref = ctypes.c_int(2)  # DWMWCP_ROUND
-        ctypes.windll.dwmapi.DwmSetWindowAttribute(
-            hwnd, 33, ctypes.byref(pref), ctypes.sizeof(pref)  # DWMWA_WINDOW_CORNER_PREFERENCE
-        )
-    except Exception:
-        pass
+    ui.apply_glass(root)
 
 
 def show_key_dialog(*, first_run: bool = False) -> bool:
@@ -166,19 +118,19 @@ def show_key_dialog(*, first_run: bool = False) -> bool:
 
         root = tk.Tk()
         root.title("secdogie-agent — API key")
-        root.configure(bg=_BG)
+        root.configure(bg=ui.BG)
         root.resizable(False, False)
         root.attributes("-topmost", True)
 
         saved = {"ok": False}
 
-        pad = tk.Frame(root, bg=_BG)
+        pad = tk.Frame(root, bg=ui.BG)
         pad.pack(padx=24, pady=20, fill="both", expand=True)
 
         title = "One quick setup" if first_run else "Paste your API key"
         tk.Label(
             pad, text=title,
-            bg=_BG, fg=_FG, font=("Segoe UI", 14, "bold"),
+            bg=ui.BG, fg=ui.FG, font=ui.font(17, bold=True),
         ).pack(anchor="w")
 
         intro = (
@@ -191,12 +143,12 @@ def show_key_dialog(*, first_run: bool = False) -> bool:
         tk.Label(
             pad,
             text=intro,
-            bg=_BG, fg=_FG_DIM, font=("Segoe UI", 9), justify="left",
+            bg=ui.BG, fg=ui.MUTED, font=ui.font(12), justify="left",
         ).pack(anchor="w", pady=(4, 12))
 
         # Provider / key-name choice
         kind_var = tk.StringVar(value="anthropic")
-        kind_row = tk.Frame(pad, bg=_BG)
+        kind_row = tk.Frame(pad, bg=ui.BG)
         kind_row.pack(fill="x", pady=(0, 6))
 
         for label, value in (
@@ -207,22 +159,22 @@ def show_key_dialog(*, first_run: bool = False) -> bool:
         ):
             tk.Radiobutton(
                 kind_row, text=label, variable=kind_var, value=value,
-                bg=_BG, fg=_FG, selectcolor=_CARD, activebackground=_BG,
-                activeforeground=_FG, font=("Segoe UI", 9),
+                bg=ui.BG, fg=ui.FG, selectcolor=ui.SURFACE, activebackground=ui.BG,
+                activeforeground=ui.FG, font=ui.font(12),
             ).pack(side="left", padx=(0, 12))
 
         # Custom env var name (shown only when Custom is selected)
-        custom_row = tk.Frame(pad, bg=_BG)
+        custom_row = tk.Frame(pad, bg=ui.BG)
         custom_row.pack(fill="x", pady=(0, 8))
         tk.Label(
-            custom_row, text="Env var:", bg=_BG, fg=_FG_DIM, font=("Segoe UI", 9),
+            custom_row, text="Env var:", bg=ui.BG, fg=ui.MUTED, font=ui.font(12),
         ).pack(side="left")
         custom_env_var = tk.StringVar(value="OPENAI_API_KEY")
         custom_entry = tk.Entry(
             custom_row, textvariable=custom_env_var, width=28,
-            font=("Consolas", 10), bg=_CARD, fg=_FG, insertbackground=_FG,
-            relief="flat", highlightthickness=1, highlightcolor=_ACCENT,
-            highlightbackground="#4a4252",
+            font=ui.font(12, mono=True), bg=ui.SURFACE, fg=ui.FG, insertbackground=ui.FG,
+            relief="flat", highlightthickness=1, highlightcolor=ui.ACCENT,
+            highlightbackground=ui.BORDER,
         )
         custom_entry.pack(side="left", padx=(8, 0), ipady=4)
 
@@ -237,34 +189,34 @@ def show_key_dialog(*, first_run: bool = False) -> bool:
 
         # Key entry
         tk.Label(
-            pad, text="API key", bg=_BG, fg=_FG_DIM, font=("Segoe UI", 9),
+            pad, text="API key", bg=ui.BG, fg=ui.MUTED, font=ui.font(12),
         ).pack(anchor="w")
         key_var = tk.StringVar()
         entry = tk.Entry(
             pad, textvariable=key_var, width=52, show="\u2022",
-            font=("Consolas", 11), bg=_CARD, fg=_FG, insertbackground=_FG,
-            relief="flat", highlightthickness=1, highlightcolor=_ACCENT,
-            highlightbackground="#4a4252",
+            font=ui.font(13, mono=True), bg=ui.SURFACE, fg=ui.FG, insertbackground=ui.FG,
+            relief="flat", highlightthickness=1, highlightcolor=ui.ACCENT,
+            highlightbackground=ui.BORDER,
         )
         entry.pack(fill="x", ipady=8, pady=(2, 6))
         entry.focus_set()
 
         # Optional default model
         tk.Label(
-            pad, text="Default model (optional)", bg=_BG, fg=_FG_DIM, font=("Segoe UI", 9),
+            pad, text="Default model (optional)", bg=ui.BG, fg=ui.MUTED, font=ui.font(12),
         ).pack(anchor="w")
         model_var = tk.StringVar()
         model_entry = tk.Entry(
             pad, textvariable=model_var, width=52,
-            font=("Consolas", 10), bg=_CARD, fg=_FG, insertbackground=_FG,
-            relief="flat", highlightthickness=1, highlightcolor=_ACCENT,
-            highlightbackground="#4a4252",
+            font=ui.font(12, mono=True), bg=ui.SURFACE, fg=ui.FG, insertbackground=ui.FG,
+            relief="flat", highlightthickness=1, highlightcolor=ui.ACCENT,
+            highlightbackground=ui.BORDER,
         )
         model_entry.pack(fill="x", ipady=6, pady=(2, 4))
         tk.Label(
             pad,
             text="e.g. claude-sonnet-5 \u00b7 gpt-5.5 \u00b7 openrouter/anthropic/claude-sonnet-4 \u00b7 sk-or- keys auto-detect",
-            bg=_BG, fg=_FG_DIM, font=("Segoe UI", 8),
+            bg=ui.BG, fg=ui.MUTED, font=ui.font(11),
         ).pack(anchor="w", pady=(0, 8))
 
         # Show/hide toggle
@@ -275,11 +227,11 @@ def show_key_dialog(*, first_run: bool = False) -> bool:
 
         tk.Checkbutton(
             pad, text="Show key", variable=show_var, command=toggle_show,
-            bg=_BG, fg=_FG_DIM, selectcolor=_CARD, activebackground=_BG,
-            activeforeground=_FG_DIM, font=("Segoe UI", 9),
+            bg=ui.BG, fg=ui.MUTED, selectcolor=ui.SURFACE, activebackground=ui.BG,
+            activeforeground=ui.MUTED, font=ui.font(12),
         ).pack(anchor="w", pady=(0, 10))
 
-        status = tk.Label(pad, text="", bg=_BG, fg=_FG_DIM, font=("Segoe UI", 9), justify="left")
+        status = tk.Label(pad, text="", bg=ui.BG, fg=ui.MUTED, font=ui.font(12), justify="left")
         status.pack(anchor="w", pady=(0, 10))
 
         def save():
@@ -321,19 +273,19 @@ def show_key_dialog(*, first_run: bool = False) -> bool:
             except Exception as e:
                 status.config(text=f"Failed: {e}", fg="#e07070")
 
-        btn_row = tk.Frame(pad, bg=_BG)
+        btn_row = tk.Frame(pad, bg=ui.BG)
         btn_row.pack(fill="x")
 
         save_btn = tk.Label(
-            btn_row, text="  Save key  ", bg=_ACCENT, fg=_FG,
-            font=("Segoe UI", 10, "bold"), cursor="hand2", padx=12, pady=6,
+            btn_row, text="  保存密钥  Save  ", bg=ui.ACCENT, fg=ui.ACCENT_FG,
+            font=ui.font(15, bold=True), cursor="hand2", padx=16, pady=12,
         )
         save_btn.pack(side="left")
         save_btn.bind("<Button-1>", lambda e: save())
 
         cancel_btn = tk.Label(
-            btn_row, text="  Cancel  ", bg=_CARD, fg=_FG_DIM,
-            font=("Segoe UI", 10), cursor="hand2", padx=12, pady=6,
+            btn_row, text="  取消  Cancel  ", bg=ui.SURFACE, fg=ui.MUTED,
+            font=ui.font(14), cursor="hand2", padx=16, pady=12,
         )
         cancel_btn.pack(side="left", padx=(10, 0))
         cancel_btn.bind("<Button-1>", lambda e: root.destroy())
@@ -391,7 +343,7 @@ def show_menu() -> list[str] | None:
         root = tk.Tk()
         root.title("secdogie-agent")
         root.overrideredirect(True)  # borderless: the panel IS the window
-        root.configure(bg=_BG)
+        root.configure(bg=ui.BG)
         root.attributes("-topmost", True)
 
         result: list = [None]
@@ -410,15 +362,15 @@ def show_menu() -> list[str] | None:
             show_key_dialog(first_run=False)
             root.deiconify()
 
-        pad = tk.Frame(root, bg=_BG)
+        pad = tk.Frame(root, bg=ui.BG)
         pad.pack(padx=22, pady=18, fill="both", expand=True)
 
-        header = tk.Frame(pad, bg=_BG)
+        header = tk.Frame(pad, bg=ui.BG)
         header.pack(fill="x")
-        tk.Label(header, text="secdogie-agent", bg=_BG, fg=_FG,
-                 font=("Segoe UI", 15, "bold")).pack(side="left")
-        close = tk.Label(header, text="\u2715", bg=_BG, fg=_FG_DIM,
-                         font=("Segoe UI", 11), cursor="hand2", padx=8)
+        tk.Label(header, text="secdogie", bg=ui.BG, fg=ui.FG,
+                 font=ui.font(18, bold=True)).pack(side="left")
+        close = tk.Label(header, text="\u2715", bg=ui.BG, fg=ui.MUTED,
+                         font=ui.font(13), cursor="hand2", padx=8)
         close.pack(side="right")
         close.bind("<Button-1>", cancel)
 
@@ -426,7 +378,7 @@ def show_menu() -> list[str] | None:
             pad,
             text="An AI that can see your screen and use the mouse & keyboard.\n"
                  "It asks before each step. Your key stays on this machine.",
-            bg=_BG, fg=_FG_DIM, font=("Segoe UI", 9), justify="left",
+            bg=ui.BG, fg=ui.MUTED, font=ui.font(12), justify="left",
         ).pack(anchor="w", pady=(4, 12))
 
         if not config_mod.has_configured_api_key():
@@ -434,17 +386,17 @@ def show_menu() -> list[str] | None:
             tk.Label(
                 pad,
                 text="No API key yet — open Set up / edit API key first.",
-                bg=_BG, fg=_WARN, font=("Segoe UI", 9),
+                bg=ui.BG, fg=ui.WARN, font=ui.font(12),
             ).pack(anchor="w", pady=(0, 8))
 
         for choice in MENU_CHOICES:
-            card = tk.Frame(pad, bg=_CARD, cursor="hand2")
+            card = tk.Frame(pad, bg=ui.SURFACE, cursor="hand2")
             card.pack(fill="x", pady=(0, 8), ipadx=4, ipady=4)
-            title = tk.Label(card, text=choice.title, bg=_CARD, fg=_FG,
-                             font=("Segoe UI", 11, "bold"), anchor="w", padx=12)
+            title = tk.Label(card, text=choice.title, bg=ui.SURFACE, fg=ui.FG,
+                             font=ui.font(14, bold=True), anchor="w", padx=12)
             title.pack(fill="x", pady=(6, 0))
-            blurb = tk.Label(card, text=choice.blurb, bg=_CARD, fg=_FG_DIM,
-                             font=("Segoe UI", 9), anchor="w", padx=12,
+            blurb = tk.Label(card, text=choice.blurb, bg=ui.SURFACE, fg=ui.MUTED,
+                             font=ui.font(12), anchor="w", padx=12,
                              wraplength=380, justify="left")
             blurb.pack(fill="x", pady=(0, 6))
 
@@ -452,11 +404,11 @@ def show_menu() -> list[str] | None:
 
             def on_enter(_e, ws=widgets):
                 for w in ws:
-                    w.configure(bg=_CARD_HOVER)
+                    w.configure(bg=ui.SURFACE_2)
 
             def on_leave(_e, ws=widgets):
                 for w in ws:
-                    w.configure(bg=_CARD)
+                    w.configure(bg=ui.SURFACE)
 
             if choice.key == "config":
                 def on_click(_e):
