@@ -1,9 +1,12 @@
 # secdogie-desktop
 
 A **native desktop window** (tkinter) to control a [secdogie fleet](../fleet) --
-one application, one window. Live nodes and tasks, with submit / stop / pause /
-resume. Same control logic as the [web console](../console) (it reuses
-`ConsoleController`), but a real window instead of a browser.
+one application, one window, as a **chat**. You type a task in the composer at
+the bottom ("you", on the right); the fleet answers with what happens to it --
+accepted, running, done, failed -- as messages on the left, coloured by tone.
+Stop / pause / resume act on the live task. Same control logic as the
+[web console](../console) (it reuses `ConsoleController`), but a real window
+instead of a browser.
 
 Because it's a native app it can hold the operator's DID key and **sign its own
 commands** (`--operator-key`), which a browser can't do easily.

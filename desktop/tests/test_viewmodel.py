@@ -65,3 +65,54 @@ def test_prepare_command_signs_with_identity():
     assert signed["signer"] == me.did
     ok, signer = verify_payload(signed)
     assert ok and signer == me.did
+
+
+# --- chat transcript --------------------------------------------------------
+
+
+def test_operator_message_is_a_user_line():
+    m = viewmodel.operator_message("  tidy my desktop  ")
+    assert m.role == "operator" and m.text == "tidy my desktop" and m.kind == "task"
+
+
+def test_diff_messages_announces_a_new_task_and_its_detail():
+    prev = _snap()
+    curr = _snap(tasks=[{"task_id": "t1", "state": "running", "task": "tidy", "detail": "step 1"}])
+    msgs = viewmodel.diff_messages(prev, curr)
+    assert [m.role for m in msgs] == ["system", "system"]
+    assert "受理任务" in msgs[0].text and "tidy" in msgs[0].text and msgs[0].kind == "status"
+    assert msgs[1].text == "step 1"
+
+
+def test_diff_messages_reports_state_transitions_with_tone():
+    prev = _snap(tasks=[{"task_id": "t1", "state": "running", "task": "tidy"}])
+    done = viewmodel.diff_messages(prev, _snap(tasks=[{"task_id": "t1", "state": "done", "task": "tidy"}]))
+    assert done[0].kind == "result" and "running → done" in done[0].text
+    failed = viewmodel.diff_messages(prev, _snap(tasks=[{"task_id": "t1", "state": "failed", "task": "tidy"}]))
+    assert failed[0].kind == "error"
+
+
+def test_diff_messages_new_node_and_no_change():
+    prev = _snap()
+    curr = _snap(nodes=[{"node_id": "n1", "label": "vm-1", "capabilities": ["desktop-ax"]}])
+    node_msgs = viewmodel.diff_messages(prev, curr)
+    assert node_msgs[0].kind == "node" and "vm-1" in node_msgs[0].text and "desktop-ax" in node_msgs[0].text
+    assert viewmodel.diff_messages(curr, curr) == []  # identical snapshots -> nothing
+
+
+def test_diff_messages_detail_change_only():
+    prev = _snap(tasks=[{"task_id": "t1", "state": "running", "task": "tidy", "detail": "step 1"}])
+    curr = _snap(tasks=[{"task_id": "t1", "state": "running", "task": "tidy", "detail": "step 2"}])
+    msgs = viewmodel.diff_messages(prev, curr)
+    assert len(msgs) == 1 and msgs[0].text == "step 2"
+
+
+def test_active_task_id_prefers_running_then_queued_then_paused():
+    snap = _snap(tasks=[
+        {"task_id": "t1", "state": "paused"},
+        {"task_id": "t2", "state": "queued"},
+        {"task_id": "t3", "state": "running"},
+    ])
+    assert viewmodel.active_task_id(snap) == "t3"
+    assert viewmodel.active_task_id(_snap(tasks=[{"task_id": "t9", "state": "done"}])) is None
+    assert viewmodel.active_task_id(_snap()) is None

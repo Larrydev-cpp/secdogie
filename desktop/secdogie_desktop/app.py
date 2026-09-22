@@ -1,9 +1,16 @@
-"""The native window (tkinter). A thin view over ConsoleController + viewmodel.
+"""The native window (tkinter), as a chat.
+
+A ChatGPT-style conversation with the fleet: the operator types a task in a
+composer at the bottom ("you" on the right), and the fleet answers with what
+happened to it -- accepted, running, done, failed -- as messages on the left,
+coloured by tone. Stop / pause / resume act on the live task, since a chat has no
+table to select from.
 
 tkinter is imported lazily inside FleetWindow so this module imports on a
-headless host (where viewmodel is still unit-tested); constructing FleetWindow
-needs a display. The palette mirrors agent/secdogie_agent/theme.py so the app
-matches the rest of the operator UI.
+headless host (viewmodel's chat-diffing is unit-tested there); constructing
+FleetWindow needs a display. The transcript logic is pure (viewmodel.diff_messages);
+this file is the thin view. The palette stays dark to match the rest of the
+operator UI.
 """
 from __future__ import annotations
 
@@ -24,6 +31,16 @@ OK = "#8fa38c"
 WARN = "#c4b49a"
 BORDER = "#2a2d33"
 
+# Per-message-kind text colour in the transcript.
+_KIND_FG = {
+    "task": ACCENT,      # the operator's own line
+    "status": FG,
+    "result": OK,
+    "error": DENY,
+    "node": WARN,
+    "info": MUTED,
+}
+
 
 def _font(size: int = 10, *, bold: bool = False) -> tuple:
     if sys.platform == "win32":
@@ -36,129 +53,141 @@ def _font(size: int = 10, *, bold: bool = False) -> tuple:
 
 
 class FleetWindow:
-    """A single window: live nodes/tasks tables + submit/stop/pause/resume."""
+    """One window: a chat transcript with the fleet + a composer."""
 
     def __init__(self, controller: Any, *, address=None, operator_identity=None, poll_ms: int = 1500):
         import tkinter as tk
-        from tkinter import ttk
 
         self._tk = tk
         self.controller = controller
         self.operator_identity = operator_identity
         self.poll_ms = poll_ms
+        self._prev: dict | None = None  # last snapshot, for diffing into chat lines
 
         self.root = tk.Tk()
         self.root.title("secdogie")
         self.root.configure(bg=BG)
-        self.root.geometry("840x620")
-        self.root.minsize(640, 480)
-        self._build(ttk, address)
+        self.root.geometry("720x760")
+        self.root.minsize(520, 560)
+        self._build(address)
 
-    def _build(self, ttk, address) -> None:
+    # -- construction --------------------------------------------------------
+
+    def _build(self, address) -> None:
         tk = self._tk
-        style = ttk.Style(self.root)
-        try:
-            style.theme_use("clam")
-        except tk.TclError:
-            pass
-        style.configure("Treeview", background=SURFACE, fieldbackground=SURFACE,
-                        foreground=FG, borderwidth=0, rowheight=24)
-        style.configure("Treeview.Heading", background=SURFACE_2, foreground=MUTED, borderwidth=0)
-        style.map("Treeview", background=[("selected", ACCENT)], foreground=[("selected", ACCENT_FG)])
 
         header = tk.Frame(self.root, bg=BG)
-        header.pack(fill="x", padx=14, pady=(12, 6))
-        tk.Label(header, text="secdogie", bg=BG, fg=FG, font=_font(14, bold=True)).pack(side="left")
-        addr = f"coordinator {address[0]}:{address[1]}" if address else "coordinator"
-        tk.Label(header, text=addr, bg=BG, fg=MUTED, font=_font(9)).pack(side="right")
+        header.pack(fill="x", padx=16, pady=(12, 8))
+        tk.Label(header, text="secdogie", bg=BG, fg=FG, font=_font(15, bold=True)).pack(side="left")
+        self.header_status = tk.Label(header, text="connecting…", bg=BG, fg=MUTED, font=_font(9), anchor="e")
+        self.header_status.pack(side="right")
 
-        tk.Label(self.root, text="NODES", bg=BG, fg=MUTED, font=_font(9, bold=True)).pack(anchor="w", padx=14)
-        self.nodes = ttk.Treeview(self.root, columns=("node", "label", "caps", "task"), show="headings", height=5)
-        for col, width in (("node", 170), ("label", 150), ("caps", 190), ("task", 160)):
-            self.nodes.heading(col, text=col)
-            self.nodes.column(col, width=width, anchor="w")
-        self.nodes.pack(fill="x", padx=14, pady=(2, 10))
+        # The transcript: a read-only Text with per-role/kind tags, plus a scrollbar.
+        wrap = tk.Frame(self.root, bg=BG)
+        wrap.pack(fill="both", expand=True, padx=12, pady=(0, 6))
+        self.log = tk.Text(
+            wrap, bg=BG, fg=FG, relief="flat", wrap="word", font=_font(11),
+            padx=12, pady=8, spacing1=4, spacing3=6, highlightthickness=0, state="disabled", cursor="arrow",
+        )
+        scroll = tk.Scrollbar(wrap, command=self.log.yview, troughcolor=BG, bg=SURFACE_2, relief="flat", width=10)
+        self.log.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        self.log.pack(side="left", fill="both", expand=True)
 
-        tk.Label(self.root, text="TASKS", bg=BG, fg=MUTED, font=_font(9, bold=True)).pack(anchor="w", padx=14)
-        self.tasks = ttk.Treeview(self.root, columns=("id", "state", "task", "where"), show="headings", height=9)
-        for col, width in (("id", 140), ("state", 90), ("task", 350), ("where", 120)):
-            self.tasks.heading(col, text=col)
-            self.tasks.column(col, width=width, anchor="w")
-        self.tasks.pack(fill="both", expand=True, padx=14, pady=(2, 8))
+        # role label (small, muted) + the message body per kind.
+        self.log.tag_configure("op_label", foreground=MUTED, justify="right", font=_font(8), spacing1=8)
+        self.log.tag_configure("op", foreground=ACCENT, justify="right", lmargin1=120, lmargin2=120, rmargin=4)
+        self.log.tag_configure("sys_label", foreground=MUTED, justify="left", font=_font(8), spacing1=8)
+        for kind, color in _KIND_FG.items():
+            self.log.tag_configure(f"sys_{kind}", foreground=color, justify="left", lmargin1=4, lmargin2=4, rmargin=120)
 
-        actions = tk.Frame(self.root, bg=BG)
-        actions.pack(fill="x", padx=14)
+        # Controls: act on the live task (running/queued/paused).
+        controls = tk.Frame(self.root, bg=BG)
+        controls.pack(fill="x", padx=16, pady=(0, 4))
         for text, op, color in (("Stop", "stop", DENY), ("Pause", "pause", WARN), ("Resume", "resume", OK)):
-            tk.Button(actions, text=text, command=lambda o=op: self._action(o), bg=SURFACE_2, fg=color,
-                      relief="flat", font=_font(9), padx=12, pady=3,
-                      activebackground=BORDER, activeforeground=color).pack(side="left", padx=(0, 8), pady=4)
+            tk.Button(
+                controls, text=text, command=lambda o=op: self._action(o), bg=SURFACE_2, fg=color,
+                relief="flat", font=_font(9), padx=12, pady=3, activebackground=BORDER, activeforeground=color,
+            ).pack(side="left", padx=(0, 8))
 
-        row = tk.Frame(self.root, bg=BG)
-        row.pack(fill="x", padx=14, pady=(6, 4))
-        self.entry = tk.Entry(row, bg=SURFACE, fg=FG, insertbackground=FG, relief="flat", font=_font(10))
-        self.entry.pack(side="left", fill="x", expand=True, ipady=5, padx=(0, 8))
+        # Composer: a text entry + auto toggle + Send. Enter sends.
+        composer = tk.Frame(self.root, bg=SURFACE, highlightbackground=BORDER, highlightthickness=1)
+        composer.pack(fill="x", padx=12, pady=(2, 14))
+        self.entry = tk.Entry(composer, bg=SURFACE, fg=FG, insertbackground=FG, relief="flat", font=_font(11))
+        self.entry.pack(side="left", fill="x", expand=True, ipady=8, padx=(10, 8))
         self.entry.bind("<Return>", lambda e: self._submit())
         self.auto = tk.BooleanVar(value=False)
-        tk.Checkbutton(row, text="auto", variable=self.auto, bg=BG, fg=MUTED, selectcolor=SURFACE,
-                       activebackground=BG, activeforeground=FG, font=_font(9)).pack(side="left", padx=(0, 8))
-        tk.Button(row, text="Submit", command=self._submit, bg=ACCENT, fg=ACCENT_FG, relief="flat",
-                  font=_font(10, bold=True), padx=14).pack(side="left")
+        tk.Checkbutton(
+            composer, text="auto", variable=self.auto, bg=SURFACE, fg=MUTED, selectcolor=SURFACE_2,
+            activebackground=SURFACE, activeforeground=FG, font=_font(9), highlightthickness=0,
+        ).pack(side="left", padx=(0, 6))
+        tk.Button(
+            composer, text="Send", command=self._submit, bg=ACCENT, fg=ACCENT_FG, relief="flat",
+            font=_font(10, bold=True), padx=16, pady=4, activebackground=FG,
+        ).pack(side="left", padx=(0, 8), pady=6)
 
-        self.status = tk.Label(self.root, text="", bg=BG, fg=MUTED, font=_font(9), anchor="w")
-        self.status.pack(fill="x", padx=14, pady=(4, 10))
+        addr = f"coordinator {address[0]}:{address[1]}" if address else "coordinator"
+        self._append("system", f"connected · {addr}", "info")
+        self.entry.focus_set()
 
-    def _selected_task(self):
-        sel = self.tasks.selection()
-        return sel[0] if sel else None
+    # -- transcript ----------------------------------------------------------
 
-    def _set_status(self, text: str, kind: str = "muted") -> None:
-        self.status.config(text=text, fg={"ok": OK, "bad": DENY}.get(kind, MUTED))
+    def _append(self, role: str, text: str, kind: str) -> None:
+        if not text:
+            return
+        self.log.configure(state="normal")
+        if role == "operator":
+            self.log.insert("end", "you\n", "op_label")
+            self.log.insert("end", text + "\n", "op")
+        else:
+            self.log.insert("end", "secdogie\n", "sys_label")
+            self.log.insert("end", text + "\n", f"sys_{kind if kind in _KIND_FG else 'info'}")
+        self.log.configure(state="disabled")
+        self.log.see("end")
 
-    def _dispatch(self, body: dict) -> None:
+    # -- actions -------------------------------------------------------------
+
+    def _dispatch(self, body: dict) -> bool:
         prepared = viewmodel.prepare_command(body, self.operator_identity)
         ok, _signer = self.controller.authorize(prepared)
         if not ok:
-            self._set_status("unauthorized: an operator DID signature is required", "bad")
-            return
+            self._append("system", "unauthorized: an operator DID signature is required", "error")
+            return False
         try:
-            out = self.controller.command(prepared)
+            self.controller.command(prepared)
         except ValueError as e:
-            self._set_status(str(e), "bad")
-            return
-        self._set_status(f"ok: {out.get('task_id') or out.get('op')}", "ok")
+            self._append("system", str(e), "error")
+            return False
         self.refresh(schedule=False)
+        return True
 
     def _submit(self) -> None:
         task = self.entry.get().strip()
         if not task:
-            self._set_status("enter a task first", "bad")
             return
-        self._dispatch({"op": "submit", "task": task, "options": {"auto": bool(self.auto.get())}})
+        self._append("operator", task, "task")
         self.entry.delete(0, "end")
+        self._dispatch({"op": "submit", "task": task, "options": {"auto": bool(self.auto.get())}})
 
     def _action(self, op: str) -> None:
-        tid = self._selected_task()
+        snap = self._prev or {}
+        tid = viewmodel.active_task_id(snap)
         if not tid:
-            self._set_status(f"select a task to {op}", "bad")
+            self._append("system", f"没有进行中的任务可 {op}", "info")
             return
         self._dispatch({"op": op, "task_id": tid})
 
-    def _render(self, snap: dict) -> None:
-        self.nodes.delete(*self.nodes.get_children())
-        for r in viewmodel.node_rows(snap):
-            self.nodes.insert("", "end", values=r)
-        self.tasks.delete(*self.tasks.get_children())
-        for t in viewmodel.task_rows(snap):
-            self.tasks.insert("", "end", iid=t["task_id"],
-                              values=(t["task_id"], t["state"], t["task"], t["node_id"]))
-        self._set_status(viewmodel.status_line(snap))
+    # -- poll loop -----------------------------------------------------------
 
     def refresh(self, schedule: bool = True) -> None:
         try:
             snap = self.controller.state_snapshot()
-            self._render(snap)
+            for m in viewmodel.diff_messages(self._prev, snap):
+                self._append(m.role, m.text, m.kind)
+            self._prev = snap
+            self.header_status.config(text=viewmodel.status_line(snap), fg=MUTED)
         except Exception as e:  # a snapshot failure must not kill the poll loop
-            self._set_status(f"snapshot failed: {e}", "bad")
+            self.header_status.config(text=f"snapshot failed: {e}", fg=DENY)
         if schedule:
             self.root.after(self.poll_ms, self.refresh)
 
