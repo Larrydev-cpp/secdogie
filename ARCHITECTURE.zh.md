@@ -79,11 +79,12 @@
 
 > 现实动作只发生在**经认证**的本地设备上,且每一步都能被追溯与叫停。
 
-- **观测融合**(Phase 2.4,已建成):`agent/secdogie_agent/observation.py` 把三种感知融合成
-  一个 `Observation`——**AX 无障碍树**(身份,主)、**DIB**(读内存重建的位图,验证)、
-  **像素**(自绘兜底)。分歧**绝不静默覆盖**:窗口身份/代际陈旧/几何错配/时间偏移都会记为
-  `ObservationConflict` 并压低融合置信度。**DIB 按引用而非拷贝**接入:`VisualReference.from_dib_json`
-  解析 `native/atlas` 输出的 `dibs[]`,瞬时哈希预览像素定内容身份后丢弃像素,像素留在 native 侧。
+- **观测融合**(Phase 2.4,已建成):`agent/secdogie_agent/observation.py` 把两种**结构化**感知
+  融合成一个 `Observation`——**AX 无障碍树**(身份,主)、**DIB**(读内存重建的位图,按引用,验证)。
+  **不截屏、不抓屏**:融合层没有像素捕获这一路,感知是结构而非视觉。分歧**绝不静默覆盖**:
+  窗口身份/代际陈旧/几何错配/时间偏移都会记为 `ObservationConflict` 并压低融合置信度。
+  **DIB 按引用而非拷贝**接入:`VisualReference.from_dib_json` 解析 `native/atlas` 输出的 `dibs[]`,
+  瞬时哈希预览字节定内容身份后即丢弃,像素留在 native 侧,绝不进 Python 堆或事件日志。
 - **只读的深度感知**:`native/atlas/`(C++)以**只读句柄**遍历进程内存重建 DIB/字符串;
   `WriteProcessMemory`、`CreateRemoteThread`、TrustedInstaller 夺权、反 EDR **一律记为拒绝**。
 - **能力授权**(Phase 2.9,规划中):`Capability(issuer_did, subject_did, scope, expires, sig)`,
@@ -122,7 +123,7 @@ flowchart TB
         gate["指令门 + 计划门(action_gate)"]
     end
     subgraph ACT["⑤ 受认证设备实战 (agent/ · native/atlas · desktop/ · console/)"]
-        obs["观测融合: AX + DIB(引用) + 像素 → Observation"]
+        obs["观测融合: AX + DIB(按引用) → Observation (不截屏)"]
         cap["能力授权 (读≠写, 观测≠执行)"]
         hitl["HITL + fail-closed"]
         obs --> gate
@@ -189,7 +190,7 @@ physical action = 显式 capability。能力模型**永不**包含
 | 2.1 | DID ↔ 传输身份绑定 | ✅ |
 | 2.2 | Peer/Session/Endpoint 抽象 + HubTransport | ✅ |
 | 2.3 | StateDelta / StateStore(非伪 CRDT) | ✅ |
-| 2.4 | 观测融合(AX/DIB/像素,DIB 按引用) | ✅ |
+| 2.4 | 观测融合(AX + DIB 按引用,结构化、不截屏) | ✅ |
 | 2.5 | AX 不透明目标 / 代际(修 TOCTOU) | ✅ |
 | 2.6 | 动作计划级苏格拉底门 | ✅ |
 | 2.7 | Agent↔Citadel run 闭环 | 🔜 |
