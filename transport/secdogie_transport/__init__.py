@@ -9,6 +9,7 @@ implements the same interface for true peer-to-peer.
 from __future__ import annotations
 
 from .endpoint import Endpoint, EndpointSet
+from .membership import MembershipView, PeerRecord, gossip_round
 from .peer import PeerIdentity
 from .rendezvous import RendezvousClient, RendezvousServer
 from .session import Session
@@ -16,7 +17,7 @@ from .transport import HubTransport, Transport
 from .udp import DirectUDPTransport, UDPChannel
 from .upgrade import DirectUpgrader, UpgradeState
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 __all__ = [
     "PeerIdentity",
@@ -31,4 +32,7 @@ __all__ = [
     "RendezvousClient",
     "DirectUpgrader",
     "UpgradeState",
+    "MembershipView",
+    "PeerRecord",
+    "gossip_round",
 ]
