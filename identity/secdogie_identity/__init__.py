@@ -7,6 +7,13 @@ nothing hand-rolled.
 from __future__ import annotations
 
 from .allowlist import Allowlist
+from .binding import (
+    BindingResult,
+    create_binding,
+    is_superseded,
+    session_did,
+    verify_binding,
+)
 from .did import did_document, did_key_from_pubkey, pubkey_from_did
 from .keys import Identity, PublicIdentity
 from .signing import canonical, sign_payload, verify_payload
@@ -23,4 +30,9 @@ __all__ = [
     "sign_payload",
     "verify_payload",
     "canonical",
+    "create_binding",
+    "verify_binding",
+    "is_superseded",
+    "session_did",
+    "BindingResult",
 ]

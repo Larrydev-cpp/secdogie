@@ -13,6 +13,12 @@ license = { text = "MIT" }
 # drives a fleet coordinator; identity is for signing operator commands.
 dependencies = ["secdogie-console", "secdogie-fleet", "secdogie-identity"]
 
+[project.optional-dependencies]
+# Reuse an already-authorized browser session (secdogie_desktop/websession.py) to
+# read a page for the Agent. Opt-in so the default install stays a lean tkinter
+# app; the module imports Playwright lazily and only when a real page is fetched.
+web = ["playwright>=1.40"]
+
 [project.scripts]
 secdogie-desktop = "secdogie_desktop.cli:main"
 

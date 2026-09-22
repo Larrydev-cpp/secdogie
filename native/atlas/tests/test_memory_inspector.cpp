@@ -384,6 +384,36 @@ void RunMemoryInspectorTests() {
            hits.empty() ? "miss" : "ok");
   }
   {
+    // 16bpp RGB555 (BI_RGB): previously detected but never reconstructed. Every
+    // pixel is pure red (0x7C00, little-endian), so every RGBA pixel must be
+    // {255, 0, 0, 255} after 5->8-bit channel expansion.
+    const std::int32_t w = 32, h = 32;  // stride = ((32*16+31)/32)*4 = 64
+    unsigned char buf[40 + 64 * 32];
+    std::memset(buf, 0, sizeof(buf));
+    buf[0] = 40;
+    std::memcpy(buf + 4, &w, 4);
+    std::memcpy(buf + 8, &h, 4);
+    buf[12] = 1;
+    buf[14] = 16;  // biBitCount; biCompression stays 0 (BI_RGB == RGB555)
+    for (std::size_t i = 40; i + 1 < sizeof(buf); i += 2) {
+      buf[i] = 0x00;
+      buf[i + 1] = 0x7C;
+    }
+    InspectConfig cfg;
+    std::vector<DibHit> hits;
+    ExtractDibs(buf, sizeof(buf), 0xB000, cfg, hits);
+    bool ok = false;
+    for (const auto& hit : hits) {
+      if (hit.width == 32 && hit.height == 32 && hit.bit_count == 16 &&
+          hit.rgba.size() == 32u * 32u * 4u && hit.rgba[0] == 255 && hit.rgba[1] == 0 &&
+          hit.rgba[2] == 0 && hit.rgba[3] == 255) {
+        ok = true;
+        break;
+      }
+    }
+    Expect(ok, "ExtractDibs reconstructs a 16bpp RGB555 DIB to RGBA", ok ? "ok" : "miss");
+  }
+  {
     unsigned char buf[64];
     std::memset(buf, 0, sizeof(buf));
     buf[0] = 40;

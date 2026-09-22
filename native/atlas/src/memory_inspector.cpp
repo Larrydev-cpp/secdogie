@@ -472,7 +472,7 @@ void ExtractDibs(const std::uint8_t* data, std::size_t n, std::uint64_t base,
                             bool bottom_up, int src_bpp) {
     if (d.width <= 0 || d.height <= 0) return;
     if (d.width > 256 || d.height > 256) return;
-    if (src_bpp != 3 && src_bpp != 4) return;
+    if (src_bpp != 2 && src_bpp != 3 && src_bpp != 4) return;
     const std::int32_t h = d.height;
     const std::int32_t w = d.width;
     const std::uint64_t need = stride * static_cast<std::uint64_t>(h);
@@ -489,10 +489,20 @@ void ExtractDibs(const std::uint8_t* data, std::size_t n, std::uint64_t base,
           dst[x * 4 + 1] = row[x * 4 + 1];
           dst[x * 4 + 2] = row[x * 4 + 0];
           dst[x * 4 + 3] = row[x * 4 + 3] ? row[x * 4 + 3] : 255;
-        } else {
+        } else if (src_bpp == 3) {
           dst[x * 4 + 0] = row[x * 3 + 2];
           dst[x * 4 + 1] = row[x * 3 + 1];
           dst[x * 4 + 2] = row[x * 3 + 0];
+          dst[x * 4 + 3] = 255;
+        } else {  // src_bpp == 2: 16bpp RGB555 (BI_RGB), little-endian
+          const std::uint16_t px =
+              static_cast<std::uint16_t>(row[x * 2] | (row[x * 2 + 1] << 8));
+          const std::uint8_t r5 = (px >> 10) & 0x1f;
+          const std::uint8_t g5 = (px >> 5) & 0x1f;
+          const std::uint8_t b5 = px & 0x1f;
+          dst[x * 4 + 0] = static_cast<std::uint8_t>((r5 << 3) | (r5 >> 2));
+          dst[x * 4 + 1] = static_cast<std::uint8_t>((g5 << 3) | (g5 >> 2));
+          dst[x * 4 + 2] = static_cast<std::uint8_t>((b5 << 3) | (b5 >> 2));
           dst[x * 4 + 3] = 255;
         }
       }
@@ -531,7 +541,12 @@ void ExtractDibs(const std::uint8_t* data, std::size_t n, std::uint64_t base,
     d.bit_count = biBitCount;
     d.compression = biCompression;
     d.source = "heap";
-    if ((biBitCount == 24 || biBitCount == 32) && pix_off + bytes <= n) {
+    // Reconstruct an RGBA preview for the true-color formats. 16bpp only when
+    // uncompressed (BI_RGB == RGB555); BI_BITFIELDS (3) carries channel masks we
+    // do not parse, so it is detected but not previewed.
+    const bool can_preview = (biBitCount == 24 || biBitCount == 32) ||
+                             (biBitCount == 16 && biCompression == 0);
+    if (can_preview && pix_off + bytes <= n) {
       fill_rgba(d, data + pix_off, stride, biHeight > 0, biBitCount / 8);
     }
     out.push_back(std::move(d));

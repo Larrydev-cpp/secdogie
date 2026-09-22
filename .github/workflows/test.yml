@@ -37,6 +37,8 @@ jobs:
           - dir: identity   # DID signing (@Larryx); pynacl comes as a hard dep
           - dir: citadel    # signed event journal + DAG goal tree
             needs_identity: true
+          - dir: transport  # P2P-ready peer/session/endpoint model
+            needs_identity: true
           - dir: handoff
           - dir: aim
             needs_handoff: true

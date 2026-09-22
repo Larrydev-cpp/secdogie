@@ -55,6 +55,7 @@ PASSED = "passed"
 FALLBACK = "fallback"
 DENIED_PROTECTED = "denied-protected"
 DENIED_ESCALATE = "denied-escalate"
+STALE = "stale"
 
 TI_REFUSAL = (
     "NT SERVICE\\TrustedInstaller is a Windows servicing identity, not an "
@@ -267,6 +268,27 @@ def find_control(roots: list[ControlNode], selector: Selector) -> ControlNode | 
     return None
 
 
+def find_control_unique(roots: list[ControlNode], selector: Selector) -> ControlNode | None:
+    """Like `find_control` but refuses ambiguity: returns the control only when
+    *exactly one* matches the selector; 0 or 2+ matches -> None. This closes the
+    execute-time "click the first lookalike" gap -- an ambiguous re-find is a
+    miss (the caller re-observes / falls back), never a guess."""
+    if not selector.automation_id and not selector.name and not selector.role:
+        return None
+    found: ControlNode | None = None
+    for n in flatten(roots):
+        if selector.automation_id and n.automation_id.lower() != selector.automation_id.lower():
+            continue
+        if selector.name and n.name.lower() != selector.name.lower():
+            continue
+        if selector.role and n.role.lower() != selector.role.lower():
+            continue
+        if found is not None:
+            return None  # ambiguous -- two controls answer to the same selector
+        found = n
+    return found
+
+
 def djb2(data: bytes | bytearray | memoryview) -> str:
     h = 5381
     for b in data:
@@ -320,6 +342,8 @@ def run_hybrid_step(
     execute: ExecuteFn,
     config: LoopConfig | None = None,
     last_tree: list[ControlNode] | None = None,
+    observed_generation: int | None = None,
+    current_generation: int | None = None,
 ) -> LoopStep:
     """UIA-first targeting + pixel-diff verification.
 
@@ -327,6 +351,14 @@ def run_hybrid_step(
     back to `last_tree` (vision/last-known) when `vision_fallback` is on.
     Read actions skip the mutation check. A no-mutation invoke is Failed,
     never Passed.
+
+    TOCTOU guard (Phase 2.5): when both `observed_generation` (the window
+    generation the action was decided against) and `current_generation` are
+    given and differ, the step is STALE -- the tree moved between observe and
+    act, so we re-observe rather than re-searching by fuzzy title/role. Target
+    re-resolution uses `find_control_unique`, so an ambiguous selector is a miss
+    (fallback), never a click on the first lookalike. Both parameters default to
+    None, leaving the original behavior unchanged.
     """
     cfg = config or LoopConfig()
     step = LoopStep(action_id=action.id, status="perceiving",
@@ -341,8 +373,22 @@ def run_hybrid_step(
         )
         return step
 
+    if (
+        observed_generation is not None
+        and current_generation is not None
+        and observed_generation != current_generation
+    ):
+        step.status = STALE
+        step.mode = "blocked"
+        step.detail = (
+            f"Target is stale: decided at generation {observed_generation}, now "
+            f"{current_generation}. Re-observe before acting — not re-searching by "
+            "fuzzy title/role (TOCTOU guard)."
+        )
+        return step
+
     tree = snapshot()
-    target = find_control(tree, action.selector)
+    target = find_control_unique(tree, action.selector)
     mode = "uia"
     if target is None:
         step.status = FALLBACK
@@ -352,7 +398,7 @@ def run_hybrid_step(
             step.status = FAILED
             step.detail = "No UIA hit and vision fallback is disarmed."
             return step
-        target = find_control(last_tree or [], action.selector)
+        target = find_control_unique(last_tree or [], action.selector)
         mode = "vision-fallback"
         if target is None:
             step.status = FAILED

@@ -21,8 +21,9 @@ from dataclasses import dataclass
 # Verbs that change state, and phrases that assert read-only intent. A request
 # that asserts read-only AND asks for a mutation is self-contradictory.
 _MUTATING = re.compile(
-    r"\b(delete|remove|write|modify|overwrite|save|install|uninstall|format|drop|rm)\b"
-    r"|删除|修改|覆盖|写入|保存|安装|卸载|格式化",
+    r"\b(delete|remove|write|modify|overwrite|save|install|uninstall|format|drop|rm"
+    r"|post|publish|submit|send|reply|comment|tweet)\b"  # posting/sending changes external state too
+    r"|删除|修改|覆盖|写入|保存|安装|卸载|格式化|发帖|发布|发送|回复|评论|提交",
     re.IGNORECASE,
 )
 _READ_ONLY = re.compile(
@@ -43,6 +44,23 @@ _BUSY_LOOP = re.compile(
 
 _MAX_LEN = 600  # a single instruction longer than this is likely several goals
 _MAX_STEPS = 6  # "and then ... and then ..." past this should be decomposed
+
+# Posting/sending content on someone's behalf, paired with an "unattended" /
+# "don't ask" qualifier. Both must be present, so an ordinary "fill the form and
+# click submit" instruction is NOT flagged -- only one that asks to publish/send
+# without a human in the loop.
+_PUBLISH_VERB = re.compile(
+    r"\b(post|publish|submit|send|reply|comment|tweet|dm|message)\b"
+    r"|发帖|发布|发送|回复|评论|提交|推送|群发",
+    re.IGNORECASE,
+)
+_UNATTENDED = re.compile(
+    r"automatically|unattended|autonomous(ly)?|silently|"
+    r"without\s+(asking|confirmation|confirming|review|approval|a human)|"
+    r"no\s+confirmation|on\s+(my|the user'?s)\s+behalf|"
+    r"自动|自主|擅自|静默|不(询问|确认|经确认|经审核)|无需确认|替(我|用户)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -91,6 +109,17 @@ def _check_polling(text: str):
     return None
 
 
+def _check_unattended_posting(text: str):
+    if _PUBLISH_VERB.search(text) and _UNATTENDED.search(text):
+        return (
+            "unattended posting/sending: publishing or sending content on the "
+            "user's behalf without a human in the loop",
+            "Real-world posting/sending should go through explicit human "
+            "confirmation, not run unattended.",
+        )
+    return None
+
+
 def _check_overlong(text: str):
     steps = len(re.findall(r"\band then\b|然后|接着|再然后", text, re.IGNORECASE))
     if len(text) > _MAX_LEN or steps > _MAX_STEPS:
@@ -117,7 +146,7 @@ def review(instruction: str, *, extra_checks: list[Callable[[str], object]] | No
     reasons: list[str] = []
     suggestions: list[str] = []
     checks: list[Callable[[str], object]] = [
-        _check_empty, _check_contradiction, _check_polling, _check_overlong
+        _check_empty, _check_contradiction, _check_unattended_posting, _check_polling, _check_overlong
     ]
     checks.extend(extra_checks or [])
     for check in checks:

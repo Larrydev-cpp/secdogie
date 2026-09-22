@@ -18,7 +18,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
-from . import actions, axtree, elements, screen
+from . import actions, axtree, elements, screen, target
 from .providers.base import Action
 
 
@@ -241,13 +241,16 @@ class DesktopBackend:
         snapshot = self.ax_provider.snapshot()
         if not snapshot:
             return None
-        matches = axtree.find_elements(
+        # Uniqueness guard (Phase 2.5): resolve only when exactly one element
+        # answers to the recorded identity. Two lookalikes -> a miss, so the
+        # caller re-observes instead of clicking the first same-named control.
+        verdict, el = target.unique_identity_match(
             snapshot,
-            automation_id=selector.attrs.get("automation_id"),
-            name=selector.attrs.get("name"),
-            role=selector.attrs.get("role"),
+            automation_id=selector.attrs.get("automation_id") or "",
+            name=selector.attrs.get("name") or "",
+            role=selector.attrs.get("role") or "",
         )
-        return matches[0].center if matches else None
+        return el.center if verdict == target.VALID and el is not None else None
 
     def invoke_element(self, el: axtree.AxElement) -> str | None:
         """Native accessibility action (Invoke / AXPress / AT-SPI click) for
