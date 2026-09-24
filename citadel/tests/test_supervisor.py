@@ -30,7 +30,7 @@ def _status_of(sup, gid):
 
 def _behaviors(mapping):
     """run_task that dispatches on the task string (we set title == goal id)."""
-    def run_task(task, *, should_stop, on_status, confirm):
+    def run_task(task, *, should_stop, on_status, confirm, record_step=None):
         fn = mapping.get(task, lambda **k: (0, "ok"))
         return fn(should_stop=should_stop, on_status=on_status, confirm=confirm)
     return run_task

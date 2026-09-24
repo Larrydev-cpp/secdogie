@@ -35,6 +35,7 @@ class Supervisor:
         logger: logging.Logger | None = None,
     ):
         from .goals import build_goal_tree
+        from .run import RunRecorder
 
         self.journal = journal
         self.run_task = run_task
@@ -42,6 +43,7 @@ class Supervisor:
         self._confirm_handler = confirm_handler
         self.log = logger or logging.getLogger("secdogie_citadel.supervisor")
         self._build_goal_tree = build_goal_tree
+        self.recorder = RunRecorder(journal)
 
     # -- goal authoring ------------------------------------------------------
 
@@ -130,6 +132,10 @@ class Supervisor:
         self.journal.append("goal", {"op": "update", "id": goal_id, "status": "active"})
         self.journal.append("status", {"goal_id": goal_id, "state": "running"})
 
+        # Open a run: the agent's steps (observe->gate->execute->verify) get
+        # recorded as signed state under this run_id and converge over the mesh.
+        run_id = self.recorder.start_run(goal_id)
+
         def should_stop() -> bool:
             s, _ = self._controls()
             return goal_id in s
@@ -140,14 +146,21 @@ class Supervisor:
         def confirm(prompt: str, high_risk: bool = True) -> bool:
             return self._confirm(goal_id, prompt, high_risk)
 
+        def record_step(observation=None, action=None, result="", verdict="", state="executing") -> str:
+            return self.recorder.record_step(
+                run_id, observation=observation, action=action,
+                result=result, verdict=verdict, state=state,
+            )
+
         try:
             code, summary = self.run_task(node.title or goal_id, should_stop=should_stop,
-                                          on_status=on_status, confirm=confirm)
+                                          on_status=on_status, confirm=confirm, record_step=record_step)
         except Exception as e:  # a crashing task must not wedge the supervisor
             self.log.exception("goal %s crashed", goal_id)
             code, summary = 1, f"error: {e}"
 
         code = int(code)
+        self.recorder.finish_run(run_id, code, summary)
         self.journal.append("result", {"goal_id": goal_id, "code": code, "summary": str(summary)})
         if code == 0:
             self.journal.append("goal", {"op": "complete", "id": goal_id})
@@ -185,10 +198,15 @@ def terminal_confirm(prompt: str, high_risk: bool) -> bool:
     return answer in ("y", "yes")
 
 
-def agent_run_task(task: str, *, should_stop, on_status, confirm) -> tuple[int, str]:
+def agent_run_task(task: str, *, should_stop, on_status, confirm, record_step=None) -> tuple[int, str]:
     """Production task runner: drive the real agent loop for one goal, keeping the
     high-risk confirmation gate wired to `confirm`. Imports the agent lazily so
-    citadel's other paths don't depend on it."""
+    citadel's other paths don't depend on it.
+
+    When `record_step` is given (the Supervisor's run recorder), each hash-chained
+    ExecutionTrace entry the loop produces -- frame hash (the observation), the
+    action, and the result -- is mirrored into the run's signed state, so the run
+    materializes and converges over the mesh."""
     import argparse
 
     from secdogie_agent import cli_common
@@ -212,5 +230,9 @@ def agent_run_task(task: str, *, should_stop, on_status, confirm) -> tuple[int, 
     cfg_kwargs["ask_operator"] = lambda question: confirm(question, True)
     cfg_kwargs["approve_plan"] = lambda plan, task="": confirm(f"approve plan: {(plan or '')[:200]}", False)
     cfg_kwargs["confirm_high_risk"] = True  # never weaken the high-risk gate
+    if record_step is not None:
+        cfg_kwargs["trace_on_entry"] = lambda entry: record_step(
+            observation=entry.frame_sha256, action=entry.action, result=entry.result,
+        )
     code = run(provider, AgentConfig(**cfg_kwargs))
     return code, f"agent exited {code}"

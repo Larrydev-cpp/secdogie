@@ -90,6 +90,10 @@ class AgentConfig:
     plan: bool = False
     subtask_step_limit: int = 15
     trace_path: str | None = None
+    # Optional per-step trace sink (e.g. the citadel run recorder's record_step).
+    # Receives each hash-chained TraceEntry as it is recorded; does not change the
+    # default behavior when unset.
+    trace_on_entry: Callable[..., None] | None = None
     memory_path: str | None = None
     require_focus: bool = False
     # GUI: after the operator approves the plan, low-risk steps run without a
@@ -291,8 +295,12 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
         plan = _build_plan(provider, config, logger, backend)
     subtask_started = 1
 
-    trace = ExecutionTrace(config.trace_path) if config.trace_path else None
-    if trace is not None:
+    trace = (
+        ExecutionTrace(config.trace_path, on_entry=config.trace_on_entry)
+        if (config.trace_path or config.trace_on_entry)
+        else None
+    )
+    if trace is not None and config.trace_path:
         logger.info("writing a verifiable execution trace to %s", config.trace_path)
 
     history: list[HistoryStep] = []

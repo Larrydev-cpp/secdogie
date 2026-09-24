@@ -162,7 +162,7 @@ flowchart TB
 | `desktop/` · `console/` | 原生 GUI / 本地控制台(DID 门控) | ④ | ✅ 已建成 |
 | `citadel/action_gate.py` | 动作计划级苏格拉底门 `GateDecision`(2.6) | ③ | ✅ 已建成 |
 | `agent/target.py` | AX 不透明目标 + 代际,修 TOCTOU(2.5) | ④ | ✅ 已建成 |
-| run 闭环 | Agent↔Citadel 运行状态串联(2.7) | ③④ | 🔜 规划中 |
+| `citadel/run.py` | Agent↔Citadel run 闭环(2.7):run/step 签名状态、链式 `state_hash`、随复制收敛 | ③④ | ✅ 已建成 |
 | `Capability` | 签名能力授权模型(2.9) | ④ | 🔜 规划中 |
 
 ---
@@ -193,7 +193,7 @@ physical action = 显式 capability。能力模型**永不**包含
 | 2.4 | 观测融合(AX + DIB 按引用,结构化、不截屏) | ✅ |
 | 2.5 | AX 不透明目标 / 代际(修 TOCTOU) | ✅ |
 | 2.6 | 动作计划级苏格拉底门 | ✅ |
-| 2.7 | Agent↔Citadel run 闭环 | 🔜 |
+| 2.7 | Agent↔Citadel run 闭环 | ✅ |
 | 2.8 | 崩溃恢复升级(先重观测再重试) | 🔜(基础已具备) |
 | 2.9 | 能力授权模型 | 🔜 |
 | 2.10 | P2P 直连传输 / rendezvous | ✅ 直连传输 + rendezvous + 直连升级/relay 兜底 + 成员 gossip 反熵(P2P.1–P2P.3)已实现 |
