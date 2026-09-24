@@ -154,7 +154,8 @@ flowchart TB
 | `citadel/sync.py` | 反熵复制(have/want builder,传输无关) | ② | ✅ 已建成 |
 | `citadel/replication.py` | 把签名日志/状态收敛承载到 DID 认证传输(Replication.1,双重认证) | ② | ✅ 已建成 |
 | `citadel/socratic.py` | 指令级苏格拉底门 | ③ | ✅ 已建成 |
-| `citadel/supervisor.py` | 受监督持久节点、从日志恢复 | ④ | ✅ 已建成(2.8 增强规划中) |
+| `citadel/supervisor.py` | 受监督持久节点、从日志恢复(含 `recover_runs()` 2.8) | ④ | ✅ 已建成 |
+| `citadel/recovery.py` | 崩溃恢复决策(2.8):发现半途 run，executing 崩溃**先重观测再重试** | ③④ | ✅ 已建成 |
 | `agent/observation.py` | 观测融合、DIB 按引用桥接(2.4) | ④ | ✅ 已建成 |
 | `agent/` (AX/safety/…) | 感知 + 安全边界 + 动作 schema | ④ | ✅ 已建成 |
 | `native/atlas/` (C++) | 只读进程感知、DIB 重建 | ④ | ✅ 已建成 |
@@ -195,7 +196,7 @@ physical action = 显式 capability。能力模型**永不**包含
 | 2.5 | AX 不透明目标 / 代际(修 TOCTOU) | ✅ |
 | 2.6 | 动作计划级苏格拉底门 | ✅ |
 | 2.7 | Agent↔Citadel run 闭环 | ✅ |
-| 2.8 | 崩溃恢复升级(先重观测再重试) | 🔜(基础已具备) |
+| 2.8 | 崩溃恢复升级(先重观测再重试) | ✅ |
 | 2.9 | 能力授权模型 | 🔜 |
 | 2.10 | P2P 直连传输 / rendezvous | ✅ 直连传输 + rendezvous + 直连升级/relay 兜底 + 成员 gossip 反熵(P2P.1–P2P.3)已实现 |
 

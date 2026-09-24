@@ -45,14 +45,18 @@ AWAITING_GATE = "awaiting_gate"
 AWAITING_HUMAN = "awaiting_human"
 EXECUTING = "executing"
 VERIFYING = "verifying"
+RECOVERING = "recovering"  # re-entered after a crash; see recovery.py (2.8)
 COMPLETED = "completed"
 FAILED = "failed"
 STOPPED = "stopped"
 
 RUN_STATES = frozenset({
     CREATED, PLANNING, OBSERVING, PROPOSING, AWAITING_GATE, AWAITING_HUMAN,
-    EXECUTING, VERIFYING, COMPLETED, FAILED, STOPPED,
+    EXECUTING, VERIFYING, RECOVERING, COMPLETED, FAILED, STOPPED,
 })
+
+# Non-terminal states: a run left in one of these by a crash needs recovery (2.8).
+TERMINAL_STATES = frozenset({COMPLETED, FAILED, STOPPED})
 
 # Terminal code -> run state (mirrors the agent loop's exit codes: 0 ok, 5 stopped).
 _CODE_STATE = {0: COMPLETED, 5: STOPPED}
@@ -147,6 +151,14 @@ class RunRecorder:
             raise ValueError(f"unknown run state {state!r}")
         record_state(self.journal, "run", run_id, "patch", {"state": state})
 
+    def record_recovery(self, run_id: str, action: str, *, from_state: str) -> None:
+        """Record a crash-recovery decision (2.8) on a run: move it to
+        ``recovering`` and stamp the chosen action + the state it crashed in. A
+        signed ``state`` patch, so it materializes and converges like any other."""
+        record_state(self.journal, "run", run_id, "patch", {
+            "state": RECOVERING, "recovery": action, "recovered_from": from_state,
+        })
+
     def finish_run(self, run_id: str, code: int, summary: str = "") -> str:
         """Close a run: map the exit ``code`` to a terminal state and record it.
         Returns the terminal state."""
@@ -182,6 +194,8 @@ def verify_run(run_id: str, store: Any) -> tuple[bool, str | None]:
 
 __all__ = [
     "RunRecorder", "verify_run", "step_state_hash", "GENESIS", "RUN_STATES",
+    "TERMINAL_STATES",
     "CREATED", "PLANNING", "OBSERVING", "PROPOSING", "AWAITING_GATE",
-    "AWAITING_HUMAN", "EXECUTING", "VERIFYING", "COMPLETED", "FAILED", "STOPPED",
+    "AWAITING_HUMAN", "EXECUTING", "VERIFYING", "RECOVERING",
+    "COMPLETED", "FAILED", "STOPPED",
 ]

@@ -109,6 +109,24 @@ class Supervisor:
                 requeued.append(gid)
         return requeued
 
+    def recover_runs(self):
+        """Crash recovery at run granularity (Phase 2.8): from the materialized
+        state, decide how to resume each run left mid-flight and record the
+        decision. Crucially, a run that crashed while `executing` is marked
+        `reobserve_before_retry` -- the agent must re-observe (did the action
+        already happen?) before any retry, so a crash never double-acts. Returns
+        the recorded `RecoveryDecision`s. Additive: `recover()` still re-queues the
+        goals; this records the safe way to resume their runs."""
+        from .recovery import plan_recovery
+        from .state import StateStore
+
+        store = StateStore()
+        store.merge_events(self.journal.events())
+        decisions = plan_recovery(store)
+        for d in decisions:
+            self.recorder.record_recovery(d.run_id, d.action, from_state=d.from_state)
+        return decisions
+
     # -- execution -----------------------------------------------------------
 
     def _confirm(self, goal_id: str, prompt: str, high_risk: bool) -> bool:
