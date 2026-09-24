@@ -1,14 +1,12 @@
 """Shared CLI plumbing for the provider/model/API-key front door and the
 agent-loop flags.
 
-secdogie-agent, secdogie-android, and secdogie-ios are the same program with a
-different backend bolted on, so they exposed an identical block of argparse
-options plus identical key-resolution and error handling -- roughly forty lines
-copied three times. This module owns that surface once: each tool adds its own
+This module owns the common argparse block plus key-resolution and error
+handling once, so a CLI (and the citadel node's agent adapter) adds its own
 backend flags around these helpers instead of re-declaring the shared ones.
 
-Kept deliberately small -- the pool-based scene3d CLI and the server-only open
-CLI don't share this single-provider shape, so they don't use it."""
+Kept deliberately small -- it is the single-provider shape used by the desktop
+agent CLI and the citadel run adapter."""
 from __future__ import annotations
 
 import argparse

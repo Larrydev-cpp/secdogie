@@ -23,8 +23,8 @@ next to the Atlas native module:
 cloudflared tunnel --config ~/.cloudflared/config.yml run secdogie-atlas
 ```
 
-The origin in the template is `http://127.0.0.1:17890` (the `open/` web UI /
-agent sidecar). Change the ingress service if you expose a different local
+The origin in the template is `http://127.0.0.1:17890` (a local web UI /
+sidecar). Change the ingress service if you expose a different local
 port. Put Access in front of the hostname before you share it. Never commit
 the credentials JSON `cloudflared tunnel create` writes.
 

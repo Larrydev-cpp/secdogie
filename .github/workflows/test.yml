@@ -39,19 +39,6 @@ jobs:
             needs_identity: true
           - dir: transport  # P2P-ready peer/session/endpoint model
             needs_identity: true
-          - dir: handoff
-          - dir: aim
-            needs_handoff: true
-          - dir: commander  # decision core is pure; run/wiring imports agent/aim/handoff lazily
-          - dir: gta        # protocol + control law are pure; bridge/cli need the game (not tested)
-          - dir: android
-            needs_agent: true
-          - dir: ios
-            needs_agent: true
-          - dir: open
-            needs_agent: true
-          - dir: scene3d
-            needs_agent: true
           - dir: fleet      # protocol/coordinator are pure; a node needs the agent it drives
             needs_agent: true
             needs_identity: true   # so the DID-signed secure-transport tests run (not skip)
@@ -77,9 +64,6 @@ jobs:
           python -m pip install --upgrade pip
           if [ "${{ matrix.needs_agent }}" = "true" ]; then
             pip install -e ../agent
-          fi
-          if [ "${{ matrix.needs_handoff }}" = "true" ]; then
-            pip install -e ../handoff
           fi
           if [ "${{ matrix.needs_identity }}" = "true" ]; then
             pip install -e ../identity
