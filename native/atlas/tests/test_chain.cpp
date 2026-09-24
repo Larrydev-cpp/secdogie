@@ -171,7 +171,10 @@ void RunChainTests() {
     Expect(help.find("job report") != std::string::npos && help.find("chain") != std::string::npos,
            "help lists chain and job report", help.c_str());
   }
-#if !defined(_WIN32)
+// Linux-only live fork: on macOS, fork() here (and the SIP-gated live-process
+// inspect it drives) can block on Apple Silicon; the chain logic is exercised
+// with synthetic ProcessInfo above, and Linux/Windows cover the live path.
+#if !defined(_WIN32) && !defined(__APPLE__)
   {
     const pid_t child = fork();
     if (child == 0) {
