@@ -151,6 +151,7 @@ jobs:
 
   atlas-tests-macos:
     runs-on: macos-latest
+    timeout-minutes: 20  # fail fast: a SIP-blocked task_for_pid once hung this ~6h
     steps:
       - uses: actions/checkout@v4
 
@@ -167,6 +168,7 @@ jobs:
 
   atlas-tests-macos-intel:
     runs-on: macos-latest
+    timeout-minutes: 20  # fail fast: a SIP-blocked task_for_pid once hung the macOS job ~6h
     steps:
       - uses: actions/checkout@v4
 
