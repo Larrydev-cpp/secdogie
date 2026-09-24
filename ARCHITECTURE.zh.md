@@ -148,6 +148,7 @@ flowchart TB
 | `transport/rendezvous.py` | Rendezvous + 反射端点发现(STUN/AutoNAT,DID 签名) | ①② | ✅ 已建成 |
 | `transport/upgrade.py` | 直连升级 + relay 兜底(DCUtR/Tailscale 式,探测→迁移) | ①② | ✅ 已建成 |
 | `transport/membership.py` | 成员/端点 gossip 反熵(自签名记录、LWW、去中心收敛) | ①② | ✅ 已建成 |
+| `transport/dht.py` | Kademlia 路由表 + 迭代查找(P2P.4):DID=node id、XOR k-bucket、可扩展定向发现 | ①② | ✅ 已建成 |
 | `citadel/journal.py` | 签名哈希链事件日志 | ② | ✅ 已建成 |
 | `citadel/state.py` | `StateDelta` / `StateStore`(2.3) | ② | ✅ 已建成 |
 | `citadel/sync.py` | 反熵复制(have/want builder,传输无关) | ② | ✅ 已建成 |

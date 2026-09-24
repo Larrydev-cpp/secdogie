@@ -8,6 +8,7 @@ implements the same interface for true peer-to-peer.
 """
 from __future__ import annotations
 
+from .dht import RoutingTable, find_node, find_peer, node_id, xor_distance
 from .endpoint import Endpoint, EndpointSet
 from .membership import MembershipView, PeerRecord, gossip_round
 from .peer import PeerIdentity
@@ -35,4 +36,9 @@ __all__ = [
     "MembershipView",
     "PeerRecord",
     "gossip_round",
+    "RoutingTable",
+    "find_node",
+    "find_peer",
+    "node_id",
+    "xor_distance",
 ]
