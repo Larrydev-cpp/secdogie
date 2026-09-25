@@ -24,6 +24,8 @@ _RETRY_SAFE = {"left_click", "right_click", "double_click", "move", "scroll", "c
 # already truncate further (last 10); this stops unbounded growth on long runs
 # and keeps the "actions so far" text from piling up.
 HISTORY_KEEP = 24
+# How many recent actions an injected plan gate sees (for its repeat checks).
+_GATE_WINDOW = 5
 _NO_CHANGE_NOTE = (
     " (no visible change detected after this action -- the target may be wrong or the UI "
     "is blocked; try a different target or approach)"
@@ -94,6 +96,10 @@ class AgentConfig:
     # Receives each hash-chained TraceEntry as it is recorded; does not change the
     # default behavior when unset.
     trace_on_entry: Callable[..., None] | None = None
+    # Optional action-plan gate (e.g. citadel's loop_gate): called with a plain-data
+    # view of each action about to execute plus the recent ones, returns
+    # (allowed, note). A refusal skips the action. Unset -> behavior unchanged.
+    plan_gate: Callable[[dict, list], tuple[bool, str]] | None = None
     memory_path: str | None = None
     require_focus: bool = False
     # GUI: after the operator approves the plan, low-risk steps run without a
@@ -122,6 +128,21 @@ def _emit(config: AgentConfig, event: str, **payload) -> None:
         cb(event, payload)
     except Exception:
         pass
+
+
+def _gate_view(action, high_risk: bool) -> dict:
+    """A plain-data view of an action for an injected plan gate, so the gate
+    needs no agent types."""
+    return {
+        "kind": action.kind,
+        "element": action.element,
+        "x": action.x,
+        "y": action.y,
+        "text": action.text or "",
+        "keys": list(action.keys or ()),
+        "path": action.path or "",
+        "high_risk": bool(high_risk),
+    }
 
 
 def _done(config: AgentConfig, rc: int) -> int:
@@ -726,6 +747,21 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 prev_exec_sig, prev_exec_frame = sig, frame_hash
 
             is_high_risk = actions.is_high_risk(action)
+            if config.plan_gate is not None:
+                try:
+                    allowed, gate_note = config.plan_gate(
+                        _gate_view(action, is_high_risk),
+                        [_gate_view(h.action, actions.is_high_risk(h.action))
+                         for h in history[-_GATE_WINDOW:]],
+                    )
+                except Exception as e:  # a broken gate fails closed, never open
+                    allowed, gate_note = False, f"plan gate error: {e}"
+                if not allowed:
+                    logger.warning("plan gate refused %s: %s", action.kind, gate_note)
+                    record_result(f"refused by plan gate: {gate_note}")
+                    continue
+                if gate_note:
+                    logger.info("plan gate note on %s: %s", action.kind, gate_note)
             # High-risk (open/elevated/save/delete/close hotkeys) force confirm even under --auto.
             # Mutating actions under --auto are allowed without extra prompt (operator chose --auto);
             # --read-only already blocked them above.

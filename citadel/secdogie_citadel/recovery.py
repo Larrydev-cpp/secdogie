@@ -118,7 +118,24 @@ def plan_recovery(store: Any) -> list[RecoveryDecision]:
     return out
 
 
+def recovery_preamble(recovery) -> str:
+    """Text to put in front of a re-run goal's task after an ``executing`` crash
+    (accepts a ``RecoveryDecision`` or its dict form). The loop observes before
+    every step anyway; this tells the model to check the interrupted action's
+    effect before redoing it. Empty for any other recovery kind."""
+    action = recovery.get("action") if isinstance(recovery, dict) else getattr(recovery, "action", "")
+    if action != REOBSERVE_BEFORE_RETRY:
+        return ""
+    return (
+        "[Resuming after an interruption] The previous attempt at this task stopped while "
+        "an action was being executed. Before doing anything else, look at the current "
+        "screen and check whether that action already took effect. If it did, do not "
+        "repeat it; continue from the new state.\n\n"
+    )
+
+
 __all__ = [
     "COMPLETE", "RESUME_STEP", "REOBSERVE_BEFORE_RETRY", "REVERIFY",
     "RecoveryDecision", "in_flight_runs", "recovery_for", "plan_recovery",
+    "recovery_preamble",
 ]
