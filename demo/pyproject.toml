@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secdogie-demo"
+version = "0.1.0"
+description = "A reproducible headless vertical slice chaining all four pillars with real components (only the vision model and browser are faked)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = ["secdogie-identity", "secdogie-transport", "secdogie-citadel", "secdogie-node"]
+
+[project.optional-dependencies]
+# the structural agent loop + the browser reader; without them the slice still
+# runs (the loop step falls back and says so).
+full = ["secdogie-agent", "secdogie-desktop"]
+
+[project.scripts]
+secdogie-demo = "secdogie_demo.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["secdogie_demo*"]

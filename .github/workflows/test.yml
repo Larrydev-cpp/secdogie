@@ -53,6 +53,15 @@ jobs:
             needs_identity: true
             needs_fleet: true
             needs_console: true
+          - dir: demo       # end-to-end vertical slice: all four pillars in one flow
+            needs_identity: true
+            needs_transport: true
+            needs_citadel: true
+            needs_node: true
+            needs_fleet: true
+            needs_console: true
+            needs_desktop: true
+            needs_agent: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -78,11 +87,17 @@ jobs:
           if [ "${{ matrix.needs_citadel }}" = "true" ]; then
             pip install -e ../citadel
           fi
+          if [ "${{ matrix.needs_node }}" = "true" ]; then
+            pip install -e ../node
+          fi
           if [ "${{ matrix.needs_fleet }}" = "true" ]; then
             pip install -e ../fleet
           fi
           if [ "${{ matrix.needs_console }}" = "true" ]; then
             pip install -e ../console
+          fi
+          if [ "${{ matrix.needs_desktop }}" = "true" ]; then
+            pip install -e ../desktop
           fi
           pip install -e ".${{ matrix.extras }}" pytest
 
