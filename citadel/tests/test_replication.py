@@ -255,3 +255,111 @@ def test_real_udp_loopback_converges():
     assert _materialize(ja) == _materialize(jb)
     assert _materialize(ja)["goal"]["g1"] == {"who": "a"}
     assert _materialize(ja)["task"]["t1"] == {"who": "b"}
+
+
+# --- large journals: size-bounded replies ------------------------------------
+
+
+def _big_journal(identity, allow, n=300, note_bytes=500):
+    j = Journal(identity=identity, allowlist=allow, clock=_counter())
+    for i in range(n):
+        record_state(j, "knowledge", f"k{i}", "set", {"note": "x" * note_bytes, "i": i})
+    return j
+
+
+def test_events_messages_are_bounded_contiguous_and_complete():
+    a = Identity.generate()
+    j = _big_journal(a, Allowlist({a.did}))
+    events = j.events()
+    assert len(json.dumps(sync.events_message(events))) > 150_000  # far over one datagram
+    msgs = sync.events_messages(events, max_bytes=40_000)
+    assert len(msgs) > 3
+    assert all(len(json.dumps(m)) <= 40_000 for m in msgs)
+    flat = [e for m in msgs for e in m["events"]]
+    assert [e["seq"] for e in flat] == list(range(1, len(events) + 1))  # all, in order
+    for m in msgs:
+        seqs = [e["seq"] for e in m["events"]]
+        assert seqs == list(range(seqs[0], seqs[0] + len(seqs)))  # contiguous run
+
+
+def test_empty_and_oversized_cases():
+    assert sync.events_messages([]) == [sync.events_message([])]
+    a = Identity.generate()
+    j = Journal(identity=a, clock=_counter())
+    record_state(j, "knowledge", "big", "set", {"note": "y" * 5000})
+    record_state(j, "knowledge", "small", "set", {"note": "z"})
+    msgs = sync.events_messages(j.events(), max_bytes=1000)
+    assert [len(m["events"]) for m in msgs] == [1, 1]  # the oversized one travels alone
+
+
+def test_large_journal_converges_in_process():
+    a, b = Identity.generate(), Identity.generate()
+    allow = Allowlist({a.did, b.did})
+    ja, jb = _big_journal(a, allow), Journal(identity=b, allowlist=allow, clock=_counter(1000.0))
+    wire = Wire()
+    pa = wire.attach(a.did, ja)
+    wire.attach(b.did, jb)
+    pa.initiate(b.did)
+    assert wire.drain() == 300
+    assert ja.heads() == jb.heads()
+
+
+def _udp_sync(max_bytes, *, rounds=5, wait=1.0):
+    """Two journals over real UDP on 127.0.0.1: A holds a large journal, B is
+    empty. Runs up to `rounds` anti-entropy rounds; returns (converged, peer_a) --
+    A is the side that replies with the large journal."""
+    pytest.importorskip("secdogie_transport")
+    import time
+
+    from secdogie_transport import Endpoint, PeerIdentity, Session
+    from secdogie_transport.udp import DirectUDPTransport, UDPChannel
+
+    a, b = Identity.generate(), Identity.generate()
+    allow = Allowlist({a.did, b.did})
+    ja, jb = _big_journal(a, allow), Journal(identity=b, allowlist=allow, clock=_counter(1000.0))
+    cha, chb = UDPChannel(), UDPChannel()
+    ta, tb = DirectUDPTransport(a, cha, allowlist=allow), DirectUDPTransport(b, chb, allowlist=allow)
+
+    def send_over(transport, from_did):
+        return lambda to_did, payload: transport.route(from_did, to_did, json.dumps(payload).encode())
+
+    pa = ReplicationPeer(ja, send_over(ta, a.did), max_bytes=max_bytes)
+    pb = ReplicationPeer(jb, send_over(tb, b.did), max_bytes=max_bytes)
+    ta.register(Session("sa", PeerIdentity(a.did, "u"), active=Endpoint("local", *cha.address)),
+                lambda f, d: pa.on_message(f, json.loads(d)))
+    tb.register(Session("sb", PeerIdentity(b.did, "u"), active=Endpoint("local", *chb.address)),
+                lambda f, d: pb.on_message(f, json.loads(d)))
+    ta.set_peer_endpoint(b.did, *chb.address)
+    converged = False
+    try:
+        for _ in range(rounds):
+            pa.initiate(b.did)  # a node repeats rounds; a lost/reordered chunk comes again
+            deadline = time.time() + wait
+            while time.time() < deadline:
+                try:
+                    if jb.heads().get(a.did) == 300:
+                        converged = True
+                        break
+                except Exception:  # noqa: BLE001 -- cross-thread sqlite read, retry
+                    pass
+                time.sleep(0.05)
+            if converged:
+                break
+    finally:
+        cha.close()
+        chb.close()
+    return converged, pa
+
+
+def test_large_journal_did_not_replicate_over_udp_unchunked():
+    # The bug this fixes: one reply holding everything exceeds a datagram, the
+    # send fails ("Message too long"), and B never receives A's events.
+    converged, pa = _udp_sync(max_bytes=10**9, rounds=2, wait=0.5)
+    assert not converged
+    assert pa.send_failures > 0  # and the failure is now counted and logged
+
+
+def test_large_journal_replicates_over_udp_chunked():
+    converged, pa = _udp_sync(max_bytes=sync.DEFAULT_MAX_BYTES)
+    assert converged
+    assert pa.send_failures == 0
