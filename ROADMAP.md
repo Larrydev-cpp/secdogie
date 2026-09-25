@@ -1,7 +1,8 @@
 # secdogie · 云端生命体 路线图
 
 > 总实现目标与到达它的里程碑。完整架构、组件表与端到端认证链路见
-> [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md)。
+> [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md)；按代码现状拆好的切片计划见
+> [`docs/MASTER-PLAN.zh.md`](docs/MASTER-PLAN.zh.md)。
 
 ## 北极星
 
@@ -16,7 +17,8 @@
 ## 五条并行 track
 
 - **A 分散式网络** —— DID 身份 → 会话/端点 → 真 P2P UDP → rendezvous → 直连升级/relay 兜底 →
-  成员 gossip →(后)Kademlia 路由、bootstrap 加固、数据面机密性接上 tunnel/WireGuard。
+  成员 gossip →(后)节点组装(`MeshNode`)、rendezvous/relay 作为对端角色、无服务器引导与局域网发现、
+  Kademlia 线协议、数据面机密性接上 tunnel/WireGuard。**不依赖 VPS**:没有专用服务器。
 - **B 分布式状态与学习** —— 签名日志 + StateStore → 反熵复制在 mesh 上收敛 → 内容寻址的观测/
   知识存储(大数据按 content_hash 引用)→(后)评估真正的 CRDT。
 - **C 心智(苏格拉底 + 监督)** —— 指令门 + 计划门 → **2.7 Agent↔Citadel run 闭环** →
@@ -29,9 +31,12 @@
 
 - **M1 基础认证链 — ✅ 已达成**:2.1→2.6 + P2P.1。判据:身份→会话→状态→门→(受监督)动作
   每一步可验证,全 headless 绿。
-- **M2 P2P mesh + 状态收敛 — ✅ 已达成**:P2P.2 直连升级 + P2P.3 成员 gossip + Replication.1。
+- **M2 P2P mesh + 状态收敛 — ✅ 构件已达成,🔨 组装中**:P2P.2 直连升级 + P2P.3 成员 gossip + Replication.1。
   判据:任意两个授权节点能直连或经 relay 通信,一个节点写入的签名状态收敛到其余节点(loopback 多节点测)。
-- **M3 运行闭环 + 能力治理 — 🔨 进行中(2.7 / 2.8 / 2.9 构件已建成,待接入实时 agent 回路)**:C 的 2.7/2.8 + D 的 2.9。判据:交给节点一个目标,它能
+  P2P.2 已加固:direct 帧签名 `ts`+`ctr`(时钟偏差 + 重放窗口)、`Session` 先建后拆迁移、ACK 绑定被探测 DID。
+  缺口:gossip/DHT 还只是纯逻辑、没有线协议,各构件尚未组装成一个节点(MASTER-PLAN 2B–2D)。
+- **M3 运行闭环 + 能力治理 — 🔨 进行中(2.7 / 2.8 / 2.9 已建成;`agent_run_task` 已把逐步 trace 写进 run 状态、
+  逐动作做能力校验;待补撤销与端到端测试)**:C 的 2.7/2.8 + D 的 2.9。判据:交给节点一个目标,它能
   规划→观测→过门→(能力 + HITL)执行→验证→写回,崩溃后先重观测再安全恢复,每个动作经签名能力校验。
 - **M4 端到端纵切 — 🔜**:一个授权节点「学习 + 行动」,结果全网收敛,可 headless 演示整条链。
 - **M5 加固 / 落地 — 🔜**:OS 原生接线在实机验证、tunnel 机密性接上数据面、打包/发布/文档、安全复审。
