@@ -17,25 +17,17 @@ time**, instead of taking turns on one mouse.
                                          └──────────────────────────────┘
 ```
 
-## Why this exists (and how it differs from `open/`)
+## Why this exists
 
-[`open/`](../open) splits **one** machine's screen by window and drives several
-agents against it. But that machine has exactly **one** mouse, one keyboard and
-one foreground window, so `agent/`'s input lock has to serialize every click and
-keystroke: those agents *think* in parallel and *act* in a queue, fighting each
-other for focus. Add windows and it gets worse, not faster.
+Driving several agents against **one** machine can't be truly parallel: that
+machine has exactly **one** mouse, one keyboard and one foreground window, so
+`agent/`'s input lock has to serialize every click and keystroke — the agents
+*think* in parallel but *act* in a queue, fighting each other for focus.
 
-A fleet gives each task a whole desktop of its own. Nothing is shared, so nothing
-has to be serialized — N tasks really do run at once, and one wedged VM doesn't
-take the others down with it.
-
-| | `open/` | `fleet/` |
-|---|---|---|
-| Unit of isolation | a window | a whole desktop (VM / session) |
-| Concurrency | thinking only; input is serialized | genuine — separate input queues |
-| Focus fighting | yes, agents steal it from each other | none, each owns its desktop |
-| Blast radius of a crash | the whole process | one node |
-| Cost | free | one guest OS per task |
+A fleet gives each task a whole desktop of its own (a VM or its own user
+session). Nothing is shared, so nothing has to be serialized — N tasks really do
+run at once, each owns its input queue and foreground window, and one wedged VM
+doesn't take the others down with it. The cost is one guest OS per task.
 
 ## Install
 

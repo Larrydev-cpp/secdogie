@@ -33,8 +33,10 @@ class Supervisor:
         max_attempts: int = 1,
         confirm_handler: Callable[[str, bool], bool] | None = None,
         logger: logging.Logger | None = None,
+        issuers=None,
     ):
         from .goals import build_goal_tree
+        from .run import RunRecorder
 
         self.journal = journal
         self.run_task = run_task
@@ -42,6 +44,31 @@ class Supervisor:
         self._confirm_handler = confirm_handler
         self.log = logger or logging.getLogger("secdogie_citadel.supervisor")
         self._build_goal_tree = build_goal_tree
+        self.recorder = RunRecorder(journal)
+        # Trusted capability issuers (operator DIDs). When set, every action the
+        # agent is about to execute is checked against this node's grants.
+        self.issuers = issuers
+
+    # -- capabilities (2.9) ----------------------------------------------------
+
+    def add_grant(self, signed_grant: dict) -> dict:
+        """Carry a signed capability grant in the journal, so it reaches the node
+        (and its peers) through normal replication. A forged or untrusted grant is
+        harmless here: it simply fails verification in `node_scopes`."""
+        return self.journal.append("capability_grant", signed_grant)
+
+    def grants(self) -> list[dict]:
+        return [e.get("body") for e in self.journal.events() if e.get("kind") == "capability_grant"]
+
+    def node_scopes(self, now: float | None = None) -> frozenset:
+        """The scopes this node currently holds: verified, unexpired grants from a
+        trusted issuer whose subject is this node's DID. Empty without issuers."""
+        ident = getattr(self.journal, "identity", None)
+        if self.issuers is None or ident is None:
+            return frozenset()
+        from secdogie_identity.capability import effective_scopes
+
+        return effective_scopes(self.grants(), subject=ident.did, issuers=self.issuers, now=now)
 
     # -- goal authoring ------------------------------------------------------
 
@@ -107,6 +134,40 @@ class Supervisor:
                 requeued.append(gid)
         return requeued
 
+    def _open_runs(self, goal_id: str) -> list:
+        """Recovery decisions for this goal's runs that are still non-terminal."""
+        from .recovery import recovery_for
+        from .run import TERMINAL_STATES
+        from .state import StateStore
+
+        store = StateStore()
+        store.merge_events(self.journal.events())
+        out = []
+        for rid, r in sorted(store.entities("run").items()):
+            if r.get("goal_id") == goal_id and r.get("state") not in TERMINAL_STATES:
+                d = recovery_for(store, rid)
+                if d is not None:
+                    out.append(d)
+        return out
+
+    def recover_runs(self):
+        """Crash recovery at run granularity (Phase 2.8): from the materialized
+        state, decide how to resume each run left mid-flight and record the
+        decision. Crucially, a run that crashed while `executing` is marked
+        `reobserve_before_retry` -- the agent must re-observe (did the action
+        already happen?) before any retry, so a crash never double-acts. Returns
+        the recorded `RecoveryDecision`s. Additive: `recover()` still re-queues the
+        goals; this records the safe way to resume their runs."""
+        from .recovery import plan_recovery
+        from .state import StateStore
+
+        store = StateStore()
+        store.merge_events(self.journal.events())
+        decisions = plan_recovery(store)
+        for d in decisions:
+            self.recorder.record_recovery(d.run_id, d.action, from_state=d.from_state)
+        return decisions
+
     # -- execution -----------------------------------------------------------
 
     def _confirm(self, goal_id: str, prompt: str, high_risk: bool) -> bool:
@@ -130,6 +191,19 @@ class Supervisor:
         self.journal.append("goal", {"op": "update", "id": goal_id, "status": "active"})
         self.journal.append("status", {"goal_id": goal_id, "state": "running"})
 
+        # Runs of this goal left open by a crash: the new run supersedes them, and
+        # an `executing` crash means the agent must check before redoing (2.8).
+        from .recovery import REOBSERVE_BEFORE_RETRY
+
+        prior = self._open_runs(goal_id)
+        recovery = next((d for d in prior if d.action == REOBSERVE_BEFORE_RETRY), None)
+
+        # Open a run: the agent's steps (observe->gate->execute->verify) get
+        # recorded as signed state under this run_id and converge over the mesh.
+        run_id = self.recorder.start_run(goal_id)
+        for d in prior:
+            self.recorder.finish_run(d.run_id, 5, f"superseded by {run_id} after recovery")
+
         def should_stop() -> bool:
             s, _ = self._controls()
             return goal_id in s
@@ -140,14 +214,45 @@ class Supervisor:
         def confirm(prompt: str, high_risk: bool = True) -> bool:
             return self._confirm(goal_id, prompt, high_risk)
 
+        def record_step(observation=None, action=None, result="", verdict="", state="executing") -> str:
+            return self.recorder.record_step(
+                run_id, observation=observation, action=action,
+                result=result, verdict=verdict, state=state,
+            )
+
+        # Optional hooks, passed only when in use so older run_task callables that
+        # don't accept them keep working.
+        extra: dict = {}
+        if self.issuers is not None:
+            from .loop_gate import make_plan_gate
+
+            instruction = node.title or goal_id
+
+            def plan_gate(view, recent):
+                # Re-read grants on every check, so an expiry or a new grant
+                # takes effect mid-run.
+                return make_plan_gate(self.node_scopes(), instruction=instruction)(view, recent)
+
+            extra["plan_gate"] = plan_gate
+        if recovery is not None:
+            extra["recovery"] = {
+                "run_id": recovery.run_id,
+                "action": recovery.action,
+                "reason": recovery.reason,
+                "verify_action_id": recovery.verify_action_id,
+                "verify_observation_id": recovery.verify_observation_id,
+            }
+
         try:
             code, summary = self.run_task(node.title or goal_id, should_stop=should_stop,
-                                          on_status=on_status, confirm=confirm)
+                                          on_status=on_status, confirm=confirm, record_step=record_step,
+                                          **extra)
         except Exception as e:  # a crashing task must not wedge the supervisor
             self.log.exception("goal %s crashed", goal_id)
             code, summary = 1, f"error: {e}"
 
         code = int(code)
+        self.recorder.finish_run(run_id, code, summary)
         self.journal.append("result", {"goal_id": goal_id, "code": code, "summary": str(summary)})
         if code == 0:
             self.journal.append("goal", {"op": "complete", "id": goal_id})
@@ -185,10 +290,21 @@ def terminal_confirm(prompt: str, high_risk: bool) -> bool:
     return answer in ("y", "yes")
 
 
-def agent_run_task(task: str, *, should_stop, on_status, confirm) -> tuple[int, str]:
+def agent_run_task(
+    task: str, *, should_stop, on_status, confirm, record_step=None, plan_gate=None, recovery=None
+) -> tuple[int, str]:
     """Production task runner: drive the real agent loop for one goal, keeping the
     high-risk confirmation gate wired to `confirm`. Imports the agent lazily so
-    citadel's other paths don't depend on it."""
+    citadel's other paths don't depend on it.
+
+    When `record_step` is given (the Supervisor's run recorder), each hash-chained
+    ExecutionTrace entry the loop produces -- frame hash (the observation), the
+    action, and the result -- is mirrored into the run's signed state, so the run
+    materializes and converges over the mesh.
+
+    `plan_gate` (the node's capability check, see loop_gate) runs before every
+    action the loop executes; `recovery` (an interrupted previous run) puts a
+    check-before-redoing note in front of the task."""
     import argparse
 
     from secdogie_agent import cli_common
@@ -205,6 +321,10 @@ def agent_run_task(task: str, *, should_stop, on_status, confirm) -> tuple[int, 
     if provider is None:
         return 1, "no API key resolved for the citadel node (set one in its env/config)"
 
+    if recovery:
+        from .recovery import recovery_preamble
+
+        task = recovery_preamble(recovery) + task
     cfg_kwargs = cli_common.loop_config_kwargs(args, task=task, backend=None)
     cfg_kwargs["should_stop"] = should_stop
     cfg_kwargs["on_event"] = lambda ev, payload: on_status(f"{ev}: {payload}")
@@ -212,5 +332,11 @@ def agent_run_task(task: str, *, should_stop, on_status, confirm) -> tuple[int, 
     cfg_kwargs["ask_operator"] = lambda question: confirm(question, True)
     cfg_kwargs["approve_plan"] = lambda plan, task="": confirm(f"approve plan: {(plan or '')[:200]}", False)
     cfg_kwargs["confirm_high_risk"] = True  # never weaken the high-risk gate
+    if record_step is not None:
+        cfg_kwargs["trace_on_entry"] = lambda entry: record_step(
+            observation=entry.frame_sha256, action=entry.action, result=entry.result,
+        )
+    if plan_gate is not None:
+        cfg_kwargs["plan_gate"] = plan_gate
     code = run(provider, AgentConfig(**cfg_kwargs))
     return code, f"agent exited {code}"

@@ -1,243 +1,129 @@
-# secdogie
+# secdogie · 云端生命体
 
-Small, from-scratch pieces that combine into one idea: **let a
-cloud vision-LLM control a computer you own, reached over a tunnel you
-control.**
+一个**去中心、经 DID 认证、受监督**的自主体（「云端生命体」），运行在**你自有 /
+已授权**的节点上：没有中心服务器，靠 P2P 存续；从**公开或已授权**的资源学习；用
+**两层苏格拉底门**审视每一步意图；最终**只在经认证的本地设备、在能力授权 + 人在环
+（HITL）下**采取现实动作。
+
+**感知是结构化的——不截屏、不抓屏。** 它通过无障碍树（AX/UIA）+ 只读结构化 DIB
+引用 + 已授权网页会话的 AX/文本来「看」，而**不做屏幕截图 / 屏幕像素抓取**。项目
+的感知是结构，不是视觉。
+
+> 完整架构见 [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md)；总路线图见 [`ROADMAP.md`](ROADMAP.md)；
+> 深度源码审计与规范对齐见 [`docs/AUDIT-P2P-ALIGNMENT.zh.md`](docs/AUDIT-P2P-ALIGNMENT.zh.md)。
 
 ---
 
-- [`tunnel/`](tunnel/) — a minimal encrypted VPN tunnel, written from scratch
-  in C on libsodium primitives (X25519 + BLAKE2b + XChaCha20-Poly1305).
-  Point-to-point by default, with an optional **hub mode** that terminates
-  many client tunnels on one public node and routes between them. See
-  [`tunnel/PROTOCOL.md`](tunnel/PROTOCOL.md) for the handshake design and
-  [`tunnel/README.md`](tunnel/README.md) to build and run it. For production
-  reachability prefer a named [Cloudflare Tunnel](tunnel/cloudflare/) (TLS at
-  the edge; the custom tunnel stays for air-gapped labs).
-- [`agent/`](agent/) — a vision-LLM computer-control agent: point it at a
-  task in plain language, it screenshots your screen, asks a vision model
-  what to do next, and executes one action at a time (click, type, scroll,
-  ...) until the task is done. On Windows, `--desktop-ax` makes UI Automation
-  the primary targeting path and a pixel-diff verifies every mutating click
-  (the Atlas dual-tier loop — see [`docs/ATLAS.md`](docs/ATLAS.md) /
-  [`docs/ATLAS.zh.md`](docs/ATLAS.zh.md)). See
-  [`agent/README.md`](agent/README.md).
-- [`open/`](open/) — a local web page on top of `agent/` that splits the
-  screen by open window and drives one `agent` instance per selected window
-  at once, instead of one agent owning the whole screen. See
-  [`open/README.md`](open/README.md).
-- [`fleet/`](fleet/) — the next step up from `open/`: one agent per **isolated
-  desktop** (a VM or its own user session), coordinated from the host. Because
-  nothing is shared, several big tasks genuinely act *at the same time* instead
-  of taking turns on one mouse. See [`fleet/README.md`](fleet/README.md).
-- [`android/`](android/) — points the same `agent/` loop at an Android phone
-  instead of the desktop: screenshots come from `adb screencap`, taps/typing
-  go out through `adb shell input`, so nothing is installed on the phone. See
-  [`android/README.md`](android/README.md).
-- [`ios/`](ios/) — points the same `agent/` loop at an iPhone/iPad through
-  [WebDriverAgent](https://github.com/appium/WebDriverAgent) (built once with
-  Xcode): screenshots and taps/typing go over WDA's HTTP API. See
-  [`ios/README.md`](ios/README.md).
-- [`scene3d/`](scene3d/) — multi-model 3D scene analysis: several workers each
-  analyze a different **view** of one 3D scene (concurrently, spread over a
-  pool of API keys), then an aggregator fuses their observations into a single
-  consolidated 3D understanding. See [`scene3d/README.md`](scene3d/README.md).
+## 四大支柱
 
-## Tutorial
+1. **分散式网络** —— DID（Ed25519 `did:key`）身份 + 会话/端点抽象 + 真 P2P UDP 传输，
+   经受认证的 rendezvous 发现彼此、直连升级 / relay 兜底、成员 gossip 反熵。hub 只作
+   bootstrap/relay，挂了整体仍在。
+2. **P2P 分布式获取信息与学习** —— 签名、哈希链、append-only 事件日志 + 其上的
+   `StateStore`；日志/状态经**双重认证**在 mesh 上反熵收敛：一个节点写入的、经签名的
+   「学到的证据」扩散到其余授权节点。
+3. **苏格拉底哲学系统** —— 两层门：**指令级**（意图审视）+ **动作计划级**
+   （`GateDecision`：allow / reject / rewrite / request_reobserve）。门**只判定不执行**。
+4. **受认证本地设备实战** —— 结构化观测融合（AX + DIB 按引用）、不透明目标 + 代际
+   修 TOCTOU；动作仍过安全边界 + 能力授权 + 人在环。
 
-New here? **[`TUTORIAL.md`](TUTORIAL.md) is a full, follow-along walkthrough** —
-from a fresh clone to a model driving your desktop, a phone, several windows,
-and a machine across the network, with the exact commands and the output you
-should see at each step, plus a troubleshooting table.
+---
 
-The 60-second version (control your own desktop; **bash** shown — Windows
-users: prefer the `.exe` section at the top of this README):
+## 感知是结构化的（为什么不截屏）
 
-```sh
-# 1. install
-cd agent && python3 -m venv .venv && source .venv/bin/activate && pip install -e .
+截屏 / 屏幕像素抓取不是本项目的感知方式。取而代之，`agent/observation.py`
+只融合两种**结构化**的「感官」，并且**从不静默用一种覆盖另一种**——分歧被记成
+`ObservationConflict`、拉低融合置信度、上交给动作门要求重观测：
 
-# 2. add your API key (any provider)
-secdogie-agent --init-config        # then edit the config file it prints
+| 感官 | 是什么 | 角色 |
+| --- | --- | --- |
+| `ax` | 无障碍树（macOS AX / Windows UIA）：role / name / automation_id | **主**：目标与门推理所依赖的语义身份 |
+| `dib` | native `atlas` 从进程内存**只读重建**的位图，**按引用**携带（身份/哈希，绝不带像素） | **验证**：证明「AX 说的位置」确实画了对的形状。这是结构化内存读，**不是**屏幕截图 |
 
-# 3. see what it WOULD do — touches nothing
-secdogie-agent "open a text editor and type 'hello world'" --dry-run
+没有 `pixel` / 屏幕捕获这一路：融合层里根本不存在截屏的感官。大视觉数据永远
+**按内容哈希引用**，不进 Python 堆、不进事件日志。
 
-# 4. do it for real — approves each action with a y/N prompt
-secdogie-agent "open a text editor and type 'hello world'"
-```
+---
 
-Then follow [`TUTORIAL.md`](TUTORIAL.md) for phones (`android`/`ios`), several
-windows at once (`open`), and reaching a remote machine (`tunnel`).
-
-## Downloads
-
-Pre-built binaries — a single-file executable for `agent`, `android`, `ios`,
-`open`, and `scene3d` on Linux, Windows, and macOS each, plus the
-`secdogie-tunnel` binary for Linux — are published on the
-[Releases](../../releases) page. Each is offered two ways: the **bare
-executable** as a direct, one-file download (on Windows, download
-`secdogie-agent-windows-….exe` and just run it — it's fully self-contained),
-and a **`.zip`** that adds the docs and a double-click launcher. They're built
-and attached automatically when a `v*` tag is pushed — see
-[`docs/RELEASING.md`](docs/RELEASING.md).
-
-**Windows from source (one command from repo root):**
-
-```powershell
-.\build-agent.ps1
-# → agent\packaging\dist\secdogie-agent.exe
-```
-
-## Installing the game stack (one command)
-
-The game packages (`agent`, `aim`, `carjack`, `gta`, `commander`, `handoff`)
-live in this repo and depend on each other but aren't on PyPI, so
-`pip install secdogie-carjack` alone fails — it can't find `secdogie-aim`. Set
-them all up in one venv, in the right order, with:
-
-```sh
-./install.sh            # Linux/macOS   (--yolo adds the YOLO detector, --all adds the non-game packages)
-```
-```powershell
-.\install.ps1           # Windows       (-Yolo / -All)
-```
-
-Then, for single-player games only:
-
-```sh
-secdogie-carjack --weights yolov8n.pt --label car --enter-key f   # walk to a car and get in
-```
-
-Some setup is irreducible and stays manual: a GPU for real-time YOLO, the game
-itself, and (for GTA V's plugin path) ScriptHookV.
-
-## How they fit together
-
-`agent/` only needs *some* screen and input device to drive — normally the
-machine it's running on. If you want a cloud-hosted model to control a
-*different* machine (e.g. your home desktop, reached from elsewhere), route
-the agent's traffic to that machine through `secdogie-tunnel`: bring up the
-tunnel between the two machines, then run the agent so its screenshots/
-input calls target the remote box (e.g. over the tunnel's virtual network,
-via VNC/RDP/X11-forwarding carried inside the tunnel, or by running the
-agent directly on the remote machine and only using the tunnel to reach it
-for setup/monitoring). The tunnel and the agent are independent, composable
-pieces on purpose — neither hard-depends on the other.
-
-## Architecture
-
-The heart is `agent/`'s two-tier loop: a slow cloud vision-model (~1 Hz)
-decides *what* to do, a fast local reflex layer (frame-rate NCC template
-matching) handles *where* precisely. Every action goes through one closed
-schema and is verified by a pixel diff before the loop moves on. The other
-components either reuse that loop against a different backend
-(`android`/`ios`), fan it out (`open`), carry it to another machine
-(`tunnel`), or bolt a fast controller onto it for games (the game stack).
-
-```mermaid
-flowchart TB
-    subgraph core["agent/ — two-tier control loop"]
-        cap["screen: capture screenshot"] --> prov["provider: vision-LLM<br/>(~1 Hz) picks next action"]
-        prov --> plan["plan / skill / trace<br/>planning · macros · audit chain"]
-        plan --> act["actions: closed VALID_ACTIONS schema<br/>(the sandbox boundary)"]
-        act --> backend{{backend}}
-        backend --> verify["verify: screen.changed_ratio<br/>no visible change → retry"]
-        verify --> cap
-        act -. fast local .-> reflex["reflex: NCC template match<br/>track_click · refine_point"]
-        reflex --> cap
-    end
-
-    backend --> desktop["desktop<br/>pyautogui"]
-    backend --> android["android/<br/>adb"]
-    backend --> ios["ios/<br/>WebDriverAgent"]
-
-    open["open/ — multi-window web GUI"] -->|drives N instances| core
-    scene3d["scene3d/ — multi-model<br/>3D scene aggregator"] -. perception .-> prov
-    core -. optional, to a remote box .-> tunnel["tunnel/<br/>libsodium VPN"] --> remote[(remote machine)]
-
-    subgraph fleetgrp["fleet/ — one desktop per task"]
-        coord["coordinator (host)<br/>queue · dispatch · requeue"]
-        coord -->|assign / status<br/>JSON over TCP| nodeA["node → its own VM/session<br/>own mouse · own focus"]
-        coord --> nodeB["node → another VM/session"]
-    end
-    nodeA -->|runs a full| core
-    nodeB -->|runs a full| core
-
-    subgraph game["game stack — single-player only"]
-        commander["commander/<br/>tactician state machine"] -->|baton| handoff["handoff/<br/>input-ownership baton"]
-        handoff --> nodeA["Node A: agent macros<br/>2D logistics"]
-        handoff --> nodeB["aim/ — Node B<br/>relative mouse-look + P-aim"]
-        gta["gta/ — steering control law<br/>→ ScriptHookV bridge"]
-    end
-    commander -. sequences .-> core
-```
-
-Solid arrows are the per-frame data path; dotted arrows are optional or
-out-of-band seams. The game stack, `gta/`, and the on-machine halves of
-`aim/` need a real GPU/game and are documented as on-machine interfaces —
-the headless-testable cores (control laws, protocols, the loop itself) are
-what the test suite proves.
-
-## Before you run any of this
-
-These pieces execute real, consequential actions: the tunnel moves real
-network traffic, `agent` moves a real mouse and types on a real keyboard,
-`open` does that across several windows at once, and `android`/`ios` tap and
-type on a real phone.
-
-- **Only point the agent(s) at a computer you own or are explicitly
-  authorized to control.** They are meant to automate your own machine, the
-  same way you would use TeamViewer/VNC on yourself — not to be installed on
-  someone else's computer without their knowledge or consent.
-- Start with `agent`'s `--dry-run` flag (in `open`, leave **Enable real
-  actions** off) and keep per-step confirmation on until you trust a given
-  task; `open` runs unattended across every selected window once real
-  actions are on, since a per-step prompt doesn't make sense across several
-  windows sharing one browser tab.
-- None of these components has been independently security-audited. Read the
-  "Known limitations" sections in each subproject's docs before relying on
-  them for anything sensitive.
-
-See [`SECURITY.md`](SECURITY.md) for the full trust model (what secdogie
-assumes about the operator and the machines it drives) and how to report a
-vulnerability privately.
-
-## Layout
+## 一条端到端的认证链路
 
 ```
-tunnel/        C, libsodium-based VPN tunnel (PROTOCOL.md has the design + limitations)
-tunnel/cloudflare/  named Cloudflare Tunnel config (production reachability)
-native/atlas/  C++ dual-tier loop: UIA targeting, read-only handles, pixel-diff
-agent/         Python vision-LLM computer-control agent (provider-agnostic action schema)
-open/          Python, local web page: split the screen by window, drive several agent instances at once
-fleet/         Python: one agent per isolated desktop (VM/session), coordinated from the host -- true parallelism
-android/       Python: drive an Android phone over adb, reusing the agent loop + action schema
-ios/           Python: drive an iPhone/iPad over WebDriverAgent, reusing the agent loop + action schema
-scene3d/       Python: multi-model 3D scene analysis (per-view workers + an aggregator)
-handoff/       Python: cross-process input-ownership baton (one node drives the mouse/keyboard at a time)
-aim/           Python: real-time combat controller -- relative mouse-look + P-control aim onto a detected target
-commander/     Python: tactician state machine -- decides fight phases and sequences the logistics/combat nodes
-gta/           Python: drive GTA V single-player via a ScriptHookV plugin -- JSON bridge protocol + a steering control law
+DID 身份  →  认证会话  →  签名状态  →  苏格拉底门  →  (能力 + HITL) 现实动作
+identity/    transport/    citadel/     citadel/       agent/ + 安全边界
 ```
 
-Each subdirectory has its own README with build/install/run instructions
-and its own test suite.
+**没有认证身份就没有会话；没有会话就没有复制；没有过门的计划就没有执行；没有能力
+授权 + 人在环就没有现实动作。** 每一步都可验证、全部 headless / loopback 可测。
+完整时序图见 [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md)。
 
-## Development
+---
 
-Every push and pull request runs [`.github/workflows/test.yml`](.github/workflows/test.yml):
-each Python component's `pytest` suite (headless), the C tunnel's `ctest`, and a
-single `ruff` lint pass over all the Python code. To run the same checks locally:
+## 现状（诚实盘点）
+
+以真实代码为准，已建成并推送：
+
+| 层 | 包 / 模块 | 状态 |
+| --- | --- | --- |
+| 身份 | `identity/`（DID、规范化签名、Allowlist）+ `binding.py`（DID↔传输密钥） | ✅ |
+| 网络 | `transport/`（peer/session/endpoint、`udp.py` 真 P2P、`rendezvous.py`、`upgrade.py`、`membership.py`） | ✅ |
+| 状态 | `citadel/`（`journal.py` 签名日志、`state.py` StateStore、`sync.py` 反熵、`replication.py` 传输上收敛） | ✅ |
+| 心智 | `citadel/socratic.py`（指令门）+ `action_gate.py`（计划门）+ `supervisor.py`（受监督节点） | ✅ |
+| 感知/动作 | `agent/observation.py`（AX + DIB 按引用融合）+ `target.py`（TOCTOU）+ AX/safety；`native/atlas`（只读、DIB 重建） | ✅ |
+| 设备/会话 | `desktop/`（聊天式原生窗口 + `websession.py` 复用**已授权**浏览器会话，只读导航 + 读结构） | ✅ |
+| 承载/运维 | `tunnel/`（C 加密隧道，机密性）、`fleet/`、`console/` | ✅ |
+
+**待做**：Agent↔Citadel run 闭环（goal/run/step/observation/action/state_hash 串联、写回
+StateStore）、崩溃恢复升级、能力签名授权模型、AX 原生身份/代际的 OS 侧接线。见 [`ROADMAP.md`](ROADMAP.md)。
+
+---
+
+## 安全边界（严禁清单 — 逐字保留）
+
+**严禁**引入：进程内存写、远程线程注入、内核 HID、EDR/反检测、隐蔽持久化、提权、
+绕过用户授权或 macOS Accessibility / Screen Recording 权限、把 HITL 改成默认自动批准、
+隐蔽嵌入第三方服务、流量混淆、打洞式反检测。
+
+**保持**：memory = 只读、execution = 受监督、high-risk = fail-closed、
+physical action = 显式 capability。能力模型**永不**包含 `process.memory.write` /
+内核 HID / 反检测 / 提权。
+
+`websession.py` 只**复用你自己在别处正规登录后保存的已授权会话**去只读导航 + 读页面
+结构——**不输入凭据、不创建/窃取会话、不绕过认证/验证码/反爬**；站点若拒绝自动化，
+尊重之。每个切片提交前都会 grep 回归确认无上述原语。完整信任模型见 [`SECURITY.md`](SECURITY.md)。
+
+---
+
+## 快速开始（headless 可测）
+
+每个包纯逻辑 / loopback 可测，无需桌面、无需屏幕：
 
 ```sh
 pip install ruff
-ruff check .            # lint config lives in ruff.toml at the repo root
-# then each component's own tests, e.g.:
-cd agent && pip install -e . pytest && pytest tests/ -q
+ruff check .                                   # 根 lint（ruff.toml）
+
+python -m pytest identity/tests  -q            # DID、签名、绑定
+python -m pytest transport/tests -q            # 会话、UDP、rendezvous、升级、成员
+python -m pytest citadel/tests   -q            # 日志、状态、反熵、复制、门、监督
+cd agent && python -m pytest tests/test_observation.py tests/test_target.py -q   # 结构化感知、目标
 ```
 
-The `agent/` package owns the shared pieces — the loop, providers, config, and
-the CLI front door (`secdogie_agent/cli_common.py`) that `android`, `ios`, and
-the desktop `agent` all reuse for their `--model`/`--api-key`/loop flags — so a
-change there is picked up by every tool.
+CI（[`.github/workflows/test.yml`](.github/workflows/test.yml)）对每个包跑 headless
+`pytest`、C 隧道跑 `ctest`、并对全部 Python 跑一遍 `ruff`。
+
+---
+
+## 关于旧的截屏工具（已移除）
+
+本仓库更早的、基于视觉 LLM + 屏幕截图的独立工具（`android/`、`ios/`、`scene3d/`、多窗口
+`open/`、以及游戏栈 `aim/`/`commander/`/`handoff/`/`gta/`）**已从主线删除**——项目的感知是
+结构化的，不需要屏幕截图。它们仍留在 git 历史中可供查阅。`agent/` 作为共享引擎保留（云端
+生命体的结构化感知栈就住在里面）。
+
+---
+
+## 深入阅读
+
+- [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md) —— 四大支柱、端到端认证链路、组件表、安全边界、路线图。
+- [`ROADMAP.md`](ROADMAP.md) —— 总实现目标与里程碑。
+- [`docs/AUDIT-P2P-ALIGNMENT.zh.md`](docs/AUDIT-P2P-ALIGNMENT.zh.md) —— 深度源码审计与冲突记录。
+- [`SECURITY.md`](SECURITY.md) —— 信任模型与漏洞上报。

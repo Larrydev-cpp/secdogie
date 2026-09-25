@@ -413,3 +413,43 @@ def test_gui_first_step_shows_working(monkeypatch):
     assert loop_mod.run(Prov(), cfg) == 0
     assert seen["plan"] == 1
     assert seen["working"] >= 1
+
+
+# --- injected plan gate (M3 wiring) ------------------------------------------
+
+
+def test_plan_gate_refusal_skips_the_action(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "type", "text": "hi"},
+        {"action": "done", "text": "ok"},
+    ])
+    seen = []
+
+    def gate(view, recent):
+        seen.append((view["kind"], [r["kind"] for r in recent]))
+        return (view["kind"] != "type", "typing not granted")
+
+    config = loop.AgentConfig(task="t", auto=True, max_steps=10, plan_gate=gate)
+    assert loop.run(provider, config) == 0
+    assert executed == ["left_click"]            # the refused type never ran
+    assert [k for k, _ in seen] == ["left_click", "type"]
+    assert "left_click" in seen[1][1]            # the gate saw the recent action
+
+
+def test_plan_gate_error_fails_closed(monkeypatch):
+    executed = []
+    _patch_screen_and_actions(monkeypatch, executed)
+    provider = ScriptedProvider([
+        {"action": "left_click", "x": 1, "y": 1},
+        {"action": "done", "text": "ok"},
+    ])
+
+    def broken(view, recent):
+        raise RuntimeError("boom")
+
+    config = loop.AgentConfig(task="t", auto=True, max_steps=10, plan_gate=broken)
+    assert loop.run(provider, config) == 0
+    assert executed == []                        # a broken gate refuses, never allows

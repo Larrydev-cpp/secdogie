@@ -1,16 +1,18 @@
-"""Observation Fusion (Phase 2.4): one honest view of a window from many senses.
+"""Observation Fusion (Phase 2.4): one honest view of a window from structural
+senses -- no screen capture.
 
-The agent perceives a window three ways, each with different trust and cost:
+The agent perceives a window two structural ways, each with different trust and
+cost. It deliberately does NOT screenshot / screen-scrape: there is no pixel
+capture sense, because this project's perception is structural, not visual.
 
   * ``ax``     -- the accessibility tree (macOS AX / Windows UIA). PRIMARY: it
                   carries semantic identity (role, name, automation id), which is
                   what targeting and the Socratic gate reason about.
   * ``dib``    -- a device-independent bitmap reconstructed *read-only* from
-                  process memory by the native ``atlas`` module. VERIFICATION:
-                  proves something was actually drawn where AX says it is.
-  * ``pixel``  -- a screen/window capture (mss / CGWindowListCreateImage).
-                  FALLBACK: used only when AX is empty or the control is
-                  owner-drawn.
+                  process memory by the native ``atlas`` module, carried BY
+                  REFERENCE (its identity/hash, never its pixels). VERIFICATION:
+                  proves something of the right shape was actually drawn where AX
+                  says it is. This is a structural memory-read, not a screenshot.
 
 This module fuses those into a single ``Observation`` and -- this is the point --
 it *never silently overwrites* one sense with another. When AX and the DIB
@@ -47,13 +49,12 @@ from dataclasses import dataclass, field
 
 SOURCE_AX = "ax"
 SOURCE_DIB = "dib"
-SOURCE_PIXEL = "pixel"
 SOURCE_FUSED = "fused"
-_SOURCES = frozenset({SOURCE_AX, SOURCE_DIB, SOURCE_PIXEL, SOURCE_FUSED})
+_SOURCES = frozenset({SOURCE_AX, SOURCE_DIB, SOURCE_FUSED})
 
 # Trust order used only to break ties when picking a fused geometry / identity;
 # it is NOT a licence to overwrite -- a disagreement is still a conflict.
-_SOURCE_RANK = {SOURCE_AX: 3, SOURCE_DIB: 2, SOURCE_PIXEL: 1, SOURCE_FUSED: 0}
+_SOURCE_RANK = {SOURCE_AX: 3, SOURCE_DIB: 2, SOURCE_FUSED: 0}
 
 CONFLICT_WINDOW_IDENTITY = "window-identity-mismatch"
 CONFLICT_GENERATION = "generation-skew"
@@ -318,33 +319,6 @@ def observe_dib(
     )
 
 
-def observe_pixel(
-    *,
-    window_id: int,
-    app_pid: int,
-    geometry: Geometry,
-    content_hash: str = "",
-    generation: int = 0,
-    confidence: float = 0.4,
-    timestamp: float | None = None,
-    clock=time.time,
-) -> Observation:
-    """Build a pixel/window-capture observation. Lowest default confidence: it
-    is the owner-drawn fallback when AX is empty."""
-    ts = _now(clock) if timestamp is None else timestamp
-    ch = content_hash or _content_hash_for(SOURCE_PIXEL, (window_id, app_pid), generation, geometry, (), None)
-    return Observation(
-        source=SOURCE_PIXEL,
-        window_id=window_id,
-        app_pid=app_pid,
-        generation=generation,
-        timestamp=ts,
-        confidence=confidence,
-        geometry=geometry,
-        content_hash=ch,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Conflicts and fusion result
 # ---------------------------------------------------------------------------
@@ -398,7 +372,6 @@ class Budget:
     max_ax_ipc_calls: int = 2000
     max_observation_latency_ms: float = 1500.0
     max_dib_bytes: int = 8 * 1024 * 1024
-    max_pixel_fallback_bytes: int = 8 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -422,7 +395,6 @@ def check_budget(
     ax_ipc_calls: int = 0,
     latency_ms: float = 0.0,
     dib_bytes: int = 0,
-    pixel_bytes: int = 0,
 ) -> tuple[BudgetViolation, ...]:
     """Return every exceeded hard limit (empty tuple == within budget)."""
     checks = (
@@ -430,7 +402,6 @@ def check_budget(
         ("ax_ipc_budget", ax_ipc_calls, budget.max_ax_ipc_calls),
         ("observation_latency_budget", latency_ms, budget.max_observation_latency_ms),
         ("dib_processing_budget", dib_bytes, budget.max_dib_bytes),
-        ("pixel_fallback_budget", pixel_bytes, budget.max_pixel_fallback_bytes),
     )
     return tuple(
         BudgetViolation(kind=kind, limit=float(limit), actual=float(actual))
@@ -597,7 +568,6 @@ def fuse(observations: Iterable[Observation], *, config: FusionConfig | None = N
 __all__ = [
     "SOURCE_AX",
     "SOURCE_DIB",
-    "SOURCE_PIXEL",
     "SOURCE_FUSED",
     "CONFLICT_WINDOW_IDENTITY",
     "CONFLICT_GENERATION",
@@ -609,7 +579,6 @@ __all__ = [
     "Observation",
     "observe_ax",
     "observe_dib",
-    "observe_pixel",
     "ObservationConflict",
     "FusionResult",
     "FusionConfig",

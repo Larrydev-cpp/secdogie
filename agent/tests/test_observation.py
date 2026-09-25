@@ -29,7 +29,6 @@ from secdogie_agent.observation import (
     fuse,
     observe_ax,
     observe_dib,
-    observe_pixel,
 )
 
 # --- Geometry ---------------------------------------------------------------
@@ -160,15 +159,20 @@ def test_fuse_single_observation_passes_through():
 
 def test_geometry_mismatch_is_a_conflict_and_lowers_confidence():
     ax = observe_ax(window_id=7, app_pid=1, geometry=Geometry(0, 0, 100, 40), generation=1, timestamp=1.0)
-    pix = observe_pixel(
-        window_id=7, app_pid=1, geometry=Geometry(500, 500, 100, 40), generation=1, timestamp=1.0
+    dib = observe_dib(
+        window_id=7,
+        app_pid=1,
+        visual_reference=VisualReference(width=100, height=40, bit_count=24),
+        geometry=Geometry(500, 500, 100, 40),
+        generation=1,
+        timestamp=1.0,
     )
-    res = fuse([ax, pix])
+    res = fuse([ax, dib])
     kinds = {c.kind for c in res.conflicts}
     assert CONFLICT_GEOMETRY in kinds
     assert res.fused.confidence < 0.9  # penalized for the disagreement
     # both readings are still present in the record
-    assert ax in res.contributors and pix in res.contributors
+    assert ax in res.contributors and dib in res.contributors
 
 
 def test_stale_generation_is_excluded_not_fused():
@@ -199,8 +203,13 @@ def test_stale_generation_is_excluded_not_fused():
 
 def test_foreign_window_is_set_aside():
     a = observe_ax(window_id=1, app_pid=1, geometry=Geometry(0, 0, 10, 10), timestamp=1.0, confidence=0.9)
-    other = observe_pixel(
-        window_id=2, app_pid=2, geometry=Geometry(0, 0, 10, 10), timestamp=1.0, confidence=0.4
+    other = observe_dib(
+        window_id=2,
+        app_pid=2,
+        visual_reference=VisualReference(width=10, height=10, bit_count=24),
+        geometry=Geometry(0, 0, 10, 10),
+        timestamp=1.0,
+        confidence=0.4,
     )
     res = fuse([a, other])
     assert CONFLICT_WINDOW_IDENTITY in {c.kind for c in res.conflicts}

@@ -79,15 +79,19 @@
 
 > 现实动作只发生在**经认证**的本地设备上,且每一步都能被追溯与叫停。
 
-- **观测融合**(Phase 2.4,已建成):`agent/secdogie_agent/observation.py` 把三种感知融合成
-  一个 `Observation`——**AX 无障碍树**(身份,主)、**DIB**(读内存重建的位图,验证)、
-  **像素**(自绘兜底)。分歧**绝不静默覆盖**:窗口身份/代际陈旧/几何错配/时间偏移都会记为
-  `ObservationConflict` 并压低融合置信度。**DIB 按引用而非拷贝**接入:`VisualReference.from_dib_json`
-  解析 `native/atlas` 输出的 `dibs[]`,瞬时哈希预览像素定内容身份后丢弃像素,像素留在 native 侧。
+- **观测融合**(Phase 2.4,已建成):`agent/secdogie_agent/observation.py` 把两种**结构化**感知
+  融合成一个 `Observation`——**AX 无障碍树**(身份,主)、**DIB**(读内存重建的位图,按引用,验证)。
+  **不截屏、不抓屏**:融合层没有像素捕获这一路,感知是结构而非视觉。分歧**绝不静默覆盖**:
+  窗口身份/代际陈旧/几何错配/时间偏移都会记为 `ObservationConflict` 并压低融合置信度。
+  **DIB 按引用而非拷贝**接入:`VisualReference.from_dib_json` 解析 `native/atlas` 输出的 `dibs[]`,
+  瞬时哈希预览字节定内容身份后即丢弃,像素留在 native 侧,绝不进 Python 堆或事件日志。
 - **只读的深度感知**:`native/atlas/`(C++)以**只读句柄**遍历进程内存重建 DIB/字符串;
   `WriteProcessMemory`、`CreateRemoteThread`、TrustedInstaller 夺权、反 EDR **一律记为拒绝**。
-- **能力授权**(Phase 2.9,规划中):`Capability(issuer_did, subject_did, scope, expires, sig)`,
-  **读 ≠ 写、观测 ≠ 执行**;`process.memory.write` / 内核 HID / 反检测 / 提权**永不进入**能力集。
+- **能力授权**(Phase 2.9,已建成):`identity/secdogie_identity/capability.py`——受信 issuer(操作员 DID)
+  给 subject(节点 DID)签发**带过期时间**的签名授权(默认 1 天)。**白名单制**:只有 `GRANTABLE_SCOPES`
+  里的 scope 能被签发、验证、匹配,其余一律拒绝(含提权启动 `process.run_elevated`);**读 ≠ 写、观测 ≠ 执行**,
+  精确匹配、无通配。验证必须给出受信 issuer 列表(无「接受任意签名者」模式)。计划门 `action_gate`
+  在 `enforce_capabilities` 开启时据此逐动作校验:未授权 / 无 scope 映射的变更类动作一律拒绝。
 - **人在环 + fail-closed**:高风险动作(保存/删除/关闭/打开/提权执行)默认需人类确认,
   失败即停,不猜、不重复提交(Phase 2.8 崩溃恢复:先**重新观测**确认动作是否已发生再决定重试)。
 - **控制面**:`desktop/`(原生窗口 GUI)与 `console/`(本地 127.0.0.1、operator-DID 门控)
@@ -122,7 +126,7 @@ flowchart TB
         gate["指令门 + 计划门(action_gate)"]
     end
     subgraph ACT["⑤ 受认证设备实战 (agent/ · native/atlas · desktop/ · console/)"]
-        obs["观测融合: AX + DIB(引用) + 像素 → Observation"]
+        obs["观测融合: AX + DIB(按引用) → Observation (不截屏)"]
         cap["能力授权 (读≠写, 观测≠执行)"]
         hitl["HITL + fail-closed"]
         obs --> gate
@@ -146,11 +150,15 @@ flowchart TB
 | `transport/udp.py` | `DirectUDPTransport` 真 P2P(2.10 提前) | ② | ✅ 已建成 |
 | `transport/rendezvous.py` | Rendezvous + 反射端点发现(STUN/AutoNAT,DID 签名) | ①② | ✅ 已建成 |
 | `transport/upgrade.py` | 直连升级 + relay 兜底(DCUtR/Tailscale 式,探测→迁移) | ①② | ✅ 已建成 |
+| `transport/membership.py` | 成员/端点 gossip 反熵(自签名记录、LWW、去中心收敛) | ①② | ✅ 已建成 |
+| `transport/dht.py` | Kademlia 路由表 + 迭代查找(P2P.4):DID=node id、XOR k-bucket、可扩展定向发现 | ①② | ✅ 已建成 |
 | `citadel/journal.py` | 签名哈希链事件日志 | ② | ✅ 已建成 |
 | `citadel/state.py` | `StateDelta` / `StateStore`(2.3) | ② | ✅ 已建成 |
-| `citadel/sync.py` | 反熵复制 | ② | ✅ 已建成 |
+| `citadel/sync.py` | 反熵复制(have/want builder,传输无关) | ② | ✅ 已建成 |
+| `citadel/replication.py` | 把签名日志/状态收敛承载到 DID 认证传输(Replication.1,双重认证) | ② | ✅ 已建成 |
 | `citadel/socratic.py` | 指令级苏格拉底门 | ③ | ✅ 已建成 |
-| `citadel/supervisor.py` | 受监督持久节点、从日志恢复 | ④ | ✅ 已建成(2.8 增强规划中) |
+| `citadel/supervisor.py` | 受监督持久节点、从日志恢复(含 `recover_runs()` 2.8) | ④ | ✅ 已建成 |
+| `citadel/recovery.py` | 崩溃恢复决策(2.8):发现半途 run，executing 崩溃**先重观测再重试** | ③④ | ✅ 已建成 |
 | `agent/observation.py` | 观测融合、DIB 按引用桥接(2.4) | ④ | ✅ 已建成 |
 | `agent/` (AX/safety/…) | 感知 + 安全边界 + 动作 schema | ④ | ✅ 已建成 |
 | `native/atlas/` (C++) | 只读进程感知、DIB 重建 | ④ | ✅ 已建成 |
@@ -159,8 +167,8 @@ flowchart TB
 | `desktop/` · `console/` | 原生 GUI / 本地控制台(DID 门控) | ④ | ✅ 已建成 |
 | `citadel/action_gate.py` | 动作计划级苏格拉底门 `GateDecision`(2.6) | ③ | ✅ 已建成 |
 | `agent/target.py` | AX 不透明目标 + 代际,修 TOCTOU(2.5) | ④ | ✅ 已建成 |
-| run 闭环 | Agent↔Citadel 运行状态串联(2.7) | ③④ | 🔜 规划中 |
-| `Capability` | 签名能力授权模型(2.9) | ④ | 🔜 规划中 |
+| `citadel/run.py` | Agent↔Citadel run 闭环(2.7):run/step 签名状态、链式 `state_hash`、随复制收敛 | ③④ | ✅ 已建成 |
+| `identity/capability.py` | 签名能力授权(2.9):白名单 scope、带过期、受信 issuer;计划门据此逐动作校验 | ④ | ✅ 已建成 |
 
 ---
 
@@ -187,13 +195,13 @@ physical action = 显式 capability。能力模型**永不**包含
 | 2.1 | DID ↔ 传输身份绑定 | ✅ |
 | 2.2 | Peer/Session/Endpoint 抽象 + HubTransport | ✅ |
 | 2.3 | StateDelta / StateStore(非伪 CRDT) | ✅ |
-| 2.4 | 观测融合(AX/DIB/像素,DIB 按引用) | ✅ |
+| 2.4 | 观测融合(AX + DIB 按引用,结构化、不截屏) | ✅ |
 | 2.5 | AX 不透明目标 / 代际(修 TOCTOU) | ✅ |
 | 2.6 | 动作计划级苏格拉底门 | ✅ |
-| 2.7 | Agent↔Citadel run 闭环 | 🔜 |
-| 2.8 | 崩溃恢复升级(先重观测再重试) | 🔜(基础已具备) |
-| 2.9 | 能力授权模型 | 🔜 |
-| 2.10 | P2P 直连传输 / rendezvous | ✅ 直连传输 + rendezvous + 直连升级/relay 兜底已实现;成员 gossip(P2P.3)推进中 |
+| 2.7 | Agent↔Citadel run 闭环 | ✅ |
+| 2.8 | 崩溃恢复升级(先重观测再重试) | ✅ |
+| 2.9 | 能力授权模型 | ✅ |
+| 2.10 | P2P 直连传输 / rendezvous | ✅ 直连传输 + rendezvous + 直连升级/relay 兜底 + 成员 gossip 反熵(P2P.1–P2P.3)已实现 |
 
 完整审计与冲突记录见 [`docs/AUDIT-P2P-ALIGNMENT.zh.md`](docs/AUDIT-P2P-ALIGNMENT.zh.md)。
 

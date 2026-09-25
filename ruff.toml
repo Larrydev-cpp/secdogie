@@ -1,6 +1,6 @@
-# Shared lint/format config for every secdogie Python component (agent,
-# android, ios, open, scene3d). One file at the repo root so all five packages
-# are checked with the same rules -- run `ruff check` / `ruff format` here.
+# Shared lint/format config for every secdogie Python component (identity,
+# transport, citadel, agent, desktop, fleet, console). One file at the repo root
+# so every package is checked with the same rules -- run `ruff check` / `ruff format` here.
 target-version = "py310"  # matches requires-python = ">=3.10" in every pyproject
 line-length = 110
 

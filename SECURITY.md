@@ -81,8 +81,8 @@ Report privately through a
 on this repository. To make a report easy to act on, include:
 
 - what you found and why it's security-relevant;
-- the affected component (`agent`, `android`, `ios`, `open`, `scene3d`,
-  `tunnel`) and the commit SHA;
+- the affected component (`identity`, `transport`, `citadel`, `agent`,
+  `desktop`, `fleet`, `console`, `tunnel`, `native/atlas`) and the commit SHA;
 - reproduction steps or a proof of concept against the current `main`;
 - the actual impact — which boundary above is crossed;
 - any fix or mitigation you can suggest.

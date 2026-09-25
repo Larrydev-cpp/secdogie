@@ -8,15 +8,18 @@ implements the same interface for true peer-to-peer.
 """
 from __future__ import annotations
 
+from .dht import RoutingTable, find_node, find_peer, node_id, xor_distance
 from .endpoint import Endpoint, EndpointSet
+from .membership import MembershipView, PeerRecord, gossip_round
 from .peer import PeerIdentity
 from .rendezvous import RendezvousClient, RendezvousServer
+from .sealed import ReplayWindow, load_transport_key
 from .session import Session
 from .transport import HubTransport, Transport
 from .udp import DirectUDPTransport, UDPChannel
 from .upgrade import DirectUpgrader, UpgradeState
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 __all__ = [
     "PeerIdentity",
@@ -27,8 +30,18 @@ __all__ = [
     "HubTransport",
     "DirectUDPTransport",
     "UDPChannel",
+    "ReplayWindow",
+    "load_transport_key",
     "RendezvousServer",
     "RendezvousClient",
     "DirectUpgrader",
     "UpgradeState",
+    "MembershipView",
+    "PeerRecord",
+    "gossip_round",
+    "RoutingTable",
+    "find_node",
+    "find_peer",
+    "node_id",
+    "xor_distance",
 ]

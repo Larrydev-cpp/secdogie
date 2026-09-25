@@ -1,69 +1,42 @@
-# secdogie commercial readiness roadmap (CAD-first)
+# secdogie · 云端生命体 路线图
 
-**Product goal**: make secdogie reliable enough for daily internal use on
-operator-owned machines for CAD viewing and light editing — not an
-"experimental" label.
+> 总实现目标与到达它的里程碑。完整架构、组件表与端到端认证链路见
+> [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md)。
 
-Constraints (non-negotiable):
-- Operator-owned / explicitly authorized machines only
-- Keep per-step confirmation by default
-- Prefer Preview / dry-run first
-- No independent security audit claimed
-- Primary focus: CAD viewing / editing (games demoted)
+## 北极星
 
-## P0 — Baseline safety & measurability (done)
+一个**去中心、经 DID 认证、受监督**的自主体,运行在**你自有 / 已授权**的节点上:无中心服务器
+而靠 P2P 存续,从**公开或已授权**的资源学习(**结构化感知,不截屏**),用**两层苏格拉底门**
+审视每一步意图,最终**只在经认证的本地设备、在能力授权 + 人在环下**采取现实动作。
 
-- [x] High-risk gate for `open` / `run_elevated` (still confirms under `--auto`)
-- [x] Hash-chained audit trace (`--trace`)
-- [x] Portable config next to the exe + first-run key dialog
-- [x] GUI task examples + plan briefing
-- [x] **require-focus** abort (exit 7) when pinned window cannot be confirmed
-- [x] Expand high-risk to common save / delete / close key combos (Ctrl+S, Delete, Alt+F4, Ctrl+W)
-- [x] Golden scenarios documented (`docs/SCENARIOS.md`)
+**不可协商的前提(严禁)**:进程内存写、远程线程注入、内核 HID、EDR/反检测、隐蔽持久化、
+提权、绕过用户授权 / macOS 权限、把 HITL 改成默认自动批准、流量混淆、打洞式反检测。
+**保持**:memory=只读、execution=受监督、high-risk=fail-closed、physical action=显式 capability。
 
-## P1 — CAD daily-driver reliability (done)
+## 五条并行 track
 
-- [x] `--read-only` mode (blocks type/key/drag/open; clicks & scroll allowed for viewing)
-- [x] Pre-edit confirmation prompt for any action that can modify a document
-- [x] Known-limitations section for CAD apps (`docs/CAD.md`)
-- [x] Compatibility matrix (AutoCAD / SolidWorks / FreeCAD / DraftSight / …) in `docs/CAD.md`
-- [x] Menu / example tasks reordered with CAD recommended first
-- [x] Auto-enable `--trace` when running under `--gui` for internal audit
+- **A 分散式网络** —— DID 身份 → 会话/端点 → 真 P2P UDP → rendezvous → 直连升级/relay 兜底 →
+  成员 gossip →(后)Kademlia 路由、bootstrap 加固、数据面机密性接上 tunnel/WireGuard。
+- **B 分布式状态与学习** —— 签名日志 + StateStore → 反熵复制在 mesh 上收敛 → 内容寻址的观测/
+  知识存储(大数据按 content_hash 引用)→(后)评估真正的 CRDT。
+- **C 心智(苏格拉底 + 监督)** —— 指令门 + 计划门 → **2.7 Agent↔Citadel run 闭环** →
+  2.8 崩溃恢复(executing 崩溃先重观测再重试)。
+- **D 受认证设备实战** —— 结构化观测融合(AX + DIB 按引用)+ 目标 TOCTOU → 2.9 能力签名授权
+  模型 → AX 原生身份/代际的 OS 侧接线(macOS/Windows 验证)→ DIB 完整接入运行时。
+- **E 控制与运维** —— desktop 原生 GUI / console / fleet 协调 / CI 矩阵 / 发布 / 文档,贯穿维护。
 
-## P2 — Scenario fixtures & runner (done)
+## 里程碑(每个给「完成判据」)
 
-- [x] `fixtures/` with expected outcomes for the 5 baseline scenarios (screenshots later)
-- [x] Scenario runner that can score a `--trace` JSONL against a golden set (dry-run offline)
-- [x] CI job that runs dry-run scenarios (no real mouse) and fails on regression
+- **M1 基础认证链 — ✅ 已达成**:2.1→2.6 + P2P.1。判据:身份→会话→状态→门→(受监督)动作
+  每一步可验证,全 headless 绿。
+- **M2 P2P mesh + 状态收敛 — ✅ 已达成**:P2P.2 直连升级 + P2P.3 成员 gossip + Replication.1。
+  判据:任意两个授权节点能直连或经 relay 通信,一个节点写入的签名状态收敛到其余节点(loopback 多节点测)。
+- **M3 运行闭环 + 能力治理 — 🔨 进行中(2.7 / 2.8 / 2.9 构件已建成,待接入实时 agent 回路)**:C 的 2.7/2.8 + D 的 2.9。判据:交给节点一个目标,它能
+  规划→观测→过门→(能力 + HITL)执行→验证→写回,崩溃后先重观测再安全恢复,每个动作经签名能力校验。
+- **M4 端到端纵切 — 🔜**:一个授权节点「学习 + 行动」,结果全网收敛,可 headless 演示整条链。
+- **M5 加固 / 落地 — 🔜**:OS 原生接线在实机验证、tunnel 机密性接上数据面、打包/发布/文档、安全复审。
 
-## P3 — Install & ops polish
+## 贯穿纪律
 
-- [ ] Single-file install path documentation (Windows first)
-- [ ] Clear "supported vs experimental" labels in README and menu
-- [ ] Versioned release notes that map to roadmap items
-- [ ] Optional signed Windows binary path (future)
-
-## P4 — Atlas hybrid loop (done)
-
-Dual-tier perception for CAD daily-driver reliability, with an honest privilege
-wall. See [`docs/ATLAS.md`](docs/ATLAS.md).
-
-- [x] UIA / accessibility as primary targeting (`--desktop-ax`); vision is fallback
-- [x] Pixel-diff verification on `click_element` (UIA Invoke) as well as pixel clicks
-- [x] Read-only process-handle wall (`PROCESS_VM_READ | PROCESS_QUERY_*` only;
-      `PROCESS_ALL_ACCESS` / write bits refused, not narrowed)
-- [x] TrustedInstaller impersonation and anti-EDR documented as `refused-identity`
-- [x] Native C++ twin (`native/atlas/`) with self-contained unit tests in CI
-- [x] Cloudflare named-tunnel config + setup scripts (`tunnel/cloudflare/`)
-- [x] Restore `loop.py` / `cli.py` / `osfocus.py` after accidental PLACEHOLDER overwrite
-- [x] `--window` matching: exact → prefix → substring, prefer visible/non-minimized/larger
-
-## Exit criteria for "daily internal use"
-
-A run that:
-1. Pins a known CAD window (`--window` + require-focus),
-2. Completes one of the golden scenarios with per-step confirmation,
-3. Leaves a verifiable `--trace` JSONL,
-4. Never acts on the wrong window or silently skips a high-risk action,
-
-is considered production-ready for the operator’s own machines.
+每片 `inspect→implement→test→跑全量→lint→提交`,不做一次性重写;全部 headless/loopback 可测、
+DID 签名 + allowlist 门控;提交前 grep 回归确认无严禁原语;冲突/现状如实记录进文档,不为架构图伪造完成状态。

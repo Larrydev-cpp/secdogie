@@ -1,19 +1,16 @@
 # secdogie — hands-on tutorial
 
 A follow-along guide that takes you from a fresh clone to a model actually
-driving a screen — first your own desktop, then a phone, several windows at
-once, and finally a machine across the network. Every step lists the exact
-command and what you should see.
+driving a screen — first your own desktop, then a machine across the network.
+Every step lists the exact command and what you should see.
 
-Work through **Part 1 first** — the desktop agent is the core; every other
-part reuses the same loop and API-key setup.
+Work through **Part 1 first** — the desktop agent is the core.
 
 > **Safety, once, up front.** These tools take real actions — a real mouse,
-> real keystrokes, real taps on a real phone. Only ever point them at a
-> device you own or are authorized to control. In every part below you'll
-> run `--dry-run` first (nothing is touched) and keep the per-step
-> confirmation on until you trust a task. Slam the mouse into a screen corner
-> to abort a desktop run (pyautogui's fail-safe).
+> real keystrokes. Only ever point them at a device you own or are authorized
+> to control. In every part below you'll run `--dry-run` first (nothing is
+> touched) and keep the per-step confirmation on until you trust a task. Slam
+> the mouse into a screen corner to abort a desktop run (pyautogui's fail-safe).
 
 ## Contents
 
@@ -21,10 +18,7 @@ part reuses the same loop and API-key setup.
 - [Part 1 — Your first run: control the desktop](#part-1--your-first-run-control-the-desktop)
 - [Part 2 — A real task, and aiming better](#part-2--a-real-task-and-aiming-better)
 - [Part 3 — Watch mode: wait for something, then act](#part-3--watch-mode-wait-for-something-then-act)
-- [Part 4 — Control an Android phone](#part-4--control-an-android-phone)
-- [Part 5 — Control an iPhone](#part-5--control-an-iphone)
-- [Part 6 — Drive several windows at once](#part-6--drive-several-windows-at-once)
-- [Part 7 — Reach a machine across the network](#part-7--reach-a-machine-across-the-network)
+- [Part 4 — Reach a machine across the network](#part-4--reach-a-machine-across-the-network)
 - [Troubleshooting](#troubleshooting)
 
 ---
@@ -97,10 +91,8 @@ venv activation, no shell-syntax translation:
    .\secdogie-agent.exe "open a text editor and type 'hello world'" --dry-run
    ```
 
-Each of `android`/`ios`/`open`/`scene3d` has the same `packaging\build.ps1` —
-see their own READMEs. The rest of this tutorial assumes the Python/pip path;
-each step below gives the bash command plus its cmd/PowerShell equivalent
-where they differ.
+The rest of this tutorial assumes the Python/pip path; each step below gives
+the bash command plus its cmd/PowerShell equivalent where they differ.
 
 ---
 
@@ -273,137 +265,7 @@ INFO step 3/100000: open (the BUILD FAILED banner is now visible)
 
 ---
 
-## Part 4 — Control an Android phone
-
-Same loop, but screenshots come from `adb screencap` and taps go out through
-`adb shell input` — **nothing is installed on the phone.**
-
-### 4.1 Enable adb
-
-1. Install Android platform-tools (they ship `adb`): `sudo apt install adb`
-   (Linux), `brew install android-platform-tools` (macOS), or Google's
-   download on Windows.
-2. On the phone: Settings → Developer options → **USB debugging** on, plug in
-   over USB, accept the "Allow USB debugging?" prompt.
-3. Confirm it's visible:
-
-```sh
-adb devices        # your device should be listed in the `device` state
-```
-
-4. **MIUI/Xiaomi (and often other Chinese ROMs) need one more toggle.** Plain
-   USB debugging covers screenshots, but taps/typing use input *injection*,
-   which MIUI blocks unless you also enable **"USB debugging (Security
-   settings)"** in Developer options — which only becomes available after you
-   sign in to a **Mi account** on the phone (Settings → your name/Mi Account).
-   **This is not a root requirement**; root is only a fallback for people who
-   can't sign in to a Mi account at all. Skip this if you're not on a Chinese
-   ROM. Full detail: [`android/README.md`](android/README.md#setup).
-
-### 4.2 Install
-
-Same pattern as Part 1.1, in `android/` instead of `agent/` (bash shown; see
-[`android/README.md`](android/README.md#install) for the PowerShell/cmd
-blocks):
-
-```sh
-cd android
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ../agent      # the loop/providers/config live here
-pip install -e .
-```
-
-Use the **same API key setup** as Part 1.2 (`secdogie-android --init-config`,
-a `secdogie.env` file, env var, or `--api-key`).
-
-### 4.3 First run
-
-Dry-run first, then for real:
-
-```sh
-secdogie-android "open the Clock app and start a 5 minute timer" --dry-run
-secdogie-android "open the Clock app and start a 5 minute timer"
-secdogie-android "..." --device <serial>    # only if several devices are attached
-```
-
-### 4.4 More reliable taps: element snapping
-
-By default the agent taps the raw pixel the model picked. Add
-`--snap-to-elements` and it also reads the phone's UI hierarchy
-(`uiautomator dump`) and snaps each tap onto the real button/menu-item under
-that point — the RPA way of hitting things by identity, not pixel guess:
-
-```sh
-secdogie-android "open the overflow menu and tap Settings" --snap-to-elements
-```
-
-It only snaps onto control-sized widgets (never a full-screen backdrop) and
-falls back to the raw coordinate if a screen can't be dumped, so turning it on
-never makes a tap worse. Details: [`android/README.md`](android/README.md#element-targeting---snap-to-elements).
-
----
-
-## Part 5 — Control an iPhone
-
-iOS won't let a host inject input without an on-device agent, so this path
-uses [WebDriverAgent](https://github.com/appium/WebDriverAgent) (WDA), which
-you **build once with Xcode** on a Mac and leave running on the phone. After
-that it's the same loop over WDA's HTTP API.
-
-The setup (Xcode signing, launching WDA, `iproxy` port-forwarding) is
-step-by-step in [`ios/README.md`](ios/README.md#setup-one-time-needs-a-mac--xcode).
-Once `http://127.0.0.1:8100/status` returns WDA's status JSON, install the
-client the same way as Part 1.1 (`ios/` instead of `agent/`; see
-[`ios/README.md`](ios/README.md#install) for the PowerShell/cmd blocks — this
-client itself runs on any OS, including Windows, once WDA is reachable):
-
-```sh
-cd ios
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ../agent && pip install -e .
-secdogie-ios "open Settings and turn on Airplane Mode" --dry-run
-secdogie-ios "open Settings and turn on Airplane Mode"
-```
-
-> **Not sure you need this?** If your goal is to *trigger predefined actions*
-> on a schedule (send a message, run a workflow) rather than have the model
-> visually drive arbitrary apps, an iOS Shortcut hitting a small backend is
-> far simpler and needs no Mac. WDA is for genuine "see the screen, control
-> any app" automation.
-
----
-
-## Part 6 — Drive several windows at once
-
-`secdogie-open` lists your open windows on a local web page, lets you select
-several, and runs one agent per selected window — each scoped to just that
-window, so they don't collide. It starts a server on `127.0.0.1` only and
-opens the page in your normal browser; no GUI toolkit to install.
-
-Install the same way as Part 1.1 (`open/` instead of `agent/`; see
-[`open/README.md`](open/README.md#install) for the PowerShell/cmd blocks):
-
-```sh
-cd open
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ../agent && pip install -e .
-secdogie-open
-```
-
-1. Pick windows from the auto-populated list (Refresh re-scans).
-2. Type one task applied to each selected window.
-3. It **defaults to dry-run** — leave "Enable real actions" off for your first
-   try. Because several windows run unattended together, there's no per-step
-   prompt once real actions are on (the page shows a confirm dialog restating
-   that before it lets you proceed), so trust the task in dry-run first.
-4. "Stop all" halts every running window. Close the tab and Ctrl+C the
-   terminal to stop the server.
-
-More: [`open/README.md`](open/README.md).
-
----
-
-## Part 7 — Reach a machine across the network
+## Part 4 — Reach a machine across the network
 
 To let the agent (or a cloud model) drive a *different* machine — your home
 desktop, a phone on another network — put an encrypted tunnel between the two
@@ -418,7 +280,7 @@ screen over that tunnel.
 > kernel and TUN support) rather than native Windows — everything below then
 > works unmodified inside the WSL2 shell.
 
-### 7.1 Build
+### 4.1 Build
 
 ```sh
 cd tunnel
@@ -427,7 +289,7 @@ cmake -S . -B build && cmake --build build -j
 ./build/test_protocol        # sanity-check the crypto/handshake
 ```
 
-### 7.2 Point-to-point (two machines)
+### 4.2 Point-to-point (two machines)
 
 Generate a key on each machine, exchange the printed **public** keys, and
 write a config on each side:
@@ -465,7 +327,7 @@ When both log `handshake completed`, the two machines can reach each other on
 network (e.g. via VNC/RDP/X11 carried inside the tunnel, or run the agent
 directly on the remote machine and use the tunnel just to reach it).
 
-### 7.3 Hub (one node, many machines)
+### 4.3 Hub (one node, many machines)
 
 To reach *several* machines through one public node — a controller driving
 many agent boxes — run that node as a **hub** instead. Clients are unchanged;
@@ -498,13 +360,9 @@ route, so it can see inter-client traffic) is in
 |---------|--------------------|
 | `no API key found for the <provider> provider` | No key resolved. Run `--init-config` and fill it in, export `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`, or pass `--api-key`. |
 | `pyautogui unavailable ...; only --dry-run will work` | No usable display (headless/SSH/Wayland issue). Run on a real desktop session; `--dry-run` still works anywhere. |
-| Clicks land slightly off-target | Add `--grid`, raise `--max-image-edge`, or on Android add `--snap-to-elements`. |
+| Clicks land slightly off-target | Add `--grid` or raise `--max-image-edge`. |
 | Every action is skipped without asking | stdin isn't a terminal, so confirmation fails closed (No). Use `--auto` for unattended, or run in a real terminal. |
 | Agent stops after 50 steps | Hit the default `--max-steps`; raise it, or the task may be under-specified. |
-| Android: `adb ... device offline` / not listed | Reconnect USB, re-accept the debugging prompt, `adb kill-server && adb start-server`, check `adb devices`. |
-| Android: `adb shell ... was rejected: the device is blocking input injection ...` | MIUI/Xiaomi (or another Chinese ROM) is gating taps/typing behind a second toggle. Sign in to a Mi account on the phone, then enable Developer options → "USB debugging (Security settings)" — **not** a root requirement, see [`android/README.md`](android/README.md#setup). Screenshots/`adb devices` still work without it; only input is blocked. |
-| Android: `uiautomator dump returned no hierarchy` | Some secure screens block dumping; snapping silently falls back to raw taps — nothing to fix. |
-| iOS: `could not reach WebDriverAgent` | WDA isn't running or not forwarded. Relaunch WDA and `iproxy 8100 8100`; check `http://127.0.0.1:8100/status`. |
 | Tunnel: `tun create failed ... are you root / CAP_NET_ADMIN?` | Creating a TUN device needs privilege. Run with `sudo`, or `sudo setcap cap_net_admin+ep build/secdogie-tunnel`. |
 | Windows: `python3 : The term 'python3' is not recognized ...` | Windows installs Python as `python`, not `python3`. Use `python -m venv .venv` instead. |
 | Windows PowerShell: `... cannot be loaded because running scripts is disabled on this system` | Script execution is blocked by default. Run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` first (current window only, no admin needed), then retry `.venv\Scripts\Activate.ps1`. |

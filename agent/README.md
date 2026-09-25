@@ -570,8 +570,7 @@ secdogie-agent "log into example.com and open the dashboard" --macro dashboard.j
   strongest anchor to weakest, so a click keeps landing even as the UI shifts:
   1. **Semantic selector** — the UI element by identity (its accessibility
      name / automation-id / role), so a re-find is exact regardless of where the
-     element moved. The Android backend always does this via the uiautomator
-     hierarchy (see `android/README.md`); on the **desktop** it's opt-in with
+     element moved. On the **desktop** it's opt-in with
      [`--desktop-ax`](#desktop-accessibility---desktop-ax), which reads the OS
      accessibility tree (UI Automation on Windows).
   2. **Visual anchor** — a tiny grayscale snapshot of the clicked element,

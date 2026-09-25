@@ -72,9 +72,10 @@ class ExecutionTrace:
     """Accumulates hash-chained entries and (optionally) appends each to a JSONL
     file as it's recorded, so the trace survives a crash mid-run."""
 
-    def __init__(self, path: str | None = None, *, clock=time.time):
+    def __init__(self, path: str | None = None, *, clock=time.time, on_entry=None):
         self.path = path
         self._clock = clock
+        self._on_entry = on_entry  # optional per-entry callback (e.g. the citadel run recorder)
         self.entries: list[TraceEntry] = []
         self.head = GENESIS
         self._seq = 0
@@ -98,6 +99,11 @@ class ExecutionTrace:
         if self.path is not None:
             with open(self.path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry.to_dict(), ensure_ascii=False) + "\n")
+        if self._on_entry is not None:
+            try:
+                self._on_entry(entry)
+            except Exception:  # a downstream sink must never break the run's trace
+                pass
         return entry
 
 

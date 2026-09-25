@@ -4,8 +4,15 @@
   goals  <journal.db>                 print the projected goal tree (ready / order)
   log    <journal.db>                 print events in total order
   add-goal <db> <id> --identity KEY   append a goal (title/deps)
-  run <db> --identity KEY             run ready goals under the supervised agent
-                                      loop (high-risk steps prompt on the terminal)
+  run <db> --identity KEY [--issuers ALLOWLIST]
+                                      run ready goals under the supervised agent loop
+                                      (high-risk steps prompt on the terminal; with
+                                      --issuers, every action is checked against the
+                                      node's signed capability grants)
+  add-grant <db> <grant.json> --identity KEY
+                                      carry a signed capability grant in the journal
+  scopes <db> --identity KEY --issuers ALLOWLIST
+                                      print the scopes this node currently holds
 
 verify/goals/log are read-only; add-goal/run need this node's signing key.
 """
@@ -38,12 +45,20 @@ def _add_goal(args) -> int:
 
 def _run(args) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    from secdogie_identity import Allowlist
+
     from .supervisor import Supervisor, agent_run_task, terminal_confirm
 
+    issuers = Allowlist.load(args.issuers) if args.issuers else None
     sup = Supervisor(
         _open_writable(args), run_task=agent_run_task,
         max_attempts=args.max_attempts, confirm_handler=terminal_confirm,
+        issuers=issuers,
     )
+    if issuers is not None:
+        scopes = sorted(sup.node_scopes())
+        print("capability enforcement on: " + (", ".join(scopes) if scopes
+              else "(no scopes granted -- every mutating action will be refused)"))
     requeued = sup.recover()
     if requeued:
         print(f"resumed {len(requeued)} interrupted goal(s): {', '.join(requeued)}")
@@ -78,6 +93,46 @@ def _log(args) -> int:
     return 0
 
 
+def _add_grant(args) -> int:
+    import json as _json
+
+    from secdogie_identity import Allowlist
+
+    from .supervisor import Supervisor
+
+    with open(args.grant, encoding="utf-8") as f:
+        grant = _json.load(f)
+    sup = Supervisor(_open_writable(args), run_task=lambda *a, **k: (0, ""),
+                     issuers=Allowlist.load(args.issuers) if args.issuers else None)
+    if args.issuers:
+        from secdogie_identity.capability import verify_capability
+        node_did = getattr(sup.journal, "identity", None)
+        subject = node_did.did if node_did is not None else None
+        res = verify_capability(grant, issuers=sup.issuers, subject=subject)
+        if not res.ok:
+            print(f"refusing to add grant: {res.reason}")
+            return 1
+    ev = sup.add_grant(grant)
+    print(f"added grant {grant.get('capability_id', '?')} ({ev['kind']})")
+    return 0
+
+
+def _scopes(args) -> int:
+    from secdogie_identity import Allowlist
+
+    from .supervisor import Supervisor
+
+    sup = Supervisor(_open_writable(args), run_task=lambda *a, **k: (0, ""),
+                     issuers=Allowlist.load(args.issuers))
+    scopes = sorted(sup.node_scopes())
+    if scopes:
+        for sc in scopes:
+            print(sc)
+    else:
+        print("(no valid grants -- every mutating action will be refused)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="secdogie-citadel", description="Inspect and drive a Citadel journal.")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -99,9 +154,27 @@ def main(argv: list[str] | None = None) -> int:
     rn.add_argument("db")
     rn.add_argument("--identity", required=True, metavar="KEYFILE", help="this node's DID signing key")
     rn.add_argument("--authorized", default=None, metavar="ALLOWLIST")
+    rn.add_argument("--issuers", default=None, metavar="ALLOWLIST",
+                    help="trusted issuer DIDs; enables capability enforcement (fail-closed)")
     rn.add_argument("--max-goals", type=int, default=1000)
     rn.add_argument("--max-attempts", type=int, default=1)
     rn.set_defaults(fn=_run)
+
+    grn = sub.add_parser("add-grant", help="carry a signed capability grant in the journal")
+    grn.add_argument("db")
+    grn.add_argument("grant", help="path to the signed grant JSON")
+    grn.add_argument("--identity", required=True, metavar="KEYFILE", help="this node's DID signing key")
+    grn.add_argument("--authorized", default=None, metavar="ALLOWLIST")
+    grn.add_argument("--issuers", default=None, metavar="ALLOWLIST",
+                     help="if given, verify the grant is for this node from a trusted issuer before writing")
+    grn.set_defaults(fn=_add_grant)
+
+    sc = sub.add_parser("scopes", help="print the capability scopes this node currently holds")
+    sc.add_argument("db")
+    sc.add_argument("--identity", required=True, metavar="KEYFILE", help="this node's DID signing key")
+    sc.add_argument("--authorized", default=None, metavar="ALLOWLIST")
+    sc.add_argument("--issuers", required=True, metavar="ALLOWLIST", help="trusted issuer DIDs")
+    sc.set_defaults(fn=_scopes)
 
     args = p.parse_args(argv)
     return args.fn(args)

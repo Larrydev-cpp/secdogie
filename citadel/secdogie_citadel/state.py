@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 _OPS = frozenset({"set", "patch", "delete"})
 # Entity types this layer materializes first. Not enforced (open set), but named
 # so callers agree on vocabulary.
-ENTITY_TYPES = ("goal", "task", "run", "capability", "knowledge")
+ENTITY_TYPES = ("goal", "task", "run", "step", "capability", "knowledge")
 
 STATE_EVENT_KIND = "state"
 
