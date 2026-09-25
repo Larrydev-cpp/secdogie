@@ -87,6 +87,26 @@ jobs:
         working-directory: agent
         run: python -m secdogie_agent.scenario_runner ../fixtures/cad --all
 
+  # --- Browser P2P: signaling gateway unit tests (plain Node, no deps) --------
+  webrtc-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Syntax check (gateway + browser client)
+        working-directory: webrtc
+        run: |
+          node --check signaling/worker.js
+          node --check client/web_peer.js
+
+      - name: Test
+        working-directory: webrtc
+        run: npm test
+
   # --- C tunnel: build + its own unit test binary ----------------------------
   tunnel-tests:
     runs-on: ubuntu-latest

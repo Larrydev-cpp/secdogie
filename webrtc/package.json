@@ -1,0 +1,9 @@
+{
+  "name": "secdogie-webrtc",
+  "private": true,
+  "type": "module",
+  "description": "Browser WebRTC data-channel peer + Cloudflare Worker signaling gateway",
+  "scripts": {
+    "test": "node --test"
+  }
+}
