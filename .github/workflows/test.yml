@@ -39,6 +39,10 @@ jobs:
             needs_identity: true
           - dir: transport  # P2P-ready peer/session/endpoint model
             needs_identity: true
+          - dir: node       # a running node: transport + gossip + journal replication
+            needs_identity: true
+            needs_transport: true
+            needs_citadel: true
           - dir: fleet      # protocol/coordinator are pure; a node needs the agent it drives
             needs_agent: true
             needs_identity: true   # so the DID-signed secure-transport tests run (not skip)
@@ -67,6 +71,12 @@ jobs:
           fi
           if [ "${{ matrix.needs_identity }}" = "true" ]; then
             pip install -e ../identity
+          fi
+          if [ "${{ matrix.needs_transport }}" = "true" ]; then
+            pip install -e ../transport
+          fi
+          if [ "${{ matrix.needs_citadel }}" = "true" ]; then
+            pip install -e ../citadel
           fi
           if [ "${{ matrix.needs_fleet }}" = "true" ]; then
             pip install -e ../fleet

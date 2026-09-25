@@ -176,6 +176,14 @@ class DirectUDPTransport(Transport):
     def set_peer_endpoint(self, did: str, host: str, port: int) -> None:
         self._endpoints[did] = (host, port)
 
+    def peer_endpoint(self, did: str) -> tuple[str, int] | None:
+        """Where `did` is currently reached (learned or observed), if known."""
+        return self._endpoints.get(did)
+
+    def peer_keys(self) -> list[str]:
+        """DIDs whose transport key was accepted from a verified binding."""
+        return sorted(self._key_versions)
+
     def route(self, from_did: str, to_did: str, message: bytes) -> bool:
         ep = self._endpoints.get(to_did)
         if ep is None:
