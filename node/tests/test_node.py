@@ -56,7 +56,7 @@ class Mesh:
     def did(self, name):
         return self.ids[name].did
 
-    def start(self, name, *, bindings=(), authorized="authorized.conf"):
+    def start(self, name, *, bindings=(), authorized="authorized.conf", evidence=False):
         cfg = NodeConfig(
             identity=str(self.tmp / f"{name}.key"),
             journal=str(self.tmp / f"{name}.db"),
@@ -64,6 +64,7 @@ class Mesh:
             listen_port=0,
             authorized=str(self.tmp / authorized),
             transport_key=str(self.tmp / f"{name}.tkey") if self.encrypted else None,
+            evidence=str(self.tmp / f"{name}-evidence") if evidence else None,
             bindings=[str(self.tmp / f"{b}.binding.json") for b in bindings],
             sync_interval=0.05,
         )
@@ -257,3 +258,86 @@ def test_status_and_cli(tmp_path, capsys):
     assert out["did"] == mesh.did("a") and out["events"] == 1
     (tmp_path / "bad.conf").write_text("identity = a.key\n", encoding="utf-8")
     assert main(["status", str(tmp_path / "bad.conf")]) == 2
+
+
+# --- evidence over the mesh --------------------------------------------------
+
+
+def _learn_evidence(node, data, *, url="https://example.com/big", title="Big"):
+    """Store `data` as evidence on `node` and record the knowledge entry."""
+    from secdogie_citadel.evidence import record_knowledge
+    root = node.evidence.put_bytes(data)
+    record_knowledge(node.journal, root=root, url=url, title=title, size=len(data), preview="preview")
+    return root
+
+
+def test_evidence_replicates_over_the_mesh(tmp_path):
+    import os
+    mesh = Mesh(tmp_path, ["a", "b"])
+    try:
+        a = mesh.start("a", evidence=True)
+        b = mesh.start("b", evidence=True)
+        a.add_peer(b.did, *b.address)
+        data = os.urandom(3 * 1024 * 1024 + 17)  # a few MB -> many blocks + manifests
+        root = _learn_evidence(a, data)
+        # the knowledge entry converges, then the blocks follow over rounds
+        assert settle([a, b], lambda: b.evidence.has_all(root), timeout=15.0)
+        assert b.evidence.read_bytes(root) == data  # byte-for-byte
+    finally:
+        mesh.close()
+
+
+def test_evidence_reachable_after_the_origin_leaves(tmp_path):
+    import os
+    mesh = Mesh(tmp_path, ["a", "b", "c"])
+    try:
+        a = mesh.start("a", evidence=True)
+        b = mesh.start("b", evidence=True)
+        c = mesh.start("c", evidence=True)
+        a.add_peer(b.did, *b.address)
+        b.add_peer(c.did, *c.address)  # a-b-c
+        data = os.urandom(1024 * 1024 + 5)
+        root = _learn_evidence(a, data)
+        assert settle([a, b, c], lambda: b.evidence.has_all(root), timeout=15.0)
+        # A leaves; C pulls the evidence from B
+        a.close()
+        del mesh.nodes["a"]
+        c.add_peer(b.did, *b.address)
+        assert settle([b, c], lambda: c.evidence.has_all(root), timeout=15.0)
+        assert c.evidence.read_bytes(root) == data
+    finally:
+        mesh.close()
+
+
+def test_forged_block_is_rejected(tmp_path):
+    mesh = Mesh(tmp_path, ["a", "b"])
+    try:
+        a = mesh.start("a", evidence=True)
+        b = mesh.start("b", evidence=True)
+        root = a.evidence.put_bytes(b"authentic evidence content")
+        # B is fed a block whose bytes don't match the requested hash
+        b._on_evidence(a.did, {"kind": "block", "h": root,
+                               "d": __import__("base64").b64encode(b"forged!").decode()})
+        assert not b.evidence.backend.has(root)  # rejected by the hash check
+    finally:
+        mesh.close()
+
+
+def test_evidence_replicates_encrypted(tmp_path):
+    import json as _json
+    import os
+    mesh = Mesh(tmp_path, ["a", "b"], encrypted=True)
+    try:
+        a = mesh.start("a", bindings=["b"], evidence=True)
+        b = mesh.start("b", bindings=["a"], evidence=True)
+        sent = []
+        orig = a.channel.send
+        a.channel.send = lambda h, p, d: (sent.append(d), orig(h, p, d))[1]
+        a.add_peer(b.did, *b.address)
+        data = os.urandom(200 * 1024)
+        root = _learn_evidence(a, data)
+        assert settle([a, b], lambda: b.evidence.has_all(root), timeout=15.0)
+        assert b.evidence.read_bytes(root) == data
+        assert sent and all(_json.loads(f)["t"] == "secdogie/direct/v2" for f in sent)
+    finally:
+        mesh.close()

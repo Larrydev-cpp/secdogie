@@ -8,6 +8,7 @@ blank lines ignored, repeatable keys for lists, errors reported as `path:line`.
     listen        = 0.0.0.0:7400        # UDP host:port (required)
     authorized    = authorized.conf     # allowlist of node DIDs (required)
     transport_key = node.tkey           # optional: tunnel key file -> encrypted v2 frames
+    evidence      = evidence/           # optional: content-addressed evidence cache dir
     peer          = did:key:z... 203.0.113.7:7400   # bootstrap peer (repeatable)
     binding       = peers/b.binding.json            # a peer's signed binding (repeatable)
     announce_host = 203.0.113.9         # optional: the address other nodes should use
@@ -25,8 +26,8 @@ from pathlib import Path
 from secdogie_identity.did import pubkey_from_did
 
 _REQUIRED = ("identity", "journal", "listen", "authorized")
-_PATH_KEYS = ("identity", "journal", "authorized", "transport_key")
-_KNOWN = set(_REQUIRED) | {"transport_key", "peer", "binding", "announce_host", "sync_interval", "key_version"}
+_PATH_KEYS = ("identity", "journal", "authorized", "transport_key", "evidence")
+_KNOWN = set(_REQUIRED) | {"transport_key", "evidence", "peer", "binding", "announce_host", "sync_interval", "key_version"}
 
 
 class NodeConfigError(ValueError):
@@ -41,6 +42,7 @@ class NodeConfig:
     listen_port: int
     authorized: str
     transport_key: str | None = None
+    evidence: str | None = None
     peers: list[tuple[str, str, int]] = field(default_factory=list)  # (did, host, port)
     bindings: list[str] = field(default_factory=list)
     announce_host: str | None = None
@@ -120,6 +122,7 @@ def load_config(path: str | os.PathLike) -> NodeConfig:
         listen_port=port,
         authorized=values["authorized"],
         transport_key=values.get("transport_key"),
+        evidence=values.get("evidence"),
         peers=peers,
         bindings=bindings,
         announce_host=values.get("announce_host"),

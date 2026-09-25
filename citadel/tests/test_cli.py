@@ -107,3 +107,71 @@ def test_run_issuers_gates_the_task(tmp_path, monkeypatch, capsys):
     store = StateStore()
     store.merge_events(Journal(db).events())
     assert store.entities("run")
+
+
+# --- learning chain: learn / knowledge / evidence-cat ------------------------
+
+
+def test_knowledge_and_evidence_cat_without_desktop(tmp_path, capsys):
+    # knowledge + evidence-cat need no browser; seed evidence directly.
+    from secdogie_citadel.evidence import EvidenceStore, LocalBackend, record_knowledge
+    from secdogie_citadel.journal import Journal
+
+    node_key, node = _keyfile(tmp_path, "node.key")
+    db = str(tmp_path / "j.db")
+    ev = str(tmp_path / "evidence")
+    doc = {"url": "https://example.com/", "title": "Example", "text": "hello", "ax": []}
+    store = EvidenceStore(LocalBackend(ev))
+    root = store.put_json(doc)
+    j = Journal(db, identity=node)
+    record_knowledge(j, root=root, url=doc["url"], title=doc["title"], size=42, preview="hello")
+    j.close()
+
+    assert main(["knowledge", db]) == 0
+    out = capsys.readouterr().out
+    assert root[:16] in out and "Example" in out
+
+    assert main(["evidence-cat", root, "--evidence", ev]) == 0
+    import json as _json
+    assert _json.loads(capsys.readouterr().out) == doc
+
+    # a missing root reports incompleteness, non-zero
+    assert main(["evidence-cat", "a" * 64, "--evidence", ev]) == 1
+
+
+def test_learn_reads_a_page_and_records_it(tmp_path, capsys, monkeypatch):
+    websession = pytest.importorskip("secdogie_desktop.websession")
+
+    node_key, _node = _keyfile(tmp_path, "node.key")
+    db = str(tmp_path / "j.db")
+    ev = str(tmp_path / "evidence")
+    ss = tmp_path / "state.json"
+    ss.write_text("{}", encoding="utf-8")
+
+    class FakeDriver:
+        def fetch(self, cfg, url):
+            return websession.RawPage(
+                url=url, title="Example Domain",
+                ax_snapshot={"role": "WebArea", "name": "Example Domain",
+                             "children": [{"role": "link", "name": "More information"}]},
+                text="Example Domain. Illustrative examples.")
+
+    monkeypatch.setattr(websession, "PlaywrightDriver", lambda *a, **k: FakeDriver())
+
+    assert main(["learn", db, "http://example.com/", "--identity", str(node_key),
+                 "--evidence", ev, "--storage-state", str(ss)]) == 0
+    out = capsys.readouterr().out
+    assert "learned http://example.com/" in out
+    root = [ln for ln in out.splitlines() if "evidence:" in ln][0].split()[1]
+
+    # the page is stored content-addressed and reads back with both senses
+    import json as _json
+
+    from secdogie_citadel.evidence import EvidenceStore, LocalBackend
+    doc = _json.loads(EvidenceStore(LocalBackend(ev)).read_bytes(root))
+    assert doc["title"] == "Example Domain" and "Illustrative" in doc["text"]
+    assert doc["ax"][0]["children"][0]["name"] == "More information"
+
+    # a non-http URL never drives the browser
+    assert main(["learn", db, "file:///etc/passwd", "--identity", str(node_key),
+                 "--evidence", ev, "--storage-state", str(ss)]) == 2

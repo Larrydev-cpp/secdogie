@@ -23,12 +23,14 @@ service and no autostart; the operator runs it.
 """
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import threading
 import time
 from dataclasses import dataclass
 
+from secdogie_citadel.evidence import EvidenceStore, LocalBackend, knowledge_entries
 from secdogie_citadel.journal import Journal
 from secdogie_citadel.replication import ReplicationPeer
 from secdogie_identity import Allowlist, Identity
@@ -43,8 +45,10 @@ from .config import NodeConfig
 log = logging.getLogger("secdogie_node")
 
 BINDING_KIND = "transport_binding"
-REP, MEM = "rep", "mem"
+REP, MEM, EV = "rep", "mem", "ev"
 _RECORDS_PER_MESSAGE = 40  # membership records are ~0.5 KB; stays far below a datagram
+_WANT_PER_ROUND = 64       # evidence blocks requested per peer per round (rate limit)
+_BLOCKS_PER_REPLY = 8      # blocks served per want message
 # Re-publish our own binding when the one in the journal has less than this left.
 _BINDING_REFRESH = 30 * 24 * 3600.0
 
@@ -57,6 +61,7 @@ class NodeStatus:
     peers: list[str]
     reachable: list[str]
     keys: list[str]
+    evidence: bool
     events: int
     heads: dict[str, int]
 
@@ -76,6 +81,7 @@ class Node:
             self.identity, self.channel, allowlist=self.allowlist, transport_key=self._tkey,
         )
         self.view = MembershipView(allowlist=self.allowlist)
+        self.evidence = EvidenceStore(LocalBackend(cfg.evidence)) if cfg.evidence else None
         self.replication = ReplicationPeer(self.journal, lambda to, m: self._send(REP, to, m))
         self._bootstrap: set[str] = set()
         self._imported: set[tuple[str, int]] = set()
@@ -146,6 +152,8 @@ class Node:
                 self.replication.on_message(from_did, message)
             elif proto == MEM:
                 self._on_membership(from_did, message)
+            elif proto == EV:
+                self._on_evidence(from_did, message)
         except Exception:  # noqa: BLE001 -- one bad message must not stop the node
             log.exception("error handling %s message from %s", proto, from_did)
 
@@ -191,6 +199,58 @@ class Node:
             if best is not None:
                 self.transport.set_peer_endpoint(did, best.host, best.port)
 
+    # -- evidence: content-addressed blocks over the mesh --------------------
+
+    def _wanted_blocks(self) -> list[str]:
+        """Block hashes this node still needs for any knowledge root in the
+        journal, bounded per round (a big evidence tree fills over rounds)."""
+        if self.evidence is None:
+            return []
+        wanted: list[str] = []
+        seen: set[str] = set()
+        for entry in knowledge_entries(self.journal):
+            for digest in self.evidence.missing(entry.root):
+                if digest not in seen:
+                    seen.add(digest)
+                    wanted.append(digest)
+                    if len(wanted) >= _WANT_PER_ROUND:
+                        return wanted
+        return wanted
+
+    def _pull_evidence(self) -> None:
+        wanted = self._wanted_blocks()
+        if not wanted:
+            return
+        for did in self.peers():
+            self._send(EV, did, {"kind": "want", "hashes": wanted})
+
+    def _on_evidence(self, from_did: str, message: dict) -> None:
+        if self.evidence is None:
+            return
+        kind = message.get("kind")
+        if kind == "want":
+            hashes = message.get("hashes") if isinstance(message.get("hashes"), list) else []
+            served = 0
+            for digest in hashes:
+                if not isinstance(digest, str) or not self.evidence.backend.has(digest):
+                    continue
+                data = self.evidence.backend.get(digest)
+                if data is None:
+                    continue
+                self._send(EV, from_did, {"kind": "block", "h": digest,
+                                          "d": base64.b64encode(data).decode("ascii")})
+                served += 1
+                if served >= _BLOCKS_PER_REPLY:
+                    break
+        elif kind == "block":
+            digest = message.get("h")
+            try:
+                data = base64.b64decode(message.get("d", ""), validate=True)
+            except (ValueError, TypeError):
+                return
+            if isinstance(digest, str):
+                self.evidence.backend.put(digest, data)  # put verifies the hash; forgeries rejected
+
     # -- bindings from the journal -------------------------------------------
 
     def _import_bindings(self) -> int:
@@ -227,6 +287,7 @@ class Node:
             if self._send(MEM, did, self._digest_message(reply=False)):
                 contacted += 1
                 self.replication.initiate(did)
+        self._pull_evidence()
         return contacted
 
     def run(self, stop: threading.Event) -> None:
@@ -249,6 +310,7 @@ class Node:
             peers=peers,
             reachable=[d for d in peers if self.transport.peer_endpoint(d) is not None],
             keys=self.transport.peer_keys(),
+            evidence=self.evidence is not None,
             events=len(self.journal.events()),
             heads=self.journal.heads(),
         )
@@ -269,6 +331,7 @@ def offline_status(cfg: NodeConfig) -> dict:
             "did": identity.did,
             "listen": f"{cfg.listen_host}:{cfg.listen_port}",
             "encrypted": cfg.transport_key is not None,
+            "evidence": cfg.evidence is not None,
             "events": len(events),
             "heads": journal.heads(),
             "bindings_in_journal": bindings,

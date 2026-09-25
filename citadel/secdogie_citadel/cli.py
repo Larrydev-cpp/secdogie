@@ -15,6 +15,11 @@
                                       carry a signed capability grant in the journal
   scopes <db> --identity KEY --issuers ALLOWLIST
                                       print the scopes this node currently holds
+  learn <db> <url> --identity KEY --evidence DIR (--storage-state F | --user-data-dir D)
+                                      read an authorized web page and record it as signed
+                                      knowledge; the page is stored content-addressed
+  knowledge <db>                      list recorded knowledge entries
+  evidence-cat <root> --evidence DIR  print stored evidence content to stdout
 
 verify/goals/log are read-only; add-goal/run need this node's signing key.
 """
@@ -149,6 +154,70 @@ def _scopes(args) -> int:
     return 0
 
 
+def _page_to_dict(obs) -> dict:
+    """A PageObservation as a stable JSON document (the evidence content)."""
+    def node(n):
+        return {"role": n.role, "name": n.name, "value": n.value,
+                "children": [node(c) for c in n.children]}
+    return {"url": obs.url, "title": obs.title, "text": obs.text,
+            "ax": [node(n) for n in obs.ax_nodes]}
+
+
+def _learn(args) -> int:
+    try:
+        from secdogie_desktop.websession import AuthorizedContext, read_page
+    except ImportError:
+        print("learn needs the desktop package (web session reader): pip install -e ../desktop",
+              file=sys.stderr)
+        return 2
+    from .evidence import EvidenceStore, LocalBackend, record_knowledge
+
+    cfg = AuthorizedContext(storage_state=args.storage_state, user_data_dir=args.user_data_dir)
+    try:
+        obs = read_page(args.url, cfg)  # validates url + session, reads read-only
+    except (ValueError, FileNotFoundError) as exc:
+        print(f"cannot read page: {exc}", file=sys.stderr)
+        return 2
+    doc = _page_to_dict(obs)
+    store = EvidenceStore(LocalBackend(args.evidence))
+    root = store.put_json(doc)
+    size = len(__import__("json").dumps(doc, ensure_ascii=False, sort_keys=True).encode("utf-8"))
+    journal = _open_writable(args)
+    record_knowledge(journal, root=root, url=obs.url, title=obs.title, size=size,
+                     preview=obs.text or obs.title)
+    print(f"learned {obs.url}")
+    print(f"  title: {obs.title}")
+    print(f"  evidence: {root} ({size} bytes)")
+    return 0
+
+
+def _knowledge(args) -> int:
+    from .evidence import knowledge_entries
+
+    entries = knowledge_entries(Journal(args.db))
+    if not entries:
+        print("(no knowledge recorded yet)")
+        return 0
+    for k in entries:
+        print(f"{k.root[:16]}  {k.title or '(untitled)'}  <{k.url}>  {k.size} bytes")
+        if k.preview:
+            print(f"    {k.preview[:120]}")
+    return 0
+
+
+def _evidence_cat(args) -> int:
+    from .evidence import EvidenceMissing, EvidenceStore, LocalBackend
+
+    store = EvidenceStore(LocalBackend(args.evidence))
+    try:
+        for chunk in store.open(args.root):
+            sys.stdout.buffer.write(chunk)
+    except EvidenceMissing as exc:
+        print(f"\nincomplete: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="secdogie-citadel", description="Inspect and drive a Citadel journal.")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -202,6 +271,26 @@ def main(argv: list[str] | None = None) -> int:
     sc.add_argument("--authorized", default=None, metavar="ALLOWLIST")
     sc.add_argument("--issuers", required=True, metavar="ALLOWLIST", help="trusted issuer DIDs")
     sc.set_defaults(fn=_scopes)
+
+    ln = sub.add_parser("learn", help="read an authorized web page and record it as signed knowledge")
+    ln.add_argument("db")
+    ln.add_argument("url")
+    ln.add_argument("--identity", required=True, metavar="KEYFILE", help="this node's DID signing key")
+    ln.add_argument("--authorized", default=None, metavar="ALLOWLIST")
+    ln.add_argument("--evidence", required=True, metavar="DIR", help="content-addressed evidence directory")
+    grp = ln.add_mutually_exclusive_group(required=True)
+    grp.add_argument("--storage-state", metavar="FILE", help="a Playwright storage_state.json you saved")
+    grp.add_argument("--user-data-dir", metavar="DIR", help="a persistent browser profile directory")
+    ln.set_defaults(fn=_learn)
+
+    kn = sub.add_parser("knowledge", help="list recorded knowledge entries")
+    kn.add_argument("db")
+    kn.set_defaults(fn=_knowledge)
+
+    ec = sub.add_parser("evidence-cat", help="print stored evidence content to stdout")
+    ec.add_argument("root", help="the evidence root hash")
+    ec.add_argument("--evidence", required=True, metavar="DIR")
+    ec.set_defaults(fn=_evidence_cat)
 
     args = p.parse_args(argv)
     return args.fn(args)
