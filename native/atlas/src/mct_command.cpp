@@ -286,10 +286,14 @@ std::uint32_t MctEnsureFixture() {
 #else
   const pid_t child = fork();
   if (child == 0) {
+    // The fixture outlives this call (it waits in pause()), so it must not keep
+    // any of the caller's stdio: an inherited stderr pipe keeps a test runner
+    // (ctest, CI) waiting for EOF forever.
     const int n = ::open("/dev/null", O_RDWR);
     if (n >= 0) {
       dup2(n, 0);
       dup2(n, 1);
+      dup2(n, 2);
       if (n > 2) close(n);
     }
     execl(path.c_str(), path.c_str(), static_cast<char*>(nullptr));
