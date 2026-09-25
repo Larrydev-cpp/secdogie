@@ -6,6 +6,13 @@ journal, so a restart REPLAYS it and continues -- done goals are not re-run, and
 a goal left `active` by a crash is re-queued (goal-level resume; the agent loop
 itself is one-shot, so a re-queued goal is re-run from the top).
 
+Before a goal runs, the Socratic step reviews its instruction and, where the
+review asks for changes, rewrites it and reviews again (socratic.deliberate): the
+goal runs as the accepted instruction, an overlong goal becomes ordered sub-goals,
+and only an instruction that cannot be rewritten without the operator (e.g. an
+empty one) is parked as `needs_input` until `secdogie-citadel set-goal` fills it
+in. Every round is recorded in the journal.
+
 Human oversight is preserved, not removed:
   * `run_task` receives a `confirm(prompt, high_risk)` callback. The default
     handler FAILS CLOSED (denies), and the production agent adapter keeps
@@ -22,6 +29,11 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from typing import Any
+
+# run_goal codes beyond the agent's own: the Socratic step either split the goal
+# into sub-goals (they run next) or needs the operator to fill it in.
+NEEDS_INPUT = 8
+DECOMPOSED = 9
 
 
 class Supervisor:
@@ -126,6 +138,51 @@ class Supervisor:
         blocked = stops | paused
         return [g for g in self._tree().ready() if g not in blocked]
 
+    # -- Socratic step --------------------------------------------------------
+
+    def _decomposed(self) -> dict[str, list[str]]:
+        out: dict[str, list[str]] = {}
+        for e in self.journal.events():
+            if e.get("kind") == "socratic_decomposed":
+                body = e.get("body") or {}
+                if isinstance(body.get("goal_id"), str):
+                    out[body["goal_id"]] = list(body.get("children") or [])
+        return out
+
+    def _record_deliberation(self, goal_id: str, deliberation) -> None:
+        """Every round -- the text reviewed, the findings, and what it was rewritten
+        to -- goes into the signed journal."""
+        from . import socratic
+
+        rounds = deliberation.rounds
+        for i, rnd in enumerate(rounds, 1):
+            socratic.record_review(self.journal, rnd.text, rnd.review, goal_id=goal_id, round_no=i)
+            if i < len(rounds):
+                self.journal.append("socratic_revision", {
+                    "goal_id": goal_id, "round": i, "from": rnd.text, "to": rounds[i].text,
+                    "codes": list(rnd.review.codes),
+                })
+
+    def _decompose(self, goal_id: str, node, parts) -> list[str]:
+        """Add `parts` as a chain of sub-goals (the first inherits the goal's deps)
+        and make the goal depend on the last, so dependents still wait for all of it."""
+        existing = set(self._tree().nodes)
+        ids: list[str] = []
+        for i in range(1, len(parts) + 1):
+            cid = f"{goal_id}.{i}"
+            while cid in existing:
+                cid += "'"
+            existing.add(cid)
+            ids.append(cid)
+        prev = list(node.deps)
+        for cid, part in zip(ids, parts, strict=True):
+            self.journal.append("goal", {"op": "add", "id": cid, "title": part, "deps": prev})
+            prev = [cid]
+        self.journal.append("socratic_decomposed", {"goal_id": goal_id, "children": ids})
+        self.journal.append("goal", {"op": "update", "id": goal_id, "status": "pending",
+                                     "deps": list(node.deps) + [ids[-1]]})
+        return ids
+
     # -- resume --------------------------------------------------------------
 
     def recover(self) -> list[str]:
@@ -192,6 +249,30 @@ class Supervisor:
             self.journal.append("goal", {"op": "update", "id": goal_id, "status": "pending"})
             return (5, "stopped")  # parked (excluded from ready until resumed)
 
+        # A goal the Socratic step split: its sub-goals are its deps, so when it
+        # is ready they are all done -- and so is it.
+        if goal_id in self._decomposed():
+            self.journal.append("result", {"goal_id": goal_id, "code": 0, "summary": "all sub-goals done"})
+            self.journal.append("goal", {"op": "complete", "id": goal_id})
+            return (0, "all sub-goals done")
+
+        # Socratic step: review -> revise -> review. The goal runs as its accepted
+        # (possibly revised) instruction; an overlong one becomes ordered
+        # sub-goals; only what cannot be rewritten waits for the operator.
+        from . import socratic
+
+        deliberation = socratic.deliberate(node.title or goal_id)
+        self._record_deliberation(goal_id, deliberation)
+        if deliberation.outcome == "needs_input":
+            self.journal.append("goal", {"op": "update", "id": goal_id, "status": "needs_input"})
+            return (NEEDS_INPUT, "needs input: " + "; ".join(deliberation.reasons))
+        if deliberation.outcome == "decompose":
+            children = self._decompose(goal_id, node, deliberation.subgoals)
+            return (DECOMPOSED, f"split into {len(children)} sub-goals: {', '.join(children)}")
+        instruction = deliberation.text
+        if deliberation.revised:
+            self.journal.append("goal", {"op": "update", "id": goal_id, "title": instruction})
+
         self.journal.append("goal", {"op": "update", "id": goal_id, "status": "active"})
         self.journal.append("status", {"goal_id": goal_id, "state": "running"})
 
@@ -230,8 +311,6 @@ class Supervisor:
         if self.issuers is not None:
             from .loop_gate import make_plan_gate
 
-            instruction = node.title or goal_id
-
             def plan_gate(view, recent):
                 # Re-read grants on every check, so an expiry or a new grant
                 # takes effect mid-run.
@@ -250,7 +329,7 @@ class Supervisor:
             }
 
         try:
-            code, summary = self.run_task(node.title or goal_id, should_stop=should_stop,
+            code, summary = self.run_task(instruction, should_stop=should_stop,
                                           on_status=on_status, confirm=confirm, record_step=record_step,
                                           **extra)
         except Exception as e:  # a crashing task must not wedge the supervisor

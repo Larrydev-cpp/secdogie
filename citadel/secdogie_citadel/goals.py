@@ -17,7 +17,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-_STATUSES = ("pending", "active", "done", "failed")
+# needs_input: the Socratic step could not rewrite the goal without the operator
+# (e.g. it is empty); it stays out of the ready queue until edited.
+_STATUSES = ("pending", "active", "done", "failed", "needs_input")
 
 
 @dataclass

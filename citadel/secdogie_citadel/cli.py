@@ -4,6 +4,8 @@
   goals  <journal.db>                 print the projected goal tree (ready / order)
   log    <journal.db>                 print events in total order
   add-goal <db> <id> --identity KEY   append a goal (title/deps)
+  set-goal <db> <id> --identity KEY --title T
+                                      edit a goal's instruction and re-queue it
   run <db> --identity KEY [--issuers ALLOWLIST]
                                       run ready goals under the supervised agent loop
                                       (high-risk steps prompt on the terminal; with
@@ -65,7 +67,21 @@ def _run(args) -> int:
     results = sup.run_ready(max_goals=args.max_goals)
     for gid, code, summary in results:
         print(f"{gid}: exit {code} -- {summary}")
-    return 1 if any(code not in (0,) for _g, code, _s in results) else 0
+    from .supervisor import DECOMPOSED
+
+    return 1 if any(code not in (0, DECOMPOSED) for _g, code, _s in results) else 0
+
+
+def _set_goal(args) -> int:
+    """Edit a goal's instruction and put it back in the queue (e.g. one the
+    Socratic step marked needs_input)."""
+    journal = _open_writable(args)
+    if args.id not in build_goal_tree(journal.events()).nodes:
+        print(f"no such goal {args.id!r}")
+        return 1
+    journal.append("goal", {"op": "update", "id": args.id, "title": args.title, "status": "pending"})
+    print(f"updated goal {args.id}")
+    return 0
 
 
 def _verify(args) -> int:
@@ -149,6 +165,14 @@ def main(argv: list[str] | None = None) -> int:
     ag.add_argument("--title", default="")
     ag.add_argument("--dep", action="append", default=[], help="a dependency goal id (repeatable)")
     ag.set_defaults(fn=_add_goal)
+
+    sg = sub.add_parser("set-goal", help="edit a goal's instruction and put it back in the queue")
+    sg.add_argument("db")
+    sg.add_argument("id")
+    sg.add_argument("--identity", required=True, metavar="KEYFILE", help="this node's DID signing key")
+    sg.add_argument("--authorized", default=None, metavar="ALLOWLIST")
+    sg.add_argument("--title", required=True, help="the new instruction")
+    sg.set_defaults(fn=_set_goal)
 
     rn = sub.add_parser("run", help="run ready goals under the supervised agent loop")
     rn.add_argument("db")

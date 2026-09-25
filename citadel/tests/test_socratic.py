@@ -107,3 +107,76 @@ def test_record_review_appends_signed_event():
     assert event["body"]["verdict"] == "revise"
     ok, _ = j.verify()
     assert ok
+
+
+# --- review -> revise -> review (deliberate) -------------------------------
+
+from secdogie_citadel.socratic import (  # noqa: E402
+    CONTRADICTION,
+    OVERLONG,
+    POLLING,
+    UNATTENDED_POSTING,
+    deliberate,
+    review,
+)
+
+
+def _accepted_revision(text):
+    d = deliberate(text)
+    assert d.outcome == "accept" and d.revised, (text, d)
+    # the accepted text passes the very same review -- no check was loosened
+    assert review(d.text).accepted
+    # and the original still would not
+    assert not review(text).accepted
+    return d
+
+
+def test_plural_seconds_are_now_caught():
+    r = review("check the inbox every 2 seconds")
+    assert POLLING in r.codes
+
+
+def test_polling_becomes_backoff():
+    d = _accepted_revision("check the inbox every 2 seconds forever")
+    assert "backoff" in d.text and "forever" not in d.text and "every 2 seconds" not in d.text
+    zh = _accepted_revision("每 1 秒不停轮询订单状态")
+    assert "退避" in zh.text and "不停" not in zh.text
+
+
+def test_unattended_posting_gains_a_confirmation():
+    d = _accepted_revision("post the weekly report to the team channel automatically without asking")
+    assert "ask the user to confirm" in d.text and "automatically" not in d.text
+    zh = _accepted_revision("自动替我回复所有评论")
+    assert "先请用户确认" in zh.text and "自动" not in zh.text
+
+
+def test_read_only_plus_change_is_sequenced_with_confirmation():
+    d = _accepted_revision("read-only: look at the config and delete the stale entries")
+    assert "only after the user explicitly confirms" in d.text
+    zh = _accepted_revision("只读检查配置,然后删除过期项")
+    assert "明确确认后再做" in zh.text
+
+
+def test_overlong_is_split_into_ordered_steps():
+    text = " and then ".join(f"step {i}" for i in range(9))
+    d = deliberate(text)
+    assert d.outcome == "decompose" and d.subgoals == tuple(f"step {i}" for i in range(9))
+    long_text = " ".join(f"Sentence number {i} describes one part of the job." for i in range(30))
+    d2 = deliberate(long_text)
+    assert d2.outcome == "decompose" and len(d2.subgoals) >= 2
+    assert all(len(s) <= 600 for s in d2.subgoals)
+
+
+def test_only_unrewritable_findings_need_input():
+    assert deliberate("   ").outcome == "needs_input"
+    critic = lambda text: "the critic disagrees"  # noqa: E731
+    d = deliberate("do the thing", extra_checks=[critic])
+    assert d.outcome == "needs_input" and d.reasons == ("the critic disagrees",)
+    clean = deliberate("open the settings page and read the version")
+    assert clean.outcome == "accept" and not clean.revised
+
+
+def test_codes_name_the_findings():
+    r = review("read-only, but post it automatically, poll every 1 s")
+    assert {CONTRADICTION, UNATTENDED_POSTING, POLLING} <= set(r.codes)
+    assert OVERLONG not in r.codes
