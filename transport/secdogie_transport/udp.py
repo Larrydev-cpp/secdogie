@@ -108,7 +108,14 @@ class UDPChannel:
         self._sock.sendto(data, (host, port))
 
     def close(self) -> None:
+        """Stop receiving. On return no on_datagram callback is running or will
+        run, so the caller may release what the callbacks use (e.g. a journal)."""
         self._stop.set()
+        thread = self._thread
+        if thread is not None and thread is not threading.current_thread():
+            # the loop wakes at least every socket timeout (0.2 s) to see _stop;
+            # joining before closing also avoids closing the fd under recvfrom
+            thread.join(timeout=5.0)
         try:
             self._sock.close()
         except OSError:

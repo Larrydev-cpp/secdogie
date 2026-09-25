@@ -4,6 +4,7 @@ dropped; and a peer's address change (roaming) keeps delivery working."""
 from __future__ import annotations
 
 import queue
+import threading
 import time
 
 import pytest
@@ -135,3 +136,48 @@ def test_route_without_endpoint_returns_false(two_nodes):
 def test_flush_delay():
     # sanity: give the recv threads a moment on slow CI (no assertion beyond no-crash)
     time.sleep(0.01)
+
+
+def test_close_waits_for_a_running_callback():
+    # A node closes its channel and then its journal; if close() returned while
+    # a callback was still reading the journal, the journal was freed under it
+    # (a segfault in CI). close() must not return until the callback is done.
+    entered, finished = threading.Event(), threading.Event()
+
+    def slow(_data, _addr):
+        entered.set()
+        time.sleep(0.3)
+        finished.set()
+
+    ch, sender = UDPChannel(), UDPChannel()
+    try:
+        ch.start(slow)
+        sender.send(*ch.address, b"x")
+        assert entered.wait(2.0)
+        ch.close()
+        assert finished.is_set()
+    finally:
+        ch.close()
+        sender.close()
+
+
+def test_close_from_inside_a_callback_does_not_deadlock():
+    done = threading.Event()
+    ch, sender = UDPChannel(), UDPChannel()
+
+    def closes_itself(_data, _addr):
+        ch.close()
+        done.set()
+
+    try:
+        ch.start(closes_itself)
+        sender.send(*ch.address, b"x")
+        assert done.wait(2.0)
+        ch._thread.join(2.0)
+        assert not ch._thread.is_alive()
+    finally:
+        sender.close()
+
+
+def test_close_without_start():
+    UDPChannel().close()
