@@ -16,13 +16,18 @@ deliberate boundaries, so this is an honest advance and not a tunnel rewrite:
         replay protection. Fail closed: a peer without a verified binding gets
         nothing (no plaintext fallback), and inbound v1 frames are dropped. No
         forward secrecy -- see sealed.py for the stated limits.
+    Both frame versions carry a signed timestamp `ts` (freshness.py) and a
+    per-sender counter `ctr`: a frame outside the clock skew is dropped, and one
+    inside it goes through the per-peer `ReplayWindow`, so a captured frame --
+    including a hole-punch PROBE / PROBE-ACK -- cannot be replayed.
     No new crypto is implemented here, and there is no traffic obfuscation /
     anti-detection.
   * Roaming by identity. An inbound datagram updates the sender's endpoint
     (source address adoption), keyed by DID -- a NAT rebind does not look like a
-    new peer. With encryption on, only a fresh (non-replayed), decrypted frame
-    can move an endpoint, so a captured frame replayed from another address does
-    not redirect the peer.
+    new peer. Only a fresh (in-skew, non-replayed), verified frame can move an
+    endpoint, so a captured frame replayed from another address does not
+    redirect the peer. `route_to` dials a candidate address without touching the
+    current route, so probing never displaces a working path.
 
 The datagram sink is injectable (`Channel`): production uses `UDPChannel` (a real
 loopback/UDP socket); this makes the transport fully testable on 127.0.0.1.
@@ -40,6 +45,7 @@ from secdogie_identity import Identity, sign_payload, verify_payload
 
 from . import sealed as _sealed
 from .endpoint import Endpoint
+from .freshness import DEFAULT_MAX_SKEW, is_fresh, now_ms
 from .peer import PeerIdentity
 from .session import Session
 from .transport import DeliverFn, Transport
@@ -47,17 +53,26 @@ from .transport import DeliverFn, Transport
 _FRAME_TYPE = "secdogie/direct/v1"
 
 
-def _encode_frame(identity: Identity, to_did: str, message: bytes) -> bytes:
+def _encode_frame(identity: Identity, to_did: str, message: bytes, *,
+                  ctr: int | None = None, ts: int | None = None) -> bytes:
+    """A signed v1 frame. `ts` (ms) and `ctr` sit inside the signed payload, so
+    neither can be changed without breaking the signature."""
     payload = {
         "t": _FRAME_TYPE,
         "from": identity.did,
         "to": to_did,
+        "ts": now_ms() if ts is None else int(ts),
+        "ctr": time.time_ns() if ctr is None else int(ctr),
         "data": base64.b64encode(message).decode("ascii"),
     }
     return json.dumps(sign_payload(identity, payload)).encode("utf-8")
 
 
-def _decode_frame(raw: bytes, allowlist, self_did: str) -> tuple[str, bytes] | None:
+def _decode_frame(raw: bytes, allowlist, self_did: str, *, now: float | None = None,
+                  max_skew: float = DEFAULT_MAX_SKEW) -> tuple[str, int, bytes] | None:
+    """Verify a v1 frame addressed to `self_did`: signature, allowlist, and a
+    signed `ts` within `max_skew` of `now`. Returns (signer, ctr, message); replay
+    checking on `ctr` is the caller's (it keeps the per-peer windows)."""
     try:
         obj = json.loads(raw)
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -67,8 +82,13 @@ def _decode_frame(raw: bytes, allowlist, self_did: str) -> tuple[str, bytes] | N
     ok, signer = verify_payload(obj, allowlist)
     if not ok or obj.get("from") != signer or obj.get("to") != self_did:
         return None
+    if not is_fresh(obj.get("ts"), now=time.time() if now is None else now, max_skew=max_skew):
+        return None
+    ctr = obj.get("ctr")
+    if not isinstance(ctr, int) or isinstance(ctr, bool) or ctr < 0:
+        return None
     try:
-        return signer, base64.b64decode(obj["data"], validate=True)
+        return signer, ctr, base64.b64decode(obj["data"], validate=True)
     except (KeyError, ValueError, TypeError):
         return None
 
@@ -122,8 +142,12 @@ class DirectUDPTransport(Transport):
     `migrate`, or -- the roaming path -- an inbound datagram's source address."""
 
     def __init__(self, identity: Identity, channel: UDPChannel, *, allowlist=None,
-                 transport_key=None):
+                 transport_key=None, max_skew: float = DEFAULT_MAX_SKEW, clock=time.time):
         self.identity = identity
+        # Frame freshness: every outbound frame is stamped from `clock`, and an
+        # inbound one is accepted only within `max_skew` seconds of it.
+        self.max_skew = max_skew
+        self._clock = clock
         self.channel = channel
         self._allowlist = allowlist
         self._inbound: DeliverFn | None = None
@@ -180,16 +204,26 @@ class DirectUDPTransport(Transport):
         ep = self._endpoints.get(to_did)
         if ep is None:
             return False  # nowhere to send yet (need an endpoint or an inbound packet first)
+        return self._send(ep, to_did, message)
+
+    def route_to(self, to_did: str, endpoint: Endpoint, message: bytes) -> bool:
+        """Send one frame for `to_did` to an explicit `endpoint` WITHOUT changing
+        the peer's current route -- used to dial a candidate during a hole-punch
+        so an unproven address never displaces a working path."""
+        return self._send((endpoint.host, endpoint.port), to_did, message)
+
+    def _send(self, ep: tuple[str, int], to_did: str, message: bytes) -> bool:
+        with self._ctr_lock:
+            self._ctr += 1
+            ctr = self._ctr
+        ts = now_ms(self._clock)
         if self.encrypted:
             box = self._boxes.get(to_did)
             if box is None:
                 return False  # no verified key for this peer: never fall back to plaintext
-            with self._ctr_lock:
-                self._ctr += 1
-                ctr = self._ctr
-            frame = _sealed.seal(self.identity, box, to_did, ctr, message)
+            frame = _sealed.seal(self.identity, box, to_did, ctr, message, ts=ts)
         else:
-            frame = _encode_frame(self.identity, to_did, message)
+            frame = _encode_frame(self.identity, to_did, message, ctr=ctr, ts=ts)
         self.channel.send(ep[0], ep[1], frame)
         return True
 
@@ -201,21 +235,23 @@ class DirectUDPTransport(Transport):
         return True
 
     def _on_datagram(self, raw: bytes, addr: tuple) -> None:
+        now = self._clock()
         if self.encrypted:
             opened = _sealed.open_sealed(
                 raw, allowlist=self._allowlist, self_did=self.identity.did, box_for=self._boxes.get,
+                now=now, max_skew=self.max_skew,
             )
             if opened is None:
-                return  # plaintext v1 / unsigned / unknown key / tampered / not for us
-            signer, ctr, data = opened
-            window = self._windows.setdefault(signer, _sealed.ReplayWindow())
-            if not window.accept(ctr):
-                return  # replayed or too old: dropped before it can move the endpoint
+                return  # plaintext v1 / unsigned / stale / unknown key / tampered / not for us
         else:
-            decoded = _decode_frame(raw, self._allowlist, self.identity.did)
-            if decoded is None:
-                return  # spoofed / unsigned / unauthorized / not for us -> dropped
-            signer, data = decoded
+            opened = _decode_frame(raw, self._allowlist, self.identity.did,
+                                   now=now, max_skew=self.max_skew)
+            if opened is None:
+                return  # spoofed / unsigned / stale / unauthorized / not for us -> dropped
+        signer, ctr, data = opened
+        window = self._windows.setdefault(signer, _sealed.ReplayWindow())
+        if not window.accept(ctr):
+            return  # replayed or too old: dropped before it can move the endpoint
         # Roaming: adopt the source address for this DID (keyed by identity, not
         # by address), so a peer's NAT rebind keeps working without a re-register.
         self._endpoints[signer] = (addr[0], addr[1])

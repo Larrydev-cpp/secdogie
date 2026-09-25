@@ -10,11 +10,12 @@ from __future__ import annotations
 
 from .dht import RoutingTable, find_node, find_peer, node_id, xor_distance
 from .endpoint import Endpoint, EndpointSet
+from .freshness import DEFAULT_MAX_SKEW, is_fresh
 from .membership import MembershipView, PeerRecord, gossip_round
 from .peer import PeerIdentity
 from .rendezvous import RendezvousClient, RendezvousServer
 from .sealed import ReplayWindow, load_transport_key
-from .session import Session
+from .session import PATH_DIRECT, PATH_RELAY, Session
 from .transport import HubTransport, Transport
 from .udp import DirectUDPTransport, UDPChannel
 from .upgrade import DirectUpgrader, UpgradeState
@@ -26,6 +27,10 @@ __all__ = [
     "Endpoint",
     "EndpointSet",
     "Session",
+    "PATH_RELAY",
+    "PATH_DIRECT",
+    "DEFAULT_MAX_SKEW",
+    "is_fresh",
     "Transport",
     "HubTransport",
     "DirectUDPTransport",

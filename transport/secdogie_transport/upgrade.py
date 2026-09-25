@@ -20,6 +20,20 @@ over the relay and dial simultaneously). The lifecycle here is:
   5. Route selection (`send`): an application message goes over the direct path
      when the peer is DIRECT and falls back to the relay otherwise.
 
+Session.migrate is make-before-break. Probing dials candidates with
+`DirectUDPTransport.route_to`, which never touches the peer's current route, so
+an unproven address cannot displace the relay (or a working direct path). Only a
+verified PROBE-ACK -- from the very DID that was probed, echoing a random
+single-use nonce -- switches the route and migrates the `Session` to
+`PATH_DIRECT` (bumping its `epoch`). The relay registration is never torn down,
+so anything already in flight on the relay still arrives; on silence or a failed
+probe the session `fall_back`s to the relay endpoint it left. While DIRECT, an
+ACK from a different candidate is ignored (no flapping between paths).
+
+Every PROBE / PROBE-ACK rides in a DID-signed frame with a signed timestamp and
+counter (udp.py / freshness.py), so during the hole-punch a stale or replayed
+datagram is dropped before it reaches this state machine.
+
 Authenticity comes for free from the transports, which already DID-sign every
 datagram; the CONNECT / PROBE / PROBE-ACK carried inside are small typed payloads
 with a nonce. This adds NO new crypto, no traffic obfuscation, and no
@@ -35,11 +49,12 @@ optional relay `Transport`, so the whole thing is exercised headless on 127.0.0.
 from __future__ import annotations
 
 import json
+import secrets
 import time
 from dataclasses import dataclass
 
 from .endpoint import Endpoint
-from .session import Session
+from .session import PATH_DIRECT, Session
 from .transport import Transport
 from .udp import DirectUDPTransport
 
@@ -56,6 +71,8 @@ DIRECT = "direct"
 
 # How long a direct path may be silent before `sweep` downgrades it to the relay.
 DEFAULT_DEAD_AFTER = 30.0
+# How long an unanswered PROBE stays valid before `sweep` gives up on it.
+DEFAULT_PROBE_TIMEOUT = 5.0
 
 
 def encode_probe(nonce: str) -> bytes:
@@ -149,22 +166,33 @@ class UpgradeState:
         return True
 
 
+@dataclass(frozen=True)
+class _Pending:
+    """One in-flight PROBE: which peer it was for, where it went, and when."""
+
+    peer_did: str
+    endpoint: Endpoint
+    sent_at: float
+
+
 class DirectUpgrader:
     """Drives the upgrade for a node's peer sessions over one
     `DirectUDPTransport`, with an optional relay `Transport` for coordination and
     fallback. Feed every inbound direct datagram to `handle` and every inbound
     relay datagram to `handle_relay`; use `send` to route an application message,
-    `keepalive` to keep a quiet direct path warm, and `sweep` to downgrade silent
-    ones."""
+    `keepalive` to keep a quiet direct path warm, and `sweep` to time out
+    unanswered probes and downgrade silent paths."""
 
     def __init__(self, direct: DirectUDPTransport, session: Session,
-                 *, relay: Transport | None = None):
+                 *, relay: Transport | None = None,
+                 probe_timeout: float = DEFAULT_PROBE_TIMEOUT, clock=time.time):
         self.direct = direct
         self.relay = relay
         self.session = session  # the peer session this upgrader may migrate
+        self.probe_timeout = probe_timeout
+        self._clock = clock
         self._states: dict[str, UpgradeState] = {}
-        self._pending: dict[str, Endpoint] = {}  # nonce -> endpoint being probed
-        self._counter = 0
+        self._pending: dict[str, _Pending] = {}  # nonce -> in-flight probe
 
     @property
     def did(self) -> str:
@@ -176,15 +204,14 @@ class DirectUpgrader:
     # -- dialing -------------------------------------------------------------
 
     def probe(self, peer_did: str, endpoint: Endpoint) -> bool:
-        """Send a signed liveness PROBE to `endpoint` for `peer_did`. Returns
-        whether the datagram was sent (the ACK, if any, arrives via `handle`)."""
+        """Send a signed liveness PROBE to `endpoint` for `peer_did`, without
+        changing the peer's current route. Returns whether the datagram was sent
+        (the ACK, if any, arrives via `handle`)."""
         st = self.state_for(peer_did)
         st.begin_probe()
-        self._counter += 1
-        nonce = f"{peer_did}#{self._counter}"
-        self._pending[nonce] = endpoint
-        self.direct.set_peer_endpoint(peer_did, endpoint.host, endpoint.port)
-        return self.direct.route(self.did, peer_did, encode_probe(nonce))
+        nonce = secrets.token_hex(16)  # unguessable and single-use
+        self._pending[nonce] = _Pending(peer_did, endpoint, self._clock())
+        return self.direct.route_to(peer_did, endpoint, encode_probe(nonce))
 
     def keepalive(self, peer_did: str) -> bool:
         """Re-probe the current direct endpoint to keep a quiet path warm (the ACK
@@ -204,26 +231,38 @@ class DirectUpgrader:
     # -- inbound -------------------------------------------------------------
 
     def handle(self, from_did: str, data: bytes) -> bytes | None:
-        """Process one inbound direct datagram. Returns a PROBE-ACK to route back
-        when `data` is a PROBE, or None otherwise. A PROBE-ACK for one of our own
-        probes migrates the peer session relay -> direct. Any authenticated inbound
-        packet from a DIRECT peer refreshes its liveness. None is also returned for
-        ordinary application data, which the caller then handles normally."""
-        self.state_for(from_did).touch()
+        """Process one inbound direct datagram (already signature-, timestamp- and
+        replay-checked by the transport). Returns a PROBE-ACK to route back when
+        `data` is a PROBE, or None otherwise. A PROBE-ACK for one of our own probes
+        to `from_did` migrates the peer session relay -> direct. Any authenticated
+        inbound packet from a DIRECT peer refreshes its liveness. None is also
+        returned for ordinary application data, which the caller then handles."""
+        self.state_for(from_did).touch(self._clock())
         msg = decode_upgrade(data)
         if msg is None:
             return None
         if msg["t"] == PROBE:
             return encode_probe_ack(str(msg.get("nonce", "")))
         if msg["t"] == PROBE_ACK:
-            # a direct round-trip is proven for the endpoint we probed
-            endpoint = self._pending.pop(str(msg.get("nonce", "")), None)
-            if endpoint is not None:
-                verified = Endpoint("observed", endpoint.host, endpoint.port)
-                self.state_for(from_did).on_ack(verified)
-                if from_did == self.session.peer.did:
-                    self.session.migrate(verified)  # identity unchanged
+            self._on_probe_ack(from_did, str(msg.get("nonce", "")))
         return None
+
+    def _on_probe_ack(self, from_did: str, nonce: str) -> None:
+        pending = self._pending.get(nonce)
+        if pending is None or pending.peer_did != from_did:
+            return  # unknown nonce, or another peer answering a probe not sent to it
+        del self._pending[nonce]
+        st = self.state_for(from_did)
+        verified = Endpoint("observed", pending.endpoint.host, pending.endpoint.port)
+        if st.is_direct and st.direct_endpoint is not None \
+                and st.direct_endpoint.key() != verified.key():
+            return  # already direct on another proven path: keep it, don't flap
+        # make: switch the direct route to the proven endpoint first ...
+        self.direct.set_peer_endpoint(from_did, verified.host, verified.port)
+        st.on_ack(verified, now=self._clock())
+        # ... then move the session over; the relay stays registered underneath.
+        if from_did == self.session.peer.did:
+            self.session.migrate(verified, path=PATH_DIRECT)  # identity unchanged
 
     def handle_relay(self, from_did: str, data: bytes, *, my_endpoints=()) -> bool:
         """Process one inbound relay datagram. On a CONNECT, dial every advertised
@@ -241,16 +280,38 @@ class DirectUpgrader:
 
     # -- fallback ------------------------------------------------------------
 
+    def _fall_back(self, peer_did: str) -> None:
+        if peer_did == self.session.peer.did:
+            self.session.fall_back()  # back to the relay endpoint it left
+
     def on_timeout(self, peer_did: str) -> None:
-        """Give up on any in-flight probes for `peer_did` and fall back to relay."""
-        self._pending = {n: e for n, e in self._pending.items() if not n.startswith(f"{peer_did}#")}
-        self.state_for(peer_did).on_timeout()
+        """Give up on any in-flight probes for `peer_did` and fall back to relay
+        (a peer that is already DIRECT stays DIRECT)."""
+        self._pending = {n: p for n, p in self._pending.items() if p.peer_did != peer_did}
+        st = self.state_for(peer_did)
+        st.on_timeout()
+        if not st.is_direct:
+            self._fall_back(peer_did)
 
     def sweep(self, *, now: float | None = None, dead_after: float = DEFAULT_DEAD_AFTER) -> list[str]:
-        """Downgrade every DIRECT peer whose path has gone silent back to the
-        relay. Returns the DIDs that were downgraded."""
-        return [did for did, st in self._states.items()
-                if st.expire(now=now, dead_after=dead_after)]
+        """Time out probes unanswered for `probe_timeout` (a PROBING peer with none
+        left returns to RELAYED), and downgrade every DIRECT peer whose path has
+        been silent for `dead_after` back to the relay, session included. Returns
+        the DIDs that were downgraded from DIRECT."""
+        t = self._clock() if now is None else float(now)
+        stale = {n for n, p in self._pending.items() if t - p.sent_at > self.probe_timeout}
+        for n in stale:
+            self._pending.pop(n)
+        still_probing = {p.peer_did for p in self._pending.values()}
+        for did, st in self._states.items():
+            if st.state == PROBING and did not in still_probing:
+                st.on_timeout()
+                self._fall_back(did)
+        downgraded = [did for did, st in self._states.items()
+                      if st.expire(now=t, dead_after=dead_after)]
+        for did in downgraded:
+            self._fall_back(did)
+        return downgraded
 
     # -- routing -------------------------------------------------------------
 
@@ -274,6 +335,7 @@ __all__ = [
     "PROBING",
     "DIRECT",
     "DEFAULT_DEAD_AFTER",
+    "DEFAULT_PROBE_TIMEOUT",
     "encode_probe",
     "encode_probe_ack",
     "encode_connect",

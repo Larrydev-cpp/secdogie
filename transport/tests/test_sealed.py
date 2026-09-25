@@ -2,8 +2,9 @@
 
 Two nodes, each with a DID and an X25519 transport key bound to it, exchange
 sealed frames. Covers: round trip, nothing readable on the wire, tampering,
-reflection, replay (including a replay from another address, which must not move
-the peer's endpoint), no key -> nothing sent, bad bindings refused, v1 dropped,
+reflection, replay -- for v1 as well as v2 (including a replay from another
+address, which must not move the peer's endpoint), no key -> nothing sent, bad
+bindings refused, v1 dropped,
 and the P2P.2 upgrade still working on top."""
 from __future__ import annotations
 
@@ -199,9 +200,10 @@ def test_replay_is_dropped_and_cannot_move_the_endpoint(pair):
     assert _get(b.inbox) == (a.did, b"next")
 
 
-def test_v1_replay_does_move_the_endpoint_which_v2_fixes():
-    # The contrast case: without encryption a captured frame replayed from another
-    # address is re-delivered and redirects the peer. That is the gap v2 closes.
+def test_v1_replay_is_dropped_and_cannot_move_the_endpoint():
+    # P2P.2: v1 frames now carry a signed ts + ctr and go through the same per-peer
+    # ReplayWindow as v2, so a captured plaintext frame replayed from another
+    # address is neither re-delivered nor able to redirect the peer.
     allow = Allowlist()
     a, b = EncNode(allow, encrypted=False), EncNode(allow, encrypted=False)
     allow.add(a.did)
@@ -213,8 +215,8 @@ def test_v1_replay_does_move_the_endpoint_which_v2_fixes():
         a.transport.route(a.did, b.did, b"hi")
         assert _get(b.inbox) == (a.did, b"hi")
         _raw_send(other, b, a.channel.sent[-1])
-        assert _get(b.inbox) == (a.did, b"hi")
-        assert b.transport._endpoints[a.did] == other.address
+        assert _get(b.inbox, timeout=0.3) is None
+        assert b.transport._endpoints[a.did] == a.channel.address
     finally:
         other.close()
         a.close()

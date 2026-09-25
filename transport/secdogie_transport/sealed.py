@@ -13,12 +13,13 @@ with PyNaCl's `Box` (X25519 + XSalsa20-Poly1305), keyed by:
 
 Wire format:
 
-    outer (DID-signed): {t: "secdogie/direct/v2", from, to, ct: b64(Box ciphertext)}
+    outer (DID-signed): {t: "secdogie/direct/v2", from, to, ts, ct: b64(Box ciphertext)}
     inner (plaintext):  json({from, to, ctr}) + b"\\n" + message bytes
 
 The outer signature is checked (and the allowlist applied) before any decryption,
-so junk is dropped cheaply. After decryption the inner from/to must match the
-outer ones (a frame bounced back at its sender is rejected), and `ctr` goes
+and the signed `ts` must be within the receiver's clock skew (freshness.py), so
+junk and stale captures are dropped cheaply. After decryption the inner from/to
+must match the outer ones (a frame bounced back at its sender is rejected), and `ctr` goes
 through a per-peer sliding `ReplayWindow`: a frame seen before, or too old, is
 dropped. The sender's counter starts at the wall-clock nanosecond at startup and
 increments per frame, so it keeps increasing across restarts.
@@ -41,11 +42,14 @@ from __future__ import annotations
 import base64
 import json
 import os
+import time
 from pathlib import Path
 
 from nacl.exceptions import CryptoError
 from nacl.public import Box, PrivateKey, PublicKey
 from secdogie_identity import Identity, sign_payload, verify_payload
+
+from .freshness import DEFAULT_MAX_SKEW, is_fresh, now_ms
 
 SEALED_TYPE = "secdogie/direct/v2"
 REPLAY_WINDOW = 1024
@@ -123,22 +127,27 @@ class ReplayWindow:
         return True
 
 
-def seal(identity: Identity, box: Box, to_did: str, ctr: int, message: bytes) -> bytes:
-    """Build a signed v2 frame carrying `message` to `to_did`."""
+def seal(identity: Identity, box: Box, to_did: str, ctr: int, message: bytes,
+         *, ts: int | None = None) -> bytes:
+    """Build a signed v2 frame carrying `message` to `to_did`, stamped with `ts`
+    (ms; defaults to now) inside the signed envelope."""
     header = json.dumps({"from": identity.did, "to": to_did, "ctr": ctr}).encode("utf-8")
     ct = box.encrypt(header + b"\n" + message)  # a fresh random nonce is prepended
     envelope = {
         "t": SEALED_TYPE,
         "from": identity.did,
         "to": to_did,
+        "ts": now_ms() if ts is None else int(ts),
         "ct": base64.b64encode(bytes(ct)).decode("ascii"),
     }
     return json.dumps(sign_payload(identity, envelope)).encode("utf-8")
 
 
-def open_sealed(raw: bytes, *, allowlist, self_did: str, box_for) -> tuple[str, int, bytes] | None:
+def open_sealed(raw: bytes, *, allowlist, self_did: str, box_for, now: float | None = None,
+                max_skew: float = DEFAULT_MAX_SKEW) -> tuple[str, int, bytes] | None:
     """Verify and decrypt a v2 frame addressed to `self_did`. `box_for(did)` returns
-    the `Box` for a peer with a verified binding, or None. Returns
+    the `Box` for a peer with a verified binding, or None. The signed `ts` must be
+    within `max_skew` seconds of `now` (default: the wall clock). Returns
     (signer_did, ctr, message), or None for anything that does not check out.
     Replay checking is the caller's (it keeps the per-peer windows)."""
     try:
@@ -150,6 +159,8 @@ def open_sealed(raw: bytes, *, allowlist, self_did: str, box_for) -> tuple[str, 
     ok, signer = verify_payload(obj, allowlist)
     if not ok or obj.get("from") != signer or obj.get("to") != self_did:
         return None
+    if not is_fresh(obj.get("ts"), now=time.time() if now is None else now, max_skew=max_skew):
+        return None  # stale, future-dated or unstamped: dropped before decryption
     box = box_for(signer)
     if box is None:
         return None  # no verified key for this peer: cannot (and must not) accept
