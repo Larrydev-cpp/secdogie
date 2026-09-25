@@ -1,0 +1,21 @@
+# Signaling gateway for the browser P2P module (see README.md).
+#   npx wrangler dev      -> ws://localhost:8787/ws
+#   npx wrangler deploy   -> wss://secdogie-signaling.<account>.workers.dev/ws
+name = "secdogie-signaling"
+main = "signaling/worker.js"
+compatibility_date = "2025-09-01"
+
+[[durable_objects.bindings]]
+name = "SIGNALING_ROOMS"
+class_name = "SignalingRoom"
+
+# SQLite-backed class: works on the Workers free plan. Only alarms use storage.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SignalingRoom"]
+
+[vars]
+# Comma-separated page origins allowed to open a signaling socket, e.g.
+# "https://peer.example.com". Empty allows any origin: fine for local dev,
+# set it before deploying.
+ALLOWED_ORIGINS = ""

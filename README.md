@@ -71,6 +71,7 @@ identity/    transport/    citadel/     citadel/       agent/ + 安全边界
 | 感知/动作 | `agent/observation.py`（AX + DIB 按引用融合）+ `target.py`（TOCTOU）+ AX/safety；`native/atlas`（只读、DIB 重建） | ✅ |
 | 设备/会话 | `desktop/`（聊天式原生窗口 + `websession.py` 复用**已授权**浏览器会话，只读导航 + 读结构） | ✅ |
 | 承载/运维 | `tunnel/`（C 加密隧道，机密性）、`fleet/`、`console/` | ✅ |
+| 浏览器 P2P | `webrtc/`（WebRTC 数据通道客户端 + Cloudflare Worker 信令网关；仅用户点击后启动） | ✅ |
 
 **待做**：Agent↔Citadel run 闭环（goal/run/step/observation/action/state_hash 串联、写回
 StateStore）、崩溃恢复升级、能力签名授权模型、AX 原生身份/代际的 OS 侧接线。见 [`ROADMAP.md`](ROADMAP.md)。

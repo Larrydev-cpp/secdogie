@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>secdogie · WebRTC P2P 测试</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --card: #161b22;
+    --border: #2a313c;
+    --fg: #e6edf3;
+    --dim: #8b98a5;
+    --accent: #4c8dff;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --bad: #f85149;
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f8fa;
+      --card: #ffffff;
+      --border: #d0d7de;
+      --fg: #1f2328;
+      --dim: #59636e;
+      --accent: #0969da;
+      --ok: #1a7f37;
+      --warn: #9a6700;
+      --bad: #cf222e;
+      color-scheme: light;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px; display: grid; gap: 16px; }
+  h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  h2 { font-size: 13px; margin: 0 0 12px; color: var(--dim); font-weight: 600; }
+  p { margin: 0; }
+  .dim { color: var(--dim); }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .fields { display: grid; grid-template-columns: 1fr 160px; gap: 12px; margin-bottom: 12px; }
+  label { display: grid; gap: 4px; font-size: 12px; color: var(--dim); }
+  input {
+    width: 100%; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--fg); font: inherit;
+  }
+  input:disabled { opacity: 0.5; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button {
+    padding: 7px 14px; border-radius: 8px; border: 1px solid var(--accent);
+    background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button.ghost { background: transparent; color: var(--fg); border-color: var(--border); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .pill { margin-left: auto; font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); color: var(--dim); }
+  .pill[data-state="connected"] { color: var(--ok); border-color: var(--ok); }
+  .pill[data-state="negotiating"], .pill[data-state="disconnected"], .pill[data-state="signaling"] { color: var(--warn); border-color: var(--warn); }
+  .pill[data-state="failed"] { color: var(--bad); border-color: var(--bad); }
+  #send-form input { flex: 1; min-width: 180px; }
+  #log {
+    list-style: none; margin: 0; padding: 0; max-height: 360px; overflow-y: auto;
+    font: 12px/1.6 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  #log li { padding: 2px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+  #log time { color: var(--dim); margin-right: 8px; }
+  #log .in { color: var(--ok); }
+  #log .out { color: var(--accent); }
+  #log .err { color: var(--bad); }
+  @media (max-width: 520px) { .fields { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <header class="card">
+    <h1>WebRTC P2P 数据通道测试</h1>
+    <p class="dim">在两个标签页打开本页，填同一个房间名，分别点击「启动节点」。页面加载时不会建立任何连接；只有点击按钮才会连接信令并协商直连。</p>
+  </header>
+
+  <section class="card">
+    <div class="fields">
+      <label>信令地址（Worker WebSocket）<input id="signal" autocomplete="off" spellcheck="false"></label>
+      <label>房间<input id="room" value="demo" autocomplete="off" spellcheck="false"></label>
+    </div>
+    <div class="row">
+      <button id="start" type="button">启动节点</button>
+      <button id="stop" type="button" class="ghost" disabled>关闭节点</button>
+      <span id="state" class="pill" data-state="idle">idle</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>发送测试文本</h2>
+    <form id="send-form" class="row">
+      <input id="text" placeholder="连接建立后可发送…" autocomplete="off" disabled>
+      <button id="send" type="submit" disabled>发送</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>日志</h2>
+    <ol id="log"></ol>
+  </section>
+</main>
+
+<script type="module">
+  import {
+    PeerState, startPeerConnection, closePeerConnection, sendData, onMessage, onStateChange,
+  } from './client/web_peer.js';
+
+  const $ = (id) => document.getElementById(id);
+  const params = new URLSearchParams(location.search);
+  $('signal').value = params.get('signal') ?? 'ws://localhost:8787/ws';
+  if (params.has('room')) $('room').value = params.get('room');
+
+  function log(kind, text) {
+    const item = document.createElement('li');
+    const time = document.createElement('time');
+    time.textContent = new Date().toLocaleTimeString();
+    const body = document.createElement('span');
+    body.className = kind;
+    body.textContent = text; // textContent, never innerHTML: remote text is untrusted
+    item.append(time, body);
+    $('log').append(item);
+    item.scrollIntoView({ block: 'nearest' });
+  }
+
+  onStateChange((state, detail) => {
+    $('state').textContent = state;
+    $('state').dataset.state = state;
+    const running = state !== PeerState.IDLE && state !== PeerState.FAILED;
+    $('start').disabled = running;
+    $('stop').disabled = !running;
+    $('signal').disabled = $('room').disabled = running;
+    const connected = state === PeerState.CONNECTED;
+    $('text').disabled = $('send').disabled = !connected;
+    log(state === PeerState.FAILED ? 'err' : 'sys', `[${state}] ${detail}`);
+  });
+
+  onMessage((data) => {
+    log('in', `← ${typeof data === 'string' ? data : `[二进制 ${data.byteLength} 字节]`}`);
+  });
+
+  // The only place the peer is started: an explicit click.
+  $('start').addEventListener('click', async () => {
+    try {
+      const { peerId, room } = await startPeerConnection({
+        signalingUrl: $('signal').value.trim(),
+        room: $('room').value.trim(),
+        log: (line) => log('sys', line),
+      });
+      log('sys', `本节点 ${peerId} 已加入房间 ${room}`);
+    } catch (err) {
+      log('err', `启动失败：${err.message}`);
+    }
+  });
+
+  $('stop').addEventListener('click', () => closePeerConnection());
+
+  $('send-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const text = $('text').value;
+    if (!text) return;
+    try {
+      await sendData(text);
+      log('out', `→ ${text}`);
+      $('text').value = '';
+    } catch (err) {
+      log('err', `发送失败：${err.message}`);
+    }
+  });
+</script>
+</body>
+</html>
