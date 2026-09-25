@@ -34,4 +34,12 @@ def is_fresh(ts, *, now: float, max_skew: float = DEFAULT_MAX_SKEW) -> bool:
     return abs(now * 1000 - ts) <= max_skew * 1000
 
 
-__all__ = ["DEFAULT_MAX_SKEW", "now_ms", "is_fresh"]
+def is_fresh_seconds(ts, *, now: float, max_skew: float = DEFAULT_MAX_SKEW) -> bool:
+    """Like `is_fresh`, for protocols that stamp `ts` in (float) seconds, such as
+    rendezvous. Booleans and non-numbers fail closed."""
+    if isinstance(ts, bool) or not isinstance(ts, (int, float)):
+        return False
+    return abs(now - ts) <= max_skew
+
+
+__all__ = ["DEFAULT_MAX_SKEW", "now_ms", "is_fresh", "is_fresh_seconds"]

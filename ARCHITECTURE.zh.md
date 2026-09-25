@@ -150,6 +150,7 @@ flowchart TB
 | `transport/udp.py` | `DirectUDPTransport` 真 P2P(2.10 提前) | ② | ✅ 已建成 |
 | `transport/rendezvous.py` | Rendezvous + 反射端点发现(STUN/AutoNAT,DID 签名) | ①② | ✅ 已建成 |
 | `transport/upgrade.py` | 直连升级 + relay 兜底(DCUtR/Tailscale 式,探测→迁移;`Session` 先建后拆、ACK 绑定被探测 DID) | ①② | ✅ 已建成 |
+| `transport/node.py` · `mux.py` | `MeshNode`:把 rendezvous、直连升级、gossip、复制组装成一个节点;通道复用 + MTU 内分片;rendezvous 是节点角色,不需要服务器 | ①② | ✅ 已建成 |
 | `transport/freshness.py` | direct 帧签名时间戳校验(时钟偏差内才收,配合每对端 `ReplayWindow` 防重放) | ①② | ✅ 已建成 |
 | `transport/membership.py` | 成员/端点 gossip 反熵(自签名记录、LWW、去中心收敛) | ①② | ✅ 已建成 |
 | `transport/dht.py` | Kademlia 路由表 + 迭代查找(P2P.4):DID=node id、XOR k-bucket、可扩展定向发现 | ①② | ✅ 已建成 |

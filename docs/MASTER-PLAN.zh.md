@@ -38,7 +38,7 @@
 
 ### Phase 2 收尾：让 mesh 真正跑起来
 
-**2B · 多路复用 + `MeshNode`**
+**2B · 多路复用 + `MeshNode`** —— ✅ 已落地(`transport/node.py`、`transport/mux.py`、`citadel.replication.attach`)
 - `DirectUDPTransport` 把非 direct 帧交给可选 `on_other(raw, addr)`，rendezvous 帧与数据面共用一个 socket。
 - `transport/mux.py`：direct 帧载荷里的信封 `{"ch": "upgrade|repl|member", ...}`。
 - `transport/node.py`：`MeshNode` 组装 rendezvous 注册/查询、`DirectUpgrader`、复制通道（按 ~48KB 分片）、

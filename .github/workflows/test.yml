@@ -37,6 +37,7 @@ jobs:
           - dir: identity   # DID signing (@Larryx); pynacl comes as a hard dep
           - dir: citadel    # signed event journal + DAG goal tree
             needs_identity: true
+            needs_transport: true  # so journal replication over a real MeshNode runs (not skip)
           - dir: transport  # P2P-ready peer/session/endpoint model
             needs_identity: true
           - dir: fleet      # protocol/coordinator are pure; a node needs the agent it drives
@@ -67,6 +68,9 @@ jobs:
           fi
           if [ "${{ matrix.needs_identity }}" = "true" ]; then
             pip install -e ../identity
+          fi
+          if [ "${{ matrix.needs_transport }}" = "true" ]; then
+            pip install -e ../transport
           fi
           if [ "${{ matrix.needs_fleet }}" = "true" ]; then
             pip install -e ../fleet

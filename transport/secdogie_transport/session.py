@@ -78,8 +78,7 @@ class Session:
             return False
         self.path = PATH_RELAY
         self.epoch += 1
-        if self.relay_endpoint is not None:
-            self.active = self.relay_endpoint
+        self.active = self.relay_endpoint  # None when the session never had one
         return True
 
     def observe_from(self, host: str, port: int) -> None:

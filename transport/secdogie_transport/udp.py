@@ -51,6 +51,19 @@ from .session import Session
 from .transport import DeliverFn, Transport
 
 _FRAME_TYPE = "secdogie/direct/v1"
+_DIRECT_TYPES = frozenset({_FRAME_TYPE, _sealed.SEALED_TYPE})
+
+OtherFn = Callable[[bytes, tuple], None]  # (raw datagram, source address) -> None
+
+
+def _frame_type(raw: bytes) -> str | None:
+    """The `t` of a JSON datagram, or None if it is not a JSON object."""
+    try:
+        obj = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    t = obj.get("t", obj.get("type")) if isinstance(obj, dict) else None
+    return t if isinstance(t, str) else None
 
 
 def _encode_frame(identity: Identity, to_did: str, message: bytes, *,
@@ -142,8 +155,12 @@ class DirectUDPTransport(Transport):
     `migrate`, or -- the roaming path -- an inbound datagram's source address."""
 
     def __init__(self, identity: Identity, channel: UDPChannel, *, allowlist=None,
-                 transport_key=None, max_skew: float = DEFAULT_MAX_SKEW, clock=time.time):
+                 transport_key=None, max_skew: float = DEFAULT_MAX_SKEW, clock=time.time,
+                 on_other: OtherFn | None = None):
         self.identity = identity
+        # Datagrams that are not direct frames (e.g. rendezvous) share this socket;
+        # they are handed, unverified, to `on_other`, which must verify them itself.
+        self.on_other = on_other
         # Frame freshness: every outbound frame is stamped from `clock`, and an
         # inbound one is accepted only within `max_skew` seconds of it.
         self.max_skew = max_skew
@@ -200,6 +217,11 @@ class DirectUDPTransport(Transport):
     def set_peer_endpoint(self, did: str, host: str, port: int) -> None:
         self._endpoints[did] = (host, port)
 
+    def peer_endpoint(self, did: str) -> tuple[str, int] | None:
+        """Where frames to `did` currently go: set explicitly, proven by an
+        upgrade, or adopted from the peer's last verified inbound frame."""
+        return self._endpoints.get(did)
+
     def route(self, from_did: str, to_did: str, message: bytes) -> bool:
         ep = self._endpoints.get(to_did)
         if ep is None:
@@ -224,7 +246,10 @@ class DirectUDPTransport(Transport):
             frame = _sealed.seal(self.identity, box, to_did, ctr, message, ts=ts)
         else:
             frame = _encode_frame(self.identity, to_did, message, ctr=ctr, ts=ts)
-        self.channel.send(ep[0], ep[1], frame)
+        try:
+            self.channel.send(ep[0], ep[1], frame)
+        except OSError:
+            return False  # socket closed / unreachable: let the caller fall back
         return True
 
     def migrate(self, did: str, endpoint: Endpoint) -> bool:
@@ -235,6 +260,10 @@ class DirectUDPTransport(Transport):
         return True
 
     def _on_datagram(self, raw: bytes, addr: tuple) -> None:
+        if _frame_type(raw) not in _DIRECT_TYPES:
+            if self.on_other is not None:
+                self.on_other(raw, addr)
+            return
         now = self._clock()
         if self.encrypted:
             opened = _sealed.open_sealed(

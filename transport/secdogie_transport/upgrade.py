@@ -13,9 +13,10 @@ over the relay and dial simultaneously). The lifecycle here is:
   3. A verified round-trip (PROBE -> PROBE-ACK) proves the direct path works, so
      the peer `Session` is migrated relay -> direct (identity unchanged -- same
      session_id / DID). If no ACK arrives, the session stays on the relay.
-  4. Liveness + fallback: while direct, every authenticated inbound packet from
-     the peer refreshes `last_seen`; a periodic `keepalive` re-probe keeps a quiet
-     path warm. `sweep` downgrades a direct path that has gone silent back to the
+  4. Liveness + fallback: while direct, only a verified round trip (the ACK to a
+     periodic `keepalive` re-probe) refreshes `last_seen`. Inbound traffic alone
+     does not: a one-way path (we hear the peer, it cannot hear us) must not look
+     alive. `sweep` downgrades a direct path with no recent round trip back to the
      relay, so the relay is a fallback *after* an upgrade too, not only before it.
   5. Route selection (`send`): an application message goes over the direct path
      when the peer is DIRECT and falls back to the relay otherwise.
@@ -142,8 +143,8 @@ class UpgradeState:
         self.last_seen = time.time() if now is None else float(now)
 
     def touch(self, now: float | None = None) -> None:
-        """An authenticated inbound packet arrived from the peer on the direct
-        path: the path is alive, so refresh liveness (only while DIRECT)."""
+        """Refresh liveness from outside the probe cycle (only while DIRECT). The
+        upgrader itself refreshes only on verified round trips."""
         if self.state == DIRECT:
             self.last_seen = time.time() if now is None else float(now)
 
@@ -234,10 +235,9 @@ class DirectUpgrader:
         """Process one inbound direct datagram (already signature-, timestamp- and
         replay-checked by the transport). Returns a PROBE-ACK to route back when
         `data` is a PROBE, or None otherwise. A PROBE-ACK for one of our own probes
-        to `from_did` migrates the peer session relay -> direct. Any authenticated
-        inbound packet from a DIRECT peer refreshes its liveness. None is also
-        returned for ordinary application data, which the caller then handles."""
-        self.state_for(from_did).touch(self._clock())
+        to `from_did` migrates the peer session relay -> direct and refreshes its
+        liveness; other inbound traffic does not (see the module docstring). None
+        is also returned for ordinary application data, which the caller handles."""
         msg = decode_upgrade(data)
         if msg is None:
             return None

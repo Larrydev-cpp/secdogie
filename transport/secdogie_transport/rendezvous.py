@@ -20,6 +20,10 @@ Two boundaries keep this an honest, compliant advance:
   * **No new crypto.** Signing/verification reuse secdogie-identity exactly as
     the direct UDP transport does; the reflexive address is standard connectivity
     discovery, not evasion.
+  * **No replay.** Every frame's signed `ts` must be within the clock skew
+    (freshness.py). A REGISTER must also be newer than the last one accepted for
+    that DID, so a captured REGISTER replayed from another address cannot re-point
+    the peer's reflexive endpoint at the replayer.
 
 Pure protocol + an in-memory registry, so the whole thing runs headless; on the
 wire it rides the same UDPChannel as DirectUDPTransport (loopback-testable).
@@ -33,6 +37,7 @@ from dataclasses import dataclass
 from secdogie_identity import Identity, sign_payload, verify_payload
 
 from .endpoint import Endpoint, EndpointSet
+from .freshness import DEFAULT_MAX_SKEW, is_fresh_seconds
 
 REGISTER = "secdogie/rendezvous/register/v1"
 REGISTER_ACK = "secdogie/rendezvous/register-ack/v1"
@@ -87,12 +92,15 @@ class RendezvousServer:
     with its own identity so a client can pin it, and gates every request behind
     an allowlist -- it only ever indexes the operator's authorized peers."""
 
-    def __init__(self, identity: Identity, *, allowlist=None, clock=time.time):
+    def __init__(self, identity: Identity, *, allowlist=None, clock=time.time,
+                 max_skew: float = DEFAULT_MAX_SKEW):
         self.identity = identity
         self.did = identity.did
         self._allowlist = allowlist
         self._clock = clock
+        self.max_skew = max_skew
         self._registry: dict[str, _Registration] = {}
+        self._last_register: dict[str, tuple[float, str]] = {}  # did -> (ts, sig) last accepted
 
     def known(self, did: str) -> EndpointSet | None:
         reg = self._registry.get(did)
@@ -108,6 +116,13 @@ class RendezvousServer:
         ok, signer = verify_payload(obj, self._allowlist)
         if not ok or obj.get("did") != signer:
             return None  # bad signature / not authorized / did != signer
+        ts = obj.get("ts")
+        if not is_fresh_seconds(ts, now=self._clock(), max_skew=self.max_skew):
+            return None  # stale or future-dated
+        last = self._last_register.get(signer)
+        if last is not None and (ts < last[0] or (ts == last[0] and obj.get("sig") == last[1])):
+            return None  # older than, or an exact replay of, the last accepted REGISTER
+        self._last_register[signer] = (ts, obj.get("sig"))
 
         endpoints = _endpoints_from_json(obj.get("endpoints"), allowed_kinds=_SELF_REPORTABLE)
         reflexive = endpoints.observe(src_addr[0], int(src_addr[1]))  # authoritative, from the packet
@@ -131,6 +146,8 @@ class RendezvousServer:
         ok, signer = verify_payload(obj, self._allowlist)
         if not ok or obj.get("did") != signer:
             return None
+        if not is_fresh_seconds(obj.get("ts"), now=self._clock(), max_skew=self.max_skew):
+            return None
         target = obj.get("target_did")
         endpoints: list[dict] = []
         if isinstance(target, str) and (self._allowlist is None or self._allowlist.contains(target)):
@@ -153,10 +170,12 @@ class RendezvousClient:
     and a peer's endpoints. `server_did` pins the rendezvous so a reply is trusted
     only when signed by that exact identity."""
 
-    def __init__(self, identity: Identity, server_did: str, *, clock=time.time):
+    def __init__(self, identity: Identity, server_did: str, *, clock=time.time,
+                 max_skew: float = DEFAULT_MAX_SKEW):
         self.identity = identity
         self.server_did = server_did
         self._clock = clock
+        self.max_skew = max_skew
         self.self_endpoints = EndpointSet()  # own candidates + learned reflexive
 
     def register_frame(self, local_endpoints) -> bytes:
@@ -179,6 +198,8 @@ class RendezvousClient:
         ok, signer = verify_payload(obj)  # signature validity...
         if not ok or signer != self.server_did or obj.get("to") != self.identity.did:
             return None  # ...and the reply must be from the pinned rendezvous, to us
+        if not is_fresh_seconds(obj.get("ts"), now=self._clock(), max_skew=self.max_skew):
+            return None  # a stale (replayed) reply
         return obj
 
     def handle_register_ack(self, raw: bytes) -> Endpoint | None:

@@ -12,6 +12,7 @@ from .dht import RoutingTable, find_node, find_peer, node_id, xor_distance
 from .endpoint import Endpoint, EndpointSet
 from .freshness import DEFAULT_MAX_SKEW, is_fresh
 from .membership import MembershipView, PeerRecord, gossip_round
+from .node import MeshNode
 from .peer import PeerIdentity
 from .rendezvous import RendezvousClient, RendezvousServer
 from .sealed import ReplayWindow, load_transport_key
@@ -20,7 +21,7 @@ from .transport import HubTransport, Transport
 from .udp import DirectUDPTransport, UDPChannel
 from .upgrade import DirectUpgrader, UpgradeState
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 __all__ = [
     "PeerIdentity",
@@ -41,6 +42,7 @@ __all__ = [
     "RendezvousClient",
     "DirectUpgrader",
     "UpgradeState",
+    "MeshNode",
     "MembershipView",
     "PeerRecord",
     "gossip_round",
