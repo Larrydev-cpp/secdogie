@@ -391,7 +391,9 @@ def agent_run_task(
     `plan_gate` (the node's capability check, see loop_gate) runs before every
     action the loop executes; `recovery` (an interrupted previous run) puts a
     check-before-redoing note in front of the task; `dib_pid` turns on read-only
-    DIB observation of that process (agent dib_source)."""
+    DIB observation of that process (agent dib_source). The loop runs in
+    structural mode: it perceives through the accessibility tree and never
+    captures the screen."""
     import argparse
 
     from secdogie_agent import cli_common
@@ -419,6 +421,10 @@ def agent_run_task(
     cfg_kwargs["ask_operator"] = lambda question: confirm(question, True)
     cfg_kwargs["approve_plan"] = lambda plan, task="": confirm(f"approve plan: {(plan or '')[:200]}", False)
     cfg_kwargs["confirm_high_risk"] = True  # never weaken the high-risk gate
+    # Perceive through the accessibility tree (+ DIB when dib_pid is set); the
+    # screen is never captured on the project's execution path.
+    cfg_kwargs["structural"] = True
+    cfg_kwargs["desktop_ax"] = True
     if record_step is not None:
         cfg_kwargs["trace_on_entry"] = lambda entry: record_step(
             observation=entry.frame_sha256, action=entry.action, result=entry.result,

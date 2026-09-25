@@ -88,6 +88,13 @@ class AgentConfig:
     activate: Callable[[], bool] | None = None
     initial_focus: Callable[[], bool | None] | None = None
     desktop_ax: bool = False
+    # Structural perception, no screenshots: every frame is the AX pad (a figure
+    # drawn from the accessibility tree), plus the element listing and, with
+    # dib_pid, the watched process's bitmaps. The screen is never captured --
+    # not for the frame, "look", post-action verification, planning or the
+    # briefing -- and a run without an accessibility provider stops (exit 4)
+    # rather than falling back to screenshots. macOS always perceives this way.
+    structural: bool = False
     macro_path: str | None = None
     plan: bool = False
     subtask_step_limit: int = 15
@@ -185,13 +192,21 @@ def _present(backend, logger) -> None:
         logger.warning("could not present the target window before capture: %s", e)
 
 
+def _ax_pad_mode(config: AgentConfig) -> bool:
+    """Whether this run perceives through the AX pad instead of screenshots:
+    always on macOS, and on any platform in structural mode."""
+    return config.structural or harness.uses_ax_pad()
+
+
 def _grab_step_frame(backend, config: AgentConfig, logger) -> tuple[bytes, tuple[int, int], str]:
-    """Return (png, size, source). Darwin builds an AX-box figure. Never mss.
+    """Return (png, size, source). In AX-pad mode (macOS, or structural mode
+    anywhere) the frame is a figure built from the accessibility tree; the
+    screen is never captured.
 
     source is `ax-pad` or `screenshot`. CaptureError on Darwin falls back to
     an empty pad so a missing Screen Recording grant cannot abort the run.
     """
-    if harness.uses_ax_pad():
+    if _ax_pad_mode(config):
         png, size = ax_image.render_from_backend(backend, region=config.region)
         return png, size, "ax-pad"
     try:
@@ -267,7 +282,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
         backend: Backend = config.backend
     else:
         ax_provider = None
-        if config.desktop_ax:
+        if config.desktop_ax or config.structural:
             from . import desktop_ax
             ax_provider = desktop_ax.make_desktop_ax_provider(logger)
         backend = DesktopBackend(
@@ -275,6 +290,16 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             activate=config.activate,
         )
     backend.setup(logger)
+
+    if config.structural and getattr(backend, "ax_provider", None) is None:
+        msg = ("structural mode perceives through the accessibility tree, and no accessibility "
+               "provider is available (Windows: UI Automation, Linux: AT-SPI, macOS: AX). "
+               "Not falling back to screenshots.")
+        logger.error("%s", msg)
+        _alert(config, "secdogie-agent — no accessibility tree", msg)
+        return _done(config, 4)
+    if config.structural:
+        logger.info("structural mode: perceiving through the accessibility tree; the screen is never captured")
 
     _emit(config, "start", task=config.task)
     if config.gui and (not config.auto or config.model_briefing or config.confirm_each):
@@ -344,7 +369,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
         )
         logger.info("dib: reading bitmaps of pid %d (read-only) each step", config.dib_pid)
 
-    element_first = config.desktop_ax and isinstance(backend, ElementAware)
+    element_first = (config.desktop_ax or config.structural) and isinstance(backend, ElementAware)
     cached_frame: tuple | None = None
     refresh_view = True
     # Token-saving: reuse the last image bytes we actually sent to the model when
@@ -694,7 +719,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 refresh_view = True
                 boost_detail = True  # next prepare uses higher max_edge for the detail the model asked for
                 logger.info("step %d: model requested a fresh look%s", step, f" -- {reasoning}" if reasoning else "")
-                if frame_source == "ax-pad" or harness.uses_ax_pad():
+                if frame_source == "ax-pad" or _ax_pad_mode(config):
                     record_result("will rebuild the AX pad on the next step (no screenshot)")
                 else:
                     record_result("will capture a fresh screenshot on the next step")
@@ -765,6 +790,16 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                         "only operator-declared commands can run as SYSTEM"
                     )
                     continue
+
+            if action.kind == "track_click" and config.structural:
+                # track_click follows a target by matching screen pixels; structural
+                # mode never captures the screen, so it cannot run here.
+                logger.warning("structural mode: refused track_click (it needs screen pixels)")
+                record_result(
+                    "refused: track_click follows pixels on the screen, which structural mode never "
+                    "captures; pick the element from the listing and use click_element with its [eN] ref"
+                )
+                continue
 
             if config.stall_limit and action.kind not in _BENIGN:
                 sig = (action.kind, action.x, action.y, action.to_x, action.to_y,
@@ -858,7 +893,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 and exec_kind == "click_element"
             )
             if executed_ok and config.verify_actions and exec_kind in _RETRY_SAFE and not ax_invoke:
-                if frame_source == "ax-pad" or harness.uses_ax_pad():
+                if frame_source == "ax-pad" or _ax_pad_mode(config):
                     # Pixel-diff needs Screen Recording. The pad already moved
                     # via AXPress; do not grab CGWindow / mss to "verify".
                     pass
@@ -1021,7 +1056,7 @@ def _run_briefing(provider: VisionProvider, config: AgentConfig, logger, backend
             try:
                 raw_png, real_size, _source = _grab_step_frame(backend, config, logger)
             except screen.CaptureError as e:
-                if config.model_briefing and not harness.uses_ax_pad():
+                if config.model_briefing and not _ax_pad_mode(config):
                     logger.error("%s", e)
                     _alert(config, "secdogie-agent — cannot capture the screen", str(e))
                     return 4

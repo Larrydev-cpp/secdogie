@@ -111,6 +111,14 @@ def main(argv: list[str] | None = None) -> int:
         "accessibility library (Windows: `pip install uiautomation`); no-ops with a hint without it",
     )
     parser.add_argument(
+        "--structural",
+        action="store_true",
+        help="perceive through the accessibility tree only -- never capture the screen: each frame "
+        "is a figure drawn from the UI tree (UI Automation / AT-SPI / AX) plus the element listing "
+        "(and, with --dib-pid, the process's bitmaps). Stops with exit 4 if no accessibility "
+        "provider is available instead of falling back to screenshots. Implies --desktop-ax",
+    )
+    parser.add_argument(
         "--dib-pid",
         type=int,
         default=None,
@@ -207,6 +215,9 @@ def main(argv: list[str] | None = None) -> int:
     cfg_kwargs["macro_path"] = args.macro
     cfg_kwargs["desktop_ax"] = args.desktop_ax
     cfg_kwargs["dib_pid"] = args.dib_pid
+    cfg_kwargs["structural"] = args.structural
+    if args.structural:
+        cfg_kwargs["desktop_ax"] = True
     if args.move_duration is not None:
         cfg_kwargs["move_duration"] = args.move_duration
     if args.settle is not None:

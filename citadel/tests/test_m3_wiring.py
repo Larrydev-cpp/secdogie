@@ -167,3 +167,19 @@ def test_dib_pid_reaches_the_task_only_when_set():
     sup2 = Supervisor(Journal(identity=Identity.generate(), clock=_counter()), old_style)
     sup2.add_goal("g1", title="g1")
     assert sup2.run_goal("g1") == (0, "ok")
+
+
+def test_agent_run_task_is_structural(monkeypatch):
+    # The project's execution path perceives through the accessibility tree and
+    # never captures the screen.
+    loop = pytest.importorskip("secdogie_agent.loop")
+    from secdogie_agent import cli_common
+    from secdogie_citadel.supervisor import agent_run_task
+
+    seen = {}
+    monkeypatch.setattr(cli_common, "resolve_provider", lambda args, name: object())
+    monkeypatch.setattr(loop, "run", lambda provider, cfg: seen.setdefault("cfg", cfg) and 0)
+    code, _ = agent_run_task("t", should_stop=lambda: False, on_status=lambda s: None,
+                             confirm=lambda p, h: False)
+    assert seen["cfg"].structural is True and seen["cfg"].desktop_ax is True
+    assert seen["cfg"].confirm_high_risk is True
