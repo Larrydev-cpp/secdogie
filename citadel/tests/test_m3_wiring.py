@@ -147,3 +147,23 @@ def test_end_to_end_grant_gates_the_real_agent_loop(monkeypatch):
     store.merge_events(j.events())
     results = [s["result"] for s in store.entities("step").values()]
     assert any("refused by plan gate" in r for r in results)  # the refusal is on record
+
+
+def test_dib_pid_reaches_the_task_only_when_set():
+    got = {}
+
+    def run_task(task, *, should_stop, on_status, confirm, record_step=None, dib_pid=None):
+        got["dib_pid"] = dib_pid
+        return (0, "ok")
+
+    sup = Supervisor(Journal(identity=Identity.generate(), clock=_counter()), run_task, dib_pid=4242)
+    sup.add_goal("g1", title="g1")
+    sup.run_goal("g1")
+    assert got["dib_pid"] == 4242
+
+    def old_style(task, *, should_stop, on_status, confirm, record_step=None):
+        return (0, "ok")  # does not accept dib_pid: must still work when unset
+
+    sup2 = Supervisor(Journal(identity=Identity.generate(), clock=_counter()), old_style)
+    sup2.add_goal("g1", title="g1")
+    assert sup2.run_goal("g1") == (0, "ok")

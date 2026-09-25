@@ -127,11 +127,28 @@ jobs:
         working-directory: native/atlas
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
-          cmake --build build --target atlas_test -j
+          cmake --build build --target atlas_test atlas_inspect atlas_target -j
 
       - name: Test
         working-directory: native/atlas
         run: ctest --test-dir build --output-on-failure
+
+      # The runtime bridge: the agent reads a real bitmap out of a live
+      # atlas_target process through the atlas_inspect built above.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # Linux lets a process read another's memory only with ptrace permission
+      # (Yama ptrace_scope=1 on the runner: descendants only), and the inspector
+      # is a sibling of the target here -- so the test runs with the privilege
+      # the OS asks for (sudo) instead of relaxing the kernel setting.
+      - name: DIB end-to-end (agent <- atlas_inspect)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e agent pytest
+          sudo -E env "PATH=$PATH" SECDOGIE_DIB_E2E_REQUIRED=1 \
+            SECDOGIE_ATLAS_INSPECT="$PWD/native/atlas/build/atlas_inspect" \
+            python -m pytest agent/tests/test_dib_source.py -v -rs -p no:cacheprovider
 
   # --- Atlas native module on Windows (UIA / RPM / VirtualQueryEx / token wall)
   atlas-tests-windows:

@@ -111,6 +111,16 @@ def main(argv: list[str] | None = None) -> int:
         "accessibility library (Windows: `pip install uiautomation`); no-ops with a hint without it",
     )
     parser.add_argument(
+        "--dib-pid",
+        type=int,
+        default=None,
+        metavar="PID",
+        help="also read the in-memory bitmaps (DIBs: a canvas, a CAD viewport) of this process each "
+        "step, read-only, through native atlas_inspect (build native/atlas or set "
+        "SECDOGIE_ATLAS_INSPECT). The model gets a one-line summary and a bitmap change counts as "
+        "progress. Windows/Linux; on macOS perception stays AX-only",
+    )
+    parser.add_argument(
         "--gui",
         action="store_true",
         help="use GUI dialogs: enter the task in a window, review the model's plan before it acts, "
@@ -196,6 +206,7 @@ def main(argv: list[str] | None = None) -> int:
     cfg_kwargs["gui"] = gui
     cfg_kwargs["macro_path"] = args.macro
     cfg_kwargs["desktop_ax"] = args.desktop_ax
+    cfg_kwargs["dib_pid"] = args.dib_pid
     if args.move_duration is not None:
         cfg_kwargs["move_duration"] = args.move_duration
     if args.settle is not None:

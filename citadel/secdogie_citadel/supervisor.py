@@ -34,6 +34,7 @@ class Supervisor:
         confirm_handler: Callable[[str, bool], bool] | None = None,
         logger: logging.Logger | None = None,
         issuers=None,
+        dib_pid: int | None = None,
     ):
         from .goals import build_goal_tree
         from .run import RunRecorder
@@ -48,6 +49,9 @@ class Supervisor:
         # Trusted capability issuers (operator DIDs). When set, every action the
         # agent is about to execute is checked against this node's grants.
         self.issuers = issuers
+        # Optional: pid of a process whose in-memory bitmaps the agent also reads
+        # (read-only, via native atlas_inspect) each step. See agent dib_source.
+        self.dib_pid = dib_pid
 
     # -- capabilities (2.9) ----------------------------------------------------
 
@@ -234,6 +238,8 @@ class Supervisor:
                 return make_plan_gate(self.node_scopes(), instruction=instruction)(view, recent)
 
             extra["plan_gate"] = plan_gate
+        if self.dib_pid is not None:
+            extra["dib_pid"] = self.dib_pid
         if recovery is not None:
             extra["recovery"] = {
                 "run_id": recovery.run_id,
@@ -291,7 +297,8 @@ def terminal_confirm(prompt: str, high_risk: bool) -> bool:
 
 
 def agent_run_task(
-    task: str, *, should_stop, on_status, confirm, record_step=None, plan_gate=None, recovery=None
+    task: str, *, should_stop, on_status, confirm, record_step=None, plan_gate=None, recovery=None,
+    dib_pid=None,
 ) -> tuple[int, str]:
     """Production task runner: drive the real agent loop for one goal, keeping the
     high-risk confirmation gate wired to `confirm`. Imports the agent lazily so
@@ -304,7 +311,8 @@ def agent_run_task(
 
     `plan_gate` (the node's capability check, see loop_gate) runs before every
     action the loop executes; `recovery` (an interrupted previous run) puts a
-    check-before-redoing note in front of the task."""
+    check-before-redoing note in front of the task; `dib_pid` turns on read-only
+    DIB observation of that process (agent dib_source)."""
     import argparse
 
     from secdogie_agent import cli_common
@@ -338,5 +346,7 @@ def agent_run_task(
         )
     if plan_gate is not None:
         cfg_kwargs["plan_gate"] = plan_gate
+    if dib_pid is not None:
+        cfg_kwargs["dib_pid"] = int(dib_pid)
     code = run(provider, AgentConfig(**cfg_kwargs))
     return code, f"agent exited {code}"

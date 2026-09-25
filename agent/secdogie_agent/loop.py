@@ -100,6 +100,12 @@ class AgentConfig:
     # view of each action about to execute plus the recent ones, returns
     # (allowed, note). A refusal skips the action. Unset -> behavior unchanged.
     plan_gate: Callable[[dict, list], tuple[bool, str]] | None = None
+    # Optional DIB observation (dib_source.py): the pid of an operator-named
+    # process whose in-memory bitmaps (a canvas / viewport) are read, read-only,
+    # through native atlas_inspect every step. The model gets a one-line summary,
+    # a bitmap change counts as progress for stall detection, and the bitmaps'
+    # content hashes go into the step's trace/run record. None -> unchanged.
+    dib_pid: int | None = None
     memory_path: str | None = None
     require_focus: bool = False
     # GUI: after the operator approves the plan, low-risk steps run without a
@@ -329,6 +335,15 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
     prev_exec_frame: bytes | None = None
     stall_count = 0
 
+    dib_watcher = None
+    if config.dib_pid is not None:
+        from . import dib_source
+
+        dib_watcher = dib_source.DibWatcher(
+            config.dib_pid, inspect=lambda pid: dib_source.inspect_dibs(pid)
+        )
+        logger.info("dib: reading bitmaps of pid %d (read-only) each step", config.dib_pid)
+
     element_first = config.desktop_ax and isinstance(backend, ElementAware)
     cached_frame: tuple | None = None
     refresh_view = True
@@ -395,6 +410,23 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             )
 
             frame_hash = hashlib.blake2b(raw_png, digest_size=16).digest()
+
+            # progress_hash: what stall detection compares. The frame, plus the
+            # watched process's bitmaps when DIB observation is on, so a change on
+            # a canvas counts as progress even if the rest of the screen is still.
+            progress_hash = frame_hash
+            observed_bytes = raw_png
+            dib_line = ""
+            if dib_watcher is not None:
+                dib_reading, dib_changed = dib_watcher.step()
+                dib_line = dib_reading.summary(changed=dib_changed)
+                _emit(config, "dib", step=step, summary=dib_line)
+                if dib_reading.ok:
+                    dib_digest = dib_reading.digest().encode("ascii")
+                    progress_hash = hashlib.blake2b(frame_hash + dib_digest, digest_size=16).digest()
+                    observed_bytes = raw_png + b"\x00dib:" + dib_digest
+                else:
+                    logger.info("%s", dib_line)
 
             if plan is not None and not plan.is_done and config.subtask_step_limit:
                 if step - subtask_started >= config.subtask_step_limit:
@@ -509,6 +541,8 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                         step_task += f"\n\nWhat you remember from earlier runs:\n{recalled}"
                 if listing:
                     step_task += f"\n\n{listing}"
+                if dib_line:
+                    step_task += f"\n\n{dib_line}"
                 if frame_source == "ax-pad":
                     step_task += f"\n\n{harness.AX_PAD_NOTE}"
                 if omitted_image:
@@ -611,13 +645,14 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 reasoning=(reasoning or "")[:240],
             )
 
-            def record_result(result: str, *, action=action, raw_png=raw_png, reasoning=reasoning) -> None:
+            def record_result(result: str, *, action=action, observed_bytes=observed_bytes,
+                              reasoning=reasoning) -> None:
                 history.append(HistoryStep(action=action, result=result))
                 if len(history) > HISTORY_KEEP:
                     del history[:-HISTORY_KEEP]
                 if trace is not None:
                     trace.record(
-                        raw_png,
+                        observed_bytes,
                         {"kind": action.kind, "x": action.x, "y": action.y, "to_x": action.to_x,
                          "to_y": action.to_y, "text": action.text, "keys": action.keys, "raw": action.raw},
                         reasoning,
@@ -734,7 +769,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             if config.stall_limit and action.kind not in _BENIGN:
                 sig = (action.kind, action.x, action.y, action.to_x, action.to_y,
                        action.text, tuple(action.keys or ()), action.path)
-                if sig == prev_exec_sig and frame_hash == prev_exec_frame:
+                if sig == prev_exec_sig and progress_hash == prev_exec_frame:
                     stall_count += 1
                     if stall_count >= config.stall_limit:
                         logger.warning(
@@ -744,7 +779,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                         return _done(config, 6)
                 else:
                     stall_count = 0
-                prev_exec_sig, prev_exec_frame = sig, frame_hash
+                prev_exec_sig, prev_exec_frame = sig, progress_hash
 
             is_high_risk = actions.is_high_risk(action)
             if config.plan_gate is not None:

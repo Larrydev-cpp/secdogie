@@ -53,7 +53,7 @@ def _run(args) -> int:
     sup = Supervisor(
         _open_writable(args), run_task=agent_run_task,
         max_attempts=args.max_attempts, confirm_handler=terminal_confirm,
-        issuers=issuers,
+        issuers=issuers, dib_pid=args.dib_pid,
     )
     if issuers is not None:
         scopes = sorted(sup.node_scopes())
@@ -156,6 +156,9 @@ def main(argv: list[str] | None = None) -> int:
     rn.add_argument("--authorized", default=None, metavar="ALLOWLIST")
     rn.add_argument("--issuers", default=None, metavar="ALLOWLIST",
                     help="trusted issuer DIDs; enables capability enforcement (fail-closed)")
+    rn.add_argument("--dib-pid", type=int, default=None, metavar="PID",
+                    help="also read this process's in-memory bitmaps each step (read-only, "
+                         "via native atlas_inspect; Windows/Linux)")
     rn.add_argument("--max-goals", type=int, default=1000)
     rn.add_argument("--max-attempts", type=int, default=1)
     rn.set_defaults(fn=_run)

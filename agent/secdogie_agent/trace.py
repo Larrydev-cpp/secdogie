@@ -46,7 +46,8 @@ def _hash_payload(payload: dict) -> str:
 class TraceEntry:
     seq: int
     ts: float
-    frame_sha256: str  # SHA-256 of the screenshot the decision was made on
+    frame_sha256: str  # SHA-256 of what the decision was made on: the frame, plus the
+    #                    watched process's DIB content hashes when DIB observation is on
     action: dict  # the action taken (kind + resolved coords + the model's raw JSON)
     reasoning: str
     result: str
