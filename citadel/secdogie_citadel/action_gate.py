@@ -12,8 +12,9 @@ questions an autonomous loop most needs answered *before* it acts:
   * Am I repeating myself, busy-polling, or doing a literal no-op?
   * Is this a destructive step chained onto another with no verification between?
   * Did I declare what I expect to observe afterwards?
-  * Is it within the cost budget and within a granted capability?  (the
-    capability set is the forward hook for Phase 2.9; empty = not yet enforced.)
+  * Is it within the cost budget and within a granted capability?  (Phase 2.9:
+    scopes come from signed grants -- ``secdogie_identity.capability`` -- and are
+    enforced when the caller turns enforcement on or passes a non-empty set.)
   * Does the instruction behind it ask to post/send unattended?  (reuses the
     instruction gate, so the two Socratic layers agree.)
 
@@ -24,12 +25,15 @@ HITL into auto-approval. A rewrite only ever makes an action *more* cautious
 (e.g. attaches a required verification). Execution still passes the agent's
 Safety layer and human-in-the-loop confirmation.
 
-Pure, deterministic, and dependency-light (only ``socratic`` from this package).
+Pure, deterministic, and dependency-light (``socratic`` from this package, and
+the capability matcher from ``secdogie_identity``).
 """
 from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass, field
+
+from secdogie_identity.capability import allows as capability_allows
 
 from . import socratic
 
@@ -61,10 +65,11 @@ _POSTING_KINDS = frozenset({"post", "publish", "submit", "send", "reply", "comme
 # Kinds that are inherently destructive on their own.
 _DESTRUCTIVE_KINDS = frozenset({"delete", "overwrite", "format", "drop", "uninstall", "run_elevated"})
 
-# What capability each action kind requires. Only enforced when the caller
-# supplies a non-empty capability set (Phase 2.9); until then this is inert. The
-# mapping never grants memory-write / kernel-HID / anti-detection / escalation --
-# those are not actions this gate will ever allow a capability for.
+# What capability each action kind requires (Phase 2.9). Enforced when the
+# caller sets ``enforce_capabilities`` or supplies a non-empty capability set.
+# A scope only counts if it is in ``secdogie_identity.capability.GRANTABLE_SCOPES``,
+# so ``run_elevated`` (whose scope is not grantable) is always refused under
+# enforcement.
 _CAPABILITY_FOR = {
     "click": "physical.click",
     "press": "physical.click",
@@ -126,6 +131,9 @@ class GateContext:
     target_present_ids: frozenset[str] = field(default_factory=frozenset)
     recent_actions: tuple[PlannedAction, ...] = ()
     capabilities: frozenset[str] = field(default_factory=frozenset)
+    # Turn capability checks on even with an empty set (then nothing is granted).
+    # Off by default so callers that predate 2.9 keep their behavior.
+    enforce_capabilities: bool = False
     cost_budget: float = 0.0  # 0 = unbudgeted
     requires_verification: bool = True
     instruction: str = ""  # the request behind this plan, for the instruction gate
@@ -254,10 +262,20 @@ def _check_excessive_cost(a: PlannedAction, ctx: GateContext) -> Finding | None:
 
 
 def _check_capability(a: PlannedAction, ctx: GateContext) -> Finding | None:
-    if not ctx.capabilities:
-        return None  # capability model not active yet (Phase 2.9 hook)
+    if not (ctx.enforce_capabilities or ctx.capabilities):
+        return None  # capability checks not enabled by this caller
     required = _CAPABILITY_FOR.get(a.kind)
-    if required is not None and required not in ctx.capabilities:
+    if required is None:
+        if not a.mutating:
+            return None  # pure observation kinds (wait/get/...) need no grant
+        # Fail closed: an action kind with no known scope can't be granted.
+        return Finding(
+            OUT_OF_CAPABILITY,
+            f"action {a.kind!r} has no capability scope; it is refused while capabilities are enforced",
+            REJECT,
+            risk=0.7,
+        )
+    if not capability_allows(ctx.capabilities, required):
         return Finding(
             OUT_OF_CAPABILITY,
             f"action {a.kind!r} needs capability {required!r}, which was not granted",

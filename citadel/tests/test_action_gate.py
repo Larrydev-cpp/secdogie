@@ -6,6 +6,8 @@ allowance and that a rewrite is always *more* cautious (attaches verification),
 never wider."""
 from __future__ import annotations
 
+import dataclasses
+
 from secdogie_citadel import action_gate as ag
 from secdogie_citadel.action_gate import GateContext, PlannedAction, gate
 
@@ -118,9 +120,62 @@ def test_out_of_capability_is_rejected_when_model_active():
 
 
 def test_capability_inactive_when_set_is_empty():
-    # Empty capability set = model not enforced yet (2.9 hook), so no cap reject.
+    # No set and no enforcement flag = caller hasn't opted in, so no cap reject.
     a = PlannedAction(kind="run", text="ls", expected_observation="listing shown")
     assert ag.OUT_OF_CAPABILITY not in gate(a, GateContext()).findings
+
+
+# --- capability enforcement (Phase 2.9) -------------------------------------
+
+
+def test_enforced_empty_set_grants_nothing():
+    ctx = GateContext(current_generation=1, target_present_ids=frozenset({"id=save"}),
+                      enforce_capabilities=True)
+    d = gate(_click(generation=1), ctx)
+    assert d.verdict == ag.REJECT and ag.OUT_OF_CAPABILITY in d.findings
+
+
+def test_granted_scope_allows_the_action():
+    ctx = GateContext(current_generation=1, target_present_ids=frozenset({"id=save"}),
+                      capabilities=frozenset({"physical.click"}), enforce_capabilities=True)
+    assert gate(_click(generation=1), ctx).allowed
+
+
+def test_ungrantable_scope_is_refused_even_if_present():
+    a = PlannedAction(kind="run_elevated", text="setup.exe", expected_observation="installed")
+    ctx = GateContext(capabilities=frozenset({"process.run_elevated"}), enforce_capabilities=True)
+    assert ag.OUT_OF_CAPABILITY in gate(a, ctx).findings
+
+
+def test_unmapped_mutating_kind_is_refused_when_enforced():
+    a = PlannedAction(kind="teleport", text="x", expected_observation="moved")
+    ctx = GateContext(capabilities=frozenset({"physical.click"}), enforce_capabilities=True)
+    assert ag.OUT_OF_CAPABILITY in gate(a, ctx).findings
+
+
+def test_pure_observation_needs_no_grant():
+    a = PlannedAction(kind="wait", expected_observation="dialog appears")
+    ctx = GateContext(enforce_capabilities=True)
+    assert ag.OUT_OF_CAPABILITY not in gate(a, ctx).findings
+
+
+def test_signed_grant_drives_the_gate_end_to_end():
+    from secdogie_identity import Allowlist, Identity
+    from secdogie_identity.capability import create_capability, effective_scopes
+
+    op, node = Identity.generate(), Identity.generate()
+    grant = create_capability(op, node.did, ["physical.click"], valid_from=0.0, ttl=60)
+    scopes = effective_scopes([grant], subject=node.did, issuers=Allowlist({op.did}), now=10.0)
+    ctx = GateContext(current_generation=1, target_present_ids=frozenset({"id=save"}),
+                      capabilities=scopes, enforce_capabilities=True)
+    assert gate(_click(generation=1), ctx).allowed                       # click was granted
+    typed = _click(kind="type", text="hello", generation=1)
+    assert ag.OUT_OF_CAPABILITY in gate(typed, ctx).findings             # typing was not
+
+    # once the grant expires, the same node holds nothing
+    later = effective_scopes([grant], subject=node.did, issuers=Allowlist({op.did}), now=61.0)
+    ctx_later = dataclasses.replace(ctx, capabilities=later)
+    assert ag.OUT_OF_CAPABILITY in gate(_click(generation=1), ctx_later).findings
 
 
 def test_unattended_posting_instruction_is_rejected():

@@ -14,6 +14,13 @@ from .binding import (
     session_did,
     verify_binding,
 )
+from .capability import (
+    GRANTABLE_SCOPES,
+    CapabilityResult,
+    create_capability,
+    effective_scopes,
+    verify_capability,
+)
 from .did import did_document, did_key_from_pubkey, pubkey_from_did
 from .keys import Identity, PublicIdentity
 from .signing import canonical, sign_payload, verify_payload
@@ -35,4 +42,9 @@ __all__ = [
     "is_superseded",
     "session_did",
     "BindingResult",
+    "create_capability",
+    "verify_capability",
+    "effective_scopes",
+    "CapabilityResult",
+    "GRANTABLE_SCOPES",
 ]

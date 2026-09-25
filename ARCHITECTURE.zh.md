@@ -87,8 +87,11 @@
   瞬时哈希预览字节定内容身份后即丢弃,像素留在 native 侧,绝不进 Python 堆或事件日志。
 - **只读的深度感知**:`native/atlas/`(C++)以**只读句柄**遍历进程内存重建 DIB/字符串;
   `WriteProcessMemory`、`CreateRemoteThread`、TrustedInstaller 夺权、反 EDR **一律记为拒绝**。
-- **能力授权**(Phase 2.9,规划中):`Capability(issuer_did, subject_did, scope, expires, sig)`,
-  **读 ≠ 写、观测 ≠ 执行**;`process.memory.write` / 内核 HID / 反检测 / 提权**永不进入**能力集。
+- **能力授权**(Phase 2.9,已建成):`identity/secdogie_identity/capability.py`——受信 issuer(操作员 DID)
+  给 subject(节点 DID)签发**带过期时间**的签名授权(默认 1 天)。**白名单制**:只有 `GRANTABLE_SCOPES`
+  里的 scope 能被签发、验证、匹配,其余一律拒绝(含提权启动 `process.run_elevated`);**读 ≠ 写、观测 ≠ 执行**,
+  精确匹配、无通配。验证必须给出受信 issuer 列表(无「接受任意签名者」模式)。计划门 `action_gate`
+  在 `enforce_capabilities` 开启时据此逐动作校验:未授权 / 无 scope 映射的变更类动作一律拒绝。
 - **人在环 + fail-closed**:高风险动作(保存/删除/关闭/打开/提权执行)默认需人类确认,
   失败即停,不猜、不重复提交(Phase 2.8 崩溃恢复:先**重新观测**确认动作是否已发生再决定重试)。
 - **控制面**:`desktop/`(原生窗口 GUI)与 `console/`(本地 127.0.0.1、operator-DID 门控)
@@ -165,7 +168,7 @@ flowchart TB
 | `citadel/action_gate.py` | 动作计划级苏格拉底门 `GateDecision`(2.6) | ③ | ✅ 已建成 |
 | `agent/target.py` | AX 不透明目标 + 代际,修 TOCTOU(2.5) | ④ | ✅ 已建成 |
 | `citadel/run.py` | Agent↔Citadel run 闭环(2.7):run/step 签名状态、链式 `state_hash`、随复制收敛 | ③④ | ✅ 已建成 |
-| `Capability` | 签名能力授权模型(2.9) | ④ | 🔜 规划中 |
+| `identity/capability.py` | 签名能力授权(2.9):白名单 scope、带过期、受信 issuer;计划门据此逐动作校验 | ④ | ✅ 已建成 |
 
 ---
 
@@ -197,7 +200,7 @@ physical action = 显式 capability。能力模型**永不**包含
 | 2.6 | 动作计划级苏格拉底门 | ✅ |
 | 2.7 | Agent↔Citadel run 闭环 | ✅ |
 | 2.8 | 崩溃恢复升级(先重观测再重试) | ✅ |
-| 2.9 | 能力授权模型 | 🔜 |
+| 2.9 | 能力授权模型 | ✅ |
 | 2.10 | P2P 直连传输 / rendezvous | ✅ 直连传输 + rendezvous + 直连升级/relay 兜底 + 成员 gossip 反熵(P2P.1–P2P.3)已实现 |
 
 完整审计与冲突记录见 [`docs/AUDIT-P2P-ALIGNMENT.zh.md`](docs/AUDIT-P2P-ALIGNMENT.zh.md)。
