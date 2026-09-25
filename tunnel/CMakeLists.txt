@@ -32,6 +32,7 @@ add_executable(secdogie-tunnel
     src/config.c
     src/hub.c
     src/hub_route.c
+    src/peer_state.c
     src/util.c
 )
 
@@ -46,6 +47,7 @@ add_executable(test_protocol
     src/handshake.c
     src/data.c
     src/hub_route.c
+    src/peer_state.c
     src/net.c
     src/util.c
 )
@@ -72,6 +74,7 @@ add_executable(fuzz_packets
     src/handshake.c
     src/data.c
     src/hub_route.c
+    src/peer_state.c
     src/util.c
 )
 target_include_directories(fuzz_packets PRIVATE include ${SODIUM_INCLUDE_DIRS})

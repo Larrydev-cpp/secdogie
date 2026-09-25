@@ -23,6 +23,7 @@
 #include "handshake.h"
 #include "data.h"
 #include "hub.h"
+#include "peer_state.h"
 
 /* Small deterministic PRNG so a failing run reproduces exactly. */
 static uint64_t g_rng = 0x9e3779b97f4a7c15ULL;
@@ -101,6 +102,18 @@ int main(int argc, char **argv) {
         uint64_t last_ts = xrand();
         sdtp_session hsess;
         sdtp_handshake_respond(buf, len, &r_kp, i_kp.pk, &last_ts, msg2, &hsess);
+
+        /* 3b) the same blobs through the per-peer state machine (responder side
+         * and data side), with a live session installed so every slot is hot. */
+        sdtp_peer_state ps;
+        memset(&ps, 0, sizeof(ps));
+        sdtp_peer_install(&ps, &r_session);
+        ps.pending = r_session;
+        ps.has_pending = 1;
+        sdtp_peer_respond(&ps, buf, len, &r_kp, i_kp.pk, msg2);
+        sdtp_peer_decrypt(&ps, buf, len, NULL, pt, sizeof(pt), &pt_len);
+        if (len >= 1 + SDTP_SESSION_ID_LEN) sdtp_peer_owns(&ps, buf + 1);
+        sdtp_inner_src_ok(buf, len, (uint32_t)xrand());
 
         /* 4) random inner IP packet into the hub router + lookups. */
         uint32_t dst = 0;

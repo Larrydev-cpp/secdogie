@@ -10,9 +10,17 @@ int sdtp_crypto_init(void);
 /* Generates a fresh X25519 keypair into kp. */
 void sdtp_keypair_generate(sdtp_keypair *kp);
 
-/* mac1 = BLAKE2b-256("SDTP-mac1" || peer_static_pk)[0:32], used as a MAC key
- * via crypto_generichash keyed mode over `data`. Writes SDTP_MAC_LEN bytes. */
-void sdtp_mac1(uint8_t out[SDTP_MAC_LEN], const uint8_t peer_static_pk[SDTP_KEY_LEN],
+/* The mac1 key (v2): BLAKE2b-256("SDTP-v2-mac1" || DH(my_sk, peer_pk) ||
+ * i_static_pk || r_static_pk). DH(s_i, s_r) is the static-static secret, so
+ * only a holder of one of the two static PRIVATE keys can compute it: a msg1
+ * cannot be forged by someone who merely knows both public keys. Returns 0, or
+ * -1 for a degenerate peer key. */
+int sdtp_mac1_key(uint8_t key[SDTP_KEY_LEN], const uint8_t my_sk[SDTP_KEY_LEN],
+                  const uint8_t peer_pk[SDTP_KEY_LEN],
+                  const uint8_t i_static_pk[SDTP_KEY_LEN], const uint8_t r_static_pk[SDTP_KEY_LEN]);
+
+/* mac1 = keyed BLAKE2b-128(key, data). Writes SDTP_MAC_LEN bytes. */
+void sdtp_mac1(uint8_t out[SDTP_MAC_LEN], const uint8_t key[SDTP_KEY_LEN],
                const uint8_t *data, size_t data_len);
 
 /* Derives the chaining-key + directional transport keys described in

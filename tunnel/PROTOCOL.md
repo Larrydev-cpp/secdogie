@@ -1,4 +1,4 @@
-# SDTP — SecDogie Tunnel Protocol (v1)
+# SDTP — SecDogie Tunnel Protocol (v2)
 
 A minimal, from-scratch, single-peer encrypted UDP tunnel, written in C on
 top of vetted primitives from libsodium (X25519, BLAKE2b, XChaCha20-Poly1305).
@@ -21,6 +21,8 @@ VPN, not as a replacement for WireGuard or IPsec in production.
   decrypted packet's inner source IP must equal the sending peer's tunnel IP, so
   an authenticated peer cannot spoof another's address (`hub.c`,
   `sdtp_hub_parse_ipv4_src`).
+- Point-to-point mode enforces the same cryptokey routing when `peer_address =
+  <peer tunnel IP>` is set in the config (a warning is printed when it is not).
 - Still non-goals: rekeying of long-lived sessions (keys live for the process;
   liveness drives a full re-handshake), NAT hole punching / traffic obfuscation,
   IPv6, and post-quantum resistance.
@@ -52,17 +54,27 @@ i_eph_pk        u8[32]
 timestamp_ns    u64     big-endian, wall clock
 mac1            u8[16]  keyed BLAKE2b-128 over the preceding fields
                         (libsodium crypto_generichash, 16-byte output), keyed
-                        with BLAKE2b("SDTP-mac1" || R_static_pk)[0:32]
-                        -- NOT libsodium crypto_auth
+                        with mac1_key (v2, below) -- NOT libsodium crypto_auth
 ```
 
-`mac1` is not secrecy — it is a cheap proof that the sender has *looked up*
-`R`'s public key, filtering random internet noise / naive scanners before R
-does any DH math (same purpose as WireGuard's mac1).
+```
+ss       = X25519(i_static_sk, R_static_pk)   // == X25519(R_static_sk, i_static_pk)
+mac1_key = BLAKE2b-256("SDTP-v2-mac1" || ss || i_static_pk || R_static_pk)
+```
 
-R validates, in order: `mac1`; that the initiator's `i_static_pk` byte-equals a
-configured, expected peer static key (`handshake.c` — this is the actual
-authentication gate, checked before the timestamp); and that `timestamp_ns` is
+`mac1` (v2) authenticates message 1: `ss` is the static-static secret, which only
+a holder of `i_static_sk` (or `R_static_sk`) can compute. Public keys are not
+secret, so this matters: in v1 `mac1` was keyed by `R_static_pk` alone, which let
+anyone who knew both public keys forge a message 1 with a fresh (even
+future-dated) timestamp. R accepted it, replaced the live session with one the
+forger could not use, re-pointed the peer address, and advanced the replay guard
+up to 60s -- one forged datagram cut a working tunnel. v2 peers do not
+interoperate with v1 peers (the handshake simply fails; upgrade both sides).
+
+R validates, in order: that the initiator's `i_static_pk` byte-equals a
+configured, expected peer static key (a cheap filter -- a hub only pays for the
+next step on the matching peer); `mac1` under `mac1_key` (the authentication
+gate: one DH, before any state is touched); and that `timestamp_ns` is
 within a 60s window of local time **and** strictly greater than the last accepted
 timestamp seen from this `i_static_pk` (per-peer monotonic counter — the
 anti-replay for the handshake itself).
@@ -120,7 +132,21 @@ data-channel nonce, regardless of counter value.
 
 If anything fails validation (bad mac1, stale timestamp, failed AEAD
 decrypt), the message is silently dropped — no error is sent back to an
-unauthenticated peer.
+unauthenticated peer. (The log line for a rejected message 1 is rate-limited to
+one per second.)
+
+### Pending sessions and confirmation (`peer_state.c`)
+
+A session R derives from message 1 is **pending**: R does not send with it and
+does not move the peer's address to message 1's source. It becomes the
+**current** session when the first data/keepalive packet decrypts under it --
+proof that I derived the same keys. I sends a keepalive immediately after
+accepting message 2, so confirmation costs one round trip. The session it
+replaces is kept as receive-only **previous**, so packets already in flight on
+the old keys are not dropped at the switch (the WireGuard current/next/previous
+pattern). The peer's address is adopted only from an authenticated packet on the
+current or newly promoted session, never from a handshake message or a late
+previous-session packet.
 
 ## Data channel
 

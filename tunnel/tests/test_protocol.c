@@ -8,6 +8,7 @@
 #include <poll.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <sodium.h>
 
 #include "sdtp.h"
 #include "crypto.h"
@@ -15,6 +16,8 @@
 #include "data.h"
 #include "hub.h"
 #include "net.h"
+#include "peer_state.h"
+#include "util.h"
 
 static int failures = 0;
 #define CHECK(cond, msg) do { \
@@ -180,10 +183,14 @@ static void test_hub_peer_lookup(void) {
 
     /* session_id lookup only considers established peers. */
     uint8_t sid[SDTP_SESSION_ID_LEN] = {1, 2, 3, 4, 5, 6, 7, 8};
-    memcpy(peers[1].session.session_id, sid, SDTP_SESSION_ID_LEN);
-    CHECK(sdtp_hub_find_peer_by_session_id(peers, 2, sid) == -1, "unestablished peer is not matched by session_id");
-    peers[1].established = 1;
-    CHECK(sdtp_hub_find_peer_by_session_id(peers, 2, sid) == 1, "established peer is matched by its session_id");
+    memcpy(peers[1].ps.current.session_id, sid, SDTP_SESSION_ID_LEN);
+    CHECK(sdtp_hub_find_peer_by_session_id(peers, 2, sid) == -1, "a slot without a session is not matched by session_id");
+    peers[1].ps.has_current = 1;
+    CHECK(sdtp_hub_find_peer_by_session_id(peers, 2, sid) == 1, "a peer is matched by its current session_id");
+    peers[1].ps.has_current = 0;
+    memcpy(peers[1].ps.pending.session_id, sid, SDTP_SESSION_ID_LEN);
+    peers[1].ps.has_pending = 1;
+    CHECK(sdtp_hub_find_peer_by_session_id(peers, 2, sid) == 1, "a peer is matched by its pending session_id");
 }
 
 /* The core hub property: two clients terminate independent tunnels on one hub,
@@ -211,12 +218,8 @@ static void test_hub_two_client_session_demux(void) {
 
         int matched = -1;
         uint8_t msg2[SDTP_MSG2_LEN];
-        sdtp_session new_session;
         for (size_t i = 0; i < 2; i++) {
-            if (sdtp_handshake_respond(msg1, sizeof(msg1), &hub_kp, peers[i].static_pk,
-                                        &peers[i].last_peer_ts, msg2, &new_session) > 0) {
-                peers[i].session = new_session;
-                peers[i].established = 1;
+            if (sdtp_peer_respond(&peers[i].ps, msg1, sizeof(msg1), &hub_kp, peers[i].static_pk, msg2) > 0) {
                 matched = (int)i;
                 break;
             }
@@ -224,6 +227,13 @@ static void test_hub_two_client_session_demux(void) {
         CHECK(matched == which, "hub matches each client handshake to its own peer slot");
         sdtp_session *cs = which == 0 ? &c1_sess : &c2_sess;
         sdtp_handshake_finish(&hs, msg2, sizeof(msg2), ckp, hub_kp.pk, cs);
+        /* the client's confirming keepalive promotes the hub's pending session */
+        uint8_t ka[SDTP_MAX_DATAGRAM];
+        size_t kal = sdtp_data_encrypt(cs, SDTP_MSG_KEEPALIVE, ka, NULL, 0);
+        uint8_t scratch[SDTP_MTU];
+        size_t sl = 0;
+        CHECK(sdtp_peer_decrypt(&peers[matched].ps, ka, kal, NULL, scratch, sizeof(scratch), &sl)
+                  == SDTP_PEER_OK_PROMOTED, "client keepalive confirms and promotes the hub session");
     }
 
     /* Client 1 sends a packet; the hub must route it to peer slot 0 and decrypt. */
@@ -235,7 +245,7 @@ static void test_hub_two_client_session_demux(void) {
 
     uint8_t out[SDTP_MTU];
     size_t out_len = 0;
-    CHECK(sdtp_data_decrypt(&peers[idx1].session, dg1, dl1, out, sizeof(out), &out_len) == 0
+    CHECK(sdtp_data_decrypt(&peers[idx1].ps.current, dg1, dl1, out, sizeof(out), &out_len) == 0
               && out_len == strlen(p1) && memcmp(out, p1, out_len) == 0,
           "hub decrypts client 1's packet with the matched session");
 
@@ -245,8 +255,174 @@ static void test_hub_two_client_session_demux(void) {
     size_t dl2 = sdtp_data_encrypt(&c2_sess, SDTP_MSG_DATA, dg2, (const uint8_t *)p2, strlen(p2));
     CHECK(sdtp_hub_find_peer_by_session_id(peers, 2, dg2 + 1) == 1,
           "client 2's datagram demuxes to peer slot 1 by session_id");
-    CHECK(sdtp_data_decrypt(&peers[0].session, dg2, dl2, out, sizeof(out), &out_len) != 0,
+    CHECK(sdtp_data_decrypt(&peers[0].ps.current, dg2, dl2, out, sizeof(out), &out_len) != 0,
           "client 2's packet does not decrypt under client 1's session");
+}
+
+
+/* ---- v2 handshake authentication + pending/confirm (the T1 fix) ---------- */
+
+/* What an attacker who knows both PUBLIC keys could build before v2: a msg1
+ * naming the victim's static key, with mac1 keyed only by the responder's
+ * public key (the v1 scheme). */
+static void forge_v1_style_msg1(uint8_t msg1[SDTP_MSG1_LEN], const uint8_t victim_pk[SDTP_KEY_LEN],
+                                const uint8_t responder_pk[SDTP_KEY_LEN]) {
+    sdtp_keypair eph;
+    sdtp_keypair_generate(&eph);
+    msg1[0] = SDTP_MSG_HANDSHAKE_INIT;
+    randombytes_buf(msg1 + 1, SDTP_SESSION_ID_LEN);
+    memcpy(msg1 + 9, victim_pk, SDTP_KEY_LEN);
+    memcpy(msg1 + 41, eph.pk, SDTP_KEY_LEN);
+    sdtp_put_u64be(msg1 + 73, sdtp_now_ns() + 50ULL * 1000000000ULL); /* far ahead, still in window */
+    static const char label[] = "SDTP-mac1";
+    uint8_t buf[sizeof(label) - 1 + SDTP_KEY_LEN], key[SDTP_KEY_LEN];
+    memcpy(buf, label, sizeof(label) - 1);
+    memcpy(buf + sizeof(label) - 1, responder_pk, SDTP_KEY_LEN);
+    crypto_generichash(key, sizeof(key), buf, sizeof(buf), NULL, 0);
+    crypto_generichash(msg1 + 81, SDTP_MAC_LEN, msg1, 81, key, sizeof(key));
+}
+
+static void test_forged_handshake_init_rejected(void) {
+    sdtp_keypair i_kp, r_kp, mallory;
+    sdtp_keypair_generate(&i_kp);
+    sdtp_keypair_generate(&r_kp);
+    sdtp_keypair_generate(&mallory);
+
+    uint64_t last_ts = 0;
+    uint8_t msg1[SDTP_MSG1_LEN], msg2[SDTP_MSG2_LEN];
+    sdtp_session s;
+
+    forge_v1_style_msg1(msg1, i_kp.pk, r_kp.pk);
+    CHECK(sdtp_handshake_respond(msg1, sizeof(msg1), &r_kp, i_kp.pk, &last_ts, msg2, &s) == 0,
+          "msg1 forged from public keys alone (v1-style mac1) is rejected");
+    CHECK(last_ts == 0, "a forged msg1 cannot advance the replay guard");
+
+    /* Mallory uses her own static key for the static-static MAC but claims to be I. */
+    sdtp_handshake_state hs;
+    sdtp_handshake_init_create(&hs, msg1, &mallory, r_kp.pk);
+    memcpy(msg1 + 9, i_kp.pk, SDTP_KEY_LEN);
+    CHECK(sdtp_handshake_respond(msg1, sizeof(msg1), &r_kp, i_kp.pk, &last_ts, msg2, &s) == 0,
+          "msg1 whose mac1 was keyed with another static key is rejected");
+
+    /* A degenerate (low-order) peer key cannot even produce a msg1. */
+    sdtp_keypair zero_peer;
+    memset(&zero_peer, 0, sizeof(zero_peer));
+    CHECK(sdtp_handshake_init_create(&hs, msg1, &i_kp, zero_peer.pk) == 0,
+          "init_create refuses a degenerate peer public key");
+}
+
+static struct sockaddr_in addr_of(uint8_t last_octet, uint16_t port) {
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof(a));
+    a.sin_family = AF_INET;
+    a.sin_port = htons(port);
+    uint8_t ip[4] = {192, 0, 2, last_octet};
+    memcpy(&a.sin_addr, ip, 4);
+    return a;
+}
+
+/* Run a full initiator handshake against a responder peer_state, WITHOUT the
+ * confirming keepalive. Returns the initiator's new session in *out. */
+static void handshake_into(sdtp_peer_state *responder, const sdtp_keypair *i_kp,
+                           const sdtp_keypair *r_kp, sdtp_session *out) {
+    sdtp_handshake_state hs;
+    uint8_t msg1[SDTP_MSG1_LEN], msg2[SDTP_MSG2_LEN];
+    sdtp_handshake_init_create(&hs, msg1, i_kp, r_kp->pk);
+    CHECK(sdtp_peer_respond(responder, msg1, sizeof(msg1), r_kp, i_kp->pk, msg2) == SDTP_MSG2_LEN,
+          "responder accepts msg1 into a pending session");
+    CHECK(sdtp_handshake_finish(&hs, msg2, sizeof(msg2), i_kp, r_kp->pk, out), "initiator finishes");
+}
+
+static int send_and_recv(sdtp_session *from, sdtp_peer_state *to, const struct sockaddr_in *src,
+                         const char *text) {
+    uint8_t dg[SDTP_MAX_DATAGRAM], pt[SDTP_MTU];
+    size_t len = sdtp_data_encrypt(from, SDTP_MSG_DATA, dg, (const uint8_t *)text, strlen(text));
+    size_t pt_len = 0;
+    int rc = sdtp_peer_decrypt(to, dg, len, src, pt, sizeof(pt), &pt_len);
+    if (rc != SDTP_PEER_FAIL && (pt_len != strlen(text) || memcmp(pt, text, pt_len) != 0)) return -99;
+    return rc;
+}
+
+static void test_pending_session_does_not_displace_live_one(void) {
+    sdtp_keypair i_kp, r_kp;
+    sdtp_keypair_generate(&i_kp);
+    sdtp_keypair_generate(&r_kp);
+    sdtp_peer_state r;
+    memset(&r, 0, sizeof(r));
+    struct sockaddr_in home = addr_of(10, 5000), roam = addr_of(20, 6000);
+
+    /* first handshake: nothing is live until the initiator confirms */
+    sdtp_session a;
+    handshake_into(&r, &i_kp, &r_kp, &a);
+    CHECK(!r.has_current && r.has_pending && !r.have_addr,
+          "after msg1 only a pending session exists and no address is adopted");
+    CHECK(send_and_recv(&a, &r, &home, "first") == SDTP_PEER_OK_PROMOTED,
+          "first packet under the new keys promotes pending -> current");
+    CHECK(r.has_current && !r.has_pending && r.have_addr
+              && memcmp(&r.addr, &home, sizeof(home)) == 0,
+          "the peer address is adopted from the authenticated packet");
+
+    /* re-handshake: the live session keeps working until the new one is confirmed */
+    sdtp_session b;
+    handshake_into(&r, &i_kp, &r_kp, &b);
+    CHECK(send_and_recv(&a, &r, &home, "still-a") == SDTP_PEER_OK_CURRENT,
+          "the live session keeps decrypting while the new one is pending");
+    uint8_t ka[SDTP_MAX_DATAGRAM];
+    size_t kal = sdtp_data_encrypt(&a, SDTP_MSG_DATA, ka, (const uint8_t *)"late-a", 6); /* in flight */
+    CHECK(send_and_recv(&b, &r, &roam, "b") == SDTP_PEER_OK_PROMOTED, "confirmation switches to the new session");
+    CHECK(memcmp(&r.addr, &roam, sizeof(roam)) == 0, "roaming follows the authenticated packet");
+    uint8_t pt[SDTP_MTU];
+    size_t pl = 0;
+    CHECK(sdtp_peer_decrypt(&r, ka, kal, &home, pt, sizeof(pt), &pl) == SDTP_PEER_OK_PREVIOUS,
+          "a packet already in flight on the old session is still accepted (previous slot)");
+    CHECK(memcmp(&r.addr, &roam, sizeof(roam)) == 0, "a late old-session packet does not move the address back");
+}
+
+static void test_replayed_msg1_cannot_touch_live_session(void) {
+    sdtp_keypair i_kp, r_kp;
+    sdtp_keypair_generate(&i_kp);
+    sdtp_keypair_generate(&r_kp);
+    sdtp_peer_state r;
+    memset(&r, 0, sizeof(r));
+    struct sockaddr_in home = addr_of(10, 5000);
+
+    sdtp_handshake_state hs;
+    uint8_t msg1[SDTP_MSG1_LEN], msg2[SDTP_MSG2_LEN];
+    sdtp_handshake_init_create(&hs, msg1, &i_kp, r_kp.pk);
+    sdtp_peer_respond(&r, msg1, sizeof(msg1), &r_kp, i_kp.pk, msg2);
+    sdtp_session a;
+    sdtp_handshake_finish(&hs, msg2, sizeof(msg2), &i_kp, r_kp.pk, &a);
+    send_and_recv(&a, &r, &home, "confirm");
+
+    uint8_t forged[SDTP_MSG1_LEN];
+    forge_v1_style_msg1(forged, i_kp.pk, r_kp.pk);
+    CHECK(sdtp_peer_respond(&r, forged, sizeof(forged), &r_kp, i_kp.pk, msg2) == 0
+              && sdtp_peer_respond(&r, msg1, sizeof(msg1), &r_kp, i_kp.pk, msg2) == 0,
+          "forged and replayed msg1 are both rejected");
+    CHECK(!r.has_pending && send_and_recv(&a, &r, &home, "alive") == SDTP_PEER_OK_CURRENT,
+          "the live session is untouched and keeps working");
+}
+
+static void test_inner_source_check(void) {
+    uint8_t pkt[20];
+    memset(pkt, 0, sizeof(pkt));
+    pkt[0] = 0x45;
+    pkt[12] = 10; pkt[13] = 66; pkt[14] = 0; pkt[15] = 2;
+    uint32_t peer_ip = ip_be(10, 66, 0, 2);
+    CHECK(sdtp_inner_src_ok(pkt, sizeof(pkt), peer_ip), "inner packet from peer_address passes");
+    pkt[15] = 99;
+    CHECK(!sdtp_inner_src_ok(pkt, sizeof(pkt), peer_ip), "inner packet with a spoofed source is refused");
+    pkt[0] = 0x60;
+    CHECK(!sdtp_inner_src_ok(pkt, sizeof(pkt), peer_ip), "non-IPv4 inner packet is refused when enforcing");
+}
+
+static void test_parse_port(void) {
+    uint16_t p = 0;
+    CHECK(sdtp_parse_port("51820", 1, &p) == 0 && p == 51820, "parse_port accepts a normal port");
+    CHECK(sdtp_parse_port("70000", 1, &p) != 0, "parse_port rejects 70000 instead of wrapping");
+    CHECK(sdtp_parse_port("0", 1, &p) != 0 && sdtp_parse_port("0", 0, &p) == 0, "parse_port honours min");
+    CHECK(sdtp_parse_port("12ab", 1, &p) != 0 && sdtp_parse_port("", 1, &p) != 0
+              && sdtp_parse_port("-5", 0, &p) != 0, "parse_port rejects junk");
 }
 
 /* Exercises the recvmmsg batch drain against real loopback UDP sockets (no TUN,
@@ -305,6 +481,11 @@ int main(void) {
     test_hub_peer_lookup();
     test_hub_two_client_session_demux();
     test_udp_recv_batch();
+    test_forged_handshake_init_rejected();
+    test_pending_session_does_not_displace_live_one();
+    test_replayed_msg1_cannot_touch_live_session();
+    test_inner_source_check();
+    test_parse_port();
 
     if (failures) {
         fprintf(stderr, "\n%d check(s) FAILED\n", failures);

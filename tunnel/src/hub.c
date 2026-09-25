@@ -109,12 +109,15 @@ int sdtp_hub_config_load(const char *path, sdtp_hub_config *cfg) {
             uint8_t sk[SDTP_KEY_LEN];
             if (decode_key(val, sk) != 0) {
                 fprintf(stderr, "%s:%d: invalid private_key (expected base64 32 bytes)\n", path, lineno);
+                sodium_memzero(line, sizeof(line));
+                sodium_memzero(sk, sizeof(sk));
                 fclose(f);
                 return -1;
             }
             memcpy(cfg->my_static.sk, sk, SDTP_KEY_LEN);
             crypto_scalarmult_base(cfg->my_static.pk, sk);
             sodium_memzero(sk, sizeof(sk));
+            sodium_memzero(line, sizeof(line));
             have_priv = 1;
         } else if (strcmp(key, "address") == 0) {
             strncpy(cfg->address, val, sizeof(cfg->address) - 1);
@@ -125,7 +128,11 @@ int sdtp_hub_config_load(const char *path, sdtp_hub_config *cfg) {
             }
             have_address = 1;
         } else if (strcmp(key, "listen_port") == 0) {
-            cfg->listen_port = (uint16_t)atoi(val);
+            if (sdtp_parse_port(val, 1, &cfg->listen_port) != 0) {
+                fprintf(stderr, "%s:%d: listen_port must be 1-65535\n", path, lineno);
+                fclose(f);
+                return -1;
+            }
         } else if (strcmp(key, "mtu") == 0) {
             cfg->mtu = atoi(val);
         } else if (strcmp(key, "ifname") == 0) {
@@ -149,6 +156,8 @@ int sdtp_hub_config_load(const char *path, sdtp_hub_config *cfg) {
         }
     }
     fclose(f);
+    sodium_memzero(line, sizeof(line));
+    if (have_priv) sdtp_warn_if_key_file_open(path);
 
     if (!have_priv || !have_address) {
         fprintf(stderr, "%s: missing required key(s): private_key, address\n", path);
@@ -174,67 +183,72 @@ int sdtp_hub_config_load(const char *path, sdtp_hub_config *cfg) {
 
 /* --- event loop --- */
 
+static sdtp_ratelimit g_rl_handshake, g_rl_spoof, g_rl_io;
+
+static void send_datagram(int udp_fd, const uint8_t *buf, size_t len, const struct sockaddr_in *to) {
+    if (sendto(udp_fd, buf, len, 0, (const struct sockaddr *)to, sizeof(*to)) < 0) {
+        sdtp_log_limited(&g_rl_io, "hub: sendto failed: %s", strerror(errno));
+    }
+}
+
+static void write_tun(int tun_fd, const uint8_t *buf, size_t len) {
+    if (write(tun_fd, buf, len) < 0) {
+        sdtp_log_limited(&g_rl_io, "hub: tun write failed: %s", strerror(errno));
+    }
+}
+
 /* Encrypt one inner packet to a peer and send it, if that peer is reachable. */
 static void forward_to_peer(int udp_fd, sdtp_hub_peer *peer, const uint8_t *pt, size_t pt_len,
                             uint8_t *out_buf, time_t now) {
-    if (!peer->established || !peer->have_addr) return;
-    size_t len = sdtp_data_encrypt(&peer->session, SDTP_MSG_DATA, out_buf, pt, pt_len);
+    if (!peer->ps.has_current || !peer->ps.have_addr) return;
+    size_t len = sdtp_data_encrypt(&peer->ps.current, SDTP_MSG_DATA, out_buf, pt, pt_len);
     if (len > 0) {
-        sendto(udp_fd, out_buf, len, 0, (struct sockaddr *)&peer->addr, sizeof(peer->addr));
+        send_datagram(udp_fd, out_buf, len, &peer->ps.addr);
         peer->last_send = now;
     }
 }
 
-/* Handle one received UDP datagram: a handshake_init (demux by trying each
- * configured peer's static key -- only the right one authenticates), or
+/* Handle one received UDP datagram: a handshake_init (demux by the static key
+ * it names; the static-static mac1 proves the sender holds that key), or
  * data/keepalive (demux by the 8-byte session id, then route the decrypted
- * inner packet by destination IP). Returns early on any malformed or
- * unauthenticated input (exercised by the fuzz harness); factored out of the
- * run loop so a whole recvmmsg batch can be handled one datagram at a time. */
+ * inner packet by destination IP). A handshake only creates a PENDING session:
+ * the peer's live session and address change when the first packet under the
+ * new keys decrypts (peer_state.h). Returns early on any malformed or
+ * unauthenticated input (exercised by the fuzz harness). */
 static void hub_handle_datagram(sdtp_hub_config *cfg, int tun_fd, int udp_fd,
                                 const uint8_t *buf, ssize_t n, struct sockaddr_in src_addr,
                                 socklen_t src_len, time_t now, uint8_t *out_buf, uint8_t *pt_buf) {
+    (void)src_len;
     if (n <= 0) return;
     uint8_t type = buf[0];
 
     if (type == SDTP_MSG_HANDSHAKE_INIT) {
-        int matched = -1;
         uint8_t msg2[SDTP_MSG2_LEN];
-        sdtp_session new_session;
         for (size_t i = 0; i < cfg->peer_count; i++) {
             sdtp_hub_peer *p = &cfg->peers[i];
-            size_t rlen = sdtp_handshake_respond(buf, (size_t)n, &cfg->my_static, p->static_pk,
-                                                  &p->last_peer_ts, msg2, &new_session);
+            size_t rlen = sdtp_peer_respond(&p->ps, buf, (size_t)n, &cfg->my_static, p->static_pk, msg2);
             if (rlen > 0) {
-                p->session = new_session;
-                p->established = 1;
-                p->addr = src_addr;
-                p->have_addr = 1;
-                p->last_recv = now;
-                p->last_send = 0;
-                sendto(udp_fd, msg2, rlen, 0, (struct sockaddr *)&src_addr, src_len);
-                sdtp_log("hub: handshake completed with peer %zu (%s:%u)", i,
+                send_datagram(udp_fd, msg2, rlen, &src_addr);
+                sdtp_log("hub: handshake response to peer %zu (%s:%u), awaiting confirmation", i,
                          inet_ntoa(src_addr.sin_addr), ntohs(src_addr.sin_port));
-                matched = (int)i;
-                break;
+                return;
             }
         }
-        if (matched < 0) {
-            sdtp_log("hub: rejected handshake_init from %s:%u (no configured peer matched)",
-                     inet_ntoa(src_addr.sin_addr), ntohs(src_addr.sin_port));
-        }
+        sdtp_log_limited(&g_rl_handshake, "hub: rejected handshake_init from %s:%u",
+                         inet_ntoa(src_addr.sin_addr), ntohs(src_addr.sin_port));
     } else if (type == SDTP_MSG_DATA || type == SDTP_MSG_KEEPALIVE) {
         if ((size_t)n < 1 + SDTP_SESSION_ID_LEN) return;
         int idx = sdtp_hub_find_peer_by_session_id(cfg->peers, cfg->peer_count, buf + 1);
         if (idx < 0) return;
         sdtp_hub_peer *p = &cfg->peers[idx];
         size_t pt_len = 0;
-        if (sdtp_data_decrypt(&p->session, buf, (size_t)n, pt_buf, SDTP_MTU, &pt_len) != 0) {
-            return;
-        }
+        int rc = sdtp_peer_decrypt(&p->ps, buf, (size_t)n, &src_addr, pt_buf, SDTP_MTU, &pt_len);
+        if (rc == SDTP_PEER_FAIL) return;
         p->last_recv = now;
-        p->addr = src_addr; /* adopt the current source addr (NAT rebind) */
-        p->have_addr = 1;
+        if (rc == SDTP_PEER_OK_PROMOTED) {
+            sdtp_log("hub: peer %zu confirmed its new session (%s:%u)", (size_t)idx,
+                     inet_ntoa(src_addr.sin_addr), ntohs(src_addr.sin_port));
+        }
         if (type != SDTP_MSG_DATA || pt_len == 0) return;
 
         /* Cryptokey routing: the decrypted packet's SOURCE IP must be the
@@ -242,25 +256,23 @@ static void hub_handle_datagram(sdtp_hub_config *cfg, int tun_fd, int udp_fd,
          * spoofing another peer's address (to a third client or toward the
          * hub's kernel), and drops non-IPv4 / malformed plaintext instead of
          * handing it to the TUN. */
-        uint32_t src_ip;
-        if (sdtp_hub_parse_ipv4_src(pt_buf, pt_len, &src_ip) != 0 || src_ip != p->tunnel_ip) {
-            sdtp_log("hub: dropping spoofed/non-IPv4 inner packet from peer %zu", (size_t)idx);
+        if (!sdtp_inner_src_ok(pt_buf, pt_len, p->tunnel_ip)) {
+            sdtp_log_limited(&g_rl_spoof, "hub: dropping spoofed/non-IPv4 inner packet from peer %zu",
+                             (size_t)idx);
             return;
         }
 
         /* Route the decrypted inner packet by its destination IP. */
         uint32_t dst;
         if (sdtp_hub_parse_ipv4_dst(pt_buf, pt_len, &dst) != 0 || dst == cfg->self_ip) {
-            /* For the hub itself, or anything we can't parse, hand it to the
-             * local TUN and let the hub's kernel route it further. */
-            write(tun_fd, pt_buf, pt_len);
+            write_tun(tun_fd, pt_buf, pt_len); /* for the hub itself */
             return;
         }
         int j = sdtp_hub_find_peer_by_ip(cfg->peers, cfg->peer_count, dst);
         if (j >= 0 && j != idx) {
             forward_to_peer(udp_fd, &cfg->peers[j], pt_buf, pt_len, out_buf, now);
         } else {
-            write(tun_fd, pt_buf, pt_len);
+            write_tun(tun_fd, pt_buf, pt_len);
         }
     }
 }
@@ -294,17 +306,16 @@ void sdtp_hub_run(int tun_fd, int udp_fd, sdtp_hub_config *cfg) {
          * drop a peer that has gone silent so its slot can re-handshake. */
         for (size_t i = 0; i < cfg->peer_count; i++) {
             sdtp_hub_peer *p = &cfg->peers[i];
-            if (!p->established) continue;
+            if (!p->ps.has_current) continue;
             if (now - p->last_recv > 3 * SDTP_KEEPALIVE_INTERVAL_S) {
                 sdtp_log("hub: peer %zu silent too long, dropping session", i);
-                p->established = 0;
-                memset(&p->session, 0, sizeof(p->session));
+                sdtp_peer_reset(&p->ps);
                 continue;
             }
-            if (p->have_addr && now - p->last_send >= SDTP_KEEPALIVE_INTERVAL_S) {
-                size_t len = sdtp_data_encrypt(&p->session, SDTP_MSG_KEEPALIVE, out_buf, NULL, 0);
+            if (p->ps.have_addr && now - p->last_send >= SDTP_KEEPALIVE_INTERVAL_S) {
+                size_t len = sdtp_data_encrypt(&p->ps.current, SDTP_MSG_KEEPALIVE, out_buf, NULL, 0);
                 if (len > 0) {
-                    sendto(udp_fd, out_buf, len, 0, (struct sockaddr *)&p->addr, sizeof(p->addr));
+                    send_datagram(udp_fd, out_buf, len, &p->ps.addr);
                     p->last_send = now;
                 }
             }

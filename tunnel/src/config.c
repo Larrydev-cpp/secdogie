@@ -2,9 +2,11 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <arpa/inet.h>
 #include <sodium.h>
 
 #include "config.h"
+#include "util.h"
 
 static char *trim(char *s) {
     while (*s == ' ' || *s == '\t') s++;
@@ -56,12 +58,15 @@ int sdtp_config_load(const char *path, sdtp_config *cfg) {
             uint8_t sk[SDTP_KEY_LEN];
             if (decode_key(val, sk) != 0) {
                 fprintf(stderr, "%s:%d: invalid private_key (expected base64 32 bytes)\n", path, lineno);
+                sodium_memzero(line, sizeof(line));
+                sodium_memzero(sk, sizeof(sk));
                 fclose(f);
                 return -1;
             }
             memcpy(cfg->my_static.sk, sk, SDTP_KEY_LEN);
             crypto_scalarmult_base(cfg->my_static.pk, sk);
             sodium_memzero(sk, sizeof(sk));
+            sodium_memzero(line, sizeof(line)); /* the base64 key is still in the line buffer */
             have_priv = 1;
         } else if (strcmp(key, "peer_public_key") == 0) {
             if (decode_key(val, cfg->peer_static_pk) != 0) {
@@ -74,7 +79,11 @@ int sdtp_config_load(const char *path, sdtp_config *cfg) {
             strncpy(cfg->address, val, sizeof(cfg->address) - 1);
             have_address = 1;
         } else if (strcmp(key, "listen_port") == 0) {
-            cfg->listen_port = (uint16_t)atoi(val);
+            if (sdtp_parse_port(val, 0, &cfg->listen_port) != 0) {
+                fprintf(stderr, "%s:%d: listen_port must be 0-65535\n", path, lineno);
+                fclose(f);
+                return -1;
+            }
         } else if (strcmp(key, "endpoint") == 0) {
             char *colon = strrchr(val, ':');
             if (!colon) {
@@ -84,7 +93,20 @@ int sdtp_config_load(const char *path, sdtp_config *cfg) {
             }
             *colon = '\0';
             strncpy(cfg->endpoint_host, val, sizeof(cfg->endpoint_host) - 1);
-            cfg->endpoint_port = (uint16_t)atoi(colon + 1);
+            if (sdtp_parse_port(colon + 1, 1, &cfg->endpoint_port) != 0) {
+                fprintf(stderr, "%s:%d: endpoint port must be 1-65535\n", path, lineno);
+                fclose(f);
+                return -1;
+            }
+        } else if (strcmp(key, "peer_address") == 0) {
+            struct in_addr in;
+            if (inet_pton(AF_INET, val, &in) != 1) {
+                fprintf(stderr, "%s:%d: peer_address must be an IPv4 address like 10.66.0.2\n", path, lineno);
+                fclose(f);
+                return -1;
+            }
+            cfg->peer_ip = in.s_addr;
+            cfg->has_peer_ip = 1;
         } else if (strcmp(key, "mtu") == 0) {
             cfg->mtu = atoi(val);
         } else if (strcmp(key, "ifname") == 0) {
@@ -96,6 +118,8 @@ int sdtp_config_load(const char *path, sdtp_config *cfg) {
         }
     }
     fclose(f);
+    sodium_memzero(line, sizeof(line));
+    if (have_priv) sdtp_warn_if_key_file_open(path);
 
     if (!have_priv || !have_peer_pub || !have_address) {
         fprintf(stderr, "%s: missing required key(s): private_key, peer_public_key, address\n", path);

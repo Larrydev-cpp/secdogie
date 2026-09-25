@@ -19,6 +19,7 @@
 #include "net.h"
 #include "config.h"
 #include "hub.h"
+#include "peer_state.h"
 #include "util.h"
 
 static volatile sig_atomic_t g_should_exit = 0;
@@ -75,17 +76,35 @@ static ssize_t read_tun_packet(int tun_fd, uint8_t *buf, size_t cap) {
     return n;
 }
 
+static sdtp_ratelimit g_rl_handshake, g_rl_spoof, g_rl_io;
+
+static void send_datagram(int udp_fd, const uint8_t *buf, size_t len, const struct sockaddr_in *to) {
+    if (len == 0) return;
+    if (sendto(udp_fd, buf, len, 0, (const struct sockaddr *)to, sizeof(*to)) < 0) {
+        sdtp_log_limited(&g_rl_io, "sendto failed: %s", strerror(errno));
+    }
+}
+
+/* Initiator: (re)start a handshake. Returns 1 if msg1 was sent. */
+static int start_handshake(int udp_fd, sdtp_handshake_state *hs, const sdtp_config *cfg,
+                           const struct sockaddr_in *to) {
+    uint8_t msg1[SDTP_MSG1_LEN];
+    size_t n = sdtp_handshake_init_create(hs, msg1, &cfg->my_static, cfg->peer_static_pk);
+    if (n == 0) {
+        sdtp_log("client: cannot build a handshake (degenerate peer_public_key?)");
+        return 0;
+    }
+    send_datagram(udp_fd, msg1, n, to);
+    return 1;
+}
+
 static void run_loop(int tun_fd, int udp_fd, sdtp_config *cfg, int is_server) {
-    sdtp_session session;
-    memset(&session, 0, sizeof(session));
-    int established = 0;
+    /* Sessions, peer address and handshake replay guard (see peer_state.h). */
+    sdtp_peer_state ps;
+    memset(&ps, 0, sizeof(ps));
 
-    struct sockaddr_in peer_addr;
-    memset(&peer_addr, 0, sizeof(peer_addr));
-    int have_peer_addr = 0;
-
-    uint64_t last_peer_ts = 0;
     sdtp_handshake_state hs;
+    memset(&hs, 0, sizeof(hs));
     int handshake_pending = 0;
     time_t handshake_sent_at = 0;
     time_t last_recv = time(NULL);
@@ -96,15 +115,11 @@ static void run_loop(int tun_fd, int udp_fd, sdtp_config *cfg, int is_server) {
     uint8_t pt_buf[SDTP_MTU];
 
     if (!is_server) {
-        if (sdtp_resolve(cfg->endpoint_host, cfg->endpoint_port, &peer_addr) != 0) {
+        if (sdtp_resolve(cfg->endpoint_host, cfg->endpoint_port, &ps.addr) != 0) {
             sdtp_die("cannot resolve endpoint '%s'", cfg->endpoint_host);
         }
-        have_peer_addr = 1;
-
-        uint8_t msg1[SDTP_MSG1_LEN];
-        sdtp_handshake_init_create(&hs, msg1, &cfg->my_static, cfg->peer_static_pk);
-        sendto(udp_fd, msg1, sizeof(msg1), 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
-        handshake_pending = 1;
+        ps.have_addr = 1;
+        handshake_pending = start_handshake(udp_fd, &hs, cfg, &ps.addr);
         handshake_sent_at = time(NULL);
         sdtp_log("client: handshake initiated to %s:%u", cfg->endpoint_host, cfg->endpoint_port);
     }
@@ -128,38 +143,30 @@ static void run_loop(int tun_fd, int udp_fd, sdtp_config *cfg, int is_server) {
         time_t now = time(NULL);
 
         if (!is_server && handshake_pending && now - handshake_sent_at >= SDTP_HANDSHAKE_TIMEOUT_S) {
-            uint8_t msg1[SDTP_MSG1_LEN];
-            sdtp_handshake_init_create(&hs, msg1, &cfg->my_static, cfg->peer_static_pk);
-            sendto(udp_fd, msg1, sizeof(msg1), 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
+            start_handshake(udp_fd, &hs, cfg, &ps.addr);
             handshake_sent_at = now;
             sdtp_log("client: retrying handshake");
         }
 
-        if (!is_server && established && now - last_recv > 3 * SDTP_KEEPALIVE_INTERVAL_S) {
+        if (!is_server && ps.has_current && now - last_recv > 3 * SDTP_KEEPALIVE_INTERVAL_S) {
             sdtp_log("client: peer silent too long, re-handshaking");
-            established = 0;
-            memset(&session, 0, sizeof(session));
-            uint8_t msg1[SDTP_MSG1_LEN];
-            sdtp_handshake_init_create(&hs, msg1, &cfg->my_static, cfg->peer_static_pk);
-            sendto(udp_fd, msg1, sizeof(msg1), 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
-            handshake_pending = 1;
+            sdtp_peer_reset(&ps);
+            handshake_pending = start_handshake(udp_fd, &hs, cfg, &ps.addr);
             handshake_sent_at = now;
         }
 
-        if (established && have_peer_addr && now - last_send >= SDTP_KEEPALIVE_INTERVAL_S) {
-            size_t len = sdtp_data_encrypt(&session, SDTP_MSG_KEEPALIVE, out_buf, NULL, 0);
-            if (len > 0) {
-                sendto(udp_fd, out_buf, len, 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
-            }
+        if (ps.has_current && ps.have_addr && now - last_send >= SDTP_KEEPALIVE_INTERVAL_S) {
+            size_t len = sdtp_data_encrypt(&ps.current, SDTP_MSG_KEEPALIVE, out_buf, NULL, 0);
+            send_datagram(udp_fd, out_buf, len, &ps.addr);
             last_send = now;
         }
 
         if (pfds[0].revents & POLLIN) {
             ssize_t n = read_tun_packet(tun_fd, buf, SDTP_MTU);
-            if (n > 0 && established && have_peer_addr) {
-                size_t len = sdtp_data_encrypt(&session, SDTP_MSG_DATA, out_buf, buf, (size_t)n);
+            if (n > 0 && ps.has_current && ps.have_addr) {
+                size_t len = sdtp_data_encrypt(&ps.current, SDTP_MSG_DATA, out_buf, buf, (size_t)n);
                 if (len > 0) {
-                    sendto(udp_fd, out_buf, len, 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
+                    send_datagram(udp_fd, out_buf, len, &ps.addr);
                     last_send = now;
                 }
             }
@@ -172,55 +179,75 @@ static void run_loop(int tun_fd, int udp_fd, sdtp_config *cfg, int is_server) {
             sdtp_udp_msg batch[SDTP_RECV_BATCH];
             int count = sdtp_udp_recv_batch(udp_fd, batch, SDTP_RECV_BATCH);
             for (int bi = 0; bi < count; bi++) {
-                uint8_t *buf = batch[bi].buf;
+                uint8_t *dgram = batch[bi].buf;
                 ssize_t n = (ssize_t)batch[bi].len;
                 struct sockaddr_in src_addr = batch[bi].src;
-                socklen_t src_len = batch[bi].src_len;
                 if (n <= 0) continue;
-                uint8_t type = buf[0];
+                uint8_t type = dgram[0];
+
                 if (type == SDTP_MSG_HANDSHAKE_INIT && is_server) {
+                    /* Only a PENDING session: the live one and the peer address
+                     * change when the first packet under the new keys arrives. */
                     uint8_t msg2[SDTP_MSG2_LEN];
-                    sdtp_session new_session;
-                    size_t rlen = sdtp_handshake_respond(buf, (size_t)n, &cfg->my_static, cfg->peer_static_pk,
-                                                          &last_peer_ts, msg2, &new_session);
+                    size_t rlen = sdtp_peer_respond(&ps, dgram, (size_t)n, &cfg->my_static,
+                                                    cfg->peer_static_pk, msg2);
                     if (rlen > 0) {
-                        session = new_session;
-                        established = 1;
-                        peer_addr = src_addr;
-                        have_peer_addr = 1;
-                        last_recv = now;
-                        sendto(udp_fd, msg2, rlen, 0, (struct sockaddr *)&src_addr, src_len);
-                        sdtp_log("server: handshake completed with %s:%u", inet_ntoa(src_addr.sin_addr),
-                                 ntohs(src_addr.sin_port));
+                        send_datagram(udp_fd, msg2, rlen, &src_addr);
+                        sdtp_log("server: handshake response to %s:%u, awaiting confirmation",
+                                 inet_ntoa(src_addr.sin_addr), ntohs(src_addr.sin_port));
                     } else {
-                        sdtp_log("server: rejected handshake_init from %s:%u", inet_ntoa(src_addr.sin_addr),
-                                 ntohs(src_addr.sin_port));
+                        sdtp_log_limited(&g_rl_handshake, "server: rejected handshake_init from %s:%u",
+                                         inet_ntoa(src_addr.sin_addr), ntohs(src_addr.sin_port));
                     }
                 } else if (type == SDTP_MSG_HANDSHAKE_RESP && !is_server && handshake_pending) {
-                    if (sdtp_handshake_finish(&hs, buf, (size_t)n, &cfg->my_static, cfg->peer_static_pk, &session)) {
-                        established = 1;
+                    sdtp_session fresh;
+                    if (sdtp_handshake_finish(&hs, dgram, (size_t)n, &cfg->my_static, cfg->peer_static_pk,
+                                              &fresh)) {
+                        sdtp_peer_install(&ps, &fresh);
+                        sodium_memzero(&fresh, sizeof(fresh));
+                        sodium_memzero(&hs, sizeof(hs)); /* the ephemeral secret is no longer needed */
                         handshake_pending = 0;
                         last_recv = now;
+                        /* Confirm right away so the responder promotes its pending session. */
+                        size_t len = sdtp_data_encrypt(&ps.current, SDTP_MSG_KEEPALIVE, out_buf, NULL, 0);
+                        send_datagram(udp_fd, out_buf, len, &ps.addr);
+                        last_send = now;
                         sdtp_log("client: handshake completed");
                     } else {
-                        sdtp_log("client: handshake_resp failed validation, ignoring");
+                        sdtp_log_limited(&g_rl_handshake, "client: handshake_resp failed validation, ignoring");
                     }
-                } else if ((type == SDTP_MSG_DATA || type == SDTP_MSG_KEEPALIVE) && established) {
+                } else if (type == SDTP_MSG_DATA || type == SDTP_MSG_KEEPALIVE) {
                     size_t pt_len = 0;
-                    if (sdtp_data_decrypt(&session, buf, (size_t)n, pt_buf, sizeof(pt_buf), &pt_len) == 0) {
-                        last_recv = now;
-                        peer_addr = src_addr;
-                        have_peer_addr = 1;
-                        if (type == SDTP_MSG_DATA && pt_len > 0) {
-                            write(tun_fd, pt_buf, pt_len);
-                        }
+                    int drc = sdtp_peer_decrypt(&ps, dgram, (size_t)n, &src_addr, pt_buf, sizeof(pt_buf), &pt_len);
+                    if (drc == SDTP_PEER_FAIL) continue;
+                    last_recv = now;
+                    if (drc == SDTP_PEER_OK_PROMOTED) {
+                        sdtp_log("server: peer confirmed the new session (%s:%u)",
+                                 inet_ntoa(src_addr.sin_addr), ntohs(src_addr.sin_port));
+                    }
+                    if (type != SDTP_MSG_DATA || pt_len == 0) continue;
+                    if (cfg->has_peer_ip && !sdtp_inner_src_ok(pt_buf, pt_len, cfg->peer_ip)) {
+                        sdtp_log_limited(&g_rl_spoof, "dropping inner packet whose source is not peer_address");
+                        continue;
+                    }
+                    if (write(tun_fd, pt_buf, pt_len) < 0) {
+                        sdtp_log_limited(&g_rl_io, "tun write failed: %s", strerror(errno));
                     }
                 }
             }
         }
     }
 
+    sdtp_peer_reset(&ps);
+    sodium_memzero(&hs, sizeof(hs));
     sdtp_log("shutting down");
+}
+
+static void warn_if_no_peer_address(const sdtp_config *cfg) {
+    if (!cfg->has_peer_ip) {
+        sdtp_log("warning: no peer_address set -- the peer may send inner packets with any source IP; "
+                 "set peer_address = <its tunnel IP> to enforce it");
+    }
 }
 
 static int cmd_server(int argc, char **argv) {
@@ -237,7 +264,7 @@ static int cmd_server(int argc, char **argv) {
 
     char ifname[IFNAMSIZ];
     memset(ifname, 0, sizeof(ifname));
-    if (cfg.ifname[0]) strncpy(ifname, cfg.ifname, IFNAMSIZ - 1);
+    if (cfg.ifname[0]) snprintf(ifname, sizeof(ifname), "%s", cfg.ifname);
 
     int tun_fd = sdtp_tun_create(ifname);
     if (tun_fd < 0) sdtp_die("tun create failed: %s (are you root / CAP_NET_ADMIN?)", strerror(errno));
@@ -249,6 +276,7 @@ static int cmd_server(int argc, char **argv) {
     if (udp_fd < 0) sdtp_die("udp bind failed: %s", strerror(errno));
 
     sdtp_log("server: tun=%s address=%s udp_port=%u", ifname, cfg.address, cfg.listen_port);
+    warn_if_no_peer_address(&cfg);
     run_loop(tun_fd, udp_fd, &cfg, 1);
 
     close(tun_fd);
@@ -270,7 +298,7 @@ static int cmd_client(int argc, char **argv) {
 
     char ifname[IFNAMSIZ];
     memset(ifname, 0, sizeof(ifname));
-    if (cfg.ifname[0]) strncpy(ifname, cfg.ifname, IFNAMSIZ - 1);
+    if (cfg.ifname[0]) snprintf(ifname, sizeof(ifname), "%s", cfg.ifname);
 
     int tun_fd = sdtp_tun_create(ifname);
     if (tun_fd < 0) sdtp_die("tun create failed: %s (are you root / CAP_NET_ADMIN?)", strerror(errno));
@@ -282,6 +310,7 @@ static int cmd_client(int argc, char **argv) {
     if (udp_fd < 0) sdtp_die("udp bind failed: %s", strerror(errno));
 
     sdtp_log("client: tun=%s address=%s -> %s:%u", ifname, cfg.address, cfg.endpoint_host, cfg.endpoint_port);
+    warn_if_no_peer_address(&cfg);
     run_loop(tun_fd, udp_fd, &cfg, 0);
 
     close(tun_fd);
@@ -299,7 +328,7 @@ static int cmd_hub(int argc, char **argv) {
 
     char ifname[IFNAMSIZ];
     memset(ifname, 0, sizeof(ifname));
-    if (cfg.ifname[0]) strncpy(ifname, cfg.ifname, IFNAMSIZ - 1);
+    if (cfg.ifname[0]) snprintf(ifname, sizeof(ifname), "%s", cfg.ifname);
 
     int tun_fd = sdtp_tun_create(ifname);
     if (tun_fd < 0) sdtp_die("tun create failed: %s (are you root / CAP_NET_ADMIN?)", strerror(errno));

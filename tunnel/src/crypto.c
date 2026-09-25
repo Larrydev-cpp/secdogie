@@ -16,19 +16,29 @@ int sdtp_dh(uint8_t out[SDTP_KEY_LEN], const uint8_t sk[SDTP_KEY_LEN], const uin
     return crypto_scalarmult(out, sk, pk);
 }
 
-void sdtp_mac1(uint8_t out[SDTP_MAC_LEN], const uint8_t peer_static_pk[SDTP_KEY_LEN],
+int sdtp_mac1_key(uint8_t key[SDTP_KEY_LEN], const uint8_t my_sk[SDTP_KEY_LEN],
+                  const uint8_t peer_pk[SDTP_KEY_LEN],
+                  const uint8_t i_static_pk[SDTP_KEY_LEN], const uint8_t r_static_pk[SDTP_KEY_LEN]) {
+    static const char label[] = "SDTP-v2-mac1";
+    uint8_t ss[SDTP_KEY_LEN];
+    if (sdtp_dh(ss, my_sk, peer_pk) != 0) return -1;
+
+    crypto_generichash_state st;
+    crypto_generichash_init(&st, NULL, 0, SDTP_KEY_LEN);
+    crypto_generichash_update(&st, (const unsigned char *)label, sizeof(label) - 1);
+    crypto_generichash_update(&st, ss, sizeof(ss));
+    crypto_generichash_update(&st, i_static_pk, SDTP_KEY_LEN);
+    crypto_generichash_update(&st, r_static_pk, SDTP_KEY_LEN);
+    crypto_generichash_final(&st, key, SDTP_KEY_LEN);
+
+    sodium_memzero(ss, sizeof(ss));
+    sodium_memzero(&st, sizeof(st));
+    return 0;
+}
+
+void sdtp_mac1(uint8_t out[SDTP_MAC_LEN], const uint8_t key[SDTP_KEY_LEN],
                const uint8_t *data, size_t data_len) {
-    static const char label[] = "SDTP-mac1";
-    uint8_t buf[sizeof(label) - 1 + SDTP_KEY_LEN];
-    uint8_t mac_key[SDTP_KEY_LEN];
-
-    memcpy(buf, label, sizeof(label) - 1);
-    memcpy(buf + sizeof(label) - 1, peer_static_pk, SDTP_KEY_LEN);
-    crypto_generichash(mac_key, sizeof(mac_key), buf, sizeof(buf), NULL, 0);
-
-    crypto_generichash(out, SDTP_MAC_LEN, data, data_len, mac_key, sizeof(mac_key));
-
-    sodium_memzero(mac_key, sizeof(mac_key));
+    crypto_generichash(out, SDTP_MAC_LEN, data, data_len, key, SDTP_KEY_LEN);
 }
 
 static void hash32(uint8_t out[32], const uint8_t *a, size_t a_len, const uint8_t *b, size_t b_len) {

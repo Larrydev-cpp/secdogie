@@ -26,15 +26,17 @@ int sdtp_hub_parse_ipv4_src(const uint8_t *pkt, size_t len, uint32_t *src_out) {
     return 0;
 }
 
+int sdtp_inner_src_ok(const uint8_t *pkt, size_t len, uint32_t expected_ip) {
+    uint32_t src;
+    return sdtp_hub_parse_ipv4_src(pkt, len, &src) == 0 && src == expected_ip;
+}
+
 int sdtp_hub_find_peer_by_session_id(const sdtp_hub_peer *peers, size_t n,
                                      const uint8_t session_id[SDTP_SESSION_ID_LEN]) {
     for (size_t i = 0; i < n; i++) {
-        /* Only established peers have a real session_id; skip the rest so an
-         * all-zero id on an unconfigured slot can't false-match. */
-        if (!peers[i].established) continue;
-        if (sodium_memcmp(peers[i].session.session_id, session_id, SDTP_SESSION_ID_LEN) == 0) {
-            return (int)i;
-        }
+        /* Only slots holding a session can match, so an all-zero id on an
+         * unused slot never false-matches. */
+        if (sdtp_peer_owns(&peers[i].ps, session_id)) return (int)i;
     }
     return -1;
 }

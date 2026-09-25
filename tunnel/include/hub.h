@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include "sdtp.h"
+#include "peer_state.h"
 
 /* A hub is a reachable node that terminates many point-to-point tunnels at
  * once (one per client) and routes packets between them by inner destination
@@ -26,12 +27,8 @@ typedef struct {
     /* Configured up front from the hub config file: */
     uint8_t static_pk[SDTP_KEY_LEN]; /* the client's static public key */
     uint32_t tunnel_ip;              /* the client's tunnel IP, network byte order */
-    /* Filled in at runtime as the client handshakes and sends: */
-    sdtp_session session;
-    struct sockaddr_in addr;         /* last source address we saw from this client */
-    int have_addr;
-    int established;
-    uint64_t last_peer_ts;           /* per-peer handshake replay guard */
+    /* Filled in at runtime (sessions, address, replay guard -- see peer_state.h): */
+    sdtp_peer_state ps;
     time_t last_recv;
     time_t last_send;
 } sdtp_hub_peer;
@@ -56,7 +53,11 @@ int sdtp_hub_parse_ipv4_dst(const uint8_t *pkt, size_t len, uint32_t *dst_out);
  * a too-short or non-IPv4 packet. Used for cryptokey routing in the hub. */
 int sdtp_hub_parse_ipv4_src(const uint8_t *pkt, size_t len, uint32_t *src_out);
 
-/* Index of the established peer whose session has this session_id, or -1. */
+/* p2p/hub cryptokey check on a decrypted inner packet: 1 if it is IPv4 and its
+ * source is `expected_ip` (network byte order), else 0. */
+int sdtp_inner_src_ok(const uint8_t *pkt, size_t len, uint32_t expected_ip);
+
+/* Index of the peer owning this session_id (current, pending or previous), or -1. */
 int sdtp_hub_find_peer_by_session_id(const sdtp_hub_peer *peers, size_t n,
                                      const uint8_t session_id[SDTP_SESSION_ID_LEN]);
 

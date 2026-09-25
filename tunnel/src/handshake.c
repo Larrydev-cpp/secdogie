@@ -27,6 +27,11 @@ static void init_session_common(sdtp_session *s, const uint8_t session_id[SDTP_S
 
 size_t sdtp_handshake_init_create(sdtp_handshake_state *hs, uint8_t out[SDTP_MSG1_LEN],
                                    const sdtp_keypair *my_static, const uint8_t peer_static_pk[SDTP_KEY_LEN]) {
+    uint8_t mac_key[SDTP_KEY_LEN];
+    if (sdtp_mac1_key(mac_key, my_static->sk, peer_static_pk, my_static->pk, peer_static_pk) != 0) {
+        return 0; /* degenerate peer key: refuse to build a handshake at all */
+    }
+
     sdtp_keypair_generate(&hs->eph);
     randombytes_buf(hs->session_id, SDTP_SESSION_ID_LEN);
 
@@ -36,7 +41,8 @@ size_t sdtp_handshake_init_create(sdtp_handshake_state *hs, uint8_t out[SDTP_MSG
     memcpy(out + 41, hs->eph.pk, SDTP_KEY_LEN);
     sdtp_put_u64be(out + 73, sdtp_now_ns());
 
-    sdtp_mac1(out + 81, peer_static_pk, out, 81);
+    sdtp_mac1(out + 81, mac_key, out, 81);
+    sodium_memzero(mac_key, sizeof(mac_key));
 
     return SDTP_MSG1_LEN;
 }
@@ -47,13 +53,21 @@ size_t sdtp_handshake_respond(const uint8_t *msg1, size_t msg1_len,
                                uint8_t out[SDTP_MSG2_LEN], sdtp_session *session) {
     if (msg1_len != SDTP_MSG1_LEN || msg1[0] != SDTP_MSG_HANDSHAKE_INIT) return 0;
 
-    uint8_t expected_mac[SDTP_MAC_LEN];
-    sdtp_mac1(expected_mac, my_static->pk, msg1, 81);
-    if (sodium_memcmp(expected_mac, msg1 + 81, SDTP_MAC_LEN) != 0) return 0;
-
     const uint8_t *i_static_pk = msg1 + 9;
     const uint8_t *i_eph_pk = msg1 + 41;
+    /* Cheap filter first: is this even the configured peer? (A hub tries each
+     * configured peer in turn; only the matching one pays for the DH below.) */
     if (sodium_memcmp(i_static_pk, expected_peer_static_pk, SDTP_KEY_LEN) != 0) return 0;
+
+    /* mac1 keyed by the static-static DH: proves the sender holds the
+     * initiator's static private key, so a forged msg1 dies here -- before it
+     * can touch the replay guard or cost the ephemeral DHs. */
+    uint8_t mac_key[SDTP_KEY_LEN];
+    uint8_t expected_mac[SDTP_MAC_LEN];
+    if (sdtp_mac1_key(mac_key, my_static->sk, i_static_pk, i_static_pk, my_static->pk) != 0) return 0;
+    sdtp_mac1(expected_mac, mac_key, msg1, 81);
+    sodium_memzero(mac_key, sizeof(mac_key));
+    if (sodium_memcmp(expected_mac, msg1 + 81, SDTP_MAC_LEN) != 0) return 0;
 
     uint64_t timestamp = sdtp_get_u64be(msg1 + 73);
     uint64_t now = sdtp_now_ns();
@@ -66,28 +80,33 @@ size_t sdtp_handshake_respond(const uint8_t *msg1, size_t msg1_len,
     sdtp_keypair_generate(&r_eph);
 
     uint8_t dh1[SDTP_KEY_LEN], dh2[SDTP_KEY_LEN], dh3[SDTP_KEY_LEN];
-    if (sdtp_dh(dh1, my_static->sk, i_eph_pk) != 0) return 0;
-    if (sdtp_dh(dh2, r_eph.sk, i_static_pk) != 0) return 0;
-    if (sdtp_dh(dh3, r_eph.sk, i_eph_pk) != 0) return 0;
-
     uint8_t key_i2r[SDTP_KEY_LEN], key_r2i[SDTP_KEY_LEN];
+    size_t result = 0;
+    if (sdtp_dh(dh1, my_static->sk, i_eph_pk) != 0) goto done;
+    if (sdtp_dh(dh2, r_eph.sk, i_static_pk) != 0) goto done;
+    if (sdtp_dh(dh3, r_eph.sk, i_eph_pk) != 0) goto done;
+
     sdtp_derive_transport_keys(key_i2r, key_r2i, dh1, dh2, dh3, i_static_pk, my_static->pk);
 
     out[0] = SDTP_MSG_HANDSHAKE_RESP;
     memcpy(out + 1, msg1 + 1, SDTP_SESSION_ID_LEN);
     memcpy(out + 9, r_eph.pk, SDTP_KEY_LEN);
     if (sdtp_aead_encrypt(out + 41, CONFIRM_PT, sizeof(CONFIRM_PT), out, 41, CONFIRM_NONCE, key_r2i) != 0) {
-        return 0;
+        goto done;
     }
 
     *last_peer_timestamp = timestamp;
     init_session_common(session, msg1 + 1, key_i2r, key_r2i, 0);
+    result = SDTP_MSG2_LEN;
 
+done:
+    sodium_memzero(&r_eph, sizeof(r_eph));
     sodium_memzero(dh1, sizeof(dh1));
     sodium_memzero(dh2, sizeof(dh2));
     sodium_memzero(dh3, sizeof(dh3));
-
-    return SDTP_MSG2_LEN;
+    sodium_memzero(key_i2r, sizeof(key_i2r));
+    sodium_memzero(key_r2i, sizeof(key_r2i));
+    return result;
 }
 
 int sdtp_handshake_finish(const sdtp_handshake_state *hs, const uint8_t *msg2, size_t msg2_len,
@@ -112,9 +131,10 @@ int sdtp_handshake_finish(const sdtp_handshake_state *hs, const uint8_t *msg2, s
     sodium_memzero(dh1, sizeof(dh1));
     sodium_memzero(dh2, sizeof(dh2));
     sodium_memzero(dh3, sizeof(dh3));
+    sodium_memzero(confirm_pt, sizeof(confirm_pt));
 
-    if (!ok) return 0;
-
-    init_session_common(session, hs->session_id, key_i2r, key_r2i, 1);
-    return 1;
+    if (ok) init_session_common(session, hs->session_id, key_i2r, key_r2i, 1);
+    sodium_memzero(key_i2r, sizeof(key_i2r));
+    sodium_memzero(key_r2i, sizeof(key_r2i));
+    return ok;
 }

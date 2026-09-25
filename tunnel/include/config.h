@@ -15,6 +15,11 @@ typedef struct {
     uint16_t endpoint_port;  /* client only: server UDP port */
     int mtu;
     char ifname[IFNAMSIZ];
+    /* Optional `peer_address = <ipv4>`: the peer's tunnel IP. When set, every
+     * decrypted inner packet must carry it as its source (cryptokey routing,
+     * as the hub does); when unset the check is off and a warning is printed. */
+    uint32_t peer_ip;        /* network byte order */
+    int has_peer_ip;
 } sdtp_config;
 
 /* Parses a simple `key = value` config file (# comments, blank lines

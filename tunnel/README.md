@@ -43,6 +43,7 @@ private_key = <server private key>
 peer_public_key = <client public key>
 address = 10.66.0.1/24
 listen_port = 51820
+peer_address = 10.66.0.2     # optional: drop inner packets not sourced from the client's tunnel IP
 ```
 
 **Client** (`client.conf`):
@@ -52,7 +53,12 @@ private_key = <client private key>
 peer_public_key = <server public key>
 address = 10.66.0.2/24
 endpoint = <server ip or hostname>:51820
+peer_address = 10.66.0.1     # optional, as above
 ```
+
+Keep both files `chmod 600` (they hold the private key; the tunnel warns
+otherwise). Protocol v2 changed the handshake MAC, so upgrade both ends
+together -- a v1 peer's handshake is rejected.
 
 Run:
 
