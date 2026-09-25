@@ -13,6 +13,7 @@ from .endpoint import Endpoint, EndpointSet
 from .membership import MembershipView, PeerRecord, gossip_round
 from .peer import PeerIdentity
 from .rendezvous import RendezvousClient, RendezvousServer
+from .sealed import ReplayWindow, load_transport_key
 from .session import Session
 from .transport import HubTransport, Transport
 from .udp import DirectUDPTransport, UDPChannel
@@ -29,6 +30,8 @@ __all__ = [
     "HubTransport",
     "DirectUDPTransport",
     "UDPChannel",
+    "ReplayWindow",
+    "load_transport_key",
     "RendezvousServer",
     "RendezvousClient",
     "DirectUpgrader",
