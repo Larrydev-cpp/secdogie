@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 
-from . import safety, screen
+from . import actions, safety, screen
 from .backend import Backend, DesktopBackend
 from .providers.base import Action, VisionProvider
 from .skill import run_skill
@@ -65,9 +65,15 @@ def run_skill_file(
 
     def execute(action_dict: dict) -> str:
         action = _to_action(action_dict)
-        if not auto and not safety.confirm(f"Execute {action.kind}({action.raw})?"):
-            logger.info("user declined action: %s", action.kind)
-            return "skipped (user declined)"
+        # `auto` skips the per-step prompt, never the high-risk one: like the agent
+        # loop, a skill cannot open files/URLs or press save/delete/close/send keys
+        # unconfirmed. With no terminal, safety.confirm says no (fail closed).
+        high_risk = actions.is_high_risk(action)
+        if not auto or high_risk:
+            label = "HIGH-RISK " if high_risk else ""
+            if not safety.confirm(f"Execute {label}{action.kind}({action.raw})?"):
+                logger.info("user declined action: %s", action.kind)
+                return "skipped (user declined)"
         result = backend.execute(action)
         logger.info("action: %s -> %s", action.kind, result)
         return result

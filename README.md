@@ -94,8 +94,8 @@ identity/    transport/    citadel/     citadel/       agent/ + 安全边界
 绕过用户授权或 macOS Accessibility / Screen Recording 权限、把 HITL 改成默认自动批准、
 隐蔽嵌入第三方服务、流量混淆、打洞式反检测。
 
-**保持**：memory = 只读、execution = 受监督、high-risk = fail-closed、
-physical action = 显式 capability。能力模型**永不**包含 `process.memory.write` /
+**保持**：memory = 只读、execution = 受监督、high-risk = fail-closed 且在任何模式、
+任何入口都必须人工确认（没有开关可以关闭）、physical action = 显式 capability。能力模型**永不**包含 `process.memory.write` /
 内核 HID / 反检测 / 提权。
 
 `websession.py` 只**复用你自己在别处正规登录后保存的已授权会话**去只读导航 + 读页面

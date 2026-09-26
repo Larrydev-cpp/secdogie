@@ -59,7 +59,6 @@ class AgentConfig:
     task: str
     max_steps: int = 50
     auto: bool = False
-    confirm_high_risk: bool = True
     elevated_allowlist: tuple[str, ...] = ()
     dry_run: bool = False
     read_only: bool = False
@@ -762,10 +761,10 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     continue
                 if gate_note:
                     logger.info("plan gate note on %s: %s", action.kind, gate_note)
-            # High-risk (open/elevated/save/delete/close hotkeys) force confirm even under --auto.
-            # Mutating actions under --auto are allowed without extra prompt (operator chose --auto);
-            # --read-only already blocked them above.
-            force_confirm = is_high_risk and config.confirm_high_risk
+            # High-risk (open/elevated/save/delete/close/send hotkeys) always confirm, in every
+            # mode -- there is no switch for it. Other mutating actions under --auto run without
+            # an extra prompt (the operator chose --auto); --read-only already blocked them above.
+            force_confirm = is_high_risk
             if config.gui and not config.confirm_each:
                 needs_confirm = force_confirm
             else:

@@ -11,7 +11,7 @@
 
 **不可协商的前提(严禁)**:进程内存写、远程线程注入、内核 HID、EDR/反检测、隐蔽持久化、
 提权、绕过用户授权 / macOS 权限、把 HITL 改成默认自动批准、流量混淆、打洞式反检测。
-**保持**:memory=只读、execution=受监督、high-risk=fail-closed、physical action=显式 capability。
+**保持**:memory=只读、execution=受监督、high-risk=fail-closed 且任何入口都必须人工确认(无开关可关)、physical action=显式 capability。
 
 ## 五条并行 track
 

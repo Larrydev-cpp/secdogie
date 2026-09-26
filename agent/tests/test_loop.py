@@ -142,6 +142,12 @@ def test_high_risk_open_runs_when_confirmed_under_auto(monkeypatch):
     assert executed == ["open"]
 
 
+def test_high_risk_confirmation_has_no_off_switch():
+    # --allow-risky used to map to confirm_high_risk=False; neither exists now.
+    with pytest.raises(TypeError):
+        loop.AgentConfig(task="x", confirm_high_risk=False)
+
+
 def test_low_risk_click_never_prompts_under_auto(monkeypatch):
     executed = []
     _patch_screen_and_actions(monkeypatch, executed)

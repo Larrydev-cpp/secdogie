@@ -19,6 +19,20 @@ from .providers import VisionProvider, make_provider
 DEFAULT_MODEL = "claude-sonnet-5"
 
 
+class _RemovedFlag(argparse.Action):
+    """A flag that no longer exists. Using it is an error that says why, rather
+    than being silently ignored (a script relying on it must not quietly get
+    different behaviour)."""
+
+    def __init__(self, option_strings, dest, why: str = "", **kwargs):
+        self.why = why
+        kwargs.setdefault("help", argparse.SUPPRESS)
+        super().__init__(option_strings, dest, nargs=0, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        parser.error(f"{option_string} was removed: {self.why}")
+
+
 def add_provider_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--model",
@@ -86,9 +100,10 @@ def add_loop_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--allow-risky",
-        action="store_true",
-        help="with --auto, also run high-risk actions (currently `open`, which launches a file/URL) "
-        "without confirmation; by default those still prompt even under --auto",
+        action=_RemovedFlag,
+        default=argparse.SUPPRESS,
+        why="high-risk actions (open, run_elevated, save/delete/close keys, Ctrl/Cmd+Enter) "
+        "always ask for confirmation, in every mode",
     )
     parser.add_argument(
         "--allow-elevated-command",
@@ -271,8 +286,6 @@ def loop_config_kwargs(args: argparse.Namespace, *, task: str, backend=None) -> 
         kwargs["subtask_step_limit"] = args.subtask_step_limit
     if getattr(args, "trace", None) is not None:
         kwargs["trace_path"] = args.trace
-    if getattr(args, "allow_risky", False):
-        kwargs["confirm_high_risk"] = False
     if getattr(args, "memory", None) is not None:
         kwargs["memory_path"] = args.memory
     elevated = getattr(args, "allow_elevated_command", None)

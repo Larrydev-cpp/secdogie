@@ -225,7 +225,7 @@ def run_agent_task(task: str, options: dict, should_stop, on_progress) -> tuple[
     # agent CLI would produce, then apply the (already filtered) options.
     args = argparse.Namespace(
         api_key=None, model=None, config=None, provider=None,
-        auto=True, dry_run=False, allow_risky=False, max_steps=40,
+        auto=True, dry_run=False, max_steps=40,
         log_file=None, max_image_edge=None, grid=False, action_pause=None,
         no_verify=False, stall_limit=None, plan=False, watch=False,
         watch_interval=None, trace=None, memory=None, subtask_step_limit=None,

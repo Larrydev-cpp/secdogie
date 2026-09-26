@@ -19,7 +19,7 @@
 | 节点归属 | 只在**自有或已授权**的设备/账号上运行。**不**隐蔽嵌入第三方服务、**不**把别人的网站当作隐蔽宿主。 |
 | 网页资源 | 只读取**公开的或已获授权的**网页/接口数据用于学习。**不**规避检测、**不**做未授权持久化。 |
 | 内存 | **只读**。有 `WriteProcessMemory` / `VirtualProtectEx` / `CreateRemoteThread` 的等价物一律拒绝(见 `native/atlas`)。 |
-| 执行 | **受监督**。高风险动作 **fail-closed**;物理动作需**显式能力授权**;HITL(人类在环)不得被改成默认自动批准。 |
+| 执行 | **受监督**。高风险动作 **fail-closed**,且在任何模式、任何入口都必须人工确认(没有开关可以关闭);物理动作需**显式能力授权**;HITL(人类在环)不得被改成默认自动批准。 |
 
 > 这四条前提不是外挂的“安全说明”,而是代码的实际形状:DID 签名、能力授权、只读句柄、
 > 苏格拉底门与 fail-closed 都是既有实现。凡与之冲突的“捷径”都不属于本项目。
@@ -179,8 +179,8 @@ flowchart TB
 隐蔽持久化、提权、绕过用户授权、绕过 macOS Accessibility / Screen Recording 权限、
 把 HITL 改成默认自动批准、隐蔽嵌入第三方服务、流量混淆、打洞式反检测。
 
-**保持**:memory = 只读、execution = 受监督、high-risk = fail-closed、
-physical action = 显式 capability。能力模型**永不**包含
+**保持**:memory = 只读、execution = 受监督、high-risk = fail-closed 且在任何模式、
+任何入口都必须人工确认(没有开关可以关闭)、physical action = 显式 capability。能力模型**永不**包含
 `process.memory.write` / 内核 HID / 反检测 / 提权。
 
 > 每个切片提交前都会 grep 回归,确认没有新增上述原语;CI 与本文档同步维护这一边界。
