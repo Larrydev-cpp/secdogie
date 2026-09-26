@@ -212,17 +212,20 @@ secdogie-agent "open a text editor and type 'hello world'" --dry-run   # see wha
 secdogie-agent "open a text editor and type 'hello world'"             # confirms every action (default)
 secdogie-agent --gui                                                    # pops up a task window instead
 secdogie-agent "..." --auto                                             # no confirmations -- see warning above
-secdogie-agent "..." --auto --allow-risky                              # ...not even for high-risk actions
 ```
 
-**High-risk actions still confirm under `--auto`.** `--auto` trusts the model
-to click and type unattended, but not to reach *outside* the screen — the
-`open` action hands an arbitrary file/URL to the OS default handler, so it can
-launch a program or open a link. That one kind prompts for a `y/N` even under
-`--auto` (the prompt is labelled `HIGH-RISK`). On a run with no terminal to
-answer (piped stdin, a service), an unconfirmed high-risk action **fails closed
-— it's skipped, never silently launched.** Pass `--allow-risky` to opt back
-into running those unattended too.
+**High-risk actions always confirm, in every mode.** `--auto` trusts the model
+to click and type unattended, but not to reach *outside* the screen, destroy
+work, or send something on your behalf. These prompt for a `y/N` even under
+`--auto` (the prompt is labelled `HIGH-RISK`): `open` (hands an arbitrary
+file/URL to the OS default handler, so it can launch a program or open a link),
+`run_elevated`, the save/delete/close keys (Ctrl/Cmd+S, Delete, Backspace,
+Alt+F4, Ctrl/Cmd+W) and the send/submit combo of chat and mail clients
+(Ctrl/Cmd+Enter). On a run with no terminal to answer (piped stdin, a service),
+an unconfirmed high-risk action **fails closed — it's skipped, never silently
+run.** There is no switch to skip this: the old `--allow-risky` flag was
+removed and now fails with an error. The same rule holds for skills
+(`--skill`), fleet nodes and citadel runs.
 
 ### Running a command as SYSTEM (`run_elevated`, Windows)
 
@@ -243,7 +246,7 @@ ways:
    aside — no globbing, so `sc stop Spooler` can never become `sc stop Themes`).
    With **no** `--allow-elevated-command`, elevation is entirely off and every
    `run_elevated` is refused. The model never gets an arbitrary SYSTEM shell.
-2. **It's high-risk**, so it confirms even under `--auto` (unless `--allow-risky`),
+2. **It's high-risk**, so it always confirms, even under `--auto`,
    the exact command is shown, and on a no-TTY run it fails closed.
 3. **It requires the agent to already be Administrator.** It acquires SYSTEM from
    an admin token (`DuplicateTokenEx` off `winlogon.exe` → `CreateProcessAsUser`
@@ -360,7 +363,6 @@ Extra knobs:
 | `--subtask-step-limit N` | with `--plan`, skip a sub-task that runs `N` steps without finishing (default 15; `0` disables). |
 | `--trace PATH` | write a tamper-evident hash-chained audit trace of every step to `PATH` (JSONL); verify later with `python -m secdogie_agent.trace PATH` (see below). |
 | `--memory PATH` | give the agent persistent cross-run memory in the SQLite file `PATH`: it saves durable facts with a `remember` action and they're recalled into its prompt on later runs (see below). Plaintext — never have it store secrets. |
-| `--allow-risky` | with `--auto`, run high-risk actions (currently `open`, which launches a file/URL) without confirmation; by default those still prompt even under `--auto` (see [Before you run](../README.md#before-you-run-any-of-this)). |
 | `--allow-elevated-command "CMD"` | (Windows) permit the `run_elevated` action to run this **exact** command as SYSTEM; repeatable. This allowlist is the only thing the model can escalate — with none given, elevation is off. The agent must already be Administrator. See [Running a command as SYSTEM](#running-a-command-as-system-run_elevated-windows). |
 | `--proxy URL` | route all model API calls through this proxy (HTTP or SOCKS5). For TOR: `socks5://127.0.0.1:9050`. Requires `pip install httpx[socks]` for SOCKS. |
 
@@ -492,8 +494,8 @@ is put back afterwards**), `key` (a press or
 hotkey; arrow keys are `up`/`down`/`left`/`right`), `hold_key` (**hold key(s)
 down for N seconds** — use for continuous movement like walking in a game or
 panning a map), `scroll`, `open` (**open a file/folder/URL with the OS default
-program**, no mouse needed — this one still asks for confirmation even under
-`--auto`, see [`--allow-risky`](#click-accuracy)), `wait`, `remember` (**save a durable
+program**, no mouse needed — this one always asks for confirmation, even under
+`--auto`), `wait`, `remember` (**save a durable
 fact** to cross-run memory when `--memory` is on, see above), plus `done` and
 `ask_user`.
 

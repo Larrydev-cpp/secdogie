@@ -1,7 +1,7 @@
 """skill_runner wiring tests -- with a fake backend + provider, no display."""
 import json
 
-from secdogie_agent import screen
+from secdogie_agent import safety, screen
 from secdogie_agent.skill_runner import _to_action, run_skill_file
 
 
@@ -67,3 +67,32 @@ def test_run_skill_file_reports_bad_program(tmp_path, monkeypatch):
 def test_run_skill_file_missing_file_returns_2(tmp_path):
     rc = run_skill_file(FakeProvider([]), str(tmp_path / "nope.json"), "main", {}, backend=FakeBackend(), auto=True)
     assert rc == 2
+
+
+def _skill_file(tmp_path, *steps):
+    lib = {"skills": {"main": {"body": [{"op": "action", **step} for step in steps]}}}
+    path = tmp_path / "s.json"
+    path.write_text(json.dumps(lib))
+    return str(path)
+
+
+def test_auto_still_confirms_high_risk_actions(tmp_path, monkeypatch):
+    prompts = []
+    monkeypatch.setattr(safety, "confirm", lambda prompt: prompts.append(prompt) or False)
+    path = _skill_file(tmp_path,
+                       {"action": "left_click", "x": 1, "y": 1},
+                       {"action": "open", "path": "/tmp/report.pdf"},
+                       {"action": "key", "keys": ["ctrl", "enter"]})
+    backend = FakeBackend()
+    assert run_skill_file(FakeProvider([]), path, "main", {}, backend=backend, auto=True) == 0
+    assert backend.executed == ["left_click"]          # declined high-risk steps never ran
+    assert len(prompts) == 2 and all(p.startswith("Execute HIGH-RISK ") for p in prompts)
+
+
+def test_auto_runs_confirmed_high_risk_actions(tmp_path, monkeypatch):
+    monkeypatch.setattr(safety, "confirm", lambda prompt: True)
+    path = _skill_file(tmp_path, {"action": "open", "path": "/tmp/report.pdf"})
+    backend = FakeBackend()
+    assert run_skill_file(FakeProvider([]), path, "main", {}, backend=backend, auto=True) == 0
+    assert backend.executed == ["open"]
+

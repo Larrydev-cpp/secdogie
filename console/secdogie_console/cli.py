@@ -50,6 +50,9 @@ def main(argv: list[str] | None = None) -> int:
 
     from secdogie_fleet.server import FleetServer
 
+    if bool(args.identity) != bool(args.authorized):
+        print("error: fleet secure mode needs both --identity and --authorized", file=sys.stderr)
+        return 2
     signer, node_allowlist = _load_identity_and_allowlist(args.identity, args.authorized)
     fleet = FleetServer(
         host=args.fleet_host, port=args.fleet_port,

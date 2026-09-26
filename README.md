@@ -5,9 +5,10 @@
 **两层苏格拉底门**审视每一步意图；最终**只在经认证的本地设备、在能力授权 + 人在环
 （HITL）下**采取现实动作。
 
-**感知是结构化的——不截屏、不抓屏。** 它通过无障碍树（AX/UIA）+ 只读结构化 DIB
-引用 + 已授权网页会话的 AX/文本来「看」，而**不做屏幕截图 / 屏幕像素抓取**。项目
-的感知是结构，不是视觉。
+**感知以结构为主。** 目标是通过无障碍树（AX/UIA）+ 只读结构化 DIB 引用 + 已授权
+网页会话的 AX/文本来「看」，而不是屏幕像素。**现状（如实）**：macOS 上实时回路把 AX
+树渲染成结构图交给模型；Windows / Linux 上实时回路**仍在截屏**。改为结构化优先、
+截图只在机主显式开启时使用，见 [`ROADMAP.md`](ROADMAP.md) 的 Track D。
 
 > 完整架构见 [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md)；总路线图见 [`ROADMAP.md`](ROADMAP.md)；
 > 深度源码审计与规范对齐见 [`docs/AUDIT-P2P-ALIGNMENT.zh.md`](docs/AUDIT-P2P-ALIGNMENT.zh.md)。
@@ -29,9 +30,9 @@
 
 ---
 
-## 感知是结构化的（为什么不截屏）
+## 感知以结构为主（设计与现状）
 
-截屏 / 屏幕像素抓取不是本项目的感知方式。取而代之，`agent/observation.py`
+目标形态：截屏 / 屏幕像素抓取不是本项目的感知方式。`agent/observation.py`
 只融合两种**结构化**的「感官」，并且**从不静默用一种覆盖另一种**——分歧被记成
 `ObservationConflict`、拉低融合置信度、上交给动作门要求重观测：
 
@@ -40,8 +41,12 @@
 | `ax` | 无障碍树（macOS AX / Windows UIA）：role / name / automation_id | **主**：目标与门推理所依赖的语义身份 |
 | `dib` | native `atlas` 从进程内存**只读重建**的位图，**按引用**携带（身份/哈希，绝不带像素） | **验证**：证明「AX 说的位置」确实画了对的形状。这是结构化内存读，**不是**屏幕截图 |
 
-没有 `pixel` / 屏幕捕获这一路：融合层里根本不存在截屏的感官。大视觉数据永远
+融合层（`observation.py`）里没有 `pixel` / 屏幕捕获这一路。大视觉数据永远
 **按内容哈希引用**，不进 Python 堆、不进事件日志。
+
+**现状**：`observation.py` 的融合与 `target.py` 的代际（TOCTOU）检查目前只在测试中
+使用，尚未接入实时回路（Track D1）；实时回路在 macOS 上用 AX 结构图，在 Windows /
+Linux 上仍截屏（Track D2 改为结构化优先、截图显式开启）。
 
 ---
 
@@ -65,16 +70,21 @@ identity/    transport/    citadel/     citadel/       agent/ + 安全边界
 | 层 | 包 / 模块 | 状态 |
 | --- | --- | --- |
 | 身份 | `identity/`（DID、规范化签名、Allowlist）+ `binding.py`（DID↔传输密钥） | ✅ |
-| 网络 | `transport/`（peer/session/endpoint、`udp.py` 真 P2P、`rendezvous.py`、`upgrade.py`、`membership.py`） | ✅ |
+| 网络 | `transport/`（peer/session/endpoint、`udp.py` 真 P2P、`rendezvous.py`、`upgrade.py`、`membership.py`、`relay.py` 任一白名单节点兼任 relay） | ✅ |
 | 状态 | `citadel/`（`journal.py` 签名日志、`state.py` StateStore、`sync.py` 反熵、`replication.py` 传输上收敛） | ✅ |
 | 心智 | `citadel/socratic.py`（指令门）+ `action_gate.py`（计划门）+ `supervisor.py`（受监督节点） | ✅ |
-| 感知/动作 | `agent/observation.py`（AX + DIB 按引用融合）+ `target.py`（TOCTOU）+ AX/safety；`native/atlas`（只读、DIB 重建） | ✅ |
+| 感知/动作 | `agent/observation.py`（AX + DIB 按引用融合）+ `target.py`（TOCTOU）+ AX/safety；`native/atlas`（只读、DIB 重建） | 🔨 构件已建成，observation/target 尚未接入实时回路 |
 | 设备/会话 | `desktop/`（聊天式原生窗口 + `websession.py` 复用**已授权**浏览器会话，只读导航 + 读结构） | ✅ |
 | 承载/运维 | `tunnel/`（C 加密隧道，机密性）、`fleet/`、`console/` | ✅ |
 | 浏览器 P2P | `webrtc/`（WebRTC 数据通道客户端 + Cloudflare Worker 信令网关；仅用户点击后启动） | ✅ |
 
-**待做**：Agent↔Citadel run 闭环（goal/run/step/observation/action/state_hash 串联、写回
-StateStore）、崩溃恢复升级、能力签名授权模型、AX 原生身份/代际的 OS 侧接线。见 [`ROADMAP.md`](ROADMAP.md)。
+**待做**（按 [`ROADMAP.md`](ROADMAP.md) 的切片计划）：
+- 3.0 撤销（k-of-n 门限、永久）+ 零信任默认关闭（去掉各处“无白名单即放行”）；
+- 网格运行时：wire gossip、`secdogie-node` 节点进程（目前 P2P 各层是库 + 回环测试）；
+- Tunnel T2：Noise IK v2 握手、mesh 模式、DID 控制面 `netd`（生产用 WireGuard）、出口节点；
+- M3 接入实时回路：2.7/2.8/2.9 构件已建成，但目前只有 `secdogie-citadel run` 一条路径接通，
+  agent CLI / fleet / console / desktop 尚未经过门控与运行记录；
+- 感知入环（observation/target）与结构化优先。
 
 ---
 
@@ -84,8 +94,8 @@ StateStore）、崩溃恢复升级、能力签名授权模型、AX 原生身份/
 绕过用户授权或 macOS Accessibility / Screen Recording 权限、把 HITL 改成默认自动批准、
 隐蔽嵌入第三方服务、流量混淆、打洞式反检测。
 
-**保持**：memory = 只读、execution = 受监督、high-risk = fail-closed、
-physical action = 显式 capability。能力模型**永不**包含 `process.memory.write` /
+**保持**：memory = 只读、execution = 受监督、high-risk = fail-closed 且在任何模式、
+任何入口都必须人工确认（没有开关可以关闭）、physical action = 显式 capability。能力模型**永不**包含 `process.memory.write` /
 内核 HID / 反检测 / 提权。
 
 `websession.py` 只**复用你自己在别处正规登录后保存的已授权会话**去只读导航 + 读页面

@@ -7,11 +7,8 @@
 
 #if defined(_WIN32)
 #include <shlobj.h>
-#include <tlhelp32.h>
-#include <userenv.h>
 #include <wtsapi32.h>
 #pragma comment(lib, "advapi32.lib")
-#pragma comment(lib, "userenv.lib")
 #pragma comment(lib, "wtsapi32.lib")
 #pragma comment(lib, "shell32.lib")
 #endif
@@ -32,26 +29,6 @@ const char* kEdrRefusal =
     "implemented and will not be. Atlas uses documented Win32 / UI Automation "
     "APIs only (OpenProcess with query/read, Toolhelp, UIA COM). The way this "
     "stays off EDR radar is by not doing malware-like things.";
-
-#if defined(_WIN32)
-DWORD FindPidByImage(const wchar_t* image) {
-  HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-  if (snap == INVALID_HANDLE_VALUE) return 0;
-  UniqueHandle snap_h(snap);
-  PROCESSENTRY32W pe{};
-  pe.dwSize = sizeof(pe);
-  DWORD pid = 0;
-  if (Process32FirstW(snap_h.get(), &pe)) {
-    do {
-      if (_wcsicmp(pe.szExeFile, image) == 0) {
-        pid = pe.th32ProcessID;
-        break;
-      }
-    } while (Process32NextW(snap_h.get(), &pe));
-  }
-  return pid;
-}
-#endif
 
 }  // namespace
 
@@ -184,94 +161,6 @@ LaunchDecision PrivilegeManager::PlanSystemLaunch(const std::wstring& command) c
   d.code = PrivilegeCode::Ok;
   d.detail = "proceed";
   return d;
-#endif
-}
-
-ElevateResult PrivilegeManager::RunAllowlistedAsSystem(const std::wstring& command,
-                                                       bool show) {
-  ElevateResult r;
-  const LaunchDecision plan = PlanSystemLaunch(command);
-  if (!plan.ok) {
-    r.outcome = plan.code;
-    r.detail = plan.detail;
-    return r;
-  }
-#if !defined(_WIN32)
-  (void)show;
-  r.outcome = PrivilegeCode::Unsupported;
-  r.detail = "Windows-only";
-  return r;
-#else
-  // Elevate only for this call. Destructors disable the privileges and close
-  // the tokens — no standing SeDebug / AssignPrimaryToken.
-  ScopedPrivilege debug(SE_DEBUG_NAME);
-  ScopedPrivilege quota(SE_INCREASE_QUOTA_NAME);
-  ScopedPrivilege assign(SE_ASSIGNPRIMARYTOKEN_NAME);
-
-  const DWORD winlogon = FindPidByImage(L"winlogon.exe");
-  if (!winlogon) {
-    r.outcome = PrivilegeCode::Failed;
-    r.detail = "could not find winlogon.exe to borrow a SYSTEM token";
-    return r;
-  }
-
-  HANDLE proc = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, winlogon);
-  if (!proc) {
-    r.outcome = PrivilegeCode::Failed;
-    r.detail = "OpenProcess(winlogon) failed";
-    return r;
-  }
-  UniqueHandle proc_h(proc);
-
-  HANDLE src = nullptr;
-  if (!OpenProcessToken(proc_h.get(), TOKEN_DUPLICATE, &src) || !src) {
-    r.outcome = PrivilegeCode::Failed;
-    r.detail = "OpenProcessToken(winlogon) failed";
-    return r;
-  }
-  UniqueHandle src_h(src);
-
-  HANDLE dup = nullptr;
-  if (!DuplicateTokenEx(src_h.get(), TOKEN_ALL_ACCESS, nullptr, SecurityImpersonation,
-                        TokenPrimary, &dup) ||
-      !dup) {
-    r.outcome = PrivilegeCode::Failed;
-    r.detail = "DuplicateTokenEx failed";
-    return r;
-  }
-  UniqueHandle dup_h(dup);
-
-  DWORD session = static_cast<DWORD>(ActiveConsoleSession());
-  SetTokenInformation(dup_h.get(), TokenSessionId, &session, sizeof(session));
-
-  LPVOID env = nullptr;
-  CreateEnvironmentBlock(&env, dup_h.get(), FALSE);
-
-  STARTUPINFOW si{};
-  si.cb = sizeof(si);
-  si.lpDesktop = const_cast<LPWSTR>(L"winsta0\\default");
-  si.dwFlags = STARTF_USESHOWWINDOW;
-  si.wShowWindow = show ? SW_SHOW : SW_HIDE;
-  PROCESS_INFORMATION pi{};
-
-  std::wstring mutable_cmd = command;
-  const BOOL ok = CreateProcessAsUserW(
-      dup_h.get(), nullptr, mutable_cmd.data(), nullptr, nullptr, FALSE,
-      CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE, env, nullptr, &si, &pi);
-
-  if (env) DestroyEnvironmentBlock(env);
-
-  if (!ok) {
-    r.outcome = PrivilegeCode::Failed;
-    r.detail = "CreateProcessAsUser failed (error " + std::to_string(GetLastError()) + ")";
-    return r;
-  }
-  UniqueHandle thread_h(pi.hThread);
-  UniqueHandle proc_out(pi.hProcess);
-  r.outcome = PrivilegeCode::Ok;
-  r.pid = pi.dwProcessId;
-  r.detail = "started as SYSTEM (pid " + std::to_string(r.pid) + ")";
-  return r;
 #endif
 }
 

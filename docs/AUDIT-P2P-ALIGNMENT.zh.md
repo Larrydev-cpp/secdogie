@@ -132,6 +132,16 @@ secdogie 的感知不是"截图优先"，而是**分层的**，像素是最后�
 5. **`agent/secdogie_agent/atlas.py`（563 行）在运行时是死代码**——`native/atlas` 的纯
    Python 孪生，仅测试使用。作为 CI 镜像没问题，但值得加标注，免得有人以为它在活跃路径上。
 
+> **状态更新（2026-09）**
+> 1. ✅ `PROTOCOL.md` 已与代码对齐。
+> 2. ✅ hub 已做内层源 IP 校验并丢弃非 IPv4；`write()`/`sendto()` 返回值仍未检查（Tunnel T2.0b）。
+>    另新发现：v1 handshake_init 不证明持有发起方私钥，可被伪造来替换会话——已用
+>    “确认后再切换”遏制（`ffe49c8`，见 `tunnel/PROTOCOL.md`），v2 握手根治。
+> 3. 🔨 fleet 半配置（只有身份或只有白名单）已改为拒绝启动，无认证运行需显式
+>    `--insecure-dev`（`6f43f51`）；线上仍未加密，经 tunnel / WireGuard 承载。
+> 4. ✅ `RunAllowlistedAsSystem` 及其专用辅助代码已删除（零调用者）。
+> 5. ✅ `atlas.py` 已在文件头标注“仅测试 / CI 镜像”。
+
 ---
 
 ## 4. 路线图

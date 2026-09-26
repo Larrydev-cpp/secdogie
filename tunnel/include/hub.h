@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include "sdtp.h"
+#include "responder.h"
 
 /* A hub is a reachable node that terminates many point-to-point tunnels at
  * once (one per client) and routes packets between them by inner destination
@@ -26,12 +27,10 @@ typedef struct {
     /* Configured up front from the hub config file: */
     uint8_t static_pk[SDTP_KEY_LEN]; /* the client's static public key */
     uint32_t tunnel_ip;              /* the client's tunnel IP, network byte order */
-    /* Filled in at runtime as the client handshakes and sends: */
-    sdtp_session session;
-    struct sockaddr_in addr;         /* last source address we saw from this client */
-    int have_addr;
-    int established;
-    uint64_t last_peer_ts;           /* per-peer handshake replay guard */
+    /* Filled in at runtime as the client handshakes and sends. `rs` holds the
+     * confirmed session + address and any not-yet-confirmed pending one, so a
+     * forged handshake_init cannot displace the live session (responder.h). */
+    sdtp_responder rs;
     time_t last_recv;
     time_t last_send;
 } sdtp_hub_peer;
@@ -56,9 +55,19 @@ int sdtp_hub_parse_ipv4_dst(const uint8_t *pkt, size_t len, uint32_t *dst_out);
  * a too-short or non-IPv4 packet. Used for cryptokey routing in the hub. */
 int sdtp_hub_parse_ipv4_src(const uint8_t *pkt, size_t len, uint32_t *src_out);
 
-/* Index of the established peer whose session has this session_id, or -1. */
+/* Index of the peer whose confirmed or pending session has this session_id,
+ * or -1. The hub keeps session ids unique across slots (a handshake_init that
+ * reuses one is dropped), so at most one slot can match. */
 int sdtp_hub_find_peer_by_session_id(const sdtp_hub_peer *peers, size_t n,
                                      const uint8_t session_id[SDTP_SESSION_ID_LEN]);
+
+/* The hub's handshake_init demux. Drops a message 1 whose session id is
+ * already live in any slot (a replay, or an attempt to shadow another client's
+ * session) before any DH work; otherwise answers it for the one slot whose
+ * configured key it claims, parking the new session as that slot's pending one.
+ * Returns the slot index with message 2 in `msg2_out`, or -1. */
+int sdtp_hub_respond_init(sdtp_hub_peer *peers, size_t n, const sdtp_keypair *hub_static,
+                          const uint8_t *msg1, size_t msg1_len, uint8_t msg2_out[SDTP_MSG2_LEN]);
 
 /* Index of the peer configured with this tunnel IP (network byte order), or -1. */
 int sdtp_hub_find_peer_by_ip(const sdtp_hub_peer *peers, size_t n, uint32_t ip);

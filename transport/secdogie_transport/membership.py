@@ -12,7 +12,13 @@ the hub dies the nodes still know each other.
 
 The self-signature is the security property that makes gossip safe: a relaying
 peer can pass along another node's record but cannot alter its endpoints or
-invent a peer, because it does not hold that DID's key. No new crypto (signing
+invent a peer, because it does not hold that DID's key.
+
+A record may also carry two optional, equally self-signed lists (2C): ``roles``
+-- the mesh services the node currently offers (``relay`` / ``rendezvous``), so
+any allowlisted node can take one on and be found -- and ``relays`` -- the relay
+DIDs through which the node can be reached right now (a circuit address, as in
+libp2p). Records without them encode exactly as before. No new crypto (signing
 reuses secdogie-identity), no traffic obfuscation, no detection-evasion -- an
 authenticated, self-owned directory that converges. Pure and loopback-testable.
 """
@@ -20,17 +26,25 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from secdogie_identity import sign_payload, verify_payload
+from secdogie_identity import pubkey_from_did, sign_payload, verify_payload
 
 from .endpoint import Endpoint, EndpointSet
 
 RECORD_TYPE = "secdogie/membership/record/v1"
 
+ROLE_RELAY = "relay"
+ROLE_RENDEZVOUS = "rendezvous"
+# The only roles a record can advertise; anything else is dropped on verify.
+ROLES = frozenset({ROLE_RELAY, ROLE_RENDEZVOUS})
+MAX_ADVERTISED_RELAYS = 4
 
-def sign_record(identity, endpoints, *, last_seen: float) -> dict:
+
+def sign_record(identity, endpoints, *, last_seen: float, roles=(), relays=()) -> dict:
     """A node's self-signed reachability announcement. ``endpoints`` is an
-    ``EndpointSet`` or an iterable of ``Endpoint``. Only the node itself can
-    produce this (it holds the DID's key), so a relayed record is tamper-proof."""
+    ``EndpointSet`` or an iterable of ``Endpoint``; ``roles`` are the mesh
+    services it offers (a subset of ``ROLES``); ``relays`` are the relay DIDs it
+    holds leases with. Only the node itself can produce this (it holds the DID's
+    key), so a relayed record is tamper-proof."""
     es = endpoints if isinstance(endpoints, EndpointSet) else EndpointSet(endpoints)
     payload = {
         "type": RECORD_TYPE,
@@ -38,6 +52,20 @@ def sign_record(identity, endpoints, *, last_seen: float) -> dict:
         "endpoints": [{"kind": e.kind, "host": e.host, "port": e.port} for e in es.all()],
         "last_seen": float(last_seen),
     }
+    unknown = sorted(set(roles) - ROLES)
+    if unknown:
+        raise ValueError(f"unknown role(s): {', '.join(unknown)} (expected a subset of {sorted(ROLES)})")
+    if roles:
+        payload["roles"] = sorted(set(roles))
+    relays = list(dict.fromkeys(relays))
+    if len(relays) > MAX_ADVERTISED_RELAYS:
+        raise ValueError(f"at most {MAX_ADVERTISED_RELAYS} relays can be advertised")
+    for relay in relays:
+        pubkey_from_did(relay)  # a well-formed did:key
+        if relay == identity.did:
+            raise ValueError("a node cannot advertise itself as its own relay")
+    if relays:
+        payload["relays"] = relays
     return sign_payload(identity, payload)
 
 
@@ -50,6 +78,8 @@ class PeerRecord:
     last_seen: float
     endpoints: EndpointSet
     signed: dict
+    roles: tuple[str, ...] = ()
+    relays: tuple[str, ...] = ()
 
 
 def verify_record(obj, *, allowlist=None, now: float | None = None, max_future_skew: float = 300.0):
@@ -77,7 +107,14 @@ def verify_record(obj, *, allowlist=None, now: float | None = None, max_future_s
             es.add(Endpoint(str(item["kind"]), str(item["host"]), int(item["port"])))
         except (KeyError, ValueError, TypeError):
             continue
-    return PeerRecord(did=signer, last_seen=last_seen, endpoints=es, signed=obj)
+    roles = tuple(sorted({r for r in _strings(obj.get("roles")) if r in ROLES}))
+    relays = tuple(dict.fromkeys(r for r in _strings(obj.get("relays")) if r != signer))
+    return PeerRecord(did=signer, last_seen=last_seen, endpoints=es, signed=obj,
+                      roles=roles, relays=relays[:MAX_ADVERTISED_RELAYS])
+
+
+def _strings(value) -> list[str]:
+    return [v for v in value if isinstance(v, str)] if isinstance(value, list) else []
 
 
 class MembershipView:
@@ -111,6 +148,11 @@ class MembershipView:
     def known(self) -> list[str]:
         return sorted(self._records)
 
+    def providers(self, role: str) -> list[str]:
+        """DIDs whose latest record advertises ``role``, freshest first."""
+        recs = [r for r in self._records.values() if role in r.roles]
+        return [r.did for r in sorted(recs, key=lambda r: (-r.last_seen, r.did))]
+
     def digest(self) -> dict[str, float]:
         """The have-summary sent to a peer: what I know and how fresh."""
         return {did: rec.last_seen for did, rec in self._records.items()}
@@ -129,10 +171,11 @@ class MembershipView:
         return sum(1 for r in records if self.merge_record(r, now=now))
 
 
-def announce(identity, endpoints, *, last_seen: float, view: MembershipView, now: float | None = None) -> dict:
+def announce(identity, endpoints, *, last_seen: float, view: MembershipView, now: float | None = None,
+             roles=(), relays=()) -> dict:
     """Sign this node's own record and merge it into ``view``. Returns the signed
     record (to hand to the transport for gossip)."""
-    signed = sign_record(identity, endpoints, last_seen=last_seen)
+    signed = sign_record(identity, endpoints, last_seen=last_seen, roles=roles, relays=relays)
     view.merge_record(signed, now=now)
     return signed
 
@@ -150,6 +193,10 @@ def gossip_round(a: MembershipView, b: MembershipView, *, now: float | None = No
 
 __all__ = [
     "RECORD_TYPE",
+    "ROLE_RELAY",
+    "ROLE_RENDEZVOUS",
+    "ROLES",
+    "MAX_ADVERTISED_RELAYS",
     "PeerRecord",
     "MembershipView",
     "sign_record",

@@ -14,6 +14,11 @@ module). CI proves the wall and the hybrid loop without a desktop:
 The on-machine Win32/UIA half lives in C++ (`native/atlas/`) and, on the
 Python path, in desktop_ax.py + elevate.py. Everything here is pure so the
 tests run on Linux CI.
+
+Runtime status: nothing on the live agent path imports this module. It is the
+pure Python twin that CI uses to exercise the same decision logic as
+`native/atlas` (only agent/tests import it). Wiring native atlas perception
+into the loop is planned separately (Track D4, read-only).
 """
 from __future__ import annotations
 

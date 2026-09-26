@@ -74,6 +74,17 @@ a reviewed implementation such as WireGuard or a **named Cloudflare Tunnel**
 Access in front of the hostname). Crypto/protocol bug reports here are very
 welcome (see in-scope below).
 
+**Advisory: SDTP v1 handshake_init (contained in commit `ffe49c8`).** A v1
+handshake_init does not prove possession of the initiator's static private key.
+Before the fix, anyone who knew both public keys could make a server or hub
+replace a live session with one they could not use: tearing the tunnel down,
+redirecting its traffic, and (with a future timestamp) locking out
+re-handshakes for up to 60 s. No traffic could be decrypted. The responder now
+keeps the live session until the new one is confirmed by an authenticated
+packet (`tunnel/PROTOCOL.md`, *Confirm before swap*). Residual: repeated
+forged handshakes can still delay *new* handshakes from that peer; the planned
+v2 handshake (Noise IK, Tunnel T2) removes it.
+
 ## Reporting a Vulnerability
 
 Report privately through a

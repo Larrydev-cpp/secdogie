@@ -378,3 +378,20 @@ def test_activate_runs_inside_the_input_lock(monkeypatch):
         t.join(timeout=2)
 
     assert set(order) == {"A", "B"}  # both ran, and (by the lock) never concurrently
+
+
+def _keys(*keys):
+    return Action(kind="key", keys=list(keys))
+
+
+def test_high_risk_covers_save_delete_close_and_send_combos():
+    assert actions.is_high_risk(Action(kind="open", path="/tmp/x"))
+    assert actions.is_high_risk(Action(kind="run_elevated", raw="sc start Spooler"))
+    for combo in (("ctrl", "s"), ("delete",), ("alt", "f4"), ("ctrl", "w"),
+                  ("ctrl", "enter"), ("command", "return"), ("cmd", "enter")):
+        assert actions.is_high_risk(_keys(*combo)), combo
+    # Plain Enter / Shift+Enter (new line in most chat boxes) are ordinary keys.
+    for combo in (("enter",), ("shift", "enter"), ("tab",), ("ctrl", "c")):
+        assert not actions.is_high_risk(_keys(*combo)), combo
+    assert not actions.is_high_risk(Action(kind="left_click", x=1, y=1))
+

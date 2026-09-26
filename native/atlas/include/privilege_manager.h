@@ -33,12 +33,6 @@ struct LaunchDecision {
   std::string detail;
 };
 
-struct ElevateResult {
-  PrivilegeCode outcome = PrivilegeCode::Failed;
-  std::uint32_t pid = 0;
-  std::string detail;
-};
-
 class PrivilegeManager {
  public:
   explicit PrivilegeManager(std::vector<std::wstring> allowlist = {});
@@ -56,10 +50,6 @@ class PrivilegeManager {
   Result<ReadOnlyProcessHandle> OpenReadOnly(std::uint32_t pid, DWORD desired) const;
 
   LaunchDecision PlanSystemLaunch(const std::wstring& command) const;
-
-  // CreateProcessAsUser as SYSTEM into the interactive session.
-  // Requires already-admin + exact allowlist match. Windows only.
-  ElevateResult RunAllowlistedAsSystem(const std::wstring& command, bool show = true);
 
   const std::vector<std::wstring>& allowlist() const { return allowlist_; }
 

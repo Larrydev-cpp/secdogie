@@ -19,7 +19,7 @@
 | 节点归属 | 只在**自有或已授权**的设备/账号上运行。**不**隐蔽嵌入第三方服务、**不**把别人的网站当作隐蔽宿主。 |
 | 网页资源 | 只读取**公开的或已获授权的**网页/接口数据用于学习。**不**规避检测、**不**做未授权持久化。 |
 | 内存 | **只读**。有 `WriteProcessMemory` / `VirtualProtectEx` / `CreateRemoteThread` 的等价物一律拒绝(见 `native/atlas`)。 |
-| 执行 | **受监督**。高风险动作 **fail-closed**;物理动作需**显式能力授权**;HITL(人类在环)不得被改成默认自动批准。 |
+| 执行 | **受监督**。高风险动作 **fail-closed**,且在任何模式、任何入口都必须人工确认(没有开关可以关闭);物理动作需**显式能力授权**;HITL(人类在环)不得被改成默认自动批准。 |
 
 > 这四条前提不是外挂的“安全说明”,而是代码的实际形状:DID 签名、能力授权、只读句柄、
 > 苏格拉底门与 fail-closed 都是既有实现。凡与之冲突的“捷径”都不属于本项目。
@@ -152,6 +152,7 @@ flowchart TB
 | `transport/upgrade.py` | 直连升级 + relay 兜底(DCUtR/Tailscale 式,探测→迁移) | ①② | ✅ 已建成 |
 | `transport/membership.py` | 成员/端点 gossip 反熵(自签名记录、LWW、去中心收敛) | ①② | ✅ 已建成 |
 | `transport/dht.py` | Kademlia 路由表 + 迭代查找(P2P.4):DID=node id、XOR k-bucket、可扩展定向发现 | ①② | ✅ 已建成 |
+| `transport/relay.py` | Relay 角色化(2C):任一白名单节点可兼任 relay,经 membership 发现、租约 + 故障切换;只转发端到端签名/封装帧,每次转发重查 allowlist | ①② | ✅ 已建成 |
 | `citadel/journal.py` | 签名哈希链事件日志 | ② | ✅ 已建成 |
 | `citadel/state.py` | `StateDelta` / `StateStore`(2.3) | ② | ✅ 已建成 |
 | `citadel/sync.py` | 反熵复制(have/want builder,传输无关) | ② | ✅ 已建成 |
@@ -176,10 +177,10 @@ flowchart TB
 
 第二阶段(及此后)**严禁**引入:进程内存写、远程线程注入、内核 HID 注入、EDR/反检测、
 隐蔽持久化、提权、绕过用户授权、绕过 macOS Accessibility / Screen Recording 权限、
-把 HITL 改成默认自动批准。
+把 HITL 改成默认自动批准、隐蔽嵌入第三方服务、流量混淆、打洞式反检测。
 
-**保持**:memory = 只读、execution = 受监督、high-risk = fail-closed、
-physical action = 显式 capability。能力模型**永不**包含
+**保持**:memory = 只读、execution = 受监督、high-risk = fail-closed 且在任何模式、
+任何入口都必须人工确认(没有开关可以关闭)、physical action = 显式 capability。能力模型**永不**包含
 `process.memory.write` / 内核 HID / 反检测 / 提权。
 
 > 每个切片提交前都会 grep 回归,确认没有新增上述原语;CI 与本文档同步维护这一边界。
@@ -202,6 +203,7 @@ physical action = 显式 capability。能力模型**永不**包含
 | 2.8 | 崩溃恢复升级(先重观测再重试) | ✅ |
 | 2.9 | 能力授权模型 | ✅ |
 | 2.10 | P2P 直连传输 / rendezvous | ✅ 直连传输 + rendezvous + 直连升级/relay 兜底 + 成员 gossip 反熵(P2P.1–P2P.3)已实现 |
+| 2C | 节点角色泛化(relay) | ✅ 任一白名单节点可兼任 relay(`relay.py`);rendezvous 角色已可在 membership 中宣告,UDP 上的承载待接 |
 
 完整审计与冲突记录见 [`docs/AUDIT-P2P-ALIGNMENT.zh.md`](docs/AUDIT-P2P-ALIGNMENT.zh.md)。
 

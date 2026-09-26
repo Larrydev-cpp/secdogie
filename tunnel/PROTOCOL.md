@@ -61,11 +61,16 @@ mac1            u8[16]  keyed BLAKE2b-128 over the preceding fields
 does any DH math (same purpose as WireGuard's mac1).
 
 R validates, in order: `mac1`; that the initiator's `i_static_pk` byte-equals a
-configured, expected peer static key (`handshake.c` — this is the actual
-authentication gate, checked before the timestamp); and that `timestamp_ns` is
-within a 60s window of local time **and** strictly greater than the last accepted
-timestamp seen from this `i_static_pk` (per-peer monotonic counter — the
+configured, expected peer static key (`handshake.c`); and that `timestamp_ns` is
+within a 60s window of local time **and** strictly greater than the timestamp of
+the last *confirmed* handshake from this peer (per-peer monotonic counter — the
 anti-replay for the handshake itself).
+
+The key comparison is an identity *claim* filter, not proof: nothing in message
+1 shows that the sender holds `i_static_sk` (`i_static_pk` travels in clear and
+`mac1` is keyed by R's *public* key), so anyone who knows both public keys can
+build a message 1 that passes every check above. The initiator is only proven
+once a packet authenticates under the derived keys — see *Confirm before swap*.
 
 R then generates a fresh ephemeral keypair and computes three DH shared
 secrets:
@@ -122,6 +127,30 @@ If anything fails validation (bad mac1, stale timestamp, failed AEAD
 decrypt), the message is silently dropped — no error is sent back to an
 unauthenticated peer.
 
+### Confirm before swap (responder state)
+
+Because message 1 can be forged, R never lets it touch the live session
+(`responder.c`, used by the point-to-point server and every hub slot):
+
+1. A valid message 1 is answered with message 2, and the resulting session is
+   parked as **pending**. The confirmed session, the peer's address, and the
+   committed handshake timestamp are left unchanged.
+2. The pending session is **promoted** — becoming the live session, adopting the
+   packet's source address, and committing its timestamp — only when the first
+   data/keepalive packet decrypts under it. Only the real initiator can produce
+   that packet, so this is the key confirmation message 1 lacks.
+3. The initiator sends a keepalive immediately after accepting message 2, so a
+   genuine handshake confirms within one round trip.
+4. A message 1 whose `session_id` is already live (confirmed or pending — in any
+   slot, on a hub) is dropped before any DH work: a real initiator draws a fresh
+   random id per attempt, so reuse is a replay or an attempt to shadow a session.
+
+A forged message 1 therefore only creates a pending session nobody can confirm:
+it can no longer tear an established tunnel down, redirect its traffic, or — by
+claiming a future timestamp — lock out legitimate re-handshakes (the committed
+timestamp only moves on confirmation). `tests/test_protocol.c` reproduces each
+of these attacks against the responder.
+
 ## Data channel
 
 Once the handshake completes both sides hold a pair of directional keys
@@ -156,10 +185,14 @@ The wire protocol is point-to-point, but a single node can terminate many of
 these tunnels at once and route between them — see `hub` in the README. This
 needs **no protocol change**; it reuses fields already on the wire:
 
-- **Handshake demux.** Message 1 authenticates the initiator's static key. A
-  hub configured with several client keys simply tries `handshake_respond` with
-  each until one authenticates; that identifies the client. (A wrong key fails
-  cleanly, leaving no state — same check `test_wrong_peer_rejected` covers.)
+- **Handshake demux.** Message 1 names the initiator's static key. A hub
+  configured with several client keys tries each slot until one matches
+  (`sdtp_hub_respond_init`); the answered session becomes that slot's pending
+  session until the client confirms it (see *Confirm before swap*). A message 1
+  reusing a session id that is live in any slot is dropped first, so session
+  ids stay unique across slots and a forged pending session can never shadow
+  another client's live one. (A wrong key fails cleanly, leaving no state —
+  same check `test_wrong_peer_rejected` covers.)
 - **Data demux.** Every data/keepalive datagram already carries the 8-byte
   `session_id`. The hub keeps one session per client and looks up the right one
   by that id, so each client's counter/replay window stays independent.
@@ -174,6 +207,12 @@ guarantees above.
 
 ## Known limitations (read before relying on this for anything sensitive)
 
+- Message 1 carries no proof of possession of the initiator's static key.
+  Confirm-before-swap contains it (established tunnels are unaffected), but an
+  attacker who knows both public keys and keeps sending forged message 1s can
+  keep replacing the pending session and so delay *new* handshakes from that
+  peer. The planned v2 handshake (Noise IK, Tunnel T2) removes this by
+  authenticating the initiator inside message 1.
 - No session rekeying — a session's keys live as long as the process does.
   Restart both sides periodically for fresh forward secrecy.
 - Peer roaming IS supported: all three modes (point-to-point server and client,

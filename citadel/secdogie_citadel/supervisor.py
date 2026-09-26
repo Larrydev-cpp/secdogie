@@ -8,9 +8,12 @@ itself is one-shot, so a re-queued goal is re-run from the top).
 
 Human oversight is preserved, not removed:
   * `run_task` receives a `confirm(prompt, high_risk)` callback. The default
-    handler FAILS CLOSED (denies), and the production agent adapter keeps
-    `confirm_high_risk=True`, so a high-risk step blocks until a human approves
-    via the console/desktop (or a terminal prompt). Nothing here bypasses a gate.
+    handler FAILS CLOSED (denies), and the agent loop confirms high-risk steps in
+    every mode (there is no switch to turn that off), so a high-risk step blocks
+    until a human approves.
+    Today that human answers a terminal prompt (`terminal_confirm`); an
+    operator-approval path through the fleet / console / desktop does not exist
+    yet (planned: Track C3). Nothing here bypasses a gate.
   * The read-only memory wall and the loop's exit-code semantics are untouched.
 
 The `run_task` seam (task, *, should_stop, on_status, confirm) -> (code, summary)
@@ -312,7 +315,7 @@ def agent_run_task(
 
     args = argparse.Namespace(
         api_key=None, model=None, config=None, provider=None,
-        auto=True, dry_run=False, allow_risky=False, max_steps=40, log_file=None,
+        auto=True, dry_run=False, max_steps=40, log_file=None,
         max_image_edge=None, grid=False, action_pause=None, no_verify=False,
         stall_limit=None, plan=False, watch=False, watch_interval=None, trace=None,
         memory=None, subtask_step_limit=None,
@@ -330,8 +333,8 @@ def agent_run_task(
     cfg_kwargs["on_event"] = lambda ev, payload: on_status(f"{ev}: {payload}")
     cfg_kwargs["approve_action"] = lambda prompt, high_risk: confirm(prompt, high_risk)
     cfg_kwargs["ask_operator"] = lambda question: confirm(question, True)
-    cfg_kwargs["approve_plan"] = lambda plan, task="": confirm(f"approve plan: {(plan or '')[:200]}", False)
-    cfg_kwargs["confirm_high_risk"] = True  # never weaken the high-risk gate
+    # The loop calls approver(task, plan): show the operator the plan, not the task.
+    cfg_kwargs["approve_plan"] = lambda task, plan: confirm(f"approve plan: {(plan or '')[:200]}", False)
     if record_step is not None:
         cfg_kwargs["trace_on_entry"] = lambda entry: record_step(
             observation=entry.frame_sha256, action=entry.action, result=entry.result,

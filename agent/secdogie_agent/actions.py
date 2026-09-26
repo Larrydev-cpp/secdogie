@@ -52,11 +52,14 @@ _DARWIN_HID_REFUSED = (
 
 
 def is_high_risk(action: Action) -> bool:
-    """True for actions that can permanently change files or close apps.
+    """True for actions that reach outside the screen, permanently change files,
+    close apps, or send something on the operator's behalf.
 
-    Used by the loop to force a confirmation even under --auto. Covers the
-    explicit HIGH_RISK_KINDS plus common save / delete / close key combos that
-    CAD and document apps use (Ctrl+S, Delete, Alt+F4, Ctrl+W).
+    Every caller (agent loop, skill runner) confirms these in every mode; there
+    is no switch to skip it. Covers the explicit HIGH_RISK_KINDS plus common
+    save / delete / close key combos that CAD and document apps use (Ctrl+S,
+    Delete, Alt+F4, Ctrl+W) and the send/submit combo of chat and mail clients
+    (Ctrl/Cmd+Enter).
     """
     if action.kind in HIGH_RISK_KINDS:
         return True
@@ -70,6 +73,8 @@ def is_high_risk(action: Action) -> bool:
         if "f4" in keys_lower and bool(keys_lower & {"alt", "option"}):
             return True
         if "w" in keys_lower and bool(keys_lower & {"ctrl", "control", "command", "cmd"}):
+            return True
+        if keys_lower & {"enter", "return"} and bool(keys_lower & {"ctrl", "control", "command", "cmd"}):
             return True
     return False
 

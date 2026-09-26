@@ -2,10 +2,12 @@
 
     # on the host (VM host / the box the guests can reach)
     secdogie-fleet coordinator --port 47810 --task "tidy the downloads folder" \
-                               --task "check for updates" --auto
+                               --task "check for updates" --auto \
+                               --identity coordinator.key --authorized nodes.allow
 
     # inside each Windows VM / session
-    secdogie-fleet node --connect 192.168.56.1:47810 --label win11-vm-1
+    secdogie-fleet node --connect 192.168.56.1:47810 --label win11-vm-1 \
+                        --identity node.key --authorized coordinators.allow
 
 See fleet/README.md for deployment and the honest limits (Windows edition
 licensing, per-guest resources, and the API quota a fleet multiplies).
@@ -29,24 +31,38 @@ def _setup_logging(verbose: bool) -> logging.Logger:
     return logging.getLogger("secdogie_fleet")
 
 
+_INSECURE_REFUSAL = (
+    "refusing to run without DID authentication: pass both --identity and --authorized "
+    "(see identity/README.md), or --insecure-dev for a throwaway local test"
+)
+
+
 def _load_identity_and_allowlist(args):
-    """Resolve --identity / --authorized into (Identity|None, Allowlist|None).
-    Only imports secdogie_identity when one of them is given."""
-    if not args.identity and not args.authorized:
+    """Resolve --identity / --authorized into (Identity, Allowlist), or (None, None)
+    under an explicit --insecure-dev. Fail closed otherwise: with neither flag any
+    host that reaches the port could join or command, and with only one of them
+    the missing half silently weakens verification. Raises SystemExit(2) with a
+    message. Only imports secdogie_identity when a flag is given."""
+    if bool(args.identity) != bool(args.authorized):
+        print("error: fleet secure mode needs both --identity and --authorized", file=sys.stderr)
+        raise SystemExit(2)
+    if not args.identity:
+        if not args.insecure_dev:
+            print(f"error: {_INSECURE_REFUSAL}", file=sys.stderr)
+            raise SystemExit(2)
         return None, None
     from secdogie_identity import Allowlist, Identity
 
-    identity = Identity.load(args.identity) if args.identity else None
-    allowlist = Allowlist.load(args.authorized) if args.authorized else None
-    return identity, allowlist
+    return Identity.load(args.identity), Allowlist.load(args.authorized)
 
 
 def _run_coordinator(args) -> int:
     log = _setup_logging(args.verbose)
     signer, node_allowlist = _load_identity_and_allowlist(args)
-    if signer is not None or node_allowlist is not None:
-        log.info("secure mode: DID signing on, %d authorized node DID(s)",
-                 len(node_allowlist) if node_allowlist is not None else 0)
+    if signer is not None:
+        log.info("secure mode: DID signing on, %d authorized node DID(s)", len(node_allowlist))
+    else:
+        log.warning("--insecure-dev: no authentication -- any host that reaches this port can join")
     server = FleetServer(
         host=args.host, port=args.port,
         max_concurrent=args.max_concurrent, max_attempts=args.max_attempts,
@@ -110,8 +126,10 @@ def _run_node(args) -> int:
 
     node_id = args.node_id or node_mod.default_node_id()
     identity, coordinator_allowlist = _load_identity_and_allowlist(args)
-    if identity is not None or coordinator_allowlist is not None:
-        log.info("secure mode: signing as %s", identity.did if identity else "(no key)")
+    if identity is not None:
+        log.info("secure mode: signing as %s", identity.did)
+    else:
+        log.warning("--insecure-dev: no authentication -- any coordinator can assign tasks here")
     delay = 1.0
     while True:
         try:
@@ -167,6 +185,9 @@ def main(argv: list[str] | None = None) -> int:
                         "signs coordinator->node messages")
     c.add_argument("--authorized", default=None, metavar="ALLOWLIST",
                    help="file of authorized node DIDs; only signed messages from these are accepted")
+    c.add_argument("--insecure-dev", action="store_true",
+                   help="run without --identity/--authorized (no authentication at all); "
+                        "for a throwaway local test only")
     c.set_defaults(func=_run_coordinator)
 
     n = sub.add_parser("node", help="run a node (inside each VM / session)")
@@ -178,6 +199,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="this node's DID signing key (secdogie-identity genkey); signs node->coordinator")
     n.add_argument("--authorized", default=None, metavar="ALLOWLIST",
                    help="file of authorized coordinator DIDs; only signed messages from these are accepted")
+    n.add_argument("--insecure-dev", action="store_true",
+                   help="run without --identity/--authorized (no authentication at all); "
+                        "for a throwaway local test only")
     n.set_defaults(func=_run_node)
 
     args = parser.parse_args(argv)
