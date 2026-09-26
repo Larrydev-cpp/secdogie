@@ -26,6 +26,11 @@ deliberate boundaries, so this is an honest advance and not a tunnel rewrite:
 
 The datagram sink is injectable (`Channel`): production uses `UDPChannel` (a real
 loopback/UDP socket); this makes the transport fully testable on 127.0.0.1.
+
+Other protocols can share the socket: `on_frame(type, handler)` hands inbound
+envelopes of that type to a handler instead of the direct-message path (the relay
+role in relay.py uses this), and `open_relayed` accepts an end-to-end frame that
+arrived through a relay with every direct-path check except roaming.
 """
 from __future__ import annotations
 
@@ -46,6 +51,8 @@ from .transport import DeliverFn, Transport
 
 _FRAME_TYPE = "secdogie/direct/v1"
 
+FrameHandler = Callable[[dict, tuple], None]  # (parsed envelope, source address) -> None
+
 
 def _encode_frame(identity: Identity, to_did: str, message: bytes) -> bytes:
     payload = {
@@ -57,12 +64,17 @@ def _encode_frame(identity: Identity, to_did: str, message: bytes) -> bytes:
     return json.dumps(sign_payload(identity, payload)).encode("utf-8")
 
 
-def _decode_frame(raw: bytes, allowlist, self_did: str) -> tuple[str, bytes] | None:
+def _parse(raw: bytes) -> dict | None:
     try:
         obj = json.loads(raw)
     except (json.JSONDecodeError, UnicodeDecodeError):
         return None
-    if not isinstance(obj, dict) or obj.get("t") != _FRAME_TYPE:
+    return obj if isinstance(obj, dict) else None
+
+
+def _decode_frame(raw: bytes, allowlist, self_did: str) -> tuple[str, bytes] | None:
+    obj = _parse(raw)
+    if obj is None or obj.get("t") != _FRAME_TYPE:
         return None
     ok, signer = verify_payload(obj, allowlist)
     if not ok or obj.get("from") != signer or obj.get("to") != self_did:
@@ -138,6 +150,7 @@ class DirectUDPTransport(Transport):
         self._windows: dict[str, _sealed.ReplayWindow] = {}
         self._ctr = time.time_ns()                  # keeps increasing across restarts
         self._ctr_lock = threading.Lock()
+        self._handlers: dict[str, FrameHandler] = {}  # envelope type -> handler (e.g. relay role)
         channel.start(self._on_datagram)
 
     @property
@@ -176,20 +189,39 @@ class DirectUDPTransport(Transport):
     def set_peer_endpoint(self, did: str, host: str, port: int) -> None:
         self._endpoints[did] = (host, port)
 
+    def on_frame(self, frame_type: str, handler: FrameHandler | None) -> None:
+        """Hand inbound envelopes whose `t` is `frame_type` to `handler(obj,
+        addr)` instead of the direct-message path; `None` removes the handler.
+        The handler authenticates the envelope itself. The direct frame types
+        cannot be taken over."""
+        if frame_type in (_FRAME_TYPE, _sealed.SEALED_TYPE):
+            raise ValueError(f"{frame_type!r} is the direct-message frame type")
+        if handler is None:
+            self._handlers.pop(frame_type, None)
+        else:
+            self._handlers[frame_type] = handler
+
+    def build_frame(self, to_did: str, message: bytes) -> bytes | None:
+        """The end-to-end frame `route` sends to `to_did`: DID-signed, and sealed
+        to the peer's bound key when encryption is on. None when encryption is on
+        and the peer has no verified key -- never a plaintext fallback."""
+        if not self.encrypted:
+            return _encode_frame(self.identity, to_did, message)
+        box = self._boxes.get(to_did)
+        if box is None:
+            return None
+        with self._ctr_lock:
+            self._ctr += 1
+            ctr = self._ctr
+        return _sealed.seal(self.identity, box, to_did, ctr, message)
+
     def route(self, from_did: str, to_did: str, message: bytes) -> bool:
         ep = self._endpoints.get(to_did)
         if ep is None:
             return False  # nowhere to send yet (need an endpoint or an inbound packet first)
-        if self.encrypted:
-            box = self._boxes.get(to_did)
-            if box is None:
-                return False  # no verified key for this peer: never fall back to plaintext
-            with self._ctr_lock:
-                self._ctr += 1
-                ctr = self._ctr
-            frame = _sealed.seal(self.identity, box, to_did, ctr, message)
-        else:
-            frame = _encode_frame(self.identity, to_did, message)
+        frame = self.build_frame(to_did, message)
+        if frame is None:
+            return False  # no verified key for this peer: never fall back to plaintext
         self.channel.send(ep[0], ep[1], frame)
         return True
 
@@ -200,22 +232,40 @@ class DirectUDPTransport(Transport):
             self._local_session.migrate(endpoint)
         return True
 
+    def open_relayed(self, frame: bytes) -> tuple[str, bytes] | None:
+        """Authenticate (and decrypt) an end-to-end frame that reached this node
+        through a relay. Same checks as a direct datagram -- signature,
+        allowlist, addressed to us, sealed key, replay window -- but the relay's
+        address is never adopted as the sender's endpoint. Returns (signer,
+        message) for the caller to deliver, or None."""
+        return self._open(frame)
+
+    def _open(self, raw: bytes) -> tuple[str, bytes] | None:
+        if not self.encrypted:
+            # spoofed / unsigned / unauthorized / not for us -> None
+            return _decode_frame(raw, self._allowlist, self.identity.did)
+        opened = _sealed.open_sealed(
+            raw, allowlist=self._allowlist, self_did=self.identity.did, box_for=self._boxes.get,
+        )
+        if opened is None:
+            return None  # plaintext v1 / unsigned / unknown key / tampered / not for us
+        signer, ctr, data = opened
+        window = self._windows.setdefault(signer, _sealed.ReplayWindow())
+        if not window.accept(ctr):
+            return None  # replayed or too old: dropped before it can move the endpoint
+        return signer, data
+
     def _on_datagram(self, raw: bytes, addr: tuple) -> None:
-        if self.encrypted:
-            opened = _sealed.open_sealed(
-                raw, allowlist=self._allowlist, self_did=self.identity.did, box_for=self._boxes.get,
-            )
-            if opened is None:
-                return  # plaintext v1 / unsigned / unknown key / tampered / not for us
-            signer, ctr, data = opened
-            window = self._windows.setdefault(signer, _sealed.ReplayWindow())
-            if not window.accept(ctr):
-                return  # replayed or too old: dropped before it can move the endpoint
-        else:
-            decoded = _decode_frame(raw, self._allowlist, self.identity.did)
-            if decoded is None:
-                return  # spoofed / unsigned / unauthorized / not for us -> dropped
-            signer, data = decoded
+        if self._handlers:
+            obj = _parse(raw)
+            handler = self._handlers.get(obj.get("t")) if obj is not None else None
+            if handler is not None:
+                handler(obj, addr)
+                return
+        opened = self._open(raw)
+        if opened is None:
+            return
+        signer, data = opened
         # Roaming: adopt the source address for this DID (keyed by identity, not
         # by address), so a peer's NAT rebind keeps working without a re-register.
         self._endpoints[signer] = (addr[0], addr[1])

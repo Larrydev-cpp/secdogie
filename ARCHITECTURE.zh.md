@@ -152,6 +152,7 @@ flowchart TB
 | `transport/upgrade.py` | 直连升级 + relay 兜底(DCUtR/Tailscale 式,探测→迁移) | ①② | ✅ 已建成 |
 | `transport/membership.py` | 成员/端点 gossip 反熵(自签名记录、LWW、去中心收敛) | ①② | ✅ 已建成 |
 | `transport/dht.py` | Kademlia 路由表 + 迭代查找(P2P.4):DID=node id、XOR k-bucket、可扩展定向发现 | ①② | ✅ 已建成 |
+| `transport/relay.py` | Relay 角色化(2C):任一白名单节点可兼任 relay,经 membership 发现、租约 + 故障切换;只转发端到端签名/封装帧,每次转发重查 allowlist | ①② | ✅ 已建成 |
 | `citadel/journal.py` | 签名哈希链事件日志 | ② | ✅ 已建成 |
 | `citadel/state.py` | `StateDelta` / `StateStore`(2.3) | ② | ✅ 已建成 |
 | `citadel/sync.py` | 反熵复制(have/want builder,传输无关) | ② | ✅ 已建成 |
@@ -202,6 +203,7 @@ physical action = 显式 capability。能力模型**永不**包含
 | 2.8 | 崩溃恢复升级(先重观测再重试) | ✅ |
 | 2.9 | 能力授权模型 | ✅ |
 | 2.10 | P2P 直连传输 / rendezvous | ✅ 直连传输 + rendezvous + 直连升级/relay 兜底 + 成员 gossip 反熵(P2P.1–P2P.3)已实现 |
+| 2C | 节点角色泛化(relay) | ✅ 任一白名单节点可兼任 relay(`relay.py`);rendezvous 角色已可在 membership 中宣告,UDP 上的承载待接 |
 
 完整审计与冲突记录见 [`docs/AUDIT-P2P-ALIGNMENT.zh.md`](docs/AUDIT-P2P-ALIGNMENT.zh.md)。
 
