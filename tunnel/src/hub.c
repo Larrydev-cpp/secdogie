@@ -177,16 +177,17 @@ int sdtp_hub_config_load(const char *path, sdtp_hub_config *cfg) {
 /* Encrypt one inner packet to a peer and send it, if that peer is reachable. */
 static void forward_to_peer(int udp_fd, sdtp_hub_peer *peer, const uint8_t *pt, size_t pt_len,
                             uint8_t *out_buf, time_t now) {
-    if (!peer->established || !peer->have_addr) return;
-    size_t len = sdtp_data_encrypt(&peer->session, SDTP_MSG_DATA, out_buf, pt, pt_len);
+    if (!peer->rs.current.established || !peer->rs.have_addr) return;
+    size_t len = sdtp_data_encrypt(&peer->rs.current, SDTP_MSG_DATA, out_buf, pt, pt_len);
     if (len > 0) {
-        sendto(udp_fd, out_buf, len, 0, (struct sockaddr *)&peer->addr, sizeof(peer->addr));
+        sendto(udp_fd, out_buf, len, 0, (struct sockaddr *)&peer->rs.addr, sizeof(peer->rs.addr));
         peer->last_send = now;
     }
 }
 
 /* Handle one received UDP datagram: a handshake_init (demux by trying each
- * configured peer's static key -- only the right one authenticates), or
+ * configured peer's static key -- only the right one authenticates -- and park
+ * the answered session as pending until the client confirms it), or
  * data/keepalive (demux by the 8-byte session id, then route the decrypted
  * inner packet by destination IP). Returns early on any malformed or
  * unauthenticated input (exercised by the fuzz harness); factored out of the
@@ -198,29 +199,14 @@ static void hub_handle_datagram(sdtp_hub_config *cfg, int tun_fd, int udp_fd,
     uint8_t type = buf[0];
 
     if (type == SDTP_MSG_HANDSHAKE_INIT) {
-        int matched = -1;
         uint8_t msg2[SDTP_MSG2_LEN];
-        sdtp_session new_session;
-        for (size_t i = 0; i < cfg->peer_count; i++) {
-            sdtp_hub_peer *p = &cfg->peers[i];
-            size_t rlen = sdtp_handshake_respond(buf, (size_t)n, &cfg->my_static, p->static_pk,
-                                                  &p->last_peer_ts, msg2, &new_session);
-            if (rlen > 0) {
-                p->session = new_session;
-                p->established = 1;
-                p->addr = src_addr;
-                p->have_addr = 1;
-                p->last_recv = now;
-                p->last_send = 0;
-                sendto(udp_fd, msg2, rlen, 0, (struct sockaddr *)&src_addr, src_len);
-                sdtp_log("hub: handshake completed with peer %zu (%s:%u)", i,
-                         inet_ntoa(src_addr.sin_addr), ntohs(src_addr.sin_port));
-                matched = (int)i;
-                break;
-            }
-        }
-        if (matched < 0) {
-            sdtp_log("hub: rejected handshake_init from %s:%u (no configured peer matched)",
+        int matched = sdtp_hub_respond_init(cfg->peers, cfg->peer_count, &cfg->my_static, buf, (size_t)n, msg2);
+        if (matched >= 0) {
+            sendto(udp_fd, msg2, sizeof(msg2), 0, (struct sockaddr *)&src_addr, src_len);
+            sdtp_log("hub: answered handshake_init for peer %d (%s:%u), awaiting confirmation", matched,
+                     inet_ntoa(src_addr.sin_addr), ntohs(src_addr.sin_port));
+        } else {
+            sdtp_log("hub: rejected handshake_init from %s:%u (no matching peer, stale, or reused session id)",
                      inet_ntoa(src_addr.sin_addr), ntohs(src_addr.sin_port));
         }
     } else if (type == SDTP_MSG_DATA || type == SDTP_MSG_KEEPALIVE) {
@@ -229,12 +215,16 @@ static void hub_handle_datagram(sdtp_hub_config *cfg, int tun_fd, int udp_fd,
         if (idx < 0) return;
         sdtp_hub_peer *p = &cfg->peers[idx];
         size_t pt_len = 0;
-        if (sdtp_data_decrypt(&p->session, buf, (size_t)n, pt_buf, SDTP_MTU, &pt_len) != 0) {
-            return;
-        }
+        /* Authenticated packets adopt their source address (NAT rebind); the
+         * first one on a pending session confirms and promotes it. */
+        int res = sdtp_responder_on_data(&p->rs, buf, (size_t)n, &src_addr, pt_buf, SDTP_MTU, &pt_len);
+        if (res == SDTP_RESP_DROP) return;
         p->last_recv = now;
-        p->addr = src_addr; /* adopt the current source addr (NAT rebind) */
-        p->have_addr = 1;
+        if (res == SDTP_RESP_PROMOTED) {
+            p->last_send = 0;
+            sdtp_log("hub: handshake confirmed with peer %zu (%s:%u)", (size_t)idx,
+                     inet_ntoa(src_addr.sin_addr), ntohs(src_addr.sin_port));
+        }
         if (type != SDTP_MSG_DATA || pt_len == 0) return;
 
         /* Cryptokey routing: the decrypted packet's SOURCE IP must be the
@@ -294,17 +284,16 @@ void sdtp_hub_run(int tun_fd, int udp_fd, sdtp_hub_config *cfg) {
          * drop a peer that has gone silent so its slot can re-handshake. */
         for (size_t i = 0; i < cfg->peer_count; i++) {
             sdtp_hub_peer *p = &cfg->peers[i];
-            if (!p->established) continue;
+            if (!p->rs.current.established) continue;
             if (now - p->last_recv > 3 * SDTP_KEEPALIVE_INTERVAL_S) {
                 sdtp_log("hub: peer %zu silent too long, dropping session", i);
-                p->established = 0;
-                memset(&p->session, 0, sizeof(p->session));
+                sdtp_responder_reset(&p->rs);
                 continue;
             }
-            if (p->have_addr && now - p->last_send >= SDTP_KEEPALIVE_INTERVAL_S) {
-                size_t len = sdtp_data_encrypt(&p->session, SDTP_MSG_KEEPALIVE, out_buf, NULL, 0);
+            if (p->rs.have_addr && now - p->last_send >= SDTP_KEEPALIVE_INTERVAL_S) {
+                size_t len = sdtp_data_encrypt(&p->rs.current, SDTP_MSG_KEEPALIVE, out_buf, NULL, 0);
                 if (len > 0) {
-                    sendto(udp_fd, out_buf, len, 0, (struct sockaddr *)&p->addr, sizeof(p->addr));
+                    sendto(udp_fd, out_buf, len, 0, (struct sockaddr *)&p->rs.addr, sizeof(p->rs.addr));
                     p->last_send = now;
                 }
             }

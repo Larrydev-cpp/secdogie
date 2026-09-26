@@ -19,6 +19,7 @@
 #include "net.h"
 #include "config.h"
 #include "hub.h"
+#include "responder.h"
 #include "util.h"
 
 static volatile sig_atomic_t g_should_exit = 0;
@@ -75,16 +76,30 @@ static ssize_t read_tun_packet(int tun_fd, uint8_t *buf, size_t cap) {
     return n;
 }
 
+static void send_msg1(int udp_fd, sdtp_handshake_state *hs, const sdtp_config *cfg,
+                      const struct sockaddr_in *peer_addr) {
+    uint8_t msg1[SDTP_MSG1_LEN];
+    sdtp_handshake_init_create(hs, msg1, &cfg->my_static, cfg->peer_static_pk);
+    sendto(udp_fd, msg1, sizeof(msg1), 0, (const struct sockaddr *)peer_addr, sizeof(*peer_addr));
+}
+
 static void run_loop(int tun_fd, int udp_fd, sdtp_config *cfg, int is_server) {
-    sdtp_session session;
-    memset(&session, 0, sizeof(session));
-    int established = 0;
+    /* Server: confirm-before-swap responder state -- a handshake_init only
+     * parks a pending session; the client's first authenticated packet
+     * promotes it (see responder.h). Client: the session it initiated. Both
+     * roles then send on `*live` to `*dest`. */
+    sdtp_responder resp;
+    memset(&resp, 0, sizeof(resp));
+    sdtp_session client_session;
+    memset(&client_session, 0, sizeof(client_session));
+    struct sockaddr_in client_peer_addr;
+    memset(&client_peer_addr, 0, sizeof(client_peer_addr));
+    int client_have_addr = 0;
 
-    struct sockaddr_in peer_addr;
-    memset(&peer_addr, 0, sizeof(peer_addr));
-    int have_peer_addr = 0;
+    sdtp_session *live = is_server ? &resp.current : &client_session;
+    struct sockaddr_in *dest = is_server ? &resp.addr : &client_peer_addr;
+    int *have_dest = is_server ? &resp.have_addr : &client_have_addr;
 
-    uint64_t last_peer_ts = 0;
     sdtp_handshake_state hs;
     int handshake_pending = 0;
     time_t handshake_sent_at = 0;
@@ -96,14 +111,11 @@ static void run_loop(int tun_fd, int udp_fd, sdtp_config *cfg, int is_server) {
     uint8_t pt_buf[SDTP_MTU];
 
     if (!is_server) {
-        if (sdtp_resolve(cfg->endpoint_host, cfg->endpoint_port, &peer_addr) != 0) {
+        if (sdtp_resolve(cfg->endpoint_host, cfg->endpoint_port, &client_peer_addr) != 0) {
             sdtp_die("cannot resolve endpoint '%s'", cfg->endpoint_host);
         }
-        have_peer_addr = 1;
-
-        uint8_t msg1[SDTP_MSG1_LEN];
-        sdtp_handshake_init_create(&hs, msg1, &cfg->my_static, cfg->peer_static_pk);
-        sendto(udp_fd, msg1, sizeof(msg1), 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
+        client_have_addr = 1;
+        send_msg1(udp_fd, &hs, cfg, &client_peer_addr);
         handshake_pending = 1;
         handshake_sent_at = time(NULL);
         sdtp_log("client: handshake initiated to %s:%u", cfg->endpoint_host, cfg->endpoint_port);
@@ -128,38 +140,33 @@ static void run_loop(int tun_fd, int udp_fd, sdtp_config *cfg, int is_server) {
         time_t now = time(NULL);
 
         if (!is_server && handshake_pending && now - handshake_sent_at >= SDTP_HANDSHAKE_TIMEOUT_S) {
-            uint8_t msg1[SDTP_MSG1_LEN];
-            sdtp_handshake_init_create(&hs, msg1, &cfg->my_static, cfg->peer_static_pk);
-            sendto(udp_fd, msg1, sizeof(msg1), 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
+            send_msg1(udp_fd, &hs, cfg, &client_peer_addr);
             handshake_sent_at = now;
             sdtp_log("client: retrying handshake");
         }
 
-        if (!is_server && established && now - last_recv > 3 * SDTP_KEEPALIVE_INTERVAL_S) {
+        if (!is_server && client_session.established && now - last_recv > 3 * SDTP_KEEPALIVE_INTERVAL_S) {
             sdtp_log("client: peer silent too long, re-handshaking");
-            established = 0;
-            memset(&session, 0, sizeof(session));
-            uint8_t msg1[SDTP_MSG1_LEN];
-            sdtp_handshake_init_create(&hs, msg1, &cfg->my_static, cfg->peer_static_pk);
-            sendto(udp_fd, msg1, sizeof(msg1), 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
+            sodium_memzero(&client_session, sizeof(client_session));
+            send_msg1(udp_fd, &hs, cfg, &client_peer_addr);
             handshake_pending = 1;
             handshake_sent_at = now;
         }
 
-        if (established && have_peer_addr && now - last_send >= SDTP_KEEPALIVE_INTERVAL_S) {
-            size_t len = sdtp_data_encrypt(&session, SDTP_MSG_KEEPALIVE, out_buf, NULL, 0);
+        if (live->established && *have_dest && now - last_send >= SDTP_KEEPALIVE_INTERVAL_S) {
+            size_t len = sdtp_data_encrypt(live, SDTP_MSG_KEEPALIVE, out_buf, NULL, 0);
             if (len > 0) {
-                sendto(udp_fd, out_buf, len, 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
+                sendto(udp_fd, out_buf, len, 0, (struct sockaddr *)dest, sizeof(*dest));
             }
             last_send = now;
         }
 
         if (pfds[0].revents & POLLIN) {
             ssize_t n = read_tun_packet(tun_fd, buf, SDTP_MTU);
-            if (n > 0 && established && have_peer_addr) {
-                size_t len = sdtp_data_encrypt(&session, SDTP_MSG_DATA, out_buf, buf, (size_t)n);
+            if (n > 0 && live->established && *have_dest) {
+                size_t len = sdtp_data_encrypt(live, SDTP_MSG_DATA, out_buf, buf, (size_t)n);
                 if (len > 0) {
-                    sendto(udp_fd, out_buf, len, 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
+                    sendto(udp_fd, out_buf, len, 0, (struct sockaddr *)dest, sizeof(*dest));
                     last_send = now;
                 }
             }
@@ -180,40 +187,56 @@ static void run_loop(int tun_fd, int udp_fd, sdtp_config *cfg, int is_server) {
                 uint8_t type = buf[0];
                 if (type == SDTP_MSG_HANDSHAKE_INIT && is_server) {
                     uint8_t msg2[SDTP_MSG2_LEN];
-                    sdtp_session new_session;
-                    size_t rlen = sdtp_handshake_respond(buf, (size_t)n, &cfg->my_static, cfg->peer_static_pk,
-                                                          &last_peer_ts, msg2, &new_session);
+                    size_t rlen = sdtp_responder_on_init(&resp, &cfg->my_static, cfg->peer_static_pk,
+                                                         buf, (size_t)n, msg2);
                     if (rlen > 0) {
-                        session = new_session;
-                        established = 1;
-                        peer_addr = src_addr;
-                        have_peer_addr = 1;
-                        last_recv = now;
                         sendto(udp_fd, msg2, rlen, 0, (struct sockaddr *)&src_addr, src_len);
-                        sdtp_log("server: handshake completed with %s:%u", inet_ntoa(src_addr.sin_addr),
-                                 ntohs(src_addr.sin_port));
+                        sdtp_log("server: answered handshake_init from %s:%u, awaiting confirmation",
+                                 inet_ntoa(src_addr.sin_addr), ntohs(src_addr.sin_port));
                     } else {
                         sdtp_log("server: rejected handshake_init from %s:%u", inet_ntoa(src_addr.sin_addr),
                                  ntohs(src_addr.sin_port));
                     }
                 } else if (type == SDTP_MSG_HANDSHAKE_RESP && !is_server && handshake_pending) {
-                    if (sdtp_handshake_finish(&hs, buf, (size_t)n, &cfg->my_static, cfg->peer_static_pk, &session)) {
-                        established = 1;
+                    if (sdtp_handshake_finish(&hs, buf, (size_t)n, &cfg->my_static, cfg->peer_static_pk,
+                                              &client_session)) {
                         handshake_pending = 0;
                         last_recv = now;
+                        /* Confirm at once: the server only switches to this
+                         * session once a packet authenticates under it. */
+                        size_t len = sdtp_data_encrypt(&client_session, SDTP_MSG_KEEPALIVE, out_buf, NULL, 0);
+                        if (len > 0) {
+                            sendto(udp_fd, out_buf, len, 0, (struct sockaddr *)&client_peer_addr,
+                                   sizeof(client_peer_addr));
+                            last_send = now;
+                        }
                         sdtp_log("client: handshake completed");
                     } else {
                         sdtp_log("client: handshake_resp failed validation, ignoring");
                     }
-                } else if ((type == SDTP_MSG_DATA || type == SDTP_MSG_KEEPALIVE) && established) {
+                } else if (type == SDTP_MSG_DATA || type == SDTP_MSG_KEEPALIVE) {
                     size_t pt_len = 0;
-                    if (sdtp_data_decrypt(&session, buf, (size_t)n, pt_buf, sizeof(pt_buf), &pt_len) == 0) {
-                        last_recv = now;
-                        peer_addr = src_addr;
-                        have_peer_addr = 1;
-                        if (type == SDTP_MSG_DATA && pt_len > 0) {
-                            write(tun_fd, pt_buf, pt_len);
+                    if (is_server) {
+                        int res = sdtp_responder_on_data(&resp, buf, (size_t)n, &src_addr, pt_buf,
+                                                         sizeof(pt_buf), &pt_len);
+                        if (res == SDTP_RESP_DROP) continue;
+                        if (res == SDTP_RESP_PROMOTED) {
+                            last_send = 0;
+                            sdtp_log("server: handshake confirmed with %s:%u", inet_ntoa(src_addr.sin_addr),
+                                     ntohs(src_addr.sin_port));
                         }
+                    } else {
+                        if (!client_session.established) continue;
+                        if (sdtp_data_decrypt(&client_session, buf, (size_t)n, pt_buf, sizeof(pt_buf),
+                                              &pt_len) != 0) {
+                            continue;
+                        }
+                        client_peer_addr = src_addr;
+                        client_have_addr = 1;
+                    }
+                    last_recv = now;
+                    if (type == SDTP_MSG_DATA && pt_len > 0) {
+                        write(tun_fd, pt_buf, pt_len);
                     }
                 }
             }

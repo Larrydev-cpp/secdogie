@@ -29,10 +29,20 @@ int sdtp_hub_parse_ipv4_src(const uint8_t *pkt, size_t len, uint32_t *src_out) {
 int sdtp_hub_find_peer_by_session_id(const sdtp_hub_peer *peers, size_t n,
                                      const uint8_t session_id[SDTP_SESSION_ID_LEN]) {
     for (size_t i = 0; i < n; i++) {
-        /* Only established peers have a real session_id; skip the rest so an
-         * all-zero id on an unconfigured slot can't false-match. */
-        if (!peers[i].established) continue;
-        if (sodium_memcmp(peers[i].session.session_id, session_id, SDTP_SESSION_ID_LEN) == 0) {
+        /* Only live (confirmed or pending) sessions count, so the all-zero id
+         * of an idle slot can't false-match. */
+        if (sdtp_responder_owns(&peers[i].rs, session_id)) return (int)i;
+    }
+    return -1;
+}
+
+int sdtp_hub_respond_init(sdtp_hub_peer *peers, size_t n, const sdtp_keypair *hub_static,
+                          const uint8_t *msg1, size_t msg1_len, uint8_t msg2_out[SDTP_MSG2_LEN]) {
+    if (msg1_len != SDTP_MSG1_LEN) return -1;
+    if (sdtp_hub_find_peer_by_session_id(peers, n, msg1 + 1) >= 0) return -1;
+    for (size_t i = 0; i < n; i++) {
+        /* Only the slot whose configured key the message claims can accept it. */
+        if (sdtp_responder_on_init(&peers[i].rs, hub_static, peers[i].static_pk, msg1, msg1_len, msg2_out) > 0) {
             return (int)i;
         }
     }
