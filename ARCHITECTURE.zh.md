@@ -177,7 +177,7 @@ flowchart TB
 
 第二阶段(及此后)**严禁**引入:进程内存写、远程线程注入、内核 HID 注入、EDR/反检测、
 隐蔽持久化、提权、绕过用户授权、绕过 macOS Accessibility / Screen Recording 权限、
-把 HITL 改成默认自动批准。
+把 HITL 改成默认自动批准、隐蔽嵌入第三方服务、流量混淆、打洞式反检测。
 
 **保持**:memory = 只读、execution = 受监督、high-risk = fail-closed、
 physical action = 显式 capability。能力模型**永不**包含

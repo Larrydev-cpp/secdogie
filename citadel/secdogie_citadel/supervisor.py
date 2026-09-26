@@ -9,8 +9,10 @@ itself is one-shot, so a re-queued goal is re-run from the top).
 Human oversight is preserved, not removed:
   * `run_task` receives a `confirm(prompt, high_risk)` callback. The default
     handler FAILS CLOSED (denies), and the production agent adapter keeps
-    `confirm_high_risk=True`, so a high-risk step blocks until a human approves
-    via the console/desktop (or a terminal prompt). Nothing here bypasses a gate.
+    `confirm_high_risk=True`, so a high-risk step blocks until a human approves.
+    Today that human answers a terminal prompt (`terminal_confirm`); an
+    operator-approval path through the fleet / console / desktop does not exist
+    yet (planned: Track C3). Nothing here bypasses a gate.
   * The read-only memory wall and the loop's exit-code semantics are untouched.
 
 The `run_task` seam (task, *, should_stop, on_status, confirm) -> (code, summary)

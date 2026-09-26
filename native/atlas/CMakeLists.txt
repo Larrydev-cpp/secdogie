@@ -35,7 +35,7 @@ if (WIN32)
   target_compile_definitions(secdogie_atlas PRIVATE UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS)
   target_compile_definitions(secdogie_atlas PUBLIC NOMINMAX)
   target_link_libraries(secdogie_atlas PUBLIC
-    ole32 oleaut32 oleacc psapi advapi32 userenv wtsapi32 user32 gdi32 shell32 ws2_32
+    ole32 oleaut32 oleacc psapi advapi32 wtsapi32 user32 gdi32 shell32 ws2_32
   )
 endif()
 if (APPLE)

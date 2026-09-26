@@ -61,12 +61,14 @@ sudo ./build/secdogie-tunnel server server.conf
 sudo ./build/secdogie-tunnel client client.conf
 ```
 
-Once the log shows `handshake completed` on both sides, traffic sent to the
-peer's tunnel address (e.g. `ping 10.66.0.1` from the client machine) is
-carried encrypted over UDP. Verified end to end (real client/server
-processes, two network namespaces joined by a veth pair, `tcpdump` on the
-link showing only ciphertext) during development — see the project's
-commit history / CI for the test harness.
+Once the client logs `handshake completed` and the server logs `handshake
+confirmed` (the server only switches to a new session after the client's first
+authenticated packet — see PROTOCOL.md, *Confirm before swap*), traffic sent to
+the peer's tunnel address (e.g. `ping 10.66.0.1` from the client machine) is
+carried encrypted over UDP. Checked by hand with real processes in network
+namespaces joined by veth pairs (server/client, and a hub relaying between two
+clients). CI runs the unit, fuzz and sanitizer suites; an automated
+network-namespace end-to-end test is not in CI yet (planned: Tunnel T2.0b).
 
 Optional config keys: `mtu` (default 1400), `ifname` (default: let the
 kernel pick `tunN`).
