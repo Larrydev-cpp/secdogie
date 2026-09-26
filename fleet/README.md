@@ -49,10 +49,15 @@ env var, or a `secdogie.env`) — see [`agent/README.md`](../agent/README.md).
 
 ## Run
 
+Each side needs its own DID key and a list of the DIDs it accepts
+(`secdogie-identity genkey`, then one `authorized_did = did:key:...` line per
+peer; see [`identity/README.md`](../identity/README.md)).
+
 On the host:
 
 ```sh
 secdogie-fleet coordinator --port 47810 --auto \
+    --identity coordinator.key --authorized nodes.allow \
     --task "tidy the downloads folder" \
     --task "check for updates"
 ```
@@ -60,7 +65,8 @@ secdogie-fleet coordinator --port 47810 --auto \
 Inside each VM/session:
 
 ```sh
-secdogie-fleet node --connect 192.168.56.1:47810 --label win11-vm-1
+secdogie-fleet node --connect 192.168.56.1:47810 --label win11-vm-1 \
+    --identity node.key --authorized coordinators.allow
 ```
 
 Nodes **dial out**, so guests behind NAT need no inbound firewall rule — only
@@ -93,11 +99,15 @@ Useful coordinator flags:
 
 Everything in [`agent/README.md`](../agent/README.md)'s safety section applies —
 times however many desktops you run. Point this only at machines you own. A
-coordinator can hand a node any task, so **only run a node on a network you
-trust**: the protocol has no authentication, and an assignment's options are
-restricted to an allowlist of agent flags (`ALLOWED_OPTIONS` in `node.py`) but
-the task text itself is arbitrary. Bind the coordinator to a host-only/private
-network, not a public interface.
+coordinator can hand a node any task, so every link is **DID-authenticated by
+default**: both `coordinator` and `node` need `--identity` (their own signing
+key) **and** `--authorized` (the DIDs they accept), and refuse to start with only
+one of the two -- half a configuration used to fall back to accepting unsigned or
+any-signer messages. `--insecure-dev` runs with no authentication at all, for a
+throwaway local test only. An assignment's options are still restricted to an
+allowlist of agent flags (`ALLOWED_OPTIONS` in `node.py`), but the task text is
+arbitrary, so authorize only coordinators you own. Bind the coordinator to a
+host-only/private network, not a public interface.
 
 ## Honest limits
 
@@ -119,9 +129,10 @@ network, not a public interface.
 - **Screenshots never cross this wire.** Each node captures, calls the model and
   acts locally; only status text returns. Adding nodes costs the host no
   bandwidth — it costs API quota.
-- **No authentication or encryption on the wire.** Private network only. If the
-  host is remote, carry that hop over [`tunnel/`](../tunnel) — note the tunnel
-  itself is Linux-only, so it links *hosts*, not Windows guests.
+- **Authenticated, not encrypted.** Every line is DID-signed and checked against
+  the allowlist, but the TCP stream itself is plaintext. Private network only; if
+  the host is remote, carry that hop over [`tunnel/`](../tunnel) or WireGuard —
+  note the tunnel itself is Linux-only, so it links *hosts*, not Windows guests.
 - **A silently dead guest** (paused VM, blackholed network) is only noticed when
   TCP keepalive eventually gives up, which can take minutes. A crashed or
   disconnected guest is detected immediately.

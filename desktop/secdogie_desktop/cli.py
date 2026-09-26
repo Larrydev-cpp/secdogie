@@ -44,6 +44,9 @@ def main(argv: list[str] | None = None) -> int:
 
     from .app import FleetWindow
 
+    if bool(args.identity) != bool(args.authorized):
+        print("error: fleet secure mode needs both --identity and --authorized", file=sys.stderr)
+        return 2
     signer, node_allow = _load(args.identity, args.authorized)
     fleet = FleetServer(host=args.fleet_host, port=args.fleet_port,
                         logger=log, signer=signer, node_allowlist=node_allow)

@@ -52,6 +52,12 @@ class FleetServer:
         signer: Identity | None = None,
         node_allowlist: Allowlist | None = None,
     ):
+        # Secure mode is all or nothing. A signer without an allowlist would check
+        # every inbound line against no allowlist -- accepting any validly signed
+        # DID -- and an allowlist without a signer sends unsigned lines that a
+        # secure node drops. Refuse half a configuration instead of running one.
+        if (signer is None) != (node_allowlist is None):
+            raise ValueError("fleet secure mode needs both a signer and a node_allowlist")
         self.log = logger or logging.getLogger("secdogie_fleet.server")
         self._lock = threading.RLock()
         self.coordinator = Coordinator(

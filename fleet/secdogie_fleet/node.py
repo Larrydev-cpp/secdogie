@@ -257,10 +257,14 @@ def connect_and_serve(
     One connection, newline-delimited JSON both ways. Returns when the
     coordinator disconnects; the CLI wraps this in a reconnect loop.
 
-    Secure mode: pass `identity` to sign this node's outbound messages, and
+    Secure mode: pass `identity` to sign this node's outbound messages and
     `coordinator_allowlist` to verify (and reject unauthorized) inbound ones.
-    Both stay lazy so the unsigned path never imports PyNaCl.
+    It is all or nothing: an identity without an allowlist used to fall back to
+    accepting UNSIGNED assignments, so half a configuration is refused. Both stay
+    lazy so the unsigned path never imports PyNaCl.
     """
+    if (identity is None) != (coordinator_allowlist is None):
+        raise ValueError("fleet secure mode needs both an identity and a coordinator_allowlist")
     log = logger or logging.getLogger("secdogie_fleet.node")
     nid = node_id or default_node_id()
 
@@ -308,7 +312,7 @@ def connect_and_serve(
                 if not raw.strip():
                     continue
                 try:
-                    if verify is not None and coordinator_allowlist is not None:
+                    if verify is not None:
                         msg, _signer = verify(
                             raw.decode("utf-8"), coordinator_allowlist, expect=COORDINATOR_KINDS
                         )
