@@ -332,7 +332,8 @@ def agent_run_task(
     cfg_kwargs["on_event"] = lambda ev, payload: on_status(f"{ev}: {payload}")
     cfg_kwargs["approve_action"] = lambda prompt, high_risk: confirm(prompt, high_risk)
     cfg_kwargs["ask_operator"] = lambda question: confirm(question, True)
-    cfg_kwargs["approve_plan"] = lambda plan, task="": confirm(f"approve plan: {(plan or '')[:200]}", False)
+    # The loop calls approver(task, plan): show the operator the plan, not the task.
+    cfg_kwargs["approve_plan"] = lambda task, plan: confirm(f"approve plan: {(plan or '')[:200]}", False)
     cfg_kwargs["confirm_high_risk"] = True  # never weaken the high-risk gate
     if record_step is not None:
         cfg_kwargs["trace_on_entry"] = lambda entry: record_step(

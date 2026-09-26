@@ -37,6 +37,7 @@ jobs:
           - dir: identity   # DID signing (@Larryx); pynacl comes as a hard dep
           - dir: citadel    # signed event journal + DAG goal tree
             needs_identity: true
+            needs_agent: true      # so the real-loop M3 wiring tests run (not skip)
           - dir: transport  # P2P-ready peer/session/endpoint model
             needs_identity: true
           - dir: fleet      # protocol/coordinator are pure; a node needs the agent it drives
