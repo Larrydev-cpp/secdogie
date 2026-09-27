@@ -50,6 +50,9 @@ jobs:
             needs_identity: true
             needs_fleet: true
             needs_console: true
+          - dir: dialogue   # operator Dialogue App: signed wire, Gate 2 client, structural inspector
+            needs_identity: true
+            needs_citadel: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -68,6 +71,9 @@ jobs:
           fi
           if [ "${{ matrix.needs_identity }}" = "true" ]; then
             pip install -e ../identity
+          fi
+          if [ "${{ matrix.needs_citadel }}" = "true" ]; then
+            pip install -e ../citadel
           fi
           if [ "${{ matrix.needs_fleet }}" = "true" ]; then
             pip install -e ../fleet
