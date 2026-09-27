@@ -153,6 +153,13 @@ class VisualReference:
     source: str = "heap"  # native DibHit.source: "heap" (memory DIB) etc.
     content_hash: str = ""
     pixels_available: bool = False
+    # DIB framebuffer metadata, filled in when the reference came from a real
+    # tear-free read (perception/dib.py). All default to "unknown" so a
+    # reference built the old way, by identity alone, is unchanged.
+    stride: int = 0  # bytes per row, including any padding beyond width*bpp
+    pixel_format: str = ""  # e.g. "BGRA8888"; "" when only bit_count is known
+    size_bytes: int = 0  # bytes actually read for this frame (0 = unknown)
+    seqlock: int = 0  # the settled (even) sequence number the frame was read at
 
     @property
     def approx_bytes(self) -> int:

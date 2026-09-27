@@ -53,6 +53,8 @@ from typing import Protocol, runtime_checkable
 from ..axtree import AxElement
 from ..desktop_ax import DesktopAxProvider
 from ..observation import Budget, Geometry, Observation, SemanticNode, VisualReference, observe_ax
+from .dib import DEFAULT_RETRIES as DEFAULT_DIB_RETRIES
+from .dib import DibBudgetError, DibError, DIBFrameBuffer, DibTearError
 
 # Confidence of a populated AX reading; matches observe_ax's default so an
 # adapter-built observation fuses exactly like a hand-built one.
@@ -141,13 +143,14 @@ NO_PRUNING = FilterPolicy(drop_placeholders=False)
 
 @runtime_checkable
 class DibProvider(Protocol):
-    def inspect(self, node: SemanticNode) -> VisualReference | None:
-        """A read-only handle to the bitmap drawn in ``node.bounds``, or None if
-        there isn't one. Returns a reference (identity + hash), never pixels."""
+    def inspect(self, node: SemanticNode) -> VisualReference | DIBFrameBuffer | None:
+        """The framebuffer or reference backing ``node.bounds``, or None if there
+        isn't one. A ``DIBFrameBuffer`` (a live shared-memory handle) is read
+        tear-free by the adapter; a plain ``VisualReference`` is taken as-is."""
         ...
 
 
-DibFn = Callable[[SemanticNode], "VisualReference | None"]
+DibFn = Callable[[SemanticNode], "VisualReference | DIBFrameBuffer | None"]
 
 
 @dataclass(frozen=True)
@@ -163,6 +166,7 @@ class AdapterReport:
     dib_attached: int = 0
     dib_bytes: int = 0
     dib_skipped_budget: int = 0
+    dib_skipped_tearing: int = 0
     dib_errors: tuple[str, ...] = ()
 
 
@@ -448,6 +452,7 @@ class StructuralObservationAdapter(BaseObservationAdapter):
         filter_policy: FilterPolicy = DEFAULT_FILTER_POLICY,
         dib_provider: DibProvider | DibFn | None = None,
         dib_budget_bytes: int = Budget().max_dib_bytes,
+        dib_retries: int = DEFAULT_DIB_RETRIES,
     ) -> None:
         self._snapshot: SnapshotFn = _as_callable(ax_provider, "snapshot", "ax_provider")
         self._inspect: DibFn | None = (
@@ -459,6 +464,7 @@ class StructuralObservationAdapter(BaseObservationAdapter):
         self.confidence = confidence
         self.filter_policy = filter_policy
         self.dib_budget_bytes = dib_budget_bytes
+        self.dib_retries = dib_retries
         self._clock = clock
         self.last_report = AdapterReport()
 
@@ -490,7 +496,13 @@ class StructuralObservationAdapter(BaseObservationAdapter):
         return NodeQuery(self.get_observation())
 
     def _stitch_dib(self, nodes: tuple[SemanticNode, ...]) -> tuple[tuple[SemanticNode, ...], dict]:
-        stats = {"dib_requested": 0, "dib_attached": 0, "dib_bytes": 0, "dib_skipped_budget": 0}
+        stats = {
+            "dib_requested": 0,
+            "dib_attached": 0,
+            "dib_bytes": 0,
+            "dib_skipped_budget": 0,
+            "dib_skipped_tearing": 0,
+        }
         if self._inspect is None:
             return nodes, stats
         errors: list[str] = []
@@ -500,16 +512,18 @@ class StructuralObservationAdapter(BaseObservationAdapter):
             if not self.filter_policy.is_blind(node, has_children=i in parents):
                 continue
             stats["dib_requested"] += 1
+            where = f"{'.'.join(map(str, node.path_index))} {node.role}"
             try:
-                ref = self._inspect(node)
+                got = self._inspect(node)
             except Exception as exc:  # secondary sense: record, keep the AX reading
-                errors.append(f"{'.'.join(map(str, node.path_index))} {node.role}: {exc}")
+                errors.append(f"{where}: {exc}")
                 continue
+            if got is None:
+                continue
+            ref = self._resolve_reference(got, where, stats, errors)
             if ref is None:
                 continue
-            if not isinstance(ref, VisualReference):
-                errors.append(f"{'.'.join(map(str, node.path_index))} {node.role}: not a VisualReference")
-                continue
+            # Total-across-nodes budget (a single frame is already capped on read).
             if stats["dib_bytes"] + ref.approx_bytes > self.dib_budget_bytes:
                 stats["dib_skipped_budget"] += 1
                 continue
@@ -518,6 +532,32 @@ class StructuralObservationAdapter(BaseObservationAdapter):
             out[i] = dataclasses.replace(node, visual_reference=ref)
         stats["dib_errors"] = tuple(errors)
         return tuple(out), stats
+
+    def _resolve_reference(self, got, where, stats, errors) -> VisualReference | None:
+        """Turn a provider result into a hashable ``VisualReference``, doing the
+        tear-free read for a live ``DIBFrameBuffer``. Returns None (and records
+        the reason) when the frame is torn, over budget, out of bounds or the
+        result is the wrong type -- the AX node is always kept either way."""
+        if isinstance(got, DIBFrameBuffer):
+            remaining = self.dib_budget_bytes - stats["dib_bytes"]
+            try:
+                data, seq = got.read(max_bytes=remaining, retries=self.dib_retries)
+            except DibTearError as exc:  # racing writer: back off, keep AX
+                stats["dib_skipped_tearing"] += 1
+                errors.append(f"{where}: torn frame: {exc}")
+                return None
+            except DibBudgetError as exc:  # oversized heap slice
+                stats["dib_skipped_budget"] += 1
+                errors.append(f"{where}: {exc}")
+                return None
+            except DibError as exc:  # bounds / format: a real fault to surface
+                errors.append(f"{where}: {exc}")
+                return None
+            return got.to_reference(data, seq)
+        if isinstance(got, VisualReference):
+            return got
+        errors.append(f"{where}: not a VisualReference or DIBFrameBuffer")
+        return None
 
     def _empty_observation(self) -> Observation:
         return observe_ax(
@@ -537,8 +577,10 @@ __all__ = [
     "DEFAULT_OPAQUE_LEAF_ROLES",
     "DEFAULT_FILTER_POLICY",
     "NO_PRUNING",
+    "DEFAULT_DIB_RETRIES",
     "AdapterReport",
     "BaseObservationAdapter",
+    "DIBFrameBuffer",
     "DibProvider",
     "FilterPolicy",
     "NodeQuery",

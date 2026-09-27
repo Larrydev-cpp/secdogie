@@ -32,6 +32,10 @@ from secdogie_agent.perception.adapter import (
     normalize_role,
     union_geometry,
 )
+from secdogie_agent.perception.dib import (
+    DIBFrameBuffer,
+    HeapDibReader,
+)
 
 
 class FakeAxProvider:
@@ -407,6 +411,149 @@ def test_dib_reference_enters_content_hash():
     plain = _adapter(TREE).get_observation()
     stitched = _adapter(TREE, dib_provider=FakeDibProvider()).get_observation()
     assert plain.content_hash != stitched.content_hash
+
+
+# --- 3b. real heap framebuffer (DIBFrameBuffer) seam -------------------------
+
+
+class FakeWriter:
+    """A cooperating producer: bumps its seqlock odd while writing a frame into
+    its heap and even when settled. ``tear`` makes it commit mid-read."""
+
+    def __init__(self, *, seq=0, tear=False):
+        self.seq = seq
+        self.reads = 0
+        self.tear = tear
+
+    def read_seq(self):
+        self.reads += 1
+        current = self.seq
+        if self.tear and self.reads == 1:
+            self.seq += 2  # a write lands between the reader's two samples
+        return current
+
+
+def canvas_frame(*, width=8, height=4, fmt="BGRA8888", writer=None, seq=0, budget_ok=True):
+    """A DIBFrameBuffer for the Canvas node, backed by a bytearray heap."""
+    from secdogie_agent.perception.dib import bytes_per_pixel
+
+    writer = writer or FakeWriter(seq=seq)
+    stride = width * bytes_per_pixel(fmt)
+    size = stride * height
+    heap = bytearray(i % 251 for i in range(size))
+    return DIBFrameBuffer(
+        address=0xC0FFEE,
+        width=width,
+        height=height,
+        stride=stride,
+        pixel_format=fmt,
+        size_bytes=size,
+        _buffer=heap,
+        _seq=writer.read_seq,
+    ), writer
+
+
+def _heap_reader(frame):
+    return HeapDibReader(lambda node: frame if normalize_role(node.role) == "canvas" else None)
+
+
+def test_heap_framebuffer_is_read_tearfree_and_attached():
+    frame, writer = canvas_frame(seq=8)
+    adapter = _adapter(TREE, dib_provider=_heap_reader(frame))
+    nodes = adapter.get_observation().semantic_nodes
+    ref = nodes[6].visual_reference
+    assert ref is not None
+    assert ref.pixels_available is True  # real bytes were read, not a bare handle
+    assert ref.pixel_format == "BGRA8888"
+    assert ref.stride == 32 and ref.width == 8 and ref.height == 4
+    assert ref.seqlock == 8  # settled even sequence
+    assert ref.size_bytes == 128
+    r = adapter.last_report
+    assert (r.dib_requested, r.dib_attached, r.dib_bytes) == (1, 1, 128)
+    assert writer.reads == 2  # sampled before and after the copy
+
+
+def test_heap_framebuffer_content_hash_matches_bytes():
+    import hashlib
+
+    frame, _ = canvas_frame(seq=2)
+    data, seq = frame.read()
+    adapter = _adapter(TREE, dib_provider=_heap_reader(frame))
+    ref = adapter.get_observation().semantic_nodes[6].visual_reference
+    assert ref.content_hash == hashlib.sha256(data).hexdigest()
+
+
+def test_concurrent_write_tears_frame_and_backs_off():
+    frame, writer = canvas_frame(writer=FakeWriter(seq=4, tear=True))
+    adapter = _adapter(TREE, dib_provider=_heap_reader(frame), dib_retries=0)
+    obs = adapter.get_observation()
+    assert obs.semantic_nodes[6].visual_reference is None  # torn: not attached
+    assert len(obs.semantic_nodes) == len(TREE)  # AX node kept
+    assert obs.confidence == DEFAULT_AX_CONFIDENCE
+    r = adapter.last_report
+    assert r.dib_skipped_tearing == 1 and r.dib_attached == 0
+    assert "torn frame" in r.dib_errors[0]
+
+
+def test_odd_lock_retries_then_succeeds():
+    class MidWrite:
+        def __init__(self):
+            self.reads = 0
+
+        def read_seq(self):
+            self.reads += 1
+            return 3 if self.reads == 1 else 4  # odd (writing) then settled
+
+    frame, _ = canvas_frame(writer=MidWrite())
+    adapter = _adapter(TREE, dib_provider=_heap_reader(frame), dib_retries=2)
+    ref = adapter.get_observation().semantic_nodes[6].visual_reference
+    assert ref is not None and ref.seqlock == 4
+
+
+def test_oversized_heap_frame_hits_budget():
+    frame, _ = canvas_frame(width=64, height=64, seq=2)  # 16384 bytes
+    adapter = _adapter(TREE, dib_provider=_heap_reader(frame), dib_budget_bytes=4096)
+    obs = adapter.get_observation()
+    assert obs.semantic_nodes[6].visual_reference is None
+    r = adapter.last_report
+    assert r.dib_skipped_budget == 1 and r.dib_attached == 0
+
+
+def test_heap_out_of_bounds_is_recorded_but_node_kept():
+    # size_bytes claims a frame larger than the backing heap.
+    bad = DIBFrameBuffer(
+        address=1,
+        width=8,
+        height=4,
+        stride=32,
+        pixel_format="BGRA8888",
+        size_bytes=128,
+        _buffer=bytearray(64),  # too small
+        _seq=lambda: 0,
+    )
+    adapter = _adapter(TREE, dib_provider=_heap_reader(bad))
+    obs = adapter.get_observation()
+    assert obs.semantic_nodes[6].visual_reference is None
+    r = adapter.last_report
+    assert r.dib_attached == 0 and r.dib_skipped_tearing == 0
+    assert "out of buffer" in r.dib_errors[0]
+
+
+def test_bad_format_frame_is_recorded_but_node_kept():
+    bad = DIBFrameBuffer(1, 8, 4, stride=32, pixel_format="YUV420", size_bytes=128, _buffer=bytearray(128), _seq=lambda: 0)
+    adapter = _adapter(TREE, dib_provider=_heap_reader(bad))
+    obs = adapter.get_observation()
+    assert obs.semantic_nodes[6].visual_reference is None
+    assert "unknown pixel format" in adapter.last_report.dib_errors[0]
+
+
+def test_heap_reader_via_public_package_and_protocol():
+    from secdogie_agent import perception
+
+    frame, _ = canvas_frame(seq=6)
+    reader = perception.HeapDibReader(lambda node: frame)
+    assert isinstance(reader, DibProvider)
+    assert isinstance(perception.DIBFrameBuffer, type)
 
 
 # --- 4. chainable queries ----------------------------------------------------
