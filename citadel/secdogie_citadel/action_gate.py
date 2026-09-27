@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 from secdogie_identity.capability import allows as capability_allows
 
 from . import socratic
+from .authz import verify_authorization
 
 # --- Verdicts ---------------------------------------------------------------
 
@@ -56,6 +57,7 @@ MISSING_VERIFICATION = "missing-verification"
 EXCESSIVE_COST = "excessive-cost"
 OUT_OF_CAPABILITY = "out-of-capability"
 UNATTENDED_POSTING = "unattended-posting"
+UNAUTHORIZED_ACTION = "unauthorized-action"
 
 # Kinds that only observe -- they never mutate, so they need no verification and
 # a run of them with nothing else between is the busy-poll signal.
@@ -139,6 +141,16 @@ class GateContext:
     instruction: str = ""  # the request behind this plan, for the instruction gate
     poll_window: int = 3
     repeat_threshold: int = 2
+    # Gate 2 (authz.py): a destructive / irreversible action needs an
+    # operator-signed authorization token bound to it. Off by default so callers
+    # predating this keep their behavior; a node enforcing Gate 2 turns it on and
+    # supplies the operator trust set + this node's DID. The gate only VERIFIES a
+    # token the caller collected; it never mints one.
+    require_authorization: bool = False
+    authorization: dict | None = None
+    operators: object = None  # a TrustPolicy / Allowlist of operator DIDs (revocation-aware)
+    subject_did: str = ""  # this node's DID, the token's expected subject
+    now: float | None = None  # clock for token expiry; None = time.time
 
 
 @dataclass(frozen=True)
@@ -302,6 +314,26 @@ def _check_unattended_posting(a: PlannedAction, ctx: GateContext) -> Finding | N
     return None
 
 
+def _check_authorization(a: PlannedAction, ctx: GateContext) -> Finding | None:
+    """Gate 2: a destructive / irreversible action needs a valid operator-signed
+    authorization token bound to it. When enforcement is on and the action is
+    destructive, verify the token; anything short of a valid one is a hard
+    reject. Fail closed -- no token, or no operators configured, means reject."""
+    if not ctx.require_authorization or not a.destructive:
+        return None
+    res = verify_authorization(
+        ctx.authorization, a, operators=ctx.operators, subject=ctx.subject_did, now=ctx.now
+    )
+    if res.ok:
+        return None
+    return Finding(
+        UNAUTHORIZED_ACTION,
+        f"destructive action needs an operator-signed authorization: {res.reason}",
+        REJECT,
+        risk=1.0,
+    )
+
+
 _CHECKS = (
     _check_stale_target,
     _check_target_present,
@@ -313,6 +345,7 @@ _CHECKS = (
     _check_excessive_cost,
     _check_capability,
     _check_unattended_posting,
+    _check_authorization,
 )
 
 # Verdict precedence: re-observe (the world moved, judging the rest is moot)
@@ -393,6 +426,7 @@ __all__ = [
     "REJECT",
     "REWRITE",
     "REQUEST_REOBSERVE",
+    "UNAUTHORIZED_ACTION",
     "STALE_TARGET",
     "TARGET_MISMATCH",
     "NO_OP",
