@@ -388,9 +388,14 @@ def test_node_accepts_deliveries_only_from_its_relays_and_unaltered(mesh):
     genuine = a.transport.build_frame(b.did, b"from a")
     deliver(rogue, a.did, genuine)  # allowlisted, but not a relay B asked for
     deliver(r, rogue.did, genuine)  # B's relay, but src relabelled
+    deliver(r, None, genuine)       # B's relay, no src at all
     assert get(b.relay_inbox, timeout=0.3) is None
+    # None of the rejected copies used up the frame's counter: the genuine
+    # delivery of the very same frame still gets through, exactly once.
     deliver(r, a.did, genuine)
     assert get(b.relay_inbox) == (a.did, b"from a")
+    deliver(r, a.did, genuine)
+    assert get(b.relay_inbox, timeout=0.3) is None
 
 
 def test_register_must_be_fresh_so_a_replay_cannot_redirect_a_client(mesh):

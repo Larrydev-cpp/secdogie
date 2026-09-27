@@ -330,8 +330,8 @@ class RelayClient(Transport):
             frame = base64.b64decode(inner, validate=True)
         except ValueError:
             return
-        opened = self.transport.open_relayed(frame)
-        if opened is None or opened[0] != obj.get("src"):
+        opened = self.transport.open_relayed(frame, sender=obj.get("src"))
+        if opened is None:
             return  # forged / tampered / replayed / relabelled inner frame
         if self._deliver is not None:
             self._deliver(*opened)
