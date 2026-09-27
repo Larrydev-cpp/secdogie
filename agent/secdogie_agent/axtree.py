@@ -35,6 +35,9 @@ class AxElement:
     value: str = field(default="", compare=False)
     selected_text: str = field(default="", compare=False)
     table_cell: tuple[int, int] | None = field(default=None, compare=False)  # (row, column)
+    # How the element was found: "tree" (walked), "hit-test" (touch probe),
+    # "touch-text" (text read at a touched point). Metadata, not identity.
+    origin: str = field(default="tree", compare=False)
 
     @property
     def center(self) -> tuple[int, int]:

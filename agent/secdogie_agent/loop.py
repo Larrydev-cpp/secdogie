@@ -87,6 +87,9 @@ class AgentConfig:
     activate: Callable[[], bool] | None = None
     initial_focus: Callable[[], bool | None] | None = None
     desktop_ax: bool = False
+    # With desktop_ax on a provider that can hit-test (macOS): touch-explore
+    # blind nodes and shallow windows to find elements the tree walk misses.
+    touch_probe: bool = True
     macro_path: str | None = None
     plan: bool = False
     subtask_step_limit: int = 15
@@ -263,6 +266,12 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
         if config.desktop_ax:
             from . import desktop_ax
             ax_provider = desktop_ax.make_desktop_ax_provider(logger)
+            if ax_provider is not None and config.touch_probe and callable(getattr(ax_provider, "probe", None)):
+                # macOS: complete the tree walk by touch-exploring blind nodes
+                # and shallow windows (hit tests only -- no pixels).
+                from .perception.touch import TouchProbingProvider
+
+                ax_provider = TouchProbingProvider(ax_provider)
         backend = DesktopBackend(
             move_duration=config.move_duration, settle=config.settle, ax_provider=ax_provider,
             activate=config.activate,
@@ -657,6 +666,10 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             if action.kind == "look":
                 refresh_view = True
                 boost_detail = True  # next prepare uses higher max_edge for the detail the model asked for
+                # A fresh look also re-touches blind regions (macOS touch probe).
+                invalidate = getattr(getattr(backend, "ax_provider", None), "invalidate_probe", None)
+                if callable(invalidate):
+                    invalidate()
                 logger.info("step %d: model requested a fresh look%s", step, f" -- {reasoning}" if reasoning else "")
                 if frame_source == "ax-pad" or harness.uses_ax_pad():
                     record_result("will rebuild the AX pad on the next step (no screenshot)")

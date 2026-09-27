@@ -28,7 +28,7 @@ import dataclasses
 import sys
 from typing import Protocol, runtime_checkable
 
-from . import axtree
+from . import axtree, touch_probe
 
 # A live tree can be large; cap the walk so a pathological app can't hang replay.
 MAX_TREE_DEPTH = 40
@@ -421,6 +421,29 @@ CHROMIUM_BROWSER_NAMES = frozenset(
     {"Google Chrome", "Chromium", "Microsoft Edge", "Brave Browser", "Vivaldi", "Opera", "Arc"}
 )
 
+# Roles whose value set_value_at may write (text entry only).
+EDITABLE_ROLES = frozenset({"TextField", "TextArea", "SecureTextField", "SearchField", "ComboBox"})
+
+# Roles whose text can be read by position (AXRangeForPosition & friends).
+TEXT_ROLES = frozenset({"TextArea", "TextField", "StaticText", "WebArea"})
+_POINT_TYPES = ("kAXValueCGPointType", "kAXValueTypeCGPoint")
+_RANGE_TYPES = ("kAXValueCFRangeType", "kAXValueTypeCFRange")
+_RECT_TYPES = ("kAXValueCGRectType", "kAXValueTypeCGRect")
+
+
+@dataclasses.dataclass(frozen=True)
+class ProbeResult:
+    """A touch sweep's findings: each distinct element as its ancestor chain
+    (window first), plus how many touches it took and whether the budget ran
+    out. ``distinct`` is every element the finger landed on."""
+
+    chains: tuple[tuple[axtree.AxElement, ...], ...] = ()
+    probes: int = 0
+    truncated: bool = False
+    distinct: frozenset = frozenset()
+    text_lines: int = 0
+
+
 # Cap on text pulled from AXValue / AXSelectedText: a text area can hold an
 # entire document, and the listing is sent to the model every step.
 MAX_TEXT_CHARS = 2000
@@ -735,25 +758,239 @@ class _MacosAxProvider:
         hit). Fall back to walking AXPosition/AXSize boxes when the copy-at
         API is missing or returns nothing.
         """
-        ax = self._ax
         app = self._focused_app()
-        copy_at = getattr(ax, "AXUIElementCopyElementAtPosition", None)
-        if app is not None and callable(copy_at):
-            try:
-                err, el = copy_at(app, float(x), float(y), None)
-            except TypeError:
-                try:
-                    err, el = copy_at(app, float(x), float(y))
-                except Exception:
-                    err, el = 1, None
-            except Exception:
-                err, el = 1, None
-            if err == 0 and el is not None:
-                return self._ax_press(el)
+        el = self._copy_at(app, x, y)
+        if el is not None:
+            return self._ax_press(el)
         ax_el, _el = self._hit_ax(x, y)
         if ax_el is None:
             return False
         return self._ax_press(ax_el)
+
+    # -- touch: the OS finger --------------------------------------------------
+    #
+    # AXUIElementCopyElementAtPosition is the hit test VoiceOver's Trackpad
+    # Commander uses: the deepest element under a point, respecting window
+    # z-order. It is asked of the *application* element, never the system-wide
+    # one (system-wide hit tests are reported to stall SwiftUI scroll views).
+
+    def _copy_at(self, app, x: float, y: float):
+        """The AXUIElement under (x, y) in ``app``, or None."""
+        copy_at = getattr(self._ax, "AXUIElementCopyElementAtPosition", None)
+        if app is None or not callable(copy_at):
+            return None
+        try:
+            err, el = copy_at(app, float(x), float(y), None)
+        except TypeError:
+            try:
+                err, el = copy_at(app, float(x), float(y))
+            except Exception:
+                return None
+        except Exception:
+            return None
+        return el if err == 0 and el is not None else None
+
+    def _chain_of(self, element) -> list[tuple[object, axtree.AxElement]]:
+        """(AXUIElement, AxElement) from the window down to ``element``, via
+        AXParent. Elements that don't map (no role / no box) are skipped; the
+        walk stops at the window, the application, or MAX_TREE_DEPTH."""
+        parent_attr = getattr(self._ax, "kAXParentAttribute", "AXParent")
+        chain: list[tuple[object, axtree.AxElement]] = []
+        cur = element
+        for _ in range(MAX_TREE_DEPTH):
+            if cur is None:
+                break
+            el = self._element_of(cur)
+            if el is not None:
+                if el.role == "Application":
+                    break
+                chain.append((cur, dataclasses.replace(el, origin="hit-test")))
+                if el.role == "Window":
+                    break
+            cur = self._attr(cur, parent_attr)
+        chain.reverse()
+        return chain
+
+    def probe(
+        self,
+        region: tuple[int, int, int, int],
+        *,
+        max_probes: int = touch_probe.DEFAULT_MAX_PROBES,
+        min_cell: int = touch_probe.DEFAULT_MIN_CELL,
+        max_seconds: float = touch_probe.DEFAULT_MAX_SECONDS,
+        read_text: bool = False,
+    ) -> ProbeResult:
+        """Touch-explore ``region`` (left, top, right, bottom): hit-test an
+        adaptive grid, and return each distinct element found as its ancestor
+        chain (window first), ready for :func:`touch_probe.merge_chains`.
+
+        With ``read_text``, text elements that were touched are also read at
+        the touched points, line by line (see :meth:`_line_at`); each line is
+        a "TextLine" child of its text element."""
+        app = self._focused_app()
+        handles: dict[axtree.AxElement, object] = {}
+
+        def hit(x: int, y: int):
+            ax_el = self._copy_at(app, x, y)
+            if ax_el is None:
+                return None
+            el = self._element_of(ax_el)
+            if el is None:
+                return None
+            handles.setdefault(el, ax_el)
+            return el
+
+        sweep = touch_probe.adaptive_probe(
+            region, hit, max_probes=max_probes, min_cell=min_cell, max_seconds=max_seconds
+        )
+        chains = []
+        for ax_el in handles.values():
+            chain = [e for _h, e in self._chain_of(ax_el)]
+            if chain:
+                chains.append(chain)
+        lines: dict[tuple, axtree.AxElement] = {}
+        if read_text:
+            for point, el in sweep.hits.items():
+                if el is None or el.role not in TEXT_ROLES:
+                    continue
+                line = self._line_at(handles[el], *point)
+                if line is not None:
+                    key, line_el = line
+                    if (el, key) not in lines:
+                        lines[(el, key)] = line_el
+            for (el, _key), line_el in lines.items():
+                base = next((c for c in chains if c and c[-1] == el), [el])
+                chains.append([*base, line_el])
+        return ProbeResult(
+            chains=tuple(tuple(c) for c in chains),
+            probes=sweep.probes,
+            truncated=sweep.truncated,
+            distinct=frozenset(sweep.distinct()),
+            text_lines=len(lines),
+        )
+
+    def _param(self, element, attribute: str, parameter):
+        fn = getattr(self._ax, "AXUIElementCopyParameterizedAttributeValue", None)
+        if not callable(fn):
+            return None
+        try:
+            err, value = fn(element, attribute, parameter, None)
+        except Exception:
+            return None
+        return value if err == 0 else None
+
+    def _make_value(self, type_names: tuple[str, ...], value):
+        ax = self._ax
+        create = getattr(ax, "AXValueCreate", None)
+        vtype = next((getattr(ax, n) for n in type_names if hasattr(ax, n)), None)
+        if not callable(create) or vtype is None:
+            return None
+        try:
+            return create(vtype, value)
+        except Exception:
+            return None
+
+    def _unwrap(self, value, type_names: tuple[str, ...]):
+        ax = self._ax
+        vtype = next((getattr(ax, n) for n in type_names if hasattr(ax, n)), None)
+        try:
+            ok, inner = ax.AXValueGetValue(value, vtype, None)
+        except Exception:
+            return None
+        return inner if ok else None
+
+    def _line_at(self, element, x: int, y: int) -> tuple[int, axtree.AxElement] | None:
+        """Read the text line under (x, y) in a text element, the way VoiceOver
+        speaks "text under the pointer": AXRangeForPosition -> character index
+        -> AXLineForIndex -> AXRangeForLine -> AXStringForRange (+ its
+        AXBoundsForRange). Returns (line number, "TextLine" element) or None
+        when the element doesn't support these parameterized attributes (some
+        Chromium/Electron fields don't)."""
+        point = self._make_value(_POINT_TYPES, (float(x), float(y)))
+        if point is None:
+            return None
+        at = self._param(element, "AXRangeForPosition", point)
+        rng = self._unwrap(at, _RANGE_TYPES) if at is not None else None
+        index = getattr(rng, "location", None)
+        if not isinstance(index, int) or index < 0:
+            return None
+        line = self._param(element, "AXLineForIndex", index)
+        if not isinstance(line, int) or isinstance(line, bool) or line < 0:
+            return None
+        line_range = self._param(element, "AXRangeForLine", line)
+        if line_range is None:
+            return None
+        text = self._param(element, "AXStringForRange", line_range)
+        if not isinstance(text, str) or not text.strip():
+            return None
+        bounds = (0, 0, 0, 0)
+        rect_value = self._param(element, "AXBoundsForRange", line_range)
+        rect = self._unwrap(rect_value, _RECT_TYPES) if rect_value is not None else None
+        if rect is not None:
+            try:
+                left, top = int(rect.origin.x), int(rect.origin.y)
+                bounds = (left, top, left + int(rect.size.width), top + int(rect.size.height))
+            except Exception:
+                bounds = (0, 0, 0, 0)
+        text = text.strip()[:MAX_TEXT_CHARS]
+        return line, axtree.AxElement(
+            role="TextLine",
+            name=text,
+            automation_id="",
+            bounds=bounds,
+            value=text,
+            origin="touch-text",
+        )
+
+    def occluder_of(self, target: axtree.AxElement) -> axtree.AxElement | None:
+        """What is on top of ``target``'s centre, if it isn't ``target``.
+
+        Touches the centre with the OS hit test. Not occluded when the touch
+        lands on the target, on something inside it (a button's label), or on
+        an ancestor that contains it (a container that isn't hit-testable per
+        child). Returns the covering element (e.g. a modal sheet) otherwise,
+        and None when the touch can't be made -- unknown is not "blocked"."""
+        if target.area <= 0:
+            return None
+        app = self._focused_app()
+        x, y = target.center
+        ax_el = self._copy_at(app, x, y)
+        if ax_el is None:
+            return None
+        chain = self._chain_of(ax_el)
+        if not chain or any(el == target for _h, el in chain):
+            return None
+        top_handle, top = chain[-1]
+        if self._subtree_contains(top_handle, target):
+            return None
+        return dataclasses.replace(top, origin="tree")
+
+    def _subtree_contains(self, element, target: axtree.AxElement, budget: int = 400) -> bool:
+        stack = [(element, 0)]
+        seen = 0
+        while stack and seen < budget:
+            cur, depth = stack.pop()
+            seen += 1
+            if self._element_of(cur) == target:
+                return True
+            if depth < MAX_TREE_DEPTH:
+                stack.extend((c, depth + 1) for c in self._children(cur))
+        return False
+
+    def set_value_at(self, x: int, y: int, text: str) -> bool:
+        """Write AXValue on the element under (x, y) -- for a field found by
+        touch that the tree walk (and so ``set_value``'s search) can't reach.
+        Only writes when the element on top at that point is a text-entry role;
+        anything else (a button, a sheet that slid over the field) is refused."""
+        app = self._focused_app()
+        ax_el = self._copy_at(app, x, y)
+        if ax_el is None:
+            return False
+        el = self._element_of(ax_el)
+        if el is None or el.role not in EDITABLE_ROLES:
+            return False
+        attr = getattr(self._ax, "kAXValueAttribute", "AXValue")
+        return self._set(ax_el, attr, text)
 
     def _ax_press(self, ax_el) -> bool:
         action = getattr(self._ax, "kAXPressAction", "AXPress")

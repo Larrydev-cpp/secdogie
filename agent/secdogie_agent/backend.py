@@ -264,13 +264,37 @@ class DesktopBackend:
         attrs = axtree.selector_for(el)
         if not attrs:
             return None
+        label = el.name or el.automation_id or el.role
+        # AXPress reaches a control even when something covers it -- including a
+        # control behind a modal sheet, which a person could never touch. Touch
+        # its centre first; if something else is on top, report that instead.
+        occluder_of = getattr(self.ax_provider, "occluder_of", None)
+        if callable(occluder_of):
+            try:
+                cover = occluder_of(el)
+            except Exception:
+                cover = None
+            if cover is not None:
+                cover_label = cover.name or cover.automation_id or cover.role
+                return (
+                    f"did not press {el.role} {label!r}: it is covered by {cover.role} "
+                    f"{cover_label!r}. Deal with that first (e.g. its buttons), then retry."
+                )
+        # An element found by touch (hit test) is often absent from the walked
+        # tree, so a by-identity press would not find it: touch it again instead.
+        press_at = getattr(self.ax_provider, "press_at", None)
+        if el.origin != "tree" and callable(press_at) and el.area > 0:
+            try:
+                if press_at(*el.center):
+                    return f"invoked {el.role} {label!r} via accessibility at its position (cursor not moved)"
+            except Exception:
+                pass
         try:
             ok = press(**attrs)
         except Exception:
             return None
         if not ok:
             return None
-        label = el.name or el.automation_id or el.role
         return f"invoked {el.role} {label!r} via accessibility (cursor not moved)"
 
     def set_element_value(self, el: axtree.AxElement, text: str) -> str | None:
@@ -279,6 +303,14 @@ class DesktopBackend:
         setter = getattr(self.ax_provider, "set_value", None)
         if self.ax_provider is None or not callable(setter):
             return None
+        label = el.name or el.automation_id or el.role
+        set_at = getattr(self.ax_provider, "set_value_at", None)
+        if el.origin != "tree" and callable(set_at) and el.area > 0:
+            try:
+                if set_at(*el.center, text):
+                    return f"set {el.role} {label!r} to {text!r} via accessibility at its position (cursor not moved)"
+            except Exception:
+                pass
         attrs = axtree.selector_for(el)
         if not attrs:
             return None
