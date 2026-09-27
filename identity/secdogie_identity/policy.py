@@ -146,4 +146,25 @@ class TrustPolicy:
             return list(self._records.values())
 
 
-__all__ = ["RevocationStore", "TrustPolicy"]
+def halt_on_self_revocation(newly_revoked, self_did: str, stop_actions) -> bool:
+    """If ``self_did`` is among ``newly_revoked`` DIDs, run each stop action once
+    and return True; otherwise do nothing and return False.
+
+    This is the node's own authorization lifecycle: when the mesh's masters have
+    revoked *this* node, it winds itself down cleanly, exactly as if the operator
+    had stopped it locally. Pure and side-effect-only through ``stop_actions`` so
+    it can be unit-tested headlessly; the caller decides how to exit the process
+    (a clean ``SystemExit(0)``) once it returns True. Each action is best-effort:
+    one that raises does not stop the others, so a half-torn-down node still
+    completes its shutdown."""
+    if self_did not in newly_revoked:
+        return False
+    for action in stop_actions:
+        try:
+            action()
+        except Exception:  # noqa: BLE001 - a failing stop step must not block the halt
+            pass
+    return True
+
+
+__all__ = ["RevocationStore", "TrustPolicy", "halt_on_self_revocation"]

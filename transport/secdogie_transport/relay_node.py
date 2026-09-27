@@ -35,11 +35,19 @@ import tempfile
 import threading
 import time
 
-from secdogie_identity import Allowlist, Identity
+from secdogie_identity import (
+    Allowlist,
+    Identity,
+    MasterSet,
+    RevocationStore,
+    TrustPolicy,
+    halt_on_self_revocation,
+)
 
 from .endpoint import Endpoint
 from .membership import ROLE_RELAY, sign_record
 from .relay import DEFAULT_LEASE, MAX_LEASE, RelayService
+from .revocation_gossip import RevocationGossip
 from .udp import DirectUDPTransport, UDPChannel
 
 DEFAULT_LISTEN = "0.0.0.0:7946"
@@ -82,6 +90,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="the address other nodes reach this relay at; required when listening on 0.0.0.0")
     p.add_argument("--record-out", metavar="FILE",
                    help="also write the signed membership record here (replaced atomically)")
+    p.add_argument("--masters", metavar="FILE",
+                   help="master set file; enables revocation (a revoked DID stops being served, "
+                        "and this relay halts cleanly if its own DID is revoked)")
+    p.add_argument("--revocations", metavar="FILE",
+                   help="persist accepted revocations here so a restart still honors them "
+                        "(requires --masters)")
     p.add_argument("--lease", type=_positive(MAX_LEASE), default=DEFAULT_LEASE, metavar="SECONDS",
                    help=f"how long a client registration lasts unless renewed (default {DEFAULT_LEASE:g})")
     p.add_argument("--stats-every", type=_positive(), default=DEFAULT_STATS_EVERY, metavar="SECONDS",
@@ -104,8 +118,17 @@ def _write_atomically(path: str, text: str) -> None:
         raise
 
 
+_log_lock = threading.Lock()
+
+
 def _log(event: str, **fields) -> None:
-    print(json.dumps({"event": event, **fields}, sort_keys=True), file=sys.stderr, flush=True)
+    # The stats loop and the revocation-handling thread both log, so write each
+    # JSONL record (line included) in one locked write: two threads must never
+    # interleave into a single unparseable line.
+    line = json.dumps({"event": event, **fields}, sort_keys=True) + "\n"
+    with _log_lock:
+        sys.stderr.write(line)
+        sys.stderr.flush()
 
 
 def main(argv=None) -> int:
@@ -115,11 +138,23 @@ def main(argv=None) -> int:
     if host in _WILDCARD_HOSTS and not args.public_host:
         parser.error("--public-host is required when listening on all interfaces "
                      "(the membership record must name a reachable address)")
+    if args.revocations and not args.masters:
+        parser.error("--revocations requires --masters")
     try:
         identity = Identity.load(args.identity)
         allowlist = Allowlist.load(args.authorized)
+        masters = MasterSet.load(args.masters) if args.masters else None
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
+
+    # With masters configured the relay serves through a TrustPolicy (allowlist
+    # minus revoked), so a revoked DID stops being served the moment a valid
+    # revocation arrives -- no separate check needed.
+    if masters is not None:
+        store = RevocationStore(args.revocations) if args.revocations else None
+        served = TrustPolicy(allowlist, masters=masters, store=store)
+    else:
+        served = allowlist
 
     # Handlers go in before anything is announced, so a supervisor that stops
     # the relay as soon as it sees the record still gets a clean shutdown.
@@ -132,8 +167,19 @@ def main(argv=None) -> int:
     signal.signal(signal.SIGINT, on_signal)
 
     channel = UDPChannel(host or "0.0.0.0", port)
-    transport = DirectUDPTransport(identity, channel, allowlist=allowlist)
-    service = RelayService(transport, allowlist=allowlist, lease=args.lease)
+    transport = DirectUDPTransport(identity, channel, allowlist=served)
+    service = RelayService(transport, allowlist=served, lease=args.lease)
+
+    # Revocation: accept gossiped records, and halt cleanly if this relay's own
+    # DID is revoked -- the same wind-down as an operator stopping it locally.
+    if masters is not None:
+        RevocationGossip(transport, served)
+
+        def on_revocation(newly):
+            if halt_on_self_revocation(newly, identity.did, [service.stop, stop.set]):
+                _log("halted", did=identity.did, reason="own DID revoked")
+
+        served.on_change(on_revocation)
 
     bound_port = channel.address[1]
     endpoint = (Endpoint("public", args.public_host, bound_port) if args.public_host
