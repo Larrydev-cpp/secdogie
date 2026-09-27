@@ -50,6 +50,11 @@ COMPLETED = "completed"
 FAILED = "failed"
 STOPPED = "stopped"
 
+# Step outcomes, for episodic memory: "ok" the step did what it expected;
+# "failed" it errored or its verification failed; "no_change" it ran but nothing
+# happened; "rejected" a gate refused it (it never ran); "unknown" not reported.
+OUTCOMES = ("ok", "failed", "no_change", "rejected", "unknown")
+
 RUN_STATES = frozenset({
     CREATED, PLANNING, OBSERVING, PROPOSING, AWAITING_GATE, AWAITING_HUMAN,
     EXECUTING, VERIFYING, RECOVERING, COMPLETED, FAILED, STOPPED,
@@ -125,9 +130,17 @@ class RunRecorder:
     def record_step(
         self, run_id: str, *, observation: Any = None, action: Any = None,
         result: str = "", verdict: str = "", state: str = EXECUTING,
+        action_key: str = "", outcome: str = "", findings=(),
     ) -> str:
         """Record one observe->act->result step: chain its ``state_hash``, write the
-        ``step`` entity, and advance the run's head/step-count. Returns ``step_id``."""
+        ``step`` entity, and advance the run's head/step-count. Returns ``step_id``.
+
+        ``action_key`` (``authz.action_hash`` of the gated action), ``outcome``
+        (one of ``OUTCOMES``) and ``findings`` (the gate's finding kinds) feed
+        episodic memory. They are added to the payload only when given, and are
+        not inputs to the ``state_hash`` chain."""
+        if outcome and outcome not in OUTCOMES:
+            raise ValueError(f"unknown outcome {outcome!r} (expected one of {OUTCOMES})")
         run = self._runs.get(run_id)
         if run is None:  # recorder restarted mid-run: resume from GENESIS-at-0
             run = self._runs.setdefault(run_id, {"head": GENESIS, "steps": 0})
@@ -135,10 +148,17 @@ class RunRecorder:
         oid, aid = _content_id(observation), _content_id(action)
         sh = step_state_hash(run["head"], run_id, seq, oid, aid, result)
         step_id = _short({"run_id": run_id, "seq": seq})
-        record_state(self.journal, "step", step_id, "set", {
+        payload = {
             "run_id": run_id, "seq": seq, "observation_id": oid, "action_id": aid,
             "result": str(result), "verdict": verdict, "state": state, "state_hash": sh,
-        })
+        }
+        if action_key:
+            payload["action_key"] = str(action_key)
+        if outcome:
+            payload["outcome"] = outcome
+        if findings:
+            payload["findings"] = [str(f) for f in findings]
+        record_state(self.journal, "step", step_id, "set", payload)
         run["head"], run["steps"] = sh, seq
         record_state(self.journal, "run", run_id, "patch", {
             "steps": seq, "head_state_hash": sh, "state": state,
@@ -174,27 +194,36 @@ def verify_run(run_id: str, store: Any) -> tuple[bool, str | None]:
     every ``state_hash``. Returns ``(ok, reason)``; ``reason`` names the first bad
     step. A run with no steps is trivially ok."""
     steps = [s for s in store.entities("step").values() if s.get("run_id") == run_id]
-    steps.sort(key=lambda s: int(s.get("seq", 0)))
-    prev = GENESIS
-    for i, s in enumerate(steps):
-        if int(s.get("seq", 0)) != i + 1:
-            return False, f"step {i + 1}: seq out of order"
-        want = step_state_hash(
-            prev, run_id, int(s["seq"]), s.get("observation_id", ""),
-            s.get("action_id", ""), s.get("result", ""),
-        )
-        if s.get("state_hash") != want:
-            return False, f"step {s.get('seq')}: state_hash mismatch (chain broken)"
-        prev = want
-    run = store.get("run", run_id)
+    return check_chain(run_id, store.get("run", run_id), steps)
+
+
+def check_chain(run_id: str, run: dict | None, steps: list[dict]) -> tuple[bool, str | None]:
+    """The chain check behind ``verify_run``, over already-materialized entities
+    (so a caller folding many runs materializes once). Malformed steps fail the
+    check instead of raising."""
+    try:
+        ordered = sorted(steps, key=lambda s: int(s.get("seq", 0)))
+        prev = GENESIS
+        for i, s in enumerate(ordered):
+            if int(s.get("seq", 0)) != i + 1:
+                return False, f"step {i + 1}: seq out of order"
+            want = step_state_hash(
+                prev, run_id, int(s["seq"]), s.get("observation_id", ""),
+                s.get("action_id", ""), s.get("result", ""),
+            )
+            if s.get("state_hash") != want:
+                return False, f"step {s.get('seq')}: state_hash mismatch (chain broken)"
+            prev = want
+    except (TypeError, ValueError, KeyError):
+        return False, "malformed step"
     if run is not None and run.get("steps") and run.get("head_state_hash") != prev:
         return False, "run head_state_hash does not match its last step"
     return True, None
 
 
 __all__ = [
-    "RunRecorder", "verify_run", "step_state_hash", "GENESIS", "RUN_STATES",
-    "TERMINAL_STATES",
+    "RunRecorder", "verify_run", "check_chain", "step_state_hash", "GENESIS", "RUN_STATES",
+    "TERMINAL_STATES", "OUTCOMES",
     "CREATED", "PLANNING", "OBSERVING", "PROPOSING", "AWAITING_GATE",
     "AWAITING_HUMAN", "EXECUTING", "VERIFYING", "RECOVERING",
     "COMPLETED", "FAILED", "STOPPED",
