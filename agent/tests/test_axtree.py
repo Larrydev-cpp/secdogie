@@ -242,6 +242,14 @@ def test_atspi_snapshot_walks_the_active_frame(monkeypatch):
     assert axtree.element_at(els, 150, 120).name == "Save"
 
 
+def test_atspi_snapshot_records_walk_depth(monkeypatch):
+    from secdogie_agent.desktop_ax import _AtspiProvider
+
+    _fake_pyatspi(monkeypatch, _desktop_with_active_button())
+    els = _AtspiProvider().snapshot()
+    assert [(e.role, e.depth) for e in els] == [("frame", 0), ("push button", 1)]
+
+
 def test_atspi_press_does_click_without_a_mouse(monkeypatch):
     action = _FakeAction(("click",))
     button = _FakeAccessible(role="push button", name="Save",

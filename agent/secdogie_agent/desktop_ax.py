@@ -24,6 +24,7 @@ falls back to a pixel click at the element's centre.
 """
 from __future__ import annotations
 
+import dataclasses
 import sys
 from typing import Protocol, runtime_checkable
 
@@ -116,7 +117,7 @@ class _WindowsUiaProvider:
     def _walk(self, control, depth: int, out: list[axtree.AxElement]) -> None:
         el = self._element_of(control)
         if el is not None:
-            out.append(el)
+            out.append(dataclasses.replace(el, depth=depth))
         if depth >= MAX_TREE_DEPTH:
             return
         try:
@@ -279,7 +280,7 @@ class _AtspiProvider:
     def _walk(self, pyatspi, node, depth: int, out: list[axtree.AxElement]) -> None:
         el = self._element_of(pyatspi, node)
         if el is not None:
-            out.append(el)
+            out.append(dataclasses.replace(el, depth=depth))
         if depth >= MAX_TREE_DEPTH:
             return
         for child in self._children(node):
@@ -442,7 +443,7 @@ class _MacosAxProvider:
     def _walk(self, element, depth: int, out: list[axtree.AxElement]) -> None:
         el = self._element_of(element)
         if el is not None:
-            out.append(el)
+            out.append(dataclasses.replace(el, depth=depth))
         if depth >= MAX_TREE_DEPTH:
             return
         for child in self._children(element):

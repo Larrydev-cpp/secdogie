@@ -111,13 +111,25 @@ class Geometry:
 @dataclass(frozen=True)
 class SemanticNode:
     """A minimal, hashable projection of one AX/UIA node. Identity-first: what
-    targeting needs, without dragging the whole platform tree into fusion."""
+    targeting needs, without dragging the whole platform tree into fusion.
+
+    The structural fields are optional and default to "flat, unknown": a node
+    built without them behaves exactly as before. When set (by the perception
+    adapter), ``parent_index`` indexes the owning observation's
+    ``semantic_nodes`` (-1 = root), ``path_index`` is the child-ordinal path from
+    the root, and ``visual_reference`` is a DIB handle for a node AX can't see
+    into (custom-drawn surfaces)."""
 
     role: str = ""
     name: str = ""
     automation_id: str = ""
     bounds: Geometry = field(default_factory=Geometry)
     enabled: bool = True
+    depth: int = 0
+    path_index: tuple[int, ...] = ()
+    parent_index: int = -1
+    is_interactive: bool = False
+    visual_reference: VisualReference | None = None
 
     def key(self) -> tuple[str, str, str]:
         return (self.role, self.name, self.automation_id)
@@ -141,6 +153,13 @@ class VisualReference:
     source: str = "heap"  # native DibHit.source: "heap" (memory DIB) etc.
     content_hash: str = ""
     pixels_available: bool = False
+    # DIB framebuffer metadata, filled in when the reference came from a real
+    # tear-free read (perception/dib.py). All default to "unknown" so a
+    # reference built the old way, by identity alone, is unchanged.
+    stride: int = 0  # bytes per row, including any padding beyond width*bpp
+    pixel_format: str = ""  # e.g. "BGRA8888"; "" when only bit_count is known
+    size_bytes: int = 0  # bytes actually read for this frame (0 = unknown)
+    seqlock: int = 0  # the settled (even) sequence number the frame was read at
 
     @property
     def approx_bytes(self) -> int:
@@ -254,7 +273,13 @@ def _content_hash_for(
         f"{geometry.x},{geometry.y},{geometry.w},{geometry.h}",
     ]
     for n in semantic_nodes:
-        parts.append("|".join(n.key()))
+        entry = "|".join(n.key())
+        # Structure only enters the hash when present, so flat nodes hash as before.
+        if n.path_index:
+            entry += "@" + ".".join(map(str, n.path_index))
+        if n.visual_reference is not None:
+            entry += "#" + n.visual_reference.content_hash
+        parts.append(entry)
     if visual_reference is not None:
         parts.append(f"vref:{visual_reference.content_hash}")
     return hashlib.sha256("\n".join(parts).encode()).hexdigest()
