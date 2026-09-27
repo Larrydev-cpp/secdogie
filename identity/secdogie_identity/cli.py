@@ -16,6 +16,7 @@ import sys
 from . import binding as _binding
 from . import capability as _capability
 from . import did as _did
+from . import revocation as _revocation
 from .allowlist import Allowlist
 from .keys import Identity
 
@@ -108,6 +109,44 @@ def _verify_grant(args: argparse.Namespace) -> int:
     return 1
 
 
+def _revoke_propose(args: argparse.Namespace) -> int:
+    try:
+        record = _revocation.create_revocation(args.did, reason=args.reason or "")
+    except ValueError as exc:
+        print(f"cannot propose: {exc}", file=sys.stderr)
+        return 2
+    with open(args.out, "w", encoding="utf-8") as f:
+        json.dump(record, f, indent=2, ensure_ascii=False)
+    print(f"wrote unsigned revocation of {len(record['revoked'])} DID(s) to {args.out} "
+          f"(id {record['record_id'][:16]}...); cosign it with a master key", file=sys.stderr)
+    return 0
+
+
+def _revoke_cosign(args: argparse.Namespace) -> int:
+    master = Identity.load(args.master_key)
+    with open(args.record, encoding="utf-8") as f:
+        record = json.load(f)
+    signed = _revocation.cosign(master, record)
+    with open(args.record, "w", encoding="utf-8") as f:
+        json.dump(signed, f, indent=2, ensure_ascii=False)
+    print(f"{master.did} signed {args.record} ({len(signed['sigs'])} signature(s) now)", file=sys.stderr)
+    return 0
+
+
+def _revoke_verify(args: argparse.Namespace) -> int:
+    with open(args.record, encoding="utf-8") as f:
+        obj = json.load(f)
+    masters = _revocation.MasterSet.load(args.masters)
+    record = _revocation.verify_revocation(obj, masters)
+    if record is None:
+        print(f"INVALID: not signed by {masters.threshold} of {len(masters)} master(s)")
+        return 1
+    print(f"valid: revokes {', '.join(sorted(record.revoked))}")
+    print(f"signed by {len(record.signers)}/{masters.threshold} master(s): "
+          f"{', '.join(sorted(record.signers))}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="secdogie-identity", description="Manage secdogie DID signing keys.")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -151,6 +190,22 @@ def build_parser() -> argparse.ArgumentParser:
     vg.add_argument("issuers", help="allowlist of trusted issuer DIDs")
     vg.add_argument("--subject", default=None, help="require the grant to be for this subject DID")
     vg.set_defaults(fn=_verify_grant)
+
+    rp = sub.add_parser("revoke-propose", help="build an unsigned revocation of one or more DIDs")
+    rp.add_argument("did", nargs="+", help="the DID(s) to revoke")
+    rp.add_argument("--reason", default="", help="a human-readable reason (recorded, not enforced)")
+    rp.add_argument("--out", required=True, help="write the unsigned revocation JSON here")
+    rp.set_defaults(fn=_revoke_propose)
+
+    rc = sub.add_parser("revoke-cosign", help="append a master signature to a revocation, in place")
+    rc.add_argument("master_key", help="a master DID signing key")
+    rc.add_argument("record", help="path to the revocation JSON (updated in place)")
+    rc.set_defaults(fn=_revoke_cosign)
+
+    rv = sub.add_parser("revoke-verify", help="check a revocation against a master set (k-of-n)")
+    rv.add_argument("record", help="path to the revocation JSON")
+    rv.add_argument("masters", help="master set file (master_did = ... lines, optional threshold = k)")
+    rv.set_defaults(fn=_revoke_verify)
     return p
 
 
