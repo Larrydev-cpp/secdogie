@@ -13,7 +13,7 @@ author at a time. The `StateDelta` / `apply` / `merge` / `materialize` interface
 is shaped so a real CRDT (an LWW-Map / OR-Set) can be swapped in later without
 changing callers -- but no fake CRDT is written here.
 
-Large observations (screenshots, AX trees, DIB bitmaps, log blobs) are NEVER put
+Large observations (AX trees, DIB snapshots, log blobs) are NEVER put
 in a delta payload; a `knowledge` entity references them by content hash
 ({observation_id, content_hash, metadata}) instead.
 """

@@ -104,13 +104,15 @@
 
 > 现实动作只发生在**经认证**的本地设备上,且每一步都能被追溯与叫停。
 
-- **观测融合**(Phase 2.4,已建成):`agent/secdogie_agent/observation.py` 把两种**结构化**感知
-  融合成一个 `Observation`——**AX 无障碍树**(身份,主)、**DIB**(读内存重建的位图,按引用,验证)。
-  **不截屏、不抓屏**:融合层没有像素捕获这一路,感知是结构而非视觉。分歧**绝不静默覆盖**:
-  窗口身份/代际陈旧/几何错配/时间偏移都会记为 `ObservationConflict` 并压低融合置信度。
-  **DIB 按引用而非拷贝**接入:`VisualReference.from_dib_json` 解析 `native/atlas` 输出的 `dibs[]`,
-  瞬时哈希预览字节定内容身份后即丢弃,像素留在 native 侧,绝不进 Python 堆或事件日志。
-- **只读的深度感知**:`native/atlas/`(C++)以**只读句柄**遍历进程内存重建 DIB/字符串;
+- **零截图观测融合**(已建成):`agent/secdogie_agent/perception/` 把两条**结构化**轨道
+  融合成一个 `Observation`——**AX 无障碍树**(身份,主)与 **DIB(Direct Inspection Buffer)**。
+  DIB 覆盖 AX 看不见的自绘控件、Canvas/WebGL、CAD 画布:由**应用自己**(或机主装进应用的插件)
+  暴露一块只读的结构化状态缓冲区,agent 以 `O_RDONLY` 打开、`ACCESS_READ` 映射,在 memoryview 上
+  零拷贝解析成强类型节点。**不截屏、不走视觉模型、不打开进程句柄、不读别的进程内存、不写**;
+  格式定长有界,越界即拒绝,seqlock 防撕裂读。分歧**绝不静默覆盖**:窗口身份/代际陈旧/几何错配/
+  时间偏移都会记为 `ObservationConflict` 并压低置信度;DIB 自报的窗口与 AX 不符即被放到一边。
+  原先“DIB = 从进程堆重建的位图”这一感知源已退役。**现状(如实)**:实时回路仍在截屏,改走本包是 D2。
+- **只读的深度感知**:`native/atlas/`(C++)以**只读句柄**检查进程内存提取字符串等(其位图重建输出已不再是感知源);
   `WriteProcessMemory`、`CreateRemoteThread`、TrustedInstaller 夺权、反 EDR **一律记为拒绝**。
 - **能力授权**(Phase 2.9,已建成):`identity/secdogie_identity/capability.py`——受信 issuer(操作员 DID)
   给 subject(节点 DID)签发**带过期时间**的签名授权(默认 1 天)。**白名单制**:只有 `GRANTABLE_SCOPES`
@@ -151,7 +153,7 @@ flowchart TB
         gate["指令门 + 计划门(action_gate)"]
     end
     subgraph ACT["⑤ 受认证设备实战 (agent/ · native/atlas · desktop/ · console/)"]
-        obs["观测融合: AX + DIB(按引用) → Observation (不截屏)"]
+        obs["零截图观测融合: AX + DIB 结构化缓冲区 → Observation"]
         cap["能力授权 (读≠写, 观测≠执行)"]
         hitl["HITL + fail-closed"]
         obs --> gate
@@ -186,9 +188,9 @@ flowchart TB
 | `citadel/socratic.py` | 指令级苏格拉底门 | ③ | ✅ 已建成 |
 | `citadel/supervisor.py` | 受监督持久节点、从日志恢复(含 `recover_runs()` 2.8) | ④ | ✅ 已建成 |
 | `citadel/recovery.py` | 崩溃恢复决策(2.8):发现半途 run，executing 崩溃**先重观测再重试** | ③④ | ✅ 已建成 |
-| `agent/observation.py` | 观测融合、DIB 按引用桥接(2.4) | ④ | ✅ 已建成 |
+| `agent/perception/` | 零截图观测融合:AX + DIB(Direct Inspection Buffer)只读结构化缓冲区 | ④ | ✅ 已建成 |
 | `agent/` (AX/safety/…) | 感知 + 安全边界 + 动作 schema | ④ | ✅ 已建成 |
-| `native/atlas/` (C++) | 只读进程感知、DIB 重建 | ④ | ✅ 已建成 |
+| `native/atlas/` (C++) | 只读进程感知(位图重建输出已不再是感知源) | ④ | ✅ 已建成 |
 | `tunnel/` (C) | libsodium 加密隧道(机密性) | ② | ✅ 已建成 |
 | `fleet/` | DID 安全协调面 | ① | ✅ 已建成 |
 | `desktop/` · `console/` | 原生 GUI / 本地控制台(DID 门控) | ④ | ✅ 已建成 |
@@ -222,7 +224,7 @@ flowchart TB
 | 2.1 | DID ↔ 传输身份绑定 | ✅ |
 | 2.2 | Peer/Session/Endpoint 抽象 + HubTransport | ✅ |
 | 2.3 | StateDelta / StateStore(非伪 CRDT) | ✅ |
-| 2.4 | 观测融合(AX + DIB 按引用,结构化、不截屏) | ✅ |
+| 2.4 | 观测融合(AX + DIB 结构化缓冲区,零截图) | ✅ |
 | 2.5 | AX 不透明目标 / 代际(修 TOCTOU) | ✅ |
 | 2.6 | 动作计划级苏格拉底门 | ✅ |
 | 2.7 | Agent↔Citadel run 闭环 | ✅ |

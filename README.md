@@ -5,8 +5,8 @@
 **两层苏格拉底门**审视每一步意图；最终**只在经认证的本地设备、在能力授权 + 人在环
 （HITL）下**采取现实动作。
 
-**感知以结构为主。** 目标是通过无障碍树（AX/UIA）+ 只读结构化 DIB 引用 + 已授权
-网页会话的 AX/文本来「看」，而不是屏幕像素。**现状（如实）**：macOS 上实时回路把 AX
+**感知以结构为主。** 目标是通过无障碍树（AX/UIA）+ DIB（Direct Inspection Buffer，应用自己暴露的只读结构化缓冲区）+ 已授权
+网页会话的 AX/文本来「看」，而不是屏幕像素。感知包 `agent/secdogie_agent/perception/` 本身已是零截图。**现状（如实）**：macOS 上实时回路把 AX
 树渲染成结构图交给模型；Windows / Linux 上实时回路**仍在截屏**。改为结构化优先、
 截图只在机主显式开启时使用，见 [`ROADMAP.md`](ROADMAP.md) 的 Track D。
 
@@ -25,7 +25,7 @@
    「学到的证据」扩散到其余授权节点。
 3. **苏格拉底哲学系统** —— 两层门：**指令级**（意图审视）+ **动作计划级**
    （`GateDecision`：allow / reject / rewrite / request_reobserve）。门**只判定不执行**。
-4. **受认证本地设备实战** —— 结构化观测融合（AX + DIB 按引用）、不透明目标 + 代际
+4. **受认证本地设备实战** —— 结构化观测融合（AX + DIB 结构化缓冲区，零截图）、不透明目标 + 代际
    修 TOCTOU；动作仍过安全边界 + 能力授权 + 人在环。
 
 ---
@@ -73,7 +73,7 @@ identity/    transport/    citadel/     citadel/       agent/ + 安全边界
 | 网络 | `transport/`（peer/session/endpoint、`udp.py` 真 P2P、`rendezvous.py`、`upgrade.py`、`membership.py`、`relay.py` 任一白名单节点兼任 relay） | ✅ |
 | 状态 | `citadel/`（`journal.py` 签名日志、`state.py` StateStore、`sync.py` 反熵、`replication.py` 传输上收敛） | ✅ |
 | 心智 | `citadel/socratic.py`（指令门）+ `action_gate.py`（计划门）+ `supervisor.py`（受监督节点） | ✅ |
-| 感知/动作 | `agent/observation.py`（AX + DIB 按引用融合）+ `target.py`（TOCTOU）+ AX/safety；`native/atlas`（只读、DIB 重建） | 🔨 构件已建成，observation/target 尚未接入实时回路 |
+| 感知/动作 | `agent/perception/`（AX + DIB 结构化缓冲区融合，零截图）+ `target.py`（TOCTOU）+ AX/safety；`native/atlas`（只读进程感知） | 🔨 构件已建成，perception/target 尚未接入实时回路 |
 | 设备/会话 | `desktop/`（聊天式原生窗口 + `websession.py` 复用**已授权**浏览器会话，只读导航 + 读结构） | ✅ |
 | 承载/运维 | `tunnel/`（C 加密隧道，机密性）、`fleet/`、`console/` | ✅ |
 | 浏览器 P2P | `webrtc/`（WebRTC 数据通道客户端 + Cloudflare Worker 信令网关；仅用户点击后启动） | ✅ |
