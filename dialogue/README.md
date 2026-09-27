@@ -16,7 +16,7 @@ Design: [DESIGN.zh.md](DESIGN.zh.md).
 | Module | What it does | Status |
 | --- | --- | --- |
 | `protocol.py` | Wire dataclasses, signed envelopes (`seal` / `open_envelope`), replay guard | done |
-| `guard.py` / `keystore.py` | Gate 2 operator client: local key, challenge review, signed response | next |
+| `guard.py` / `keystore.py` | Gate 2 operator client: encrypted operator key, challenge review, signed response | done |
 | `inspector.py` | Structural tree merge (AX / UIA + DIB metadata, never pixels) and text render model | planned |
 | `dialogue.py` | Socratic probe / clarification state machine (timeout = fail closed) | planned |
 | `session.py` | Binds the protocol to the transport (Tunnel / relay / WebRTC signaling) | planned |
@@ -31,6 +31,21 @@ signer must be on the trust policy (a `TrustPolicy`, so a revoked DID is refused
 exact types. The header binds the packet to one recipient, a session and a
 sequence number; a packet outside the ±30 s clock window, replayed, or addressed
 to another node is dropped without a reply.
+
+## Two keys
+
+The App holds two Ed25519 keys. The **session key** signs every envelope and
+stays unlocked while connected; a node lists it as a session peer. The
+**operator key** signs Gate 2 authorizations only: it lives in a
+passphrase-encrypted keystore (Argon2id + SecretBox, `keystore.py`), is unlocked
+when the operator presses Approve, and is dropped after that one signature; a
+node lists it as an operator. A stolen session key can talk to a node but cannot
+authorize a destructive action.
+
+Before offering Approve, `guard.review_challenge` recomputes the action hash
+locally from the action it displays, checks the challenge names the node this
+session is authenticated with, and checks it has not expired. Any mismatch and
+the App refuses to sign.
 
 ## Tests
 

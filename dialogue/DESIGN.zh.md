@@ -312,6 +312,12 @@ Agent 规划一步动作 ──► action_gate.gate()
 2. **`NodeDelta.index`**：原设计的 `parent_index` / `focused_node_index` / `DibRef.node_index` 引用“节点索引”，但 `NodeDelta` 自身没有索引字段。现定义为 Agent 分配、在同一窗口流内稳定的句柄，所有交叉引用都指向它。
 3. **`TargetAction.high_risk` 默认 `False`**：与 `PlannedAction` 一致，否则同样的显式参数得到不同的 `action_hash`。线上所有字段都必须显式给出，默认值不会被隐式补上。
 4. **`SessionPacket` / `SessionEvent`**：补上 `PacketKind.SESSION` 对应的载荷（hello / heartbeat / bye / resync）。
+5. **会话钥与操作员钥分离**（`guard.py` / `keystore.py`）：第③节要求操作员私钥“仅在签名瞬间解密”，第④节要求 App 以白名单 DID 加入网格——同一把钥匙做不到两者。现为两把：
+   - **会话（设备）钥**：普通 did:key，签所有信封，会话期间常驻；节点的*会话白名单*里放它。
+   - **操作员钥**：Argon2id + SecretBox 加密落盘（0600、绝不覆盖、KDF 代价有上下限防失控），只在 Approve 时凭口令解开、签一枚 Gate 2 令牌即丢弃；节点的 *operators 白名单*里放它。
+   设备钥被盗只能对话，签不出任何破坏性授权（有测试）。CPython 无法保证内存清零，代码不作此声明，只把驻留窗口压到单次签名。
+
+Gate 2 客户端规则（`guard.respond`）：签名前 App 自行复核——本地重算 `action_hash` 必须等于节点声称值、`subject_did` 必须是本会话已认证的对端、挑战未过期；否则拒签（`GuardRefusal`）。令牌签的是**本地展示的动作**，subject 取会话对端 DID，`expires_at` 不超过挑战时效，`valid_from` 回拨 30 s 以容忍时钟偏差。Deny 永不携带令牌。
 
 协议层的具体规则（`open_envelope`）：
 - **先认证再解析**：签名有效且签名者在信任策略上（`TrustPolicy`，撤销即拒）之后，才解析 header 与 payload；未认证的对端永远到不了解析器。
