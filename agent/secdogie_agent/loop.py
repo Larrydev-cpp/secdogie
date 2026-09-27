@@ -852,6 +852,14 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
     finally:
         if memory is not None:
             memory.close()
+        # Turn off any accessibility flags the provider switched on (macOS
+        # hidden-tree unlock) so the driven apps are left as we found them.
+        restore = getattr(getattr(backend, "ax_provider", None), "restore_accessibility", None)
+        if callable(restore):
+            try:
+                restore()
+            except Exception as e:
+                logger.warning("could not restore accessibility flags: %s", e)
 
 
 def _try_harness(backend: Backend, action, el) -> str | None:

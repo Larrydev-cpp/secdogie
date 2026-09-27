@@ -396,6 +396,62 @@ def _make_macos_provider(logger) -> DesktopAxProvider | None:
     return _MacosAxProvider(ApplicationServices)
 
 
+AX_MANUAL_ACCESSIBILITY = "AXManualAccessibility"
+AX_ENHANCED_USER_INTERFACE = "AXEnhancedUserInterface"
+
+# Chromium browsers that honour AXEnhancedUserInterface. Matched by bundle id,
+# falling back to the application's AX title when the bundle id is unavailable.
+CHROMIUM_BROWSER_BUNDLE_IDS = frozenset(
+    {
+        "com.google.Chrome",
+        "com.google.Chrome.beta",
+        "com.google.Chrome.dev",
+        "com.google.Chrome.canary",
+        "org.chromium.Chromium",
+        "com.microsoft.edgemac",
+        "com.microsoft.edgemac.Beta",
+        "com.microsoft.edgemac.Dev",
+        "com.brave.Browser",
+        "com.vivaldi.Vivaldi",
+        "com.operasoftware.Opera",
+        "company.thebrowser.Browser",  # Arc
+    }
+)
+CHROMIUM_BROWSER_NAMES = frozenset(
+    {"Google Chrome", "Chromium", "Microsoft Edge", "Brave Browser", "Vivaldi", "Opera", "Arc"}
+)
+
+# Cap on text pulled from AXValue / AXSelectedText: a text area can hold an
+# entire document, and the listing is sent to the model every step.
+MAX_TEXT_CHARS = 2000
+
+
+def _text_of(value) -> str:
+    """A readable string for an AX value, or "" for opaque ones (AXValueRefs,
+    elements, arrays). Numbers and booleans (sliders, checkboxes) are kept."""
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, str):
+        return value[:MAX_TEXT_CHARS]
+    if isinstance(value, (int, float)):
+        return str(value)
+    return ""
+
+
+def _running_app_bundle_id(pid: int) -> str | None:
+    """Bundle id of a running app via AppKit, or None when unavailable."""
+    try:
+        from AppKit import NSRunningApplication
+    except Exception:
+        return None
+    try:
+        app = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+        bundle = app.bundleIdentifier() if app is not None else None
+    except Exception:
+        return None
+    return str(bundle) if bundle else None
+
+
 class _MacosAxProvider:
     """Reads the macOS Accessibility (AX) tree via pyobjc's ApplicationServices.
 
@@ -417,13 +473,117 @@ class _MacosAxProvider:
     provable against a fake -- only the real framework binding is machine-specific.
     """
 
-    def __init__(self, ax):
+    def __init__(self, ax, *, bundle_id_of=None, unlock_hidden_trees: bool = True):
         self._ax = ax
+        self._bundle_id_of = bundle_id_of if bundle_id_of is not None else _running_app_bundle_id
+        self._unlock_hidden_trees = unlock_hidden_trees
+        # pid -> [(app element, attribute, value to restore)] for every flag we
+        # actually flipped; pids we already handled (changed or not) are keys.
+        self._unlocked: dict[int, list[tuple[object, str, bool]]] = {}
+        self._atexit_armed = False
 
-    def snapshot(self) -> list[axtree.AxElement] | None:
+    # -- hidden-tree unlock ------------------------------------------------------
+    #
+    # Chromium and Electron build their accessibility tree lazily: until an
+    # assistive client asks, a Chrome page or an Electron app (VS Code, Slack,
+    # Discord...) exposes little more than an empty window. Two documented
+    # switches turn the tree on:
+    #   * AXManualAccessibility  -- Electron's app-level switch; apps that don't
+    #     know it answer kAXErrorAttributeUnsupported, so setting it is harmless;
+    #   * AXEnhancedUserInterface -- the switch VoiceOver uses, honoured by Chrome
+    #     and other Chromium browsers. It has side effects in some non-browser
+    #     apps (window animations, window managers), so it is only set on known
+    #     Chromium browsers.
+    # A flag that was already on (VoiceOver running, another tool) is left
+    # alone; only flags we turned on are recorded, and restore_accessibility()
+    # (called when the run ends, with an atexit backstop) turns them back off.
+    # Chromium builds the tree asynchronously, so the first snapshot right
+    # after an unlock may still be shallow; the next one sees the full tree.
+
+    def _focused_app(self):
         ax = self._ax
         system = ax.AXUIElementCreateSystemWide()
         app = self._attr(system, ax.kAXFocusedApplicationAttribute)
+        if app is not None and self._unlock_hidden_trees:
+            self._unlock(app)
+        return app
+
+    def _pid_of(self, app) -> int | None:
+        get_pid = getattr(self._ax, "AXUIElementGetPid", None)
+        if not callable(get_pid):
+            return None
+        try:
+            err, pid = get_pid(app, None)
+        except TypeError:
+            try:
+                err, pid = get_pid(app)
+            except Exception:
+                return None
+        except Exception:
+            return None
+        return int(pid) if err == 0 and pid else None
+
+    def _is_chromium_browser(self, app, pid: int | None) -> bool:
+        bundle = None
+        if pid is not None:
+            try:
+                bundle = self._bundle_id_of(pid)
+            except Exception:
+                bundle = None
+        if bundle:
+            return bundle in CHROMIUM_BROWSER_BUNDLE_IDS
+        title = self._attr(app, self._ax.kAXTitleAttribute)
+        return isinstance(title, str) and title in CHROMIUM_BROWSER_NAMES
+
+    def _unlock(self, app) -> None:
+        pid = self._pid_of(app)
+        key = pid if pid is not None else id(app)
+        if key in self._unlocked:
+            return
+        changed: list[tuple[object, str, bool]] = []
+        wanted = [AX_MANUAL_ACCESSIBILITY]
+        if self._is_chromium_browser(app, pid):
+            wanted.append(AX_ENHANCED_USER_INTERFACE)
+        for attribute in wanted:
+            if self._attr(app, attribute) is True:
+                continue  # already on (VoiceOver / another client): not ours to touch
+            if self._set(app, attribute, True):
+                changed.append((app, attribute, False))
+        self._unlocked[key] = changed
+        if changed and not self._atexit_armed:
+            import atexit
+
+            atexit.register(self.restore_accessibility)
+            self._atexit_armed = True
+
+    def _set(self, element, attribute: str, value) -> bool:
+        setter = getattr(self._ax, "AXUIElementSetAttributeValue", None)
+        if not callable(setter):
+            return False
+        try:
+            return setter(element, attribute, value) == 0
+        except Exception:
+            return False
+
+    def unlocked_flags(self) -> list[tuple[int, str]]:
+        """(pid-or-key, attribute) for every flag currently turned on by us."""
+        return [(k, attr) for k, changes in self._unlocked.items() for _app, attr, _v in changes]
+
+    def restore_accessibility(self) -> int:
+        """Turn off every flag this provider turned on. Idempotent, never raises;
+        returns how many flags were restored. An app that has since quit just
+        fails the write, which is fine -- its flag died with it."""
+        restored = 0
+        for changes in self._unlocked.values():
+            for app, attribute, value in changes:
+                if self._set(app, attribute, value):
+                    restored += 1
+        self._unlocked.clear()
+        return restored
+
+    def snapshot(self) -> list[axtree.AxElement] | None:
+        ax = self._ax
+        app = self._focused_app()
         if app is None:
             return None
         out: list[axtree.AxElement] = []
@@ -440,14 +600,61 @@ class _MacosAxProvider:
             self._walk(window, 0, out)
         return out or None
 
-    def _walk(self, element, depth: int, out: list[axtree.AxElement]) -> None:
+    def _walk(
+        self,
+        element,
+        depth: int,
+        out: list[axtree.AxElement],
+        row: int | None = None,
+        ordinal: int = 0,
+    ) -> None:
+        """Depth-first walk. ``row`` is the AXIndex of the enclosing AXRow (if
+        the parent is one) and ``ordinal`` this element's position among its
+        siblings -- the fallback column when a cell has no AXColumnIndexRange."""
         el = self._element_of(element)
+        child_row = None
         if el is not None:
-            out.append(dataclasses.replace(el, depth=depth))
+            extra: dict = {"depth": depth}
+            cell = self._table_cell(element, el.role, row, ordinal)
+            if cell is not None:
+                extra["table_cell"] = cell
+            out.append(dataclasses.replace(el, **extra))
+            if el.role == "Row":
+                index = self._attr(element, "AXIndex")
+                child_row = index if isinstance(index, int) and not isinstance(index, bool) else None
         if depth >= MAX_TREE_DEPTH:
             return
-        for child in self._children(element):
-            self._walk(child, depth + 1, out)
+        for i, child in enumerate(self._children(element)):
+            self._walk(child, depth + 1, out, child_row, i)
+
+    def _table_cell(self, element, role: str, row: int | None, ordinal: int) -> tuple[int, int] | None:
+        """(row, column) for a table cell: AXRowIndexRange / AXColumnIndexRange
+        when the cell reports them, else the enclosing row's AXIndex and the
+        cell's position in that row. None for anything that isn't a cell."""
+        if role != "Cell" and row is None:
+            return None
+        r = self._range_location(element, "AXRowIndexRange")
+        c = self._range_location(element, "AXColumnIndexRange")
+        r = r if r is not None else row
+        c = c if c is not None else (ordinal if row is not None else None)
+        if r is None or c is None:
+            return None
+        return (r, c)
+
+    def _range_location(self, element, attribute: str) -> int | None:
+        value = self._attr(element, attribute)
+        if value is None:
+            return None
+        ax = self._ax
+        range_type = getattr(ax, "kAXValueCFRangeType", None)
+        if range_type is None:
+            range_type = getattr(ax, "kAXValueTypeCFRange", None)
+        try:
+            ok, rng = ax.AXValueGetValue(value, range_type, None)
+        except Exception:
+            return None
+        loc = getattr(rng, "location", None) if ok else None
+        return int(loc) if isinstance(loc, int) and loc >= 0 else None
 
     def _children(self, element) -> list:
         ax = self._ax
@@ -502,11 +709,18 @@ class _MacosAxProvider:
                 if not name and not automation_id:
                     return None
                 left = top = right = bottom = 0
+        secure = role == "SecureTextField" or self._attr(element, "AXSubrole") == "AXSecureTextField"
+        if secure and name == self._attr(element, getattr(ax, "kAXValueAttribute", "AXValue")):
+            name = ""  # never surface a password field's value, even as its label
         return axtree.AxElement(
             role=role,
             name=str(name),
             automation_id=str(automation_id),
             bounds=(left, top, right, bottom),
+            value="" if secure else _text_of(self._attr(element, getattr(ax, "kAXValueAttribute", "AXValue"))),
+            selected_text="" if secure else _text_of(
+                self._attr(element, getattr(ax, "kAXSelectedTextAttribute", "AXSelectedText"))
+            ),
         )
 
     def hit_test(self, x: int, y: int) -> axtree.AxElement | None:
@@ -522,8 +736,7 @@ class _MacosAxProvider:
         API is missing or returns nothing.
         """
         ax = self._ax
-        system = ax.AXUIElementCreateSystemWide()
-        app = self._attr(system, ax.kAXFocusedApplicationAttribute)
+        app = self._focused_app()
         copy_at = getattr(ax, "AXUIElementCopyElementAtPosition", None)
         if app is not None and callable(copy_at):
             try:
@@ -557,8 +770,7 @@ class _MacosAxProvider:
     def _hit_ax(self, x: int, y: int):
         """(AXUIElement, AxElement) of the smallest box containing (x, y)."""
         ax = self._ax
-        system = ax.AXUIElementCreateSystemWide()
-        app = self._attr(system, ax.kAXFocusedApplicationAttribute)
+        app = self._focused_app()
         if app is None:
             return None, None
         window = self._attr(app, ax.kAXFocusedWindowAttribute)
@@ -653,8 +865,7 @@ class _MacosAxProvider:
 
     def _find(self, automation_id: str | None = None, name: str | None = None, role: str | None = None):
         ax = self._ax
-        system = ax.AXUIElementCreateSystemWide()
-        app = self._attr(system, ax.kAXFocusedApplicationAttribute)
+        app = self._focused_app()
         if app is None:
             return None
         window = self._attr(app, ax.kAXFocusedWindowAttribute)

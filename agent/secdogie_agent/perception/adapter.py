@@ -190,12 +190,15 @@ def geometry_from_bounds(bounds: tuple[int, int, int, int]) -> Geometry:
 
 
 def semantic_node_from(el: AxElement) -> SemanticNode:
-    """Flat identity + bounds only; structure is filled in by ``build_nodes``."""
+    """Identity, bounds and live content; structure is filled in by ``build_nodes``."""
     return SemanticNode(
         role=el.role,
         name=el.name,
         automation_id=el.automation_id,
         bounds=geometry_from_bounds(el.bounds),
+        value=el.value,
+        selected_text=el.selected_text,
+        table_cell=el.table_cell,
     )
 
 
