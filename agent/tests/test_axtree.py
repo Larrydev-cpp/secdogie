@@ -542,4 +542,6 @@ def test_macos_set_value_writes_axvalue(monkeypatch):
     fake = _fake_appservices(monkeypatch, _FakeAXElement({"AXFocusedApplication": app}))
     provider = desktop_ax._MacosAxProvider(fake)
     assert provider.set_value("part.dwg", automation_id="fileBox", role="TextField") is True
-    assert fake._set_calls == [(field, "AXValue", "part.dwg")]
+    # The only element-level write is the value; the app-level hidden-tree unlock
+    # (AXManualAccessibility on `app`) is covered by its own tests.
+    assert [c for c in fake._set_calls if c[0] is not app] == [(field, "AXValue", "part.dwg")]
