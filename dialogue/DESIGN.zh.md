@@ -321,6 +321,8 @@ Gate 2 客户端规则（`guard.respond`）：签名前 App 自行复核——�
 
 Inspector 归并规则（`inspector.apply`）：只采纳能干净应用的增量，**绝不猜**。更新/删除未知节点、重复添加、父节点不存在、成环、焦点或 DIB 引用悬空、对无基线窗口的增量——一律保留上一份一致的树并标记 `needs_resync`，此后增量一概不叠加，直到全量快照到来（App 发 `SessionEvent.RESYNC`）。同窗口 `generation` 不增即视为陈旧、忽略。删除级联整棵子树及其 DIB 元数据。树校验的上行遍历按节点数结构性有界，恶意输入无法使其死循环。节点名来自任意应用的 UI 文本：渲染前替换控制字符、截断到 120 字符（TUI 层还须以纯文本而非 markup 渲染）。
 
+对话状态机规则（`dialogue.py`）：Agent 侧 `ProbeLedger` 只接受**非空**、指名某个**仍开放且未到期**追问的 `UserClarification`；到期即 `EXPIRED`（= 否，步骤保持挂起），迟到的回答永不复活已过期的追问，同一追问只能被回答一次；`wait()` 超时同样置为过期。App 侧 `Conversation` 只接收追问与状态，不接收 Agent 发来的“澄清”（Agent 不能替操作员回答），重复的 `probe_id` 不算新问题；作答须二选一（文本或选项编号），空答拒发。Agent 用 `in_reply_to` 指向某追问的 `SystemStatus` 关闭 App 上的该追问（已采纳 / 已过期）——复用既有字段，协议不变。对话文本来自 Agent（可能转述其他应用的 UI 文本），渲染前一律清洗控制字符。
+
 纯洁性测试（`tests/test_purity.py`）：用 AST 检查整个包，禁止导入截屏 / OCR / 图像库、输入注入、`ctypes` / `cffi` / `mmap`，以及 Agent 的感知层 `secdogie_agent`。红线 1 由 CI 强制。
 
 协议层的具体规则（`open_envelope`）：

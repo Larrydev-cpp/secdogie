@@ -18,7 +18,7 @@ Design: [DESIGN.zh.md](DESIGN.zh.md).
 | `protocol.py` | Wire dataclasses, signed envelopes (`seal` / `open_envelope`), replay guard | done |
 | `guard.py` / `keystore.py` | Gate 2 operator client: encrypted operator key, challenge review, signed response | done |
 | `inspector.py` | Structural tree merge (AX / UIA + DIB metadata, never pixels) and text render model | done |
-| `dialogue.py` | Socratic probe / clarification state machine (timeout = fail closed) | planned |
+| `dialogue.py` | Socratic probe / clarification state machine (timeout = fail closed) | done |
 | `session.py` | Binds the protocol to the transport (Tunnel / relay / WebRTC signaling) | planned |
 | `app.py` | Textual TUI over the pure models above | planned |
 
