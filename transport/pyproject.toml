@@ -12,5 +12,8 @@ license = { text = "MIT" }
 # Peer identity comes from a verified DID<->transport binding.
 dependencies = ["secdogie-identity"]
 
+[project.scripts]
+secdogie-relay = "secdogie_transport.relay_node:main"
+
 [tool.setuptools.packages.find]
 include = ["secdogie_transport*"]

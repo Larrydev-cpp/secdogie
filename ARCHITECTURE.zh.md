@@ -19,10 +19,31 @@
 | 节点归属 | 只在**自有或已授权**的设备/账号上运行。**不**隐蔽嵌入第三方服务、**不**把别人的网站当作隐蔽宿主。 |
 | 网页资源 | 只读取**公开的或已获授权的**网页/接口数据用于学习。**不**规避检测、**不**做未授权持久化。 |
 | 内存 | **只读**。有 `WriteProcessMemory` / `VirtualProtectEx` / `CreateRemoteThread` 的等价物一律拒绝(见 `native/atlas`)。 |
-| 执行 | **受监督**。高风险动作 **fail-closed**,且在任何模式、任何入口都必须人工确认(没有开关可以关闭);物理动作需**显式能力授权**;HITL(人类在环)不得被改成默认自动批准。 |
+| 执行 | **受监督,且只在具身执行层**(物理带屏 UI 节点)。高风险动作 **fail-closed**,且在任何模式、任何入口都必须人工确认(没有开关可以关闭);物理动作需**显式能力授权**;HITL(人类在环)不得被改成默认自动批准。传输、状态、鉴权三层不含 HITL,见 0.1。 |
 
 > 这四条前提不是外挂的“安全说明”,而是代码的实际形状:DID 签名、能力授权、只读句柄、
 > 苏格拉底门与 fail-closed 都是既有实现。凡与之冲突的“捷径”都不属于本项目。
+
+### 0.1 北极星:云原生自治网格,四层解耦
+
+目标是基于零信任的**云原生自动化持续运行网格**:网格由云端无头节点与本地端点共同自治构成,
+不以某台本地设备为中心。四层各自独立:
+
+1. **网络传输层**:UDP 打洞 / 中转、WebRTC、Tunnel T2 / WireGuard。任何白名单节点(包括云端 VPS)
+   都可以**全自动**充当 relay(`transport/relay.py`,独立进程为 `secdogie-relay`)。
+2. **Citadel 状态层**:SQLite 签名哈希链 + 反熵。无头节点 7×24 全自动参与状态收敛与数据流转,
+   **这一层没有任何人机交互或 HITL 阻塞**。
+3. **鉴权与决策层**:Ed25519 强密码学鉴权与 k-of-n 撤销。是否放行只看签名、白名单与撤销,
+   去中心自治。(签名与白名单已建成;k-of-n 撤销在路线图中,接口按 allowlist 的 `.contains` 预留。)
+4. **具身执行层(只在物理带屏 UI 节点)**:AX 结构化感知、Atlas 只读。**HITL 只锁在这一层的
+   物理破坏性动作上**,不得阻塞前三层的无头运转。
+
+**节点角色**:
+- **无头基础设施节点**(VPS、NAS):承担 relay、membership gossip、日志复制。它们只看签名与白名单(撤销接入后也看撤销),
+  无人值守、没有确认环节,也不运行具身执行层。`secdogie-relay` 就是这样一个进程:不读 stdin,
+  不导入 agent / citadel / fleet,SIGTERM 时干净退出。
+- **带屏交互节点**:在前三层之上再运行具身执行层,高风险物理动作在这里经人工确认。
+- 第 4 节的严禁清单对全系统有效,无论节点是否无头。
 
 ---
 
@@ -147,12 +168,13 @@ flowchart TB
 | `identity/` | Ed25519 DID、规范化签名、Allowlist | ① | ✅ 已建成 |
 | `identity/binding.py` | DID ↔ 传输密钥绑定(2.1) | ① | ✅ 已建成 |
 | `transport/` | Peer/Session/Endpoint + `HubTransport`(2.2) | ①② | ✅ 已建成 |
-| `transport/udp.py` | `DirectUDPTransport` 真 P2P(2.10 提前) | ② | ✅ 已建成 |
+| `transport/udp.py` | `DirectUDPTransport` 真 P2P(2.10 提前);漫游只认新鲜且最新的认证帧,重放与迟到帧都改不了端点,中继帧从不改端点 | ② | ✅ 已建成 |
 | `transport/rendezvous.py` | Rendezvous + 反射端点发现(STUN/AutoNAT,DID 签名) | ①② | ✅ 已建成 |
 | `transport/upgrade.py` | 直连升级 + relay 兜底(DCUtR/Tailscale 式,探测→迁移) | ①② | ✅ 已建成 |
 | `transport/membership.py` | 成员/端点 gossip 反熵(自签名记录、LWW、去中心收敛) | ①② | ✅ 已建成 |
 | `transport/dht.py` | Kademlia 路由表 + 迭代查找(P2P.4):DID=node id、XOR k-bucket、可扩展定向发现 | ①② | ✅ 已建成 |
 | `transport/relay.py` | Relay 角色化(2C):任一白名单节点可兼任 relay,经 membership 发现、租约 + 故障切换;只转发端到端签名/封装帧,每次转发重查 allowlist | ①② | ✅ 已建成 |
+| `transport/relay_node.py` | 无头 relay 进程(2C.1):`secdogie-relay` 在 VPS / NAS 上无人值守运行,输出自签名引导记录,SIGTERM 干净退出 | ①② | ✅ 已建成 |
 | `citadel/journal.py` | 签名哈希链事件日志 | ② | ✅ 已建成 |
 | `citadel/state.py` | `StateDelta` / `StateStore`(2.3) | ② | ✅ 已建成 |
 | `citadel/sync.py` | 反熵复制(have/want builder,传输无关) | ② | ✅ 已建成 |

@@ -65,3 +65,38 @@ another instead of partitioning the mesh (`relay.py`).
   asked, with `src` equal to the inner signer; per-DID rate limit, size cap,
   bounded client table, no relay chains.
 
+## Running a headless relay (2C.1)
+
+`secdogie-relay` runs the relay role as its own unattended process, for a VPS or
+a NAS with nobody at the keyboard:
+
+```
+secdogie-relay --identity relay.key --authorized mesh.allow \
+               --listen 0.0.0.0:7946 --public-host relay.example.net \
+               --record-out /var/lib/secdogie/relay.record
+```
+
+- **Inputs.** `--identity` is the relay's key file and `--authorized` the
+  allowlist of DIDs it serves (`authorized_did = did:key:...` lines). Both are
+  required; there is no unauthenticated mode. `--public-host` is required when
+  listening on all interfaces, because the record must name a reachable address.
+- **Bootstrap record.** On start it prints its self-signed membership record,
+  with `roles=["relay"]`, as one JSON line on stdout and, with `--record-out`,
+  to a file replaced atomically. Merge it into a node's `MembershipView` and
+  that node's `RelayClient` finds the relay on its next `refresh()`.
+- **Unattended.** It never reads stdin and has no confirmation hook: forwarding
+  is decided by signatures and the allowlist alone. It imports nothing from the
+  agent, Citadel or fleet packages.
+- **Operations.** A JSON `stats` line goes to stderr every `--stats-every`
+  seconds. SIGTERM or SIGINT stops serving and exits 0. `--lease` sets how long
+  a client registration lasts unless renewed.
+- **Deployment is the operator's call.** It runs in the foreground and installs
+  nothing itself. For example, a systemd unit the operator writes:
+
+```
+[Service]
+ExecStart=/opt/secdogie/bin/secdogie-relay --identity /etc/secdogie/relay.key \
+          --authorized /etc/secdogie/mesh.allow --listen 0.0.0.0:7946 \
+          --public-host relay.example.net
+Restart=on-failure
+```
