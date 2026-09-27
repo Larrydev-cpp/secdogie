@@ -12,7 +12,7 @@ desktop_ax.py and is exercised on your machine, not here.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # Selector kind tag (backend.ElementSelector.kind) so a desktop-ax selector is
 # never handed to a different backend's locate(). Matches DesktopBackend.
@@ -25,6 +25,10 @@ class AxElement:
     name: str          # visible label / accessible name, e.g. "Save"
     automation_id: str  # stable developer id (Windows AutomationId; "" where a platform has none)
     bounds: tuple[int, int, int, int]  # (left, top, right, bottom) in real screen pixels
+    # Depth in the provider's depth-first walk (root window = 0), or -1 when the
+    # source didn't record it. Walk metadata, not identity: excluded from ==/hash
+    # so a hit-tested element still equals the same element from a snapshot.
+    depth: int = field(default=-1, compare=False)
 
     @property
     def center(self) -> tuple[int, int]:

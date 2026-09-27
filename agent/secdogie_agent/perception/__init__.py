@@ -1,7 +1,25 @@
 """Perception adapters: pure in-memory conversions from structural senses
-(the accessibility tree) into the typed ``observation.Observation`` model."""
+(the accessibility tree, DIB handles) into the typed ``observation.Observation``."""
 from __future__ import annotations
 
-from .adapter import BaseObservationAdapter, StructuralObservationAdapter
+from .adapter import (
+    AdapterReport,
+    BaseObservationAdapter,
+    DibProvider,
+    FilterPolicy,
+    NodeQuery,
+    StructuralObservationAdapter,
+    UiTreeNode,
+    build_tree,
+)
 
-__all__ = ["BaseObservationAdapter", "StructuralObservationAdapter"]
+__all__ = [
+    "AdapterReport",
+    "BaseObservationAdapter",
+    "DibProvider",
+    "FilterPolicy",
+    "NodeQuery",
+    "StructuralObservationAdapter",
+    "UiTreeNode",
+    "build_tree",
+]
