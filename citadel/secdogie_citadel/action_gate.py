@@ -17,6 +17,11 @@ questions an autonomous loop most needs answered *before* it acts:
     enforced when the caller turns enforcement on or passes a non-empty set.)
   * Does the instruction behind it ask to post/send unattended?  (reuses the
     instruction gate, so the two Socratic layers agree.)
+  * Gate 1, intent: why this step (which active goal), how to back out if it
+    fails (or an explicit "irreversible"), and do its stated preconditions still
+    hold?  And has this exact action already failed repeatedly (consolidated
+    memory)?  Memory is passed in as plain data and can only ADD caution: with
+    or without it the verdict is never less strict, and Gate 2 never reads it.
 
 It returns a ``GateDecision`` -- ``allow`` / ``reject`` / ``rewrite`` /
 ``request_reobserve`` -- and NOTHING else. The gate JUDGES; it does not execute,
@@ -36,7 +41,7 @@ from dataclasses import dataclass, field
 from secdogie_identity.capability import allows as capability_allows
 
 from . import socratic
-from .authz import verify_authorization
+from .authz import action_hash, verify_authorization
 
 # --- Verdicts ---------------------------------------------------------------
 
@@ -58,6 +63,10 @@ EXCESSIVE_COST = "excessive-cost"
 OUT_OF_CAPABILITY = "out-of-capability"
 UNATTENDED_POSTING = "unattended-posting"
 UNAUTHORIZED_ACTION = "unauthorized-action"
+INTENT_UNPROVEN = "intent-unproven"
+INTENT_CONTRADICTION = "intent-contradiction"
+PRECONDITION_FAILED = "precondition-failed"
+KNOWN_FAILURE = "known-failure"
 
 # Kinds that only observe -- they never mutate, so they need no verification and
 # a run of them with nothing else between is the busy-poll signal.
@@ -94,11 +103,29 @@ _CAPABILITY_FOR = {
 
 
 @dataclass(frozen=True)
+class IntentContract:
+    """Gate 1: the reasons behind one action, stated so the gate can question
+    them. ``purpose`` names the goal the step serves (checked against the active
+    goals when the caller knows them); ``rollback`` says how to back out if it
+    fails; ``irreversible`` says there is no way back -- an acknowledgment, not
+    a pass: an irreversible destructive action still needs Gate 2.
+    ``requires_present`` lists target ids that must still be in the current
+    observation for the step to make sense."""
+
+    purpose: str = ""
+    rollback: str = ""
+    irreversible: bool = False
+    requires_present: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class PlannedAction:
     """One concrete action the loop proposes. ``target_id`` is the 2.5 identity
     key (``target.identity_key``); ``generation`` is the 2.4 observation
     generation it was decided against; ``expected_observation`` is the
-    verification contract -- what the loop expects to see afterwards."""
+    verification contract -- what the loop expects to see afterwards;
+    ``intent`` is the Gate 1 contract (not part of ``authz.action_hash``: it
+    explains the action, it does not change what the action does)."""
 
     kind: str
     target_id: str = ""
@@ -109,6 +136,7 @@ class PlannedAction:
     generation: int = 0
     expected_observation: str = ""
     estimated_cost: float = 1.0
+    intent: IntentContract = IntentContract()
 
     @property
     def mutating(self) -> bool:
@@ -151,6 +179,14 @@ class GateContext:
     operators: object = None  # a TrustPolicy / Allowlist of operator DIDs (revocation-aware)
     subject_did: str = ""  # this node's DID, the token's expected subject
     now: float | None = None  # clock for token expiry; None = time.time
+    # Gate 1 intent. ``require_intent`` makes a mutating action state its purpose
+    # (and a destructive one its rollback or irreversibility); off by default.
+    # ``active_goal_ids`` empty means "unknown", not "no goals", like
+    # ``target_present_ids``. ``known_failures`` are ``authz.action_hash`` keys
+    # from consolidated (S3) memory: actions that failed repeatedly before.
+    require_intent: bool = False
+    active_goal_ids: frozenset[str] = field(default_factory=frozenset)
+    known_failures: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True)
@@ -334,6 +370,63 @@ def _check_authorization(a: PlannedAction, ctx: GateContext) -> Finding | None:
     )
 
 
+def _check_intent_unproven(a: PlannedAction, ctx: GateContext) -> Finding | None:
+    """Gate 1: a mutating step must say which goal it serves; a destructive one
+    must also say how to back out, or acknowledge that it cannot. The gate
+    cannot invent a reason or a rollback, so this rejects (the Agent then asks
+    the operator) rather than rewriting."""
+    if not ctx.require_intent or not a.mutating:
+        return None
+    missing = []
+    if not a.intent.purpose.strip():
+        missing.append("its purpose (which goal it serves)")
+    if a.destructive and not a.intent.rollback.strip() and not a.intent.irreversible:
+        missing.append("a rollback path, or an explicit irreversible acknowledgment")
+    if not missing:
+        return None
+    return Finding(INTENT_UNPROVEN, "intent not stated: " + "; ".join(missing), REJECT, risk=0.5)
+
+
+def _check_intent_contradiction(a: PlannedAction, ctx: GateContext) -> Finding | None:
+    problems = []
+    if a.intent.irreversible and a.intent.rollback.strip():
+        problems.append("declared irreversible yet claims a rollback")
+    purpose = a.intent.purpose.strip()
+    if purpose and ctx.active_goal_ids and purpose not in ctx.active_goal_ids:
+        problems.append(f"serves {purpose!r}, which is not an active goal")
+    if not problems:
+        return None
+    return Finding(INTENT_CONTRADICTION, "intent contradicts itself: " + "; ".join(problems), REJECT, risk=0.6)
+
+
+def _check_preconditions(a: PlannedAction, ctx: GateContext) -> Finding | None:
+    # As with target presence, judge only when we know what IS present.
+    if not a.intent.requires_present or not ctx.target_present_ids:
+        return None
+    missing = [t for t in a.intent.requires_present if t not in ctx.target_present_ids]
+    if not missing:
+        return None
+    return Finding(
+        PRECONDITION_FAILED,
+        f"precondition not met: {missing} not in the current observation",
+        REQUEST_REOBSERVE,
+        risk=0.5,
+    )
+
+
+def _check_known_failure(a: PlannedAction, ctx: GateContext) -> Finding | None:
+    """Consolidated memory: this exact action (by its effect hash) failed in
+    several earlier runs. Only ever adds a reject -- memory cannot allow."""
+    if not ctx.known_failures or action_hash(a) not in ctx.known_failures:
+        return None
+    return Finding(
+        KNOWN_FAILURE,
+        "this exact action failed repeatedly in earlier runs -- fix the cause, don't retry it",
+        REJECT,
+        risk=0.6,
+    )
+
+
 _CHECKS = (
     _check_stale_target,
     _check_target_present,
@@ -345,6 +438,10 @@ _CHECKS = (
     _check_excessive_cost,
     _check_capability,
     _check_unattended_posting,
+    _check_intent_unproven,
+    _check_intent_contradiction,
+    _check_preconditions,
+    _check_known_failure,
     _check_authorization,
 )
 
@@ -437,6 +534,11 @@ __all__ = [
     "EXCESSIVE_COST",
     "OUT_OF_CAPABILITY",
     "UNATTENDED_POSTING",
+    "INTENT_UNPROVEN",
+    "INTENT_CONTRADICTION",
+    "PRECONDITION_FAILED",
+    "KNOWN_FAILURE",
+    "IntentContract",
     "PlannedAction",
     "GateContext",
     "GateDecision",
