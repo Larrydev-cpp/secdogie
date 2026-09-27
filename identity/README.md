@@ -52,3 +52,58 @@ The signature covers a canonical (sorted-key, tight) JSON encoding of the
 payload — the same encoding `agent/secdogie_agent/trace.py` uses — so `signer`
 and `sig` layer onto any JSON contract that ignores unknown keys (e.g. the fleet
 wire protocol) without changing it.
+
+## Revocation (R1.2)
+
+In an unattended mesh, authorization has to be withdrawable, and the withdrawal
+has to be unforgeable. A **revocation record** is a statement, signed by the
+mesh's *master* keys, that one or more DIDs are no longer authorized. It is the
+decentralized equivalent of striking a DID off the allowlist.
+
+The masters are a `key = value` file, same shape as the allowlist, with an
+optional threshold:
+
+```
+master_did = did:key:z6Mk...   master-a (kept offline)
+master_did = did:key:z6Mk...   master-b
+master_did = did:key:z6Mk...   master-c
+threshold  = 2
+```
+
+`threshold = k` means `k` of the `n` masters must sign a record for it to count.
+A single stolen master key then cannot revoke on its own. With one master the
+threshold defaults to 1.
+
+Records are co-signed offline and verified anywhere:
+
+```
+secdogie-identity revoke-propose did:key:z6MkVICTIM --reason "key leaked" --out rev.json
+secdogie-identity revoke-cosign master-a.key rev.json     # each master signs, in turn
+secdogie-identity revoke-cosign master-b.key rev.json
+secdogie-identity revoke-verify rev.json masters.conf     # exit 0 once the threshold is met
+```
+
+In code, a `TrustPolicy` is an allowlist narrowed by the revocations it has
+accepted. It is duck-typed exactly like `Allowlist` (`contains` / `dids`), so it
+drops into any component that already gates a DID through `.contains`:
+
+```python
+from secdogie_identity import Allowlist, MasterSet, RevocationStore, TrustPolicy
+
+policy = TrustPolicy(Allowlist.load("authorized.conf"),
+                     masters=MasterSet.load("masters.conf"),
+                     store=RevocationStore("revocations.jsonl"))
+policy.contains(did)        # on the allowlist AND not revoked
+policy.apply(record)        # verify + merge one record; returns the newly-revoked DIDs
+policy.on_change(callback)  # notified of newly-revoked DIDs (for cache eviction / self-halt)
+```
+
+**Permanent.** Revocation only ever adds DIDs to the revoked set; it never
+restores one. Records can arrive in any order, more than once, over any path,
+and the result is the same union. A revoked node rejoins only by minting a fresh
+DID and being re-authorized — there is no un-revoke.
+
+**The cost of k-of-n.** An emergency revocation needs `k` masters available to
+co-sign at once. Choose the threshold for that trade-off: too high and you
+cannot revoke in a hurry, too low and one compromised key is enough. Changing
+the master set itself is an offline, out-of-band operation.

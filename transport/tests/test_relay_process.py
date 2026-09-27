@@ -197,6 +197,54 @@ def test_relay_process_refuses_an_unusable_configuration(keys):
         assert run_relay(*base, "--listen", "127.0.0.1:0", flag, value).returncode == 2, (flag, value)
 
 
+def test_relay_process_halts_when_its_own_did_is_revoked(keys, tmp_path):
+    from secdogie_identity import cosign, create_revocation
+    from secdogie_transport.revocation_gossip import REVOCATION_GOSSIP
+
+    tmp, relay, _id_a, _id_b, _allow = keys
+    master = Identity.generate()
+    masters_file = tmp / "masters.conf"
+    masters_file.write_text(f"master_did = {master.did}\n", encoding="utf-8")
+    record_file = tmp / "relay.record"
+
+    proc = subprocess.Popen(
+        RELAY + ["--identity", str(tmp / "relay.key"), "--authorized", str(tmp / "mesh.allow"),
+                 "--listen", "127.0.0.1:0", "--record-out", str(record_file),
+                 "--masters", str(masters_file), "--stats-every", "0.2"],
+        cwd=PACKAGE_ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True,
+    )
+    sender = UDPChannel()
+    try:
+        assert wait(lambda: record_file.exists() or proc.poll() is not None, START_TIMEOUT)
+        assert proc.poll() is None
+        relay_addr = json.loads(record_file.read_text())["endpoints"][0]
+
+        # A master revokes the relay's own DID; the record is gossiped to it.
+        # UDP can drop the datagram, so resend on a timer until the process exits
+        # or a generous budget elapses -- the halt is what we assert, not its speed.
+        rec = cosign(master, create_revocation([relay.did]))
+        frame = json.dumps({"t": REVOCATION_GOSSIP, "record": rec}).encode("utf-8")
+        code = None
+        deadline = time.time() + 30.0
+        while time.time() < deadline:
+            sender.send(relay_addr["host"], relay_addr["port"], frame)
+            try:
+                code = proc.wait(timeout=0.5)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+        out, err = proc.communicate(timeout=10)
+        assert code == 0, err                       # clean, unattended self-halt
+        assert any(json.loads(line).get("event") == "halted"
+                   for line in err.splitlines() if line.startswith("{")), err
+    finally:
+        sender.close()
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate(timeout=10)
+
+
 def test_relay_process_carries_no_human_in_the_loop_layer():
     # The relay decides by signatures and the allowlist alone. Structurally: the
     # process imports none of the packages that hold confirmation hooks, and its
