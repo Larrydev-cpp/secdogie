@@ -1,8 +1,11 @@
 """Real-loopback UDP tests for DirectUDPTransport: two nodes on 127.0.0.1 with
 their own DIDs exchange DID-signed datagrams; spoofed/unauthorized frames are
-dropped; and a peer's address change (roaming) keeps delivery working."""
+dropped; a frame without a signed counter is dropped; and a peer's address
+change (roaming) keeps delivery working."""
 from __future__ import annotations
 
+import base64
+import json
 import queue
 import time
 
@@ -10,7 +13,7 @@ import pytest
 
 pytest.importorskip("nacl")
 
-from secdogie_identity import Allowlist, Identity  # noqa: E402
+from secdogie_identity import Allowlist, Identity, sign_payload  # noqa: E402
 from secdogie_transport import Endpoint, PeerIdentity, Session  # noqa: E402
 from secdogie_transport.udp import (  # noqa: E402
     DirectUDPTransport,  # noqa: E402
@@ -100,12 +103,34 @@ def test_unauthorized_did_is_dropped():
     stranger = Identity.generate()  # not on a's allowlist
     ch = UDPChannel()
     try:
-        frame = _encode_frame(stranger, a.did, b"intrusion")
+        frame = _encode_frame(stranger, a.did, b"intrusion", 1)
         ch.send(*a.channel.address, frame)
         assert _get(a.inbox, timeout=0.4) is None
     finally:
         a.close()
         ch.close()
+
+
+_MISSING = object()
+
+
+@pytest.mark.parametrize("ctr", [_MISSING, None, True, -1, "7", 1.5],
+                         ids=["missing", "null", "bool", "negative", "string", "float"])
+def test_frame_without_a_valid_counter_is_dropped(two_nodes, ctr):
+    # An older build's frame (no counter) cannot be replay-checked, so it is
+    # dropped rather than trusted; so is any counter that is not a plain int >= 0.
+    a, b = two_nodes
+    payload = {"t": "secdogie/direct/v1", "from": a.did, "to": b.did,
+               "data": base64.b64encode(b"legacy").decode("ascii")}
+    if ctr is not _MISSING:
+        payload["ctr"] = ctr
+    a.channel.send(*b.channel.address, json.dumps(sign_payload(a.identity, payload)).encode())
+    assert _get(b.inbox, timeout=0.3) is None
+    assert a.did not in b.transport._endpoints
+    # the same sender with a proper frame still gets through
+    a.transport.set_peer_endpoint(b.did, *b.channel.address)
+    assert a.transport.route(a.did, b.did, b"current")
+    assert _get(b.inbox) == (a.did, b"current")
 
 
 def test_address_change_is_adopted_by_did(two_nodes):

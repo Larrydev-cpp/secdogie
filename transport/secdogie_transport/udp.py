@@ -20,9 +20,15 @@ deliberate boundaries, so this is an honest advance and not a tunnel rewrite:
     anti-detection.
   * Roaming by identity. An inbound datagram updates the sender's endpoint
     (source address adoption), keyed by DID -- a NAT rebind does not look like a
-    new peer. With encryption on, only a fresh (non-replayed), decrypted frame
-    can move an endpoint, so a captured frame replayed from another address does
-    not redirect the peer.
+    new peer. In both modes every frame carries the sender's monotonic counter
+    under its signature and passes a per-sender replay window, and only the
+    NEWEST authenticated frame may move the endpoint:
+      - a captured frame replayed from another address is dropped, so it
+        neither re-delivers nor redirects the peer;
+      - a late frame sent before a NAT rebind is still delivered but cannot
+        drag the endpoint back to the old address;
+      - a frame that arrived through a relay never moves the endpoint at all
+        (`open_relayed`), though it does advance the window.
 
 The datagram sink is injectable (`Channel`): production uses `UDPChannel` (a real
 loopback/UDP socket); this makes the transport fully testable on 127.0.0.1.
@@ -54,11 +60,12 @@ _FRAME_TYPE = "secdogie/direct/v1"
 FrameHandler = Callable[[dict, tuple], None]  # (parsed envelope, source address) -> None
 
 
-def _encode_frame(identity: Identity, to_did: str, message: bytes) -> bytes:
+def _encode_frame(identity: Identity, to_did: str, message: bytes, ctr: int) -> bytes:
     payload = {
         "t": _FRAME_TYPE,
         "from": identity.did,
         "to": to_did,
+        "ctr": ctr,  # signed, so it cannot be stripped or rewritten; feeds the replay window
         "data": base64.b64encode(message).decode("ascii"),
     }
     return json.dumps(sign_payload(identity, payload)).encode("utf-8")
@@ -72,15 +79,18 @@ def _parse(raw: bytes) -> dict | None:
     return obj if isinstance(obj, dict) else None
 
 
-def _decode_frame(raw: bytes, allowlist, self_did: str) -> tuple[str, bytes] | None:
+def _decode_frame(raw: bytes, allowlist, self_did: str) -> tuple[str, int, bytes] | None:
     obj = _parse(raw)
     if obj is None or obj.get("t") != _FRAME_TYPE:
         return None
     ok, signer = verify_payload(obj, allowlist)
     if not ok or obj.get("from") != signer or obj.get("to") != self_did:
         return None
+    ctr = obj.get("ctr")
+    if not isinstance(ctr, int) or isinstance(ctr, bool) or ctr < 0:
+        return None  # no counter (an older build's frame) -> cannot be replay-checked -> dropped
     try:
-        return signer, base64.b64decode(obj["data"], validate=True)
+        return signer, ctr, base64.b64decode(obj["data"], validate=True)
     except (KeyError, ValueError, TypeError):
         return None
 
@@ -202,17 +212,20 @@ class DirectUDPTransport(Transport):
             self._handlers[frame_type] = handler
 
     def build_frame(self, to_did: str, message: bytes) -> bytes | None:
-        """The end-to-end frame `route` sends to `to_did`: DID-signed, and sealed
-        to the peer's bound key when encryption is on. None when encryption is on
-        and the peer has no verified key -- never a plaintext fallback."""
-        if not self.encrypted:
-            return _encode_frame(self.identity, to_did, message)
-        box = self._boxes.get(to_did)
-        if box is None:
-            return None
+        """The end-to-end frame `route` sends to `to_did`: DID-signed and carrying
+        the next counter, and sealed to the peer's bound key when encryption is
+        on. None when encryption is on and the peer has no verified key -- never
+        a plaintext fallback."""
+        box = None
+        if self.encrypted:
+            box = self._boxes.get(to_did)
+            if box is None:
+                return None
         with self._ctr_lock:
             self._ctr += 1
             ctr = self._ctr
+        if box is None:
+            return _encode_frame(self.identity, to_did, message, ctr)
         return _sealed.seal(self.identity, box, to_did, ctr, message)
 
     def route(self, from_did: str, to_did: str, message: bytes) -> bool:
@@ -232,28 +245,42 @@ class DirectUDPTransport(Transport):
             self._local_session.migrate(endpoint)
         return True
 
-    def open_relayed(self, frame: bytes) -> tuple[str, bytes] | None:
+    def open_relayed(self, frame: bytes, *, sender: str) -> tuple[str, bytes] | None:
         """Authenticate (and decrypt) an end-to-end frame that reached this node
-        through a relay. Same checks as a direct datagram -- signature,
-        allowlist, addressed to us, sealed key, replay window -- but the relay's
-        address is never adopted as the sender's endpoint. Returns (signer,
-        message) for the caller to deliver, or None."""
-        return self._open(frame)
+        through a relay, which says it came from `sender`. Same checks as a
+        direct datagram -- signature, allowlist, addressed to us, sealed key,
+        replay window -- but the relay's address is never adopted as the
+        sender's endpoint. A frame signed by anyone but `sender` is refused
+        before it touches the replay window, so a relabelled copy cannot use up
+        the genuine frame's counter. Returns (signer, message) or None."""
+        if not isinstance(sender, str) or not sender:
+            return None  # no claimed sender: nothing to hold the frame to
+        opened = self._open(frame, expect=sender)
+        return None if opened is None else (opened[0], opened[1])
 
-    def _open(self, raw: bytes) -> tuple[str, bytes] | None:
+    def _open(self, raw: bytes, *, expect: str | None = None) -> tuple[str, bytes, bool] | None:
+        """(signer, message, newest) for an authentic, fresh frame (signed by
+        `expect`, when given), else None. `newest` is whether the frame raised
+        the sender's highest counter -- the only kind of frame allowed to move
+        the sender's endpoint."""
         if not self.encrypted:
-            # spoofed / unsigned / unauthorized / not for us -> None
-            return _decode_frame(raw, self._allowlist, self.identity.did)
-        opened = _sealed.open_sealed(
-            raw, allowlist=self._allowlist, self_did=self.identity.did, box_for=self._boxes.get,
-        )
+            # spoofed / unsigned / unauthorized / not for us / no counter -> None
+            opened = _decode_frame(raw, self._allowlist, self.identity.did)
+        else:
+            # plaintext v1 / unsigned / unknown key / tampered / not for us -> None
+            opened = _sealed.open_sealed(
+                raw, allowlist=self._allowlist, self_did=self.identity.did, box_for=self._boxes.get,
+            )
         if opened is None:
-            return None  # plaintext v1 / unsigned / unknown key / tampered / not for us
+            return None
         signer, ctr, data = opened
+        if expect is not None and signer != expect:
+            return None
         window = self._windows.setdefault(signer, _sealed.ReplayWindow())
+        before = window.highest
         if not window.accept(ctr):
             return None  # replayed or too old: dropped before it can move the endpoint
-        return signer, data
+        return signer, data, before is None or ctr > before
 
     def _on_datagram(self, raw: bytes, addr: tuple) -> None:
         if self._handlers:
@@ -265,9 +292,12 @@ class DirectUDPTransport(Transport):
         opened = self._open(raw)
         if opened is None:
             return
-        signer, data = opened
+        signer, data, newest = opened
         # Roaming: adopt the source address for this DID (keyed by identity, not
         # by address), so a peer's NAT rebind keeps working without a re-register.
-        self._endpoints[signer] = (addr[0], addr[1])
+        # Only the newest frame moves it (or the first one, when there is nothing
+        # to move yet): a late frame from before the rebind must not drag it back.
+        if newest or signer not in self._endpoints:
+            self._endpoints[signer] = (addr[0], addr[1])
         if self._inbound is not None:
             self._inbound(signer, data)

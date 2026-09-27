@@ -17,6 +17,26 @@ endpoints -- instead of a hub socket.
 This layer is transport-mechanism-free (no sockets): it is the identity/session/
 routing model, backed later by the fleet TCP or the C tunnel.
 
+## Roaming: which frames may move a peer's endpoint
+
+`DirectUDPTransport` learns a peer's address from its authenticated datagrams,
+keyed by DID, so a NAT rebind does not look like a new peer. Every frame carries
+the sender's monotonic counter under its signature, in both frame formats, and
+passes a per-sender replay window. On top of that:
+
+- **A replay never redirects.** A captured frame sent again, from any address,
+  is dropped: it is neither delivered twice nor allowed to move the endpoint.
+- **Only the newest frame moves the endpoint.** A late datagram sent before a
+  rebind is still delivered if it is inside the window, but it cannot drag the
+  endpoint back to the old address. The one exception is a peer with no known
+  endpoint yet, whose first direct frame is always adopted.
+- **Relayed frames never move it.** `open_relayed(frame, sender=...)` runs the
+  same checks, refuses a frame signed by anyone but the claimed sender before it
+  touches the window, and never adopts an address.
+
+Wire change: signed-only `secdogie/direct/v1` frames now carry a required `ctr`
+field. A frame without one, as sent by an older build, is dropped.
+
 ## Relay role (2C)
 
 Any allowlisted node -- a home NAS, a VPS, a desktop -- can serve as a relay, and
@@ -45,3 +65,38 @@ another instead of partitioning the mesh (`relay.py`).
   asked, with `src` equal to the inner signer; per-DID rate limit, size cap,
   bounded client table, no relay chains.
 
+## Running a headless relay (2C.1)
+
+`secdogie-relay` runs the relay role as its own unattended process, for a VPS or
+a NAS with nobody at the keyboard:
+
+```
+secdogie-relay --identity relay.key --authorized mesh.allow \
+               --listen 0.0.0.0:7946 --public-host relay.example.net \
+               --record-out /var/lib/secdogie/relay.record
+```
+
+- **Inputs.** `--identity` is the relay's key file and `--authorized` the
+  allowlist of DIDs it serves (`authorized_did = did:key:...` lines). Both are
+  required; there is no unauthenticated mode. `--public-host` is required when
+  listening on all interfaces, because the record must name a reachable address.
+- **Bootstrap record.** On start it prints its self-signed membership record,
+  with `roles=["relay"]`, as one JSON line on stdout and, with `--record-out`,
+  to a file replaced atomically. Merge it into a node's `MembershipView` and
+  that node's `RelayClient` finds the relay on its next `refresh()`.
+- **Unattended.** It never reads stdin and has no confirmation hook: forwarding
+  is decided by signatures and the allowlist alone. It imports nothing from the
+  agent, Citadel or fleet packages.
+- **Operations.** A JSON `stats` line goes to stderr every `--stats-every`
+  seconds. SIGTERM or SIGINT stops serving and exits 0. `--lease` sets how long
+  a client registration lasts unless renewed.
+- **Deployment is the operator's call.** It runs in the foreground and installs
+  nothing itself. For example, a systemd unit the operator writes:
+
+```
+[Service]
+ExecStart=/opt/secdogie/bin/secdogie-relay --identity /etc/secdogie/relay.key \
+          --authorized /etc/secdogie/mesh.allow --listen 0.0.0.0:7946 \
+          --public-host relay.example.net
+Restart=on-failure
+```

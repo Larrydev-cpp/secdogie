@@ -4,7 +4,10 @@ Two nodes, each with a DID and an X25519 transport key bound to it, exchange
 sealed frames. Covers: round trip, nothing readable on the wire, tampering,
 reflection, replay (including a replay from another address, which must not move
 the peer's endpoint), no key -> nothing sent, bad bindings refused, v1 dropped,
-and the P2P.2 upgrade still working on top."""
+and the P2P.2 upgrade still working on top.
+
+The roaming rules -- a replay never re-delivers or redirects, a late frame cannot
+drag the endpoint back -- are checked for signed-only v1 frames as well."""
 from __future__ import annotations
 
 import base64
@@ -199,26 +202,67 @@ def test_replay_is_dropped_and_cannot_move_the_endpoint(pair):
     assert _get(b.inbox) == (a.did, b"next")
 
 
-def test_v1_replay_does_move_the_endpoint_which_v2_fixes():
-    # The contrast case: without encryption a captured frame replayed from another
-    # address is re-delivered and redirects the peer. That is the gap v2 closes.
+@pytest.fixture(params=[True, False], ids=["v2-sealed", "v1-signed"])
+def any_pair(request):
+    encrypted = request.param
     allow = Allowlist()
-    a, b = EncNode(allow, encrypted=False), EncNode(allow, encrypted=False)
+    a, b = EncNode(allow, encrypted=encrypted), EncNode(allow, encrypted=encrypted)
     allow.add(a.did)
     allow.add(b.did)
-    a.know(b, binding=False)
-    b.know(a, binding=False)
+    a.know(b, binding=encrypted)
+    b.know(a, binding=encrypted)
+    yield a, b
+    a.close()
+    b.close()
+
+
+def test_replay_from_another_address_is_dropped_in_both_modes(any_pair):
+    # This used to be the v1 contrast case: an unencrypted frame replayed from
+    # another address was delivered again and redirected the peer. Every frame
+    # now carries a signed counter, so the replay window drops it in either mode.
+    a, b = any_pair
     other = UDPChannel()
     try:
         a.transport.route(a.did, b.did, b"hi")
         assert _get(b.inbox) == (a.did, b"hi")
         _raw_send(other, b, a.channel.sent[-1])
-        assert _get(b.inbox) == (a.did, b"hi")
-        assert b.transport._endpoints[a.did] == other.address
+        assert _get(b.inbox, timeout=0.3) is None
+        assert b.transport._endpoints[a.did] == a.channel.address
     finally:
         other.close()
-        a.close()
-        b.close()
+
+
+def test_late_frame_cannot_drag_the_endpoint_back(any_pair):
+    a, b = any_pair
+    new = UDPChannel()  # A's address after a NAT rebind; a.channel is the old one
+    try:
+        before = a.transport.build_frame(b.did, b"sent before the rebind")
+        after = a.transport.build_frame(b.did, b"sent after the rebind")
+        _raw_send(new, b, after)
+        assert _get(b.inbox) == (a.did, b"sent after the rebind")
+        assert b.transport._endpoints[a.did] == new.address
+        # The older frame was overtaken on the way and turns up late from the old
+        # address: it is fresh, so it is delivered, but it must not move A back.
+        _raw_send(a.channel, b, before)
+        assert _get(b.inbox) == (a.did, b"sent before the rebind")
+        assert b.transport._endpoints[a.did] == new.address
+    finally:
+        new.close()
+
+
+def test_first_direct_frame_is_adopted_even_after_newer_relayed_ones(any_pair):
+    # Frames that came through a relay advance the window without giving B an
+    # endpoint; an older direct frame arriving next is still B's first address
+    # for A, so it is adopted.
+    a, b = any_pair
+    del b.transport._endpoints[a.did]
+    direct = a.transport.build_frame(b.did, b"direct")
+    relayed = a.transport.build_frame(b.did, b"relayed")
+    assert b.transport.open_relayed(relayed, sender=a.did) == (a.did, b"relayed")
+    assert a.did not in b.transport._endpoints
+    _raw_send(a.channel, b, direct)
+    assert _get(b.inbox) == (a.did, b"direct")
+    assert b.transport._endpoints[a.did] == a.channel.address
 
 
 def test_no_verified_key_means_nothing_is_sent():
@@ -258,7 +302,7 @@ def test_bad_bindings_are_refused(pair):
 
 def test_encrypted_node_drops_plaintext_v1(pair):
     a, b = pair
-    _raw_send(a.channel, b, _encode_frame(a.identity, b.did, b"plaintext"))
+    _raw_send(a.channel, b, _encode_frame(a.identity, b.did, b"plaintext", 1))
     assert _get(b.inbox, timeout=0.3) is None
 
 
