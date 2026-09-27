@@ -24,9 +24,8 @@ Pipeline, in order:
 3. **Classify.** ``is_interactive`` is set from the node's role against a
    cross-platform role table (UIA, AT-SPI and macOS AX spellings).
 4. **Stitch DIB.** For custom-drawn blind spots, which AX cannot see into,
-   an injected
-   ``dib_provider`` is asked for a ``VisualReference``: a *handle* to a
-   read-only reconstructed bitmap, never pixels. It is attached to that node.
+   an injected ``dib_provider`` is asked for a ``VisualReference``: a *handle*
+   to a read-only reconstructed bitmap, never pixels. It is attached to that node.
    The adapter never reads memory itself. DIB is a secondary, verifying sense,
    so a failed or over-budget DIB read leaves the node without a reference and
    is recorded in ``last_report``. It never loses the AX reading.
