@@ -25,13 +25,44 @@ import sys
 from .goals import build_goal_tree
 from .journal import Journal
 
+_REFRESH_INTERVAL = 5.0  # seconds between re-reads of the revocation store
+
+
+def _policy(args, path):
+    """An allowlist file loaded revocation-aware when --masters is given."""
+    if not path:
+        return None
+    from secdogie_identity import load_trust_policy
+
+    return load_trust_policy(path, masters_path=getattr(args, "masters", None),
+                             revocations_path=getattr(args, "revocations", None))
+
 
 def _open_writable(args) -> Journal:
-    from secdogie_identity import Allowlist, Identity
+    from secdogie_identity import Identity
 
     identity = Identity.load(args.identity)
-    allowlist = Allowlist.load(args.authorized) if getattr(args, "authorized", None) else None
-    return Journal(args.db, identity=identity, allowlist=allowlist)
+    return Journal(args.db, identity=identity, allowlist=_policy(args, getattr(args, "authorized", None)))
+
+
+def _self_policy(args):
+    """A policy for checking this node's OWN DID: revocation depends only on the
+    records, not on any allowlist, so it needs just --masters (+ --revocations)."""
+    if not getattr(args, "masters", None):
+        return None
+    from secdogie_identity import (
+        Allowlist,
+        MasterSet,
+        RevocationStore,
+        TrustPolicy,
+        start_refresher,
+    )
+
+    store = RevocationStore(args.revocations) if args.revocations else None
+    policy = TrustPolicy(Allowlist(), masters=MasterSet.load(args.masters), store=store)
+    if store is not None:
+        start_refresher(policy, interval=_REFRESH_INTERVAL)
+    return policy
 
 
 def _add_goal(args) -> int:
@@ -45,16 +76,27 @@ def _add_goal(args) -> int:
 
 def _run(args) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    from secdogie_identity import Allowlist
+    from secdogie_identity import Identity, halt_on_self_revocation
 
     from .supervisor import Supervisor, agent_run_task, terminal_confirm
 
-    issuers = Allowlist.load(args.issuers) if args.issuers else None
+    # A node whose own DID the masters have revoked does no more work: it does
+    # not start, and a revocation that arrives mid-run halts the supervisor.
+    self_policy = _self_policy(args)
+    node_did = Identity.load(args.identity).did
+    if self_policy is not None and self_policy.is_revoked(node_did):
+        print(f"this node's DID {node_did} is revoked; not running")
+        return 0
+
+    issuers = _policy(args, args.issuers)
     sup = Supervisor(
         _open_writable(args), run_task=agent_run_task,
         max_attempts=args.max_attempts, confirm_handler=terminal_confirm,
         issuers=issuers,
     )
+    if self_policy is not None:
+        self_policy.on_change(lambda newly: halt_on_self_revocation(
+            newly, node_did, [lambda: sup.halt("this node's DID was revoked")]))
     if issuers is not None:
         scopes = sorted(sup.node_scopes())
         print("capability enforcement on: " + (", ".join(scopes) if scopes
@@ -65,6 +107,9 @@ def _run(args) -> int:
     results = sup.run_ready(max_goals=args.max_goals)
     for gid, code, summary in results:
         print(f"{gid}: exit {code} -- {summary}")
+    if sup.halted:
+        print("stopped: this node's DID was revoked")
+        return 0
     return 1 if any(code not in (0,) for _g, code, _s in results) else 0
 
 
@@ -96,14 +141,12 @@ def _log(args) -> int:
 def _add_grant(args) -> int:
     import json as _json
 
-    from secdogie_identity import Allowlist
-
     from .supervisor import Supervisor
 
     with open(args.grant, encoding="utf-8") as f:
         grant = _json.load(f)
     sup = Supervisor(_open_writable(args), run_task=lambda *a, **k: (0, ""),
-                     issuers=Allowlist.load(args.issuers) if args.issuers else None)
+                     issuers=_policy(args, args.issuers))
     if args.issuers:
         from secdogie_identity.capability import verify_capability
         node_did = getattr(sup.journal, "identity", None)
@@ -118,12 +161,10 @@ def _add_grant(args) -> int:
 
 
 def _scopes(args) -> int:
-    from secdogie_identity import Allowlist
-
     from .supervisor import Supervisor
 
     sup = Supervisor(_open_writable(args), run_task=lambda *a, **k: (0, ""),
-                     issuers=Allowlist.load(args.issuers))
+                     issuers=_policy(args, args.issuers))
     scopes = sorted(sup.node_scopes())
     if scopes:
         for sc in scopes:
@@ -176,7 +217,18 @@ def main(argv: list[str] | None = None) -> int:
     sc.add_argument("--issuers", required=True, metavar="ALLOWLIST", help="trusted issuer DIDs")
     sc.set_defaults(fn=_scopes)
 
+    for parser in (ag, rn, grn, sc):
+        parser.add_argument("--masters", default=None, metavar="FILE",
+                            help="master set file; enables revocation for --authorized / --issuers "
+                                 "(and, for run, stops this node if its own DID is revoked)")
+        parser.add_argument("--revocations", default=None, metavar="FILE",
+                            help="revocation store, re-read every few seconds (requires --masters)")
+
     args = p.parse_args(argv)
+    if getattr(args, "revocations", None) and not getattr(args, "masters", None):
+        print("error: --revocations needs --masters (revocations are verified against the masters)",
+              file=sys.stderr)
+        return 2
     return args.fn(args)
 
 

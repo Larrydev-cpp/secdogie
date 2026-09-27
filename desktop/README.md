@@ -28,6 +28,9 @@ secdogie-desktop --identity coordinator.key --authorized authorized-nodes.conf \
                  --operator-key operator.key --operator-authorized operators.conf
 ```
 
+`--masters masters.conf --revocations revocations.jsonl` works as it does for
+`secdogie-console`: revoked node and operator DIDs are refused.
+
 On a headless host (no display) the command prints a clear message and points at
 `secdogie-console` (the browser UI) instead.
 

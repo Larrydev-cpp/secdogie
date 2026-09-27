@@ -18,13 +18,14 @@ from .controller import ConsoleController
 from .server import build_server
 
 
-def _load_identity_and_allowlist(identity_path, allow_path):
+def _load_identity_and_allowlist(identity_path, allow_path, *, masters=None, revocations=None):
     if not identity_path and not allow_path:
         return None, None
-    from secdogie_identity import Allowlist, Identity
+    from secdogie_identity import Identity, load_trust_policy
 
     identity = Identity.load(identity_path) if identity_path else None
-    allowlist = Allowlist.load(allow_path) if allow_path else None
+    allowlist = (load_trust_policy(allow_path, masters_path=masters, revocations_path=revocations)
+                 if allow_path else None)
     return identity, allowlist
 
 
@@ -43,6 +44,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="authorized node DIDs (fleet secure mode)")
     parser.add_argument("--operator-authorized", default=None, metavar="ALLOWLIST",
                         help="authorized operator DIDs; requires signed console commands")
+    parser.add_argument("--masters", default=None, metavar="FILE",
+                        help="master set file; enables revocation for node and operator DIDs")
+    parser.add_argument("--revocations", default=None, metavar="FILE",
+                        help="revocation store, re-read every few seconds (requires --masters)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -53,7 +58,16 @@ def main(argv: list[str] | None = None) -> int:
     if bool(args.identity) != bool(args.authorized):
         print("error: fleet secure mode needs both --identity and --authorized", file=sys.stderr)
         return 2
-    signer, node_allowlist = _load_identity_and_allowlist(args.identity, args.authorized)
+    if (args.masters or args.revocations) and not (args.authorized or args.operator_authorized):
+        print("error: --masters/--revocations need --authorized or --operator-authorized", file=sys.stderr)
+        return 2
+    revocation = {"masters": args.masters, "revocations": args.revocations}
+    try:
+        signer, node_allowlist = _load_identity_and_allowlist(args.identity, args.authorized, **revocation)
+        _, operator_allowlist = _load_identity_and_allowlist(None, args.operator_authorized, **revocation)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
     fleet = FleetServer(
         host=args.fleet_host, port=args.fleet_port,
         logger=log, signer=signer, node_allowlist=node_allowlist,
@@ -61,7 +75,6 @@ def main(argv: list[str] | None = None) -> int:
     fleet.start()
     log.info("fleet coordinator listening on %s:%d", *fleet.address)
 
-    _, operator_allowlist = _load_identity_and_allowlist(None, args.operator_authorized)
     controller = ConsoleController(fleet, operator_allowlist=operator_allowlist)
     if operator_allowlist is not None:
         log.info("console commands require an operator DID signature (%d authorized)", len(operator_allowlist))

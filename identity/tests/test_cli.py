@@ -88,3 +88,62 @@ def test_verify_grant_paths(tmp_path, capsys):
 
     # right issuer but wrong expected subject
     assert main(["verify-grant", str(gpath), str(trusted), "--subject", stranger_did]) == 1
+
+
+def test_revoke_propose_cosign_verify_roundtrip(tmp_path, capsys):
+    m1_key, m1_did = _mk(tmp_path, "m1.key")
+    m2_key, m2_did = _mk(tmp_path, "m2.key")
+    _victim_key, victim_did = _mk(tmp_path, "victim.key")
+
+    masters = tmp_path / "masters.conf"
+    masters.write_text(
+        f"master_did = {m1_did}\nmaster_did = {m2_did}\nthreshold = 2\n", encoding="utf-8"
+    )
+    rec = tmp_path / "rev.json"
+    assert main(["revoke-propose", victim_did, "--reason", "test", "--out", str(rec)]) == 0
+
+    # one signature: short of the 2-of-2 threshold
+    assert main(["revoke-cosign", str(m1_key), str(rec)]) == 0
+    assert main(["revoke-verify", str(rec), str(masters)]) == 1
+
+    # second master signature reaches the threshold
+    assert main(["revoke-cosign", str(m2_key), str(rec)]) == 0
+    capsys.readouterr()
+    assert main(["revoke-verify", str(rec), str(masters)]) == 0
+    out = capsys.readouterr().out
+    assert victim_did in out and "valid:" in out
+
+
+def test_revoke_verify_rejects_a_non_master_signature(tmp_path, capsys):
+    _m_key, m_did = _mk(tmp_path, "m.key")
+    stranger_key, _stranger_did = _mk(tmp_path, "stranger.key")
+    _victim_key, victim_did = _mk(tmp_path, "victim.key")
+
+    masters = tmp_path / "masters.conf"
+    masters.write_text(f"master_did = {m_did}\n", encoding="utf-8")
+    rec = tmp_path / "rev.json"
+    main(["revoke-propose", victim_did, "--out", str(rec)])
+    main(["revoke-cosign", str(stranger_key), str(rec)])  # not a master
+    assert main(["revoke-verify", str(rec), str(masters)]) == 1
+
+
+def test_revoke_apply_appends_once_and_refuses_invalid(tmp_path, capsys):
+    m_key, m_did = _mk(tmp_path, "m.key")
+    stranger_key, _ = _mk(tmp_path, "stranger.key")
+    _victim_key, victim_did = _mk(tmp_path, "victim.key")
+    masters = tmp_path / "masters.conf"
+    masters.write_text(f"master_did = {m_did}\n", encoding="utf-8")
+    store = tmp_path / "revocations.jsonl"
+
+    good = tmp_path / "good.json"
+    main(["revoke-propose", victim_did, "--out", str(good)])
+    main(["revoke-cosign", str(m_key), str(good)])
+    assert main(["revoke-apply", str(good), "--masters", str(masters), "--store", str(store)]) == 0
+    assert main(["revoke-apply", str(good), "--masters", str(masters), "--store", str(store)]) == 0
+    assert len(store.read_text(encoding="utf-8").splitlines()) == 1  # not written twice
+
+    bad = tmp_path / "bad.json"
+    main(["revoke-propose", victim_did, "--reason", "forged", "--out", str(bad)])
+    main(["revoke-cosign", str(stranger_key), str(bad)])
+    assert main(["revoke-apply", str(bad), "--masters", str(masters), "--store", str(store)]) == 1
+    assert len(store.read_text(encoding="utf-8").splitlines()) == 1  # store unchanged

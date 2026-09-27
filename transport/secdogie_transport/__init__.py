@@ -15,6 +15,7 @@ from .membership import MembershipView, PeerRecord, gossip_round
 from .peer import PeerIdentity
 from .relay import RelayClient, RelayService
 from .rendezvous import RendezvousClient, RendezvousServer
+from .revocation_gossip import REVOCATION_GOSSIP, RevocationGossip
 from .sealed import ReplayWindow, load_transport_key
 from .session import Session
 from .transport import HubTransport, Transport
@@ -38,6 +39,8 @@ __all__ = [
     "RendezvousClient",
     "RelayService",
     "RelayClient",
+    "RevocationGossip",
+    "REVOCATION_GOSSIP",
     "DirectUpgrader",
     "UpgradeState",
     "MembershipView",

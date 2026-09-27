@@ -23,6 +23,20 @@ from .capability import (
 )
 from .did import did_document, did_key_from_pubkey, pubkey_from_did
 from .keys import Identity, PublicIdentity
+from .policy import (
+    RevocationStore,
+    TrustPolicy,
+    halt_on_self_revocation,
+    load_trust_policy,
+    start_refresher,
+)
+from .revocation import (
+    MasterSet,
+    RevocationRecord,
+    cosign,
+    create_revocation,
+    verify_revocation,
+)
 from .signing import canonical, sign_payload, verify_payload
 
 __version__ = "0.5.0"
@@ -47,4 +61,14 @@ __all__ = [
     "effective_scopes",
     "CapabilityResult",
     "GRANTABLE_SCOPES",
+    "MasterSet",
+    "RevocationRecord",
+    "create_revocation",
+    "cosign",
+    "verify_revocation",
+    "TrustPolicy",
+    "RevocationStore",
+    "halt_on_self_revocation",
+    "load_trust_policy",
+    "start_refresher",
 ]

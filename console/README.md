@@ -31,6 +31,10 @@ secdogie-console --identity coordinator.key --authorized authorized-nodes.conf \
                  --operator-authorized operators.conf
 ```
 
+Add `--masters masters.conf --revocations revocations.jsonl` to honour
+master-signed revocations for both node and operator DIDs: a revoked operator's
+signed commands are refused, and a revoked node is disconnected.
+
 ## API
 
 | Method / path | Body | Response |
