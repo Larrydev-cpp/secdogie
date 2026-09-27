@@ -319,6 +319,10 @@ Agent 规划一步动作 ──► action_gate.gate()
 
 Gate 2 客户端规则（`guard.respond`）：签名前 App 自行复核——本地重算 `action_hash` 必须等于节点声称值、`subject_did` 必须是本会话已认证的对端、挑战未过期；否则拒签（`GuardRefusal`）。令牌签的是**本地展示的动作**，subject 取会话对端 DID，`expires_at` 不超过挑战时效，`valid_from` 回拨 30 s 以容忍时钟偏差。Deny 永不携带令牌。
 
+Inspector 归并规则（`inspector.apply`）：只采纳能干净应用的增量，**绝不猜**。更新/删除未知节点、重复添加、父节点不存在、成环、焦点或 DIB 引用悬空、对无基线窗口的增量——一律保留上一份一致的树并标记 `needs_resync`，此后增量一概不叠加，直到全量快照到来（App 发 `SessionEvent.RESYNC`）。同窗口 `generation` 不增即视为陈旧、忽略。删除级联整棵子树及其 DIB 元数据。树校验的上行遍历按节点数结构性有界，恶意输入无法使其死循环。节点名来自任意应用的 UI 文本：渲染前替换控制字符、截断到 120 字符（TUI 层还须以纯文本而非 markup 渲染）。
+
+纯洁性测试（`tests/test_purity.py`）：用 AST 检查整个包，禁止导入截屏 / OCR / 图像库、输入注入、`ctypes` / `cffi` / `mmap`，以及 Agent 的感知层 `secdogie_agent`。红线 1 由 CI 强制。
+
 协议层的具体规则（`open_envelope`）：
 - **先认证再解析**：签名有效且签名者在信任策略上（`TrustPolicy`，撤销即拒）之后，才解析 header 与 payload；未认证的对端永远到不了解析器。
 - **严格 schema**：每个字段必填，未知字段拒收（结构化视界里无法夹带像素字段），类型精确（bool 不算 int，非有限浮点不算时间）。
