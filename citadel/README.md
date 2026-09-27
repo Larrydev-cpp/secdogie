@@ -33,6 +33,24 @@ tree.ready()        # ["g1"]  (g2 blocked on g1)
 ok, reason = j.verify()
 ```
 
+## Socratic gates and staged memory
+
+`socratic.py` questions an instruction; `action_gate.py` questions each planned
+action -- including the Gate 1 intent contract (which active goal it serves, how
+to back out or an explicit "irreversible", whether its preconditions still hold)
+-- and `authz.py` is Gate 2, the operator's signature on anything irreversible.
+
+Memory is staged ([MEMORY.zh.md](MEMORY.zh.md)):
+
+| Stage | Module | Where it lives | Trust |
+| --- | --- | --- | --- |
+| S1 episodic | `episodes.py` | a view of the journal's run / step events | signed; only verified, finished runs are learned from |
+| S2 candidate | `lessons.py` | local SQLite, never replicated | untrusted quarantine; never read by a gate or a prompt |
+| S3 consolidated | `consolidate.py` | signed `memory` events, replicated | cautions on re-derived evidence; facts only on an operator-signed confirmation |
+
+`MemoryView.known_failures` feeds `GateContext.known_failures`. Memory can only
+make the gates stricter; Gate 2 never reads it.
+
 ## CLI
 
 ```sh
