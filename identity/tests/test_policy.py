@@ -143,3 +143,79 @@ def test_store_persists_and_reloads():
         assert not reloaded.contains(a)
     finally:
         os.unlink(path)
+
+
+# --- R2: shared loader, live refresh -----------------------------------------
+
+
+def _files(tmp_path, master, dids):
+    from secdogie_identity import load_trust_policy  # noqa: F401 (import check)
+
+    allow = tmp_path / "authorized.conf"
+    allow.write_text("".join(f"authorized_did = {d}\n" for d in dids), encoding="utf-8")
+    masters = tmp_path / "masters.conf"
+    masters.write_text(f"master_did = {master.did}\n", encoding="utf-8")
+    return allow, masters, tmp_path / "revocations.jsonl"
+
+
+def test_load_trust_policy_combinations(tmp_path):
+    from secdogie_identity import load_trust_policy
+
+    master = Identity.generate()
+    a = Identity.generate().did
+    allow, masters, store = _files(tmp_path, master, [a])
+
+    plain = load_trust_policy(allow)
+    assert isinstance(plain, Allowlist) and plain.contains(a)
+
+    policy = load_trust_policy(allow, masters_path=masters, revocations_path=store, refresh_interval=None)
+    assert isinstance(policy, TrustPolicy) and policy.contains(a)
+
+    with pytest.raises(ValueError, match="--masters"):
+        load_trust_policy(allow, revocations_path=store)
+
+
+def test_refresh_picks_up_records_appended_by_another_writer(tmp_path):
+    from secdogie_identity import load_trust_policy
+
+    master = Identity.generate()
+    a, b = Identity.generate().did, Identity.generate().did
+    allow, masters, store_path = _files(tmp_path, master, [a, b])
+    policy = load_trust_policy(allow, masters_path=masters, revocations_path=store_path,
+                               refresh_interval=None)
+    seen = []
+    policy.on_change(seen.append)
+    assert policy.refresh() == frozenset()             # nothing there yet
+
+    # another process (or revoke-apply) appends to the shared store
+    RevocationStore(store_path).append(_revoke([master], [a]))
+    assert policy.refresh() == {a}
+    assert not policy.contains(a) and policy.contains(b)
+    assert seen == [frozenset({a})]
+    assert policy.refresh() == frozenset()             # unchanged store: no work
+
+    # a forged line is read but changes nothing
+    RevocationStore(store_path).append(_revoke([Identity.generate()], [b]))
+    assert policy.refresh() == frozenset()
+    assert policy.contains(b) and seen == [frozenset({a})]
+
+
+def test_refresher_thread_applies_new_records(tmp_path):
+    import time
+
+    from secdogie_identity import start_refresher
+
+    master_ids, masters, allow = _setup()
+    a = Identity.generate().did
+    allow.add(a)
+    store = RevocationStore(tmp_path / "revocations.jsonl")
+    policy = TrustPolicy(allow, masters=masters, store=store)
+    stop = start_refresher(policy, interval=0.02)
+    try:
+        store.append(_revoke(master_ids, [a]))
+        deadline = time.time() + 3.0
+        while time.time() < deadline and policy.contains(a):
+            time.sleep(0.01)
+        assert not policy.contains(a)
+    finally:
+        stop.set()

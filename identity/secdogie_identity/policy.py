@@ -11,6 +11,12 @@ way an unauthorized one always was -- silently, with no reply.
 ``RevocationStore`` persists the records a node has accepted, so a restart does
 not forget who was revoked (revocation is permanent). Records are Master-signed
 (see revocation.py), so the store trusts the signatures, not the file's origin.
+
+A long-running process picks up records added to the store after it started with
+``TrustPolicy.refresh()`` -- usually from ``start_refresher`` -- so an operator
+who appends a co-signed record (``secdogie-identity revoke-apply``) reaches every
+process that shares the store without restarting any of them. ``load_trust_policy``
+is the one loader every command line uses.
 """
 from __future__ import annotations
 
@@ -29,6 +35,15 @@ class RevocationStore:
 
     def __init__(self, path: str | os.PathLike):
         self.path = Path(path)
+
+    def stamp(self) -> tuple[int, int] | None:
+        """(mtime_ns, size) of the store, or None when it does not exist yet --
+        enough to tell whether it changed without reading it."""
+        try:
+            st = self.path.stat()
+        except FileNotFoundError:
+            return None
+        return (st.st_mtime_ns, st.st_size)
 
     def load(self) -> list[dict]:
         if not self.path.exists():
@@ -79,7 +94,9 @@ class TrustPolicy:
         self._subs: list[ChangeCb] = []
         self._lock = threading.RLock()
         self.version = 0
+        self._store_stamp = None
         if store is not None:
+            self._store_stamp = store.stamp()
             for obj in store.load():
                 self._merge(obj, persist=False)
 
@@ -136,6 +153,29 @@ class TrustPolicy:
             subs = list(self._subs)
         return newly, (subs if newly else [])
 
+    def refresh(self) -> frozenset[str]:
+        """Apply records added to the store since the last look (by another
+        process, or by ``revoke-apply``). Returns the DIDs this newly revoked and
+        notifies subscribers once with them. Cheap when nothing changed: one
+        ``stat`` of the store, no read. Records are verified exactly as ``apply``
+        verifies them, so a forged line in the store changes nothing."""
+        if self._store is None:
+            return frozenset()
+        stamp = self._store.stamp()
+        with self._lock:
+            if stamp == self._store_stamp:
+                return frozenset()
+            self._store_stamp = stamp
+        newly: set[str] = set()
+        for obj in self._store.load():
+            newly |= self._merge(obj, persist=False)[0]
+        if newly:
+            with self._lock:
+                subs = list(self._subs)
+            for cb in subs:
+                cb(frozenset(newly))
+        return frozenset(newly)
+
     def on_change(self, cb: ChangeCb) -> None:
         """Subscribe to newly-revoked DIDs (for cache eviction / self-halt)."""
         with self._lock:
@@ -167,4 +207,47 @@ def halt_on_self_revocation(newly_revoked, self_did: str, stop_actions) -> bool:
     return True
 
 
-__all__ = ["RevocationStore", "TrustPolicy", "halt_on_self_revocation"]
+def start_refresher(policy: TrustPolicy, *, interval: float = 5.0) -> threading.Event:
+    """Call ``policy.refresh()`` every ``interval`` seconds on a daemon thread.
+    Set the returned Event to stop it. A refresh that raises (the store is
+    briefly unreadable, say) is retried on the next tick rather than ending the
+    thread, so revocation keeps flowing."""
+    stop = threading.Event()
+
+    def loop() -> None:
+        while not stop.wait(interval):
+            try:
+                policy.refresh()
+            except Exception:  # noqa: BLE001 - try again next tick
+                pass
+
+    threading.Thread(target=loop, daemon=True, name="revocation-refresh").start()
+    return stop
+
+
+def load_trust_policy(allow_path, *, masters_path=None, revocations_path=None,
+                      refresh_interval: float | None = 5.0):
+    """The allowlist a command line should use.
+
+    Without ``masters_path`` it is the plain ``Allowlist`` from ``allow_path``,
+    exactly as before. With it, a ``TrustPolicy`` over that allowlist, reading
+    revocations from ``revocations_path`` when given and -- unless
+    ``refresh_interval`` is None -- re-reading that store on a background
+    thread. ``revocations_path`` without ``masters_path`` is refused: a store
+    nobody can verify would silently do nothing."""
+    from .allowlist import Allowlist
+
+    if revocations_path and not masters_path:
+        raise ValueError("--revocations needs --masters (revocations are verified against the masters)")
+    allowlist = Allowlist.load(allow_path)
+    if not masters_path:
+        return allowlist
+    store = RevocationStore(revocations_path) if revocations_path else None
+    policy = TrustPolicy(allowlist, masters=MasterSet.load(masters_path), store=store)
+    if store is not None and refresh_interval is not None:
+        start_refresher(policy, interval=refresh_interval)
+    return policy
+
+
+__all__ = ["RevocationStore", "TrustPolicy", "halt_on_self_revocation", "start_refresher",
+           "load_trust_policy"]

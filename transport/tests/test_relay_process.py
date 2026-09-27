@@ -245,6 +245,25 @@ def test_relay_process_halts_when_its_own_did_is_revoked(keys, tmp_path):
             proc.communicate(timeout=10)
 
 
+def test_relay_process_does_not_start_when_already_revoked(keys):
+    from secdogie_identity import RevocationStore, cosign, create_revocation
+
+    tmp, relay, _a, _b, _allow = keys
+    master = Identity.generate()
+    masters_file = tmp / "masters.conf"
+    masters_file.write_text(f"master_did = {master.did}\n", encoding="utf-8")
+    store = tmp / "revocations.jsonl"
+    RevocationStore(store).append(cosign(master, create_revocation([relay.did])))
+    record_file = tmp / "relay.record"
+
+    result = run_relay("--identity", str(tmp / "relay.key"), "--authorized", str(tmp / "mesh.allow"),
+                       "--listen", "127.0.0.1:0", "--record-out", str(record_file),
+                       "--masters", str(masters_file), "--revocations", str(store))
+    assert result.returncode == 0, result.stderr
+    assert "already revoked" in result.stderr
+    assert not record_file.exists()  # never bound a socket or announced itself
+
+
 def test_relay_process_carries_no_human_in_the_loop_layer():
     # The relay decides by signatures and the allowlist alone. Structurally: the
     # process imports none of the packages that hold confirmation hooks, and its

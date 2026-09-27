@@ -125,3 +125,25 @@ def test_revoke_verify_rejects_a_non_master_signature(tmp_path, capsys):
     main(["revoke-propose", victim_did, "--out", str(rec)])
     main(["revoke-cosign", str(stranger_key), str(rec)])  # not a master
     assert main(["revoke-verify", str(rec), str(masters)]) == 1
+
+
+def test_revoke_apply_appends_once_and_refuses_invalid(tmp_path, capsys):
+    m_key, m_did = _mk(tmp_path, "m.key")
+    stranger_key, _ = _mk(tmp_path, "stranger.key")
+    _victim_key, victim_did = _mk(tmp_path, "victim.key")
+    masters = tmp_path / "masters.conf"
+    masters.write_text(f"master_did = {m_did}\n", encoding="utf-8")
+    store = tmp_path / "revocations.jsonl"
+
+    good = tmp_path / "good.json"
+    main(["revoke-propose", victim_did, "--out", str(good)])
+    main(["revoke-cosign", str(m_key), str(good)])
+    assert main(["revoke-apply", str(good), "--masters", str(masters), "--store", str(store)]) == 0
+    assert main(["revoke-apply", str(good), "--masters", str(masters), "--store", str(store)]) == 0
+    assert len(store.read_text(encoding="utf-8").splitlines()) == 1  # not written twice
+
+    bad = tmp_path / "bad.json"
+    main(["revoke-propose", victim_did, "--reason", "forged", "--out", str(bad)])
+    main(["revoke-cosign", str(stranger_key), str(bad)])
+    assert main(["revoke-apply", str(bad), "--masters", str(masters), "--store", str(store)]) == 1
+    assert len(store.read_text(encoding="utf-8").splitlines()) == 1  # store unchanged

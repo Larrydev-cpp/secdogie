@@ -85,3 +85,19 @@ def test_authorize_requires_signature_when_allowlisted():
     stranger = Identity.generate()
     ok, signer = c.authorize(sign_payload(stranger, {"op": "submit", "task": "x"}))
     assert not ok and signer == stranger.did
+
+
+def test_a_revoked_operator_is_refused():
+    from secdogie_identity import MasterSet, TrustPolicy, cosign, create_revocation
+
+    master = Identity.generate()
+    operator, other = Identity.generate(), Identity.generate()
+    policy = TrustPolicy(Allowlist({operator.did, other.did}), masters=MasterSet([master.did]))
+    c = ConsoleController(FakeFleet(), operator_allowlist=policy)
+
+    command = {"op": "submit", "task": "x"}
+    assert c.authorize(sign_payload(operator, command)) == (True, operator.did)
+    policy.apply(cosign(master, create_revocation([operator.did])))
+    ok, signer = c.authorize(sign_payload(operator, command))
+    assert ok is False and signer == operator.did   # authentic, but no longer authorized
+    assert c.authorize(sign_payload(other, command)) == (True, other.did)

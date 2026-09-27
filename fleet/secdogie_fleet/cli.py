@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import threading
 import time
 
 from . import node as node_mod
@@ -47,13 +48,32 @@ def _load_identity_and_allowlist(args):
         print("error: fleet secure mode needs both --identity and --authorized", file=sys.stderr)
         raise SystemExit(2)
     if not args.identity:
+        if args.masters or args.revocations:
+            print("error: --masters/--revocations need secure mode (--identity and --authorized)",
+                  file=sys.stderr)
+            raise SystemExit(2)
         if not args.insecure_dev:
             print(f"error: {_INSECURE_REFUSAL}", file=sys.stderr)
             raise SystemExit(2)
         return None, None
-    from secdogie_identity import Allowlist, Identity
+    from secdogie_identity import Identity, load_trust_policy
 
-    return Identity.load(args.identity), Allowlist.load(args.authorized)
+    try:
+        allowlist = load_trust_policy(args.authorized, masters_path=args.masters,
+                                      revocations_path=args.revocations)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        raise SystemExit(2) from None
+    return Identity.load(args.identity), allowlist
+
+
+def _add_revocation_args(p) -> None:
+    p.add_argument("--masters", default=None, metavar="FILE",
+                   help="master set file; enables revocation: a DID revoked by the masters is "
+                        "refused (and a connected one dropped)")
+    p.add_argument("--revocations", default=None, metavar="FILE",
+                   help="revocation store shared with other processes; re-read every few seconds "
+                        "(requires --masters; add records with secdogie-identity revoke-apply)")
 
 
 def _run_coordinator(args) -> int:
@@ -130,18 +150,35 @@ def _run_node(args) -> int:
         log.info("secure mode: signing as %s", identity.did)
     else:
         log.warning("--insecure-dev: no authentication -- any coordinator can assign tasks here")
+
+    # A node whose own DID the masters have revoked stops cleanly (exit 0, no
+    # reconnect) -- at startup, or the moment the revocation reaches it.
+    stopped = threading.Event()
+    if identity is not None and hasattr(coordinator_allowlist, "on_change"):
+        from secdogie_identity import halt_on_self_revocation
+
+        if coordinator_allowlist.is_revoked(identity.did):
+            log.warning("this node's DID %s is revoked; not starting", identity.did)
+            return 0
+        coordinator_allowlist.on_change(
+            lambda newly: halt_on_self_revocation(newly, identity.did, [stopped.set]))
+
     delay = 1.0
     while True:
         try:
             node_mod.connect_and_serve(
                 host, port, node_id=node_id, label=args.label,
                 identity=identity, coordinator_allowlist=coordinator_allowlist, logger=log,
+                stop_event=stopped,
             )
             delay = 1.0  # a clean disconnect resets the backoff
         except (OSError, ConnectionError) as e:
             log.warning("cannot reach coordinator %s:%d (%s)", host, port, e)
         except KeyboardInterrupt:
             log.info("interrupted")
+            return 0
+        if stopped.is_set():
+            log.warning("this node's DID was revoked; stopped")
             return 0
         if args.once:
             return 0
@@ -188,6 +225,7 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--insecure-dev", action="store_true",
                    help="run without --identity/--authorized (no authentication at all); "
                         "for a throwaway local test only")
+    _add_revocation_args(c)
     c.set_defaults(func=_run_coordinator)
 
     n = sub.add_parser("node", help="run a node (inside each VM / session)")
@@ -202,6 +240,7 @@ def main(argv: list[str] | None = None) -> int:
     n.add_argument("--insecure-dev", action="store_true",
                    help="run without --identity/--authorized (no authentication at all); "
                         "for a throwaway local test only")
+    _add_revocation_args(n)
     n.set_defaults(func=_run_node)
 
     args = parser.parse_args(argv)

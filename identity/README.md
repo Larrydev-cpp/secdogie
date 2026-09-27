@@ -81,7 +81,24 @@ secdogie-identity revoke-propose did:key:z6MkVICTIM --reason "key leaked" --out 
 secdogie-identity revoke-cosign master-a.key rev.json     # each master signs, in turn
 secdogie-identity revoke-cosign master-b.key rev.json
 secdogie-identity revoke-verify rev.json masters.conf     # exit 0 once the threshold is met
+secdogie-identity revoke-apply rev.json --masters masters.conf --store revocations.jsonl
 ```
+
+`revoke-apply` checks the signatures again and appends the record to a
+revocation store, a JSON-lines file. Every command line that takes an allowlist
+also takes `--masters masters.conf --revocations revocations.jsonl`
+(`secdogie-fleet`, `secdogie-console`, `secdogie-desktop`, `secdogie-citadel`,
+`secdogie-relay`). Those processes re-read the store every few seconds, so a
+record appended there takes effect without a restart:
+
+- a revoked DID is refused wherever the allowlist is checked;
+- a fleet coordinator disconnects a node that was already connected;
+- a process whose own DID is revoked stops its work and exits 0.
+
+The store is only a transport for records: a line whose signatures do not meet
+the threshold changes nothing. In code, `load_trust_policy(allow_path,
+masters_path=..., revocations_path=...)` builds the same thing the command lines
+use.
 
 In code, a `TrustPolicy` is an allowlist narrowed by the revocations it has
 accepted. It is duck-typed exactly like `Allowlist` (`contains` / `dids`), so it

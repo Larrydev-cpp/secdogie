@@ -42,6 +42,7 @@ from secdogie_identity import (
     RevocationStore,
     TrustPolicy,
     halt_on_self_revocation,
+    start_refresher,
 )
 
 from .endpoint import Endpoint
@@ -153,6 +154,9 @@ def main(argv=None) -> int:
     if masters is not None:
         store = RevocationStore(args.revocations) if args.revocations else None
         served = TrustPolicy(allowlist, masters=masters, store=store)
+        if served.is_revoked(identity.did):
+            _log("halted", did=identity.did, reason="own DID already revoked; not starting")
+            return 0
     else:
         served = allowlist
 
@@ -180,6 +184,8 @@ def main(argv=None) -> int:
                 _log("halted", did=identity.did, reason="own DID revoked")
 
         served.on_change(on_revocation)
+        if args.revocations:
+            start_refresher(served)  # after subscribing, so no record slips past the halt
 
     bound_port = channel.address[1]
     endpoint = (Endpoint("public", args.public_host, bound_port) if args.public_host

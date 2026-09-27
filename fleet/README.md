@@ -109,6 +109,13 @@ allowlist of agent flags (`ALLOWED_OPTIONS` in `node.py`), but the task text is
 arbitrary, so authorize only coordinators you own. Bind the coordinator to a
 host-only/private network, not a public interface.
 
+**Revocation.** Add `--masters masters.conf --revocations revocations.jsonl` to
+either command to honour master-signed revocations (see
+[`identity/README.md`](../identity/README.md#revocation-r12)). The coordinator
+disconnects a node as soon as its DID is revoked, and that node's task goes back
+in the queue. A node whose own DID is revoked stops its task and exits 0 without
+reconnecting, or does not start at all if the revocation is already in the store.
+
 ## Honest limits
 
 - **Windows editions.** Windows 10/11 Home/Pro allow only **one interactive

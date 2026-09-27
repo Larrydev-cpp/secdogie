@@ -23,7 +23,13 @@ from .capability import (
 )
 from .did import did_document, did_key_from_pubkey, pubkey_from_did
 from .keys import Identity, PublicIdentity
-from .policy import RevocationStore, TrustPolicy, halt_on_self_revocation
+from .policy import (
+    RevocationStore,
+    TrustPolicy,
+    halt_on_self_revocation,
+    load_trust_policy,
+    start_refresher,
+)
 from .revocation import (
     MasterSet,
     RevocationRecord,
@@ -63,4 +69,6 @@ __all__ = [
     "TrustPolicy",
     "RevocationStore",
     "halt_on_self_revocation",
+    "load_trust_policy",
+    "start_refresher",
 ]
