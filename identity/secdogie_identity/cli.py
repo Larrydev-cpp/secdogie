@@ -5,6 +5,7 @@
   verify <keyfile> <allowlist>   check whether a keyfile's DID is authorized
   grant <issuer_key> <subject_did> --scope S   sign a capability grant (JSON to stdout)
   verify-grant <grant.json> <issuers>          verify a signed grant
+  revoke-propose / revoke-cosign / revoke-verify / revoke-apply   master revocation
 """
 from __future__ import annotations
 
@@ -147,6 +148,26 @@ def _revoke_verify(args: argparse.Namespace) -> int:
     return 0
 
 
+def _revoke_apply(args: argparse.Namespace) -> int:
+    from .policy import RevocationStore
+
+    with open(args.record, encoding="utf-8") as f:
+        obj = json.load(f)
+    masters = _revocation.MasterSet.load(args.masters)
+    record = _revocation.verify_revocation(obj, masters)
+    if record is None:
+        print(f"INVALID: not signed by {masters.threshold} of {len(masters)} master(s); store unchanged")
+        return 1
+    store = RevocationStore(args.store)
+    if any(existing.get("record_id") == record.record_id for existing in store.load()):
+        print(f"already in {args.store}: {record.record_id[:16]}...")
+        return 0
+    store.append(obj)
+    print(f"appended to {args.store}: revokes {', '.join(sorted(record.revoked))}")
+    print("processes sharing this store pick it up on their next refresh", file=sys.stderr)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="secdogie-identity", description="Manage secdogie DID signing keys.")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -206,6 +227,12 @@ def build_parser() -> argparse.ArgumentParser:
     rv.add_argument("record", help="path to the revocation JSON")
     rv.add_argument("masters", help="master set file (master_did = ... lines, optional threshold = k)")
     rv.set_defaults(fn=_revoke_verify)
+
+    ra = sub.add_parser("revoke-apply", help="verify a revocation and append it to a revocation store")
+    ra.add_argument("record", help="path to the co-signed revocation JSON")
+    ra.add_argument("--masters", required=True, help="master set file")
+    ra.add_argument("--store", required=True, help="revocation store (JSON lines) shared with running processes")
+    ra.set_defaults(fn=_revoke_apply)
     return p
 
 

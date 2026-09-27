@@ -40,3 +40,8 @@ secdogie-citadel verify citadel.db   # re-derive chains + signatures
 secdogie-citadel goals  citadel.db   # projected goal tree (ready * / order)
 secdogie-citadel log    citadel.db   # events in total order
 ```
+
+`add-goal`, `run`, `add-grant` and `scopes` take `--masters masters.conf
+--revocations revocations.jsonl`. Events from a revoked author stop merging, and
+grants from a revoked issuer stop counting. `run` does not start if this node's
+own DID is revoked, and halts (exit 0) if the revocation arrives mid-run.

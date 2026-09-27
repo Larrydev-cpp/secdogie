@@ -251,6 +251,8 @@ def connect_and_serve(
     identity: Identity | None = None,
     coordinator_allowlist: Allowlist | None = None,
     logger: logging.Logger | None = None,
+    stop_event: threading.Event | None = None,
+    stop_grace: float = 10.0,
 ) -> None:
     """Dial the coordinator and serve assignments until the socket closes.
 
@@ -262,7 +264,14 @@ def connect_and_serve(
     It is all or nothing: an identity without an allowlist used to fall back to
     accepting UNSIGNED assignments, so half a configuration is refused. Both stay
     lazy so the unsigned path never imports PyNaCl.
+
+    ``stop_event``, when given, ends the session from outside (the CLI sets it
+    when this node's own DID is revoked): the running task is asked to stop,
+    given up to ``stop_grace`` seconds to report its result, and the function
+    returns. It is checked between reads, so it takes effect within a second.
     """
+    if stop_event is not None and stop_event.is_set():
+        return
     if (identity is None) != (coordinator_allowlist is None):
         raise ValueError("fleet secure mode needs both an identity and a coordinator_allowlist")
     log = logger or logging.getLogger("secdogie_fleet.node")
@@ -285,12 +294,17 @@ def connect_and_serve(
         except OSError:
             pass
         lock = threading.Lock()
+        if stop_event is not None:
+            sock.settimeout(0.5)  # so the read loop can notice stop_event
 
         def send(msg: Message) -> None:
             text = sign(msg, identity) if sign is not None and identity is not None else to_json(msg)
             line = (text + "\n").encode("utf-8")
             with lock:  # the worker thread and the main loop both send
-                sock.sendall(line)
+                try:
+                    sock.sendall(line)
+                except OSError as e:  # the connection is gone; the worker must not crash on it
+                    log.warning("could not send %s to the coordinator (%s)", type(msg).__name__, e)
 
         node = Node(
             nid, send, run_task,
@@ -302,7 +316,15 @@ def connect_and_serve(
 
         buf = b""
         while True:
-            chunk = sock.recv(65536)
+            if stop_event is not None and stop_event.is_set():
+                node._stop.set()  # the running task stops at its next step
+                node.wait_idle(stop_grace)
+                log.info("stopping: session ended from outside")
+                return
+            try:
+                chunk = sock.recv(65536)
+            except TimeoutError:
+                continue
             if not chunk:
                 log.info("coordinator closed the connection")
                 return

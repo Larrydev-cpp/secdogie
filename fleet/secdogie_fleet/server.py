@@ -87,6 +87,31 @@ class FleetServer:
         self.address = self._sock.getsockname()
         self._stopping = threading.Event()
         self._accept_thread: threading.Thread | None = None
+        # With a revocation-aware allowlist (secdogie_identity.TrustPolicy), a node
+        # whose DID is revoked is disconnected at once, not just refused next time.
+        if node_allowlist is not None and hasattr(node_allowlist, "on_change"):
+            node_allowlist.on_change(self.drop_revoked)
+
+    def drop_revoked(self, dids) -> list[str]:
+        """Disconnect every node bound to one of ``dids``. Its serving thread then
+        runs the usual disconnect path (``on_node_lost`` + ``pump``), so a task it
+        held goes back in the queue. The node_id stays bound to the revoked DID,
+        and that DID no longer verifies, so it cannot come back. Returns the
+        node_ids dropped."""
+        revoked = set(dids)
+        dropped: list[str] = []
+        with self._lock:
+            for node_id, did in self._node_dids.items():
+                conn = self._conns.get(node_id)
+                if did in revoked and conn is not None:
+                    try:
+                        conn.shutdown(socket.SHUT_RDWR)  # wakes the blocked recv
+                    except OSError:
+                        pass
+                    dropped.append(node_id)
+        for node_id in dropped:
+            self.log.warning("node %s disconnected: its DID was revoked", node_id)
+        return dropped
 
     def serve_forever(self) -> None:
         self.log.info("fleet coordinator listening on %s:%d", *self.address)

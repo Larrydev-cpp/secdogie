@@ -23,6 +23,7 @@ a fake, so all of this is exercised headlessly with no model, desktop, or networ
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable
 from typing import Any
 
@@ -51,6 +52,21 @@ class Supervisor:
         # Trusted capability issuers (operator DIDs). When set, every action the
         # agent is about to execute is checked against this node's grants.
         self.issuers = issuers
+        self._halted = threading.Event()
+
+    # -- halting ---------------------------------------------------------------
+
+    def halt(self, reason: str = "") -> None:
+        """Stop this node's work: the running goal sees ``should_stop`` and
+        ``run_ready`` schedules nothing further. Used when this node's own DID
+        is revoked. Idempotent."""
+        if not self._halted.is_set():
+            self.log.warning("supervisor halted%s", f": {reason}" if reason else "")
+        self._halted.set()
+
+    @property
+    def halted(self) -> bool:
+        return self._halted.is_set()
 
     # -- capabilities (2.9) ----------------------------------------------------
 
@@ -208,6 +224,8 @@ class Supervisor:
             self.recorder.finish_run(d.run_id, 5, f"superseded by {run_id} after recovery")
 
         def should_stop() -> bool:
+            if self._halted.is_set():
+                return True
             s, _ = self._controls()
             return goal_id in s
 
@@ -273,6 +291,8 @@ class Supervisor:
         lowest ready id first each round."""
         results: list[tuple[str, int, str]] = []
         for _ in range(max_goals):
+            if self._halted.is_set():
+                break
             ready = sorted(self.pending_ready())
             if not ready:
                 break
