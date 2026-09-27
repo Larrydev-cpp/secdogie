@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secdogie-dialogue"
+version = "0.1.0"
+description = "The operator's Dialogue & Alignment App for secdogie: Socratic probes and clarifications, a structural (zero-screenshot) inspector, and the Gate 2 operator signature, over a DID-authenticated P2P session."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# identity: signed envelopes and the operator key. citadel: the exact
+# authz.action_hash / create_authorization the node verifies against, so the App
+# recomputes a challenge's hash byte for byte as the node does.
+dependencies = ["secdogie-identity", "secdogie-citadel"]
+
+[tool.setuptools.packages.find]
+include = ["secdogie_dialogue*"]
