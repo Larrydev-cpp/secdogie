@@ -12,6 +12,7 @@ from __future__ import annotations
 from .dht import RoutingTable, find_node, find_peer, node_id, xor_distance
 from .endpoint import Endpoint, EndpointSet
 from .membership import MembershipView, PeerRecord, gossip_round
+from .mux import ChannelMux
 from .peer import PeerIdentity
 from .relay import RelayClient, RelayService
 from .rendezvous import RendezvousClient, RendezvousServer
@@ -32,6 +33,7 @@ __all__ = [
     "Transport",
     "HubTransport",
     "DirectUDPTransport",
+    "ChannelMux",
     "UDPChannel",
     "ReplayWindow",
     "load_transport_key",
