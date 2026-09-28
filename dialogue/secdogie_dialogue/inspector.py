@@ -8,10 +8,11 @@ packets it is given. There are no pixels anywhere in the model, only a DIB
 region's size, format and content hash.
 
 Folding is strict. A delta is applied only if it applies cleanly to what we
-already hold; anything inconsistent -- an update of an unknown node, a parent
-that does not exist, a cycle, a focus or DIB reference to nothing, a delta for a
-window we have no base for -- leaves the last consistent tree in place and marks
-the state ``needs_resync``. The App then asks for a full snapshot rather than
+already hold; anything inconsistent -- a delta built on a generation other than
+the one we hold (one in between was lost), an update of an unknown node, a
+parent that does not exist, a cycle, a focus or DIB reference to nothing, a
+delta for a window we have no base for -- leaves the last consistent tree in
+place and marks the state ``needs_resync``. The App then asks for a full snapshot rather than
 showing a guess. Snapshots at or below the current generation are stale and
 ignored.
 
@@ -78,6 +79,10 @@ def apply(state: InspectorState, pkt: StateSnapshotPacket) -> InspectorState:
             return state  # no consistent base to apply a delta to; still waiting for a full snapshot
         if not same_window:
             return _desync(state, "a delta for a window we hold no tree for")
+        if pkt.base_generation != state.generation:
+            # built on a tree we never saw (a delta in between was lost)
+            return _desync(state, f"gap: delta applies to generation {pkt.base_generation}, "
+                                  f"holding {state.generation}")
     try:
         if pkt.full:
             nodes, dib = _rebuild(pkt.nodes)

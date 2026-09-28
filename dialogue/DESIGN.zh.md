@@ -329,3 +329,9 @@ Inspector 归并规则（`inspector.apply`）：只采纳能干净应用的增�
 - **先认证再解析**：签名有效且签名者在信任策略上（`TrustPolicy`，撤销即拒）之后，才解析 header 与 payload；未认证的对端永远到不了解析器。
 - **严格 schema**：每个字段必填，未知字段拒收（结构化视界里无法夹带像素字段），类型精确（bool 不算 int，非有限浮点不算时间）。
 - **防重放**：`timestamp_ns` 须在本地时钟 ±30 s 内；同一 (sender, session) 的 `seq` 严格递增。被拒的包不消耗 seq。会话表有上限，满时只遗忘空闲超过两倍 skew 窗口的会话（此时它被接收过的任何包都已不新鲜，遗忘不会重新打开重放）；若全是活跃会话则拒绝新会话（fail closed），绝不驱逐活跃会话。
+
+### 第二阶段修订（Wave C0）
+
+6. **防重放改为滑动窗口**：`ReplayGuard` 对每个 (sender, session) 记下最高 seq 以及其下 256 个的位图，做法同 transport 的帧计数器。窗口内乱序到达的包照常接收，且只接收一次；落后超过窗口的包拒收。原先“严格递增”的规则在 UDP 上会误杀被重排的包，也会误杀比新包晚到的重传。
+7. **`StateSnapshotPacket.base_generation`**：增量必须声明它基于哪一代（`0 ≤ base < generation`），全量快照为 -1。Inspector 只在 base 等于当前持有的代际时才应用增量，否则判为有缺口、请求重同步。这样丢了一个中间增量能被发现，不会让视图悄悄停在旧状态。
+8. **`ControlPacket`（`PacketKind.CONTROL`）**：App → 节点的操作员请求，包括 `add_goal` / `stop` / `pause` / `resume` / `confirm_memory`（携带会话钥签名的 memory-confirmation）/ `retract_memory`。节点用 `in_reply_to = request_id` 的 `SystemStatus` 回复结果。不变量：目标类操作必须带 `goal_id`，`add_goal` 必须带任务标题，记忆类操作必须带 `memory_id`，只有 `confirm_memory` 携带确认。

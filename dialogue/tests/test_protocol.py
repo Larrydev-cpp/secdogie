@@ -8,6 +8,8 @@ pytest.importorskip("nacl")
 
 from secdogie_dialogue.protocol import (
     PROTOCOL_VERSION,
+    ControlOp,
+    ControlPacket,
     DialoguePacket,
     DialogueType,
     DibRef,
@@ -71,6 +73,9 @@ def _packets():
         Gate2ResponsePacket("ch1", "00" * 32, Verdict.DENY),
         Gate2ResponsePacket("ch1", "00" * 32, Verdict.APPROVE, {"type": "x", "sig": "y"}),
         SessionPacket(SessionEvent.HEARTBEAT),
+        StateSnapshotPacket(42, 7, 4, (NodeDelta(NodeOp.REMOVE, 2),), base_generation=3),
+        ControlPacket("r1", ControlOp.ADD_GOAL, goal_id="g1", title="tidy the desktop"),
+        ControlPacket("r2", ControlOp.CONFIRM_MEMORY, memory_id="m1", confirmation={"type": "x", "sig": "y"}),
     ]
 
 
@@ -203,13 +208,33 @@ def test_a_validly_signed_object_of_another_protocol_is_refused():
 # ---- freshness and replay -----------------------------------------------------
 
 
-def test_replayed_and_out_of_order_packets_are_refused():
+def test_an_in_order_stream_is_admitted_and_each_packet_only_once():
+    sender, replay, _ = _pair()
+    stream = [sender.seal(SessionPacket(SessionEvent.HEARTBEAT)) for _ in range(5)]
+    assert all(_open(p, replay).ok for p in stream)
+    assert all(_open(p, replay).reason == "replayed sequence number" for p in stream)
+
+
+def test_replays_are_refused_but_reordering_inside_the_window_is_not():
     sender, replay, _ = _pair()
     first = sender.seal(SessionPacket(SessionEvent.HELLO))
     second = sender.seal(SessionPacket(SessionEvent.HEARTBEAT))
     assert _open(second, replay).ok
-    assert _open(second, replay).reason == "replayed or out-of-order sequence number"
-    assert _open(first, replay).reason == "replayed or out-of-order sequence number"
+    assert _open(first, replay).ok  # UDP reordered it: still admitted, once
+    assert _open(second, replay).reason == "replayed sequence number"
+    assert _open(first, replay).reason == "replayed sequence number"
+
+
+def test_a_packet_too_far_behind_the_newest_is_refused():
+    clock = Clock()
+    replay = ReplayGuard(window=4, clock_ns=clock)
+    s = Sender(OP, NODE.did, clock_ns=clock)
+    held = [s.seal(SessionPacket(SessionEvent.HEARTBEAT)) for _ in range(5)]  # seq 1..5, delayed
+    assert _open(s.seal(SessionPacket(SessionEvent.HEARTBEAT)), replay).ok  # seq 6 arrives first
+    # a 4-wide window behind seq 6 holds 3..6
+    assert _open(held[1], replay).reason == "sequence number too old (outside the replay window)"  # seq 2
+    assert _open(held[2], replay).ok  # seq 3: just inside
+
 
 
 def test_sessions_are_sequenced_independently():
@@ -270,7 +295,7 @@ def test_forgetting_an_idle_session_cannot_reopen_a_replay():
     res = _open(Sender(OP, NODE.did, session_id="B", clock_ns=clock).seal(
         SessionPacket(SessionEvent.HELLO)), replay)
     assert res.reason == "too many live sessions"
-    assert _open(captured, replay).reason == "replayed or out-of-order sequence number"
+    assert _open(captured, replay).reason == "replayed sequence number"
 
 
 # ---- strict schema ------------------------------------------------------------
@@ -332,6 +357,22 @@ def test_packet_invariants():
         NodeDelta(NodeOp.ADD, 3, parent_index=3)
     with pytest.raises(ProtocolError):
         Header(**_hdr(seq=-1))
+
+
+@pytest.mark.parametrize("make", [
+    lambda: StateSnapshotPacket(1, 1, 3, (), full=True, base_generation=2),  # full has no base
+    lambda: StateSnapshotPacket(1, 1, 3, ()),  # a delta must name its base
+    lambda: StateSnapshotPacket(1, 1, 3, (), base_generation=3),  # base must be earlier
+    lambda: ControlPacket("", ControlOp.STOP, goal_id="g"),  # no request id
+    lambda: ControlPacket("r", ControlOp.STOP),  # which goal?
+    lambda: ControlPacket("r", ControlOp.ADD_GOAL, goal_id="g", title="  "),  # no task
+    lambda: ControlPacket("r", ControlOp.CONFIRM_MEMORY, memory_id="m"),  # confirmation missing
+    lambda: ControlPacket("r", ControlOp.CONFIRM_MEMORY, confirmation={"sig": "x"}),  # which memory?
+    lambda: ControlPacket("r", ControlOp.RETRACT_MEMORY, memory_id="m", confirmation={"sig": "x"}),
+])
+def test_snapshot_and_control_invariants(make):
+    with pytest.raises(ProtocolError):
+        make()
 
 
 def test_invariants_hold_on_the_wire_too():
