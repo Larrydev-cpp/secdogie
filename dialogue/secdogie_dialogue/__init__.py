@@ -34,6 +34,19 @@ from .protocol import (
     open_envelope,
     seal,
 )
+from .view import InspectorView, ViewMode, render_view
+from .wireframe import (
+    RADAR_OPTIONS,
+    SVG_OPTIONS,
+    Shape,
+    ShapeKind,
+    VectorWireframeEngine,
+    Wireframe,
+    WireframeOptions,
+    render_radar,
+    to_svg,
+    to_text_grid,
+)
 
 __version__ = "0.1.0"
 
@@ -61,4 +74,18 @@ __all__ = [
     "Verdict",
     "open_envelope",
     "seal",
+    # structural view + geometry
+    "InspectorView",
+    "ViewMode",
+    "render_view",
+    "VectorWireframeEngine",
+    "Wireframe",
+    "WireframeOptions",
+    "Shape",
+    "ShapeKind",
+    "RADAR_OPTIONS",
+    "SVG_OPTIONS",
+    "render_radar",
+    "to_svg",
+    "to_text_grid",
 ]
