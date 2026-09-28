@@ -76,6 +76,9 @@ Rules:
 - If the task would require entering credentials, making a payment, sending a message on the
   user's behalf, deleting data, or anything else with real-world consequences the user has not
   explicitly asked for, use "ask_user" and explain what you need confirmed instead of doing it.
+- A high-risk step (open, run_elevated, or a save / delete / close / send hotkey) must say what
+  happens if it goes wrong: add "rollback": how to undo it, or "irreversible": true if it cannot
+  be undone. A high-risk step with neither may be refused; if so, restate it with one.
 - If you believe the task is complete, use "done", don't keep clicking around.
 - One action per reply. You will be shown the result and a fresh screenshot (or
   an accessibility-only listing) before the next one. When the task says

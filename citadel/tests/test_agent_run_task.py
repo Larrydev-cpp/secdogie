@@ -86,9 +86,21 @@ def test_stop_status_and_recording_hooks_are_wired(captured):
     assert cfg.should_stop() is False
     cfg.on_event("step", {"n": 1})
     assert statuses == ["step: {'n': 1}"]
-    cfg.trace_on_entry(SimpleNamespace(frame_sha256="f00d", action="left_click", result="ok"))
-    assert recorded == [{"observation": "f00d", "action": "left_click", "result": "ok"}]
+    cfg.trace_on_entry(SimpleNamespace(frame_sha256="f00d", action="left_click", result="clicked"))
+    cfg.trace_on_entry(SimpleNamespace(frame_sha256="beef", action="left_click", result="error: boom"))
+    assert recorded == [
+        {"observation": "f00d", "action": "left_click", "result": "clicked", "outcome": "ok"},
+        {"observation": "beef", "action": "left_click", "result": "error: boom", "outcome": "failed"},
+    ]
     assert cfg.plan_gate is gate
+
+
+def test_staged_memory_hooks_are_wired(captured):
+    remember, recall = (lambda value, key: "held"), (lambda: "- confirmed fact")
+    _, _, cfg, _, _ = _run(captured, remember=remember, recall=recall)
+    assert cfg.remember_hook is remember and cfg.memory_block is recall
+    _, _, cfg, _, _ = _run(captured)
+    assert cfg.remember_hook is None and cfg.memory_block is None
 
 
 def test_recovery_puts_a_check_before_redoing_note_in_front_of_the_task(captured):
