@@ -29,6 +29,12 @@ class AxElement:
     # source didn't record it. Walk metadata, not identity: excluded from ==/hash
     # so a hit-tested element still equals the same element from a snapshot.
     depth: int = field(default=-1, compare=False)
+    # Live content, also excluded from identity (a field's text changes as the
+    # user types; it is still the same field). "" / None where a platform or
+    # element doesn't expose it. Secure (password) fields never carry a value.
+    value: str = field(default="", compare=False)
+    selected_text: str = field(default="", compare=False)
+    table_cell: tuple[int, int] | None = field(default=None, compare=False)  # (row, column)
 
     @property
     def center(self) -> tuple[int, int]:

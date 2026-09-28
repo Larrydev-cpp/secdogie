@@ -130,6 +130,9 @@ class SemanticNode:
     parent_index: int = -1
     is_interactive: bool = False
     visual_reference: VisualReference | None = None
+    value: str = ""  # live content (AXValue); "" for secure fields
+    selected_text: str = ""
+    table_cell: tuple[int, int] | None = None  # (row, column) when inside a table
 
     def key(self) -> tuple[str, str, str]:
         return (self.role, self.name, self.automation_id)

@@ -98,6 +98,14 @@ def interactable_targets(elements: list[AxElement]) -> list[AxElement]:
     return [el for el in elements if is_target(el)]
 
 
+# Per-line cap on live text in the listing; the full value stays on the element.
+_LISTING_TEXT_CHARS = 80
+
+
+def _clip(text: str) -> str:
+    return text if len(text) <= _LISTING_TEXT_CHARS else text[: _LISTING_TEXT_CHARS - 1] + "…"
+
+
 def render_for_model(targets: list[AxElement]) -> str:
     """Format `targets` as the block appended to the model's task, or "" when
     there are none (the caller then appends nothing and the step is unchanged).
@@ -111,6 +119,12 @@ def render_for_model(targets: list[AxElement]) -> str:
         # Show the automation-id too when it exists alongside a visible name -- it
         # disambiguates lookalikes ("OK" appearing twice) at a glance.
         extra = f" (id={el.automation_id})" if el.automation_id and el.name else ""
+        if el.table_cell is not None:
+            extra += f" [row {el.table_cell[0]}, col {el.table_cell[1]}]"
+        if el.value and el.value != el.name:
+            extra += f" value={_clip(el.value)!r}"
+        if el.selected_text:
+            extra += f" selected={_clip(el.selected_text)!r}"
         lines.append(f'  [e{i}] {el.role} "{label}"{extra}')
     return (
         "Interactable elements detected on screen (from the accessibility tree). "
