@@ -714,7 +714,19 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 question = action.text or action.raw.get("text", "")
                 logger.info("model is asking: %s", question)
                 if config.ask_operator is not None:
-                    allowed = bool(config.ask_operator(question))
+                    reply = config.ask_operator(question)
+                    if isinstance(reply, str):
+                        # The operator answered in words (the Dialogue App): the
+                        # answer goes into the model's history and the run goes
+                        # on. An empty answer is no answer.
+                        answer = reply.strip()
+                        if not answer:
+                            logger.info("no answer from the operator after ask_user")
+                            return _done(config, 2)
+                        logger.info("operator answered: %s", answer)
+                        record_result(f"the operator answered: {answer}")
+                        continue
+                    allowed = bool(reply)
                 elif config.gui:
                     allowed = dialog.ask_user(question)
                 else:

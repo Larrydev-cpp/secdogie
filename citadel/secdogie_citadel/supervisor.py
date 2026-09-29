@@ -47,6 +47,26 @@ class MemoryConfig:
     require_intent: bool = True
 
 
+@dataclass(frozen=True)
+class OperatorHooks:
+    """How a node reaches its operator (the Dialogue App bridge), as plain
+    callables so citadel needs no dialogue import. All optional.
+
+    ``confirm(prompt, high_risk)``: a high-risk step or plan approval.
+    ``ask(question)``: the model's ask_user -> the operator's answer text, or
+    None when there is none (timeout, peer down). ``authorize(planned)``: a
+    destructive action -> an operator-signed Gate 2 token, or None; the gate
+    verifies it against ``operators``. ``observe(planned, decision)`` sees every
+    gate decision (the bridge uses it to make a fresh signature count as the
+    step's confirmation)."""
+
+    confirm: Callable[[str, bool], bool] | None = None
+    ask: Callable[[str], str | None] | None = None
+    authorize: Callable[[Any], dict | None] | None = None
+    operators: Any = None
+    observe: Callable[[Any, Any], None] | None = None
+
+
 class Supervisor:
     def __init__(
         self,
@@ -73,6 +93,7 @@ class Supervisor:
         # agent is about to execute is checked against this node's grants.
         self.issuers = issuers
         self.memory = memory
+        self._hooks = OperatorHooks()
         self._candidates = None
         if memory is not None:
             from .lessons import CandidateStore
@@ -131,6 +152,13 @@ class Supervisor:
 
     def set_confirm_handler(self, handler: Callable[[str, bool], bool] | None) -> None:
         self._confirm_handler = handler
+
+    def set_operator_hooks(self, hooks: OperatorHooks | None) -> None:
+        """Reach the operator through the Dialogue App bridge. Its ``confirm``
+        replaces the plain confirm handler."""
+        self._hooks = hooks or OperatorHooks()
+        if self._hooks.confirm is not None:
+            self._confirm_handler = self._hooks.confirm
 
     # -- projections ---------------------------------------------------------
 
@@ -255,6 +283,14 @@ class Supervisor:
         self.journal.append("confirm_result", {"goal_id": goal_id, "approved": approved})
         return approved
 
+    def _ask(self, goal_id: str, question: str):
+        """The model's question to the operator, and the answer, on the journal."""
+        self.journal.append("ask_request", {"goal_id": goal_id, "question": question})
+        answer = self._hooks.ask(question) if self._hooks.ask is not None else None
+        self.journal.append("ask_result", {"goal_id": goal_id, "answered": answer is not None,
+                                           "answer": answer if isinstance(answer, str) else ""})
+        return answer
+
     def run_goal(self, goal_id: str) -> tuple[int, str]:
         node = self._tree().nodes.get(goal_id)
         if node is None:
@@ -318,11 +354,20 @@ class Supervisor:
         # Optional hooks, passed only when in use so older run_task callables that
         # don't accept them keep working.
         extra: dict = {}
-        if self.issuers is not None or self.memory is not None:
+        hooks = self._hooks
+        if self.issuers is not None or self.memory is not None or hooks.authorize is not None:
             from .loop_gate import make_plan_gate
 
             instruction = node.title or goal_id
             enforce = self.issuers is not None
+            ident = getattr(self.journal, "identity", None)
+            subject_did = getattr(ident, "did", "") if ident is not None else ""
+            observers = [o for o in (correlator.observe if correlator is not None else None, hooks.observe)
+                         if o is not None]
+
+            def observe(planned, decision):
+                for o in observers:
+                    o(planned, decision)
 
             def plan_gate(view, recent):
                 # Re-read grants and goals on every check, so an expiry, a new
@@ -333,13 +378,16 @@ class Supervisor:
                     active_goal_ids=self._active_goal_ids() if self.memory is not None else (),
                     purpose=goal_id if self.memory is not None else "",
                     require_intent=bool(self.memory is not None and self.memory.require_intent),
-                    observer=correlator.observe if correlator is not None else None,
+                    observer=observe if observers else None,
+                    authorize=hooks.authorize, operators=hooks.operators, subject_did=subject_did,
                 )(view, recent)
 
             extra["plan_gate"] = plan_gate
         if self.memory is not None:
             extra["remember"] = self._remember
             extra["recall"] = self._recall
+        if hooks.ask is not None:
+            extra["ask"] = lambda question: self._ask(goal_id, question)
         if recovery is not None:
             extra["recovery"] = {
                 "run_id": recovery.run_id,
@@ -405,7 +453,7 @@ def terminal_confirm(prompt: str, high_risk: bool) -> bool:
 
 def agent_run_task(
     task: str, *, should_stop, on_status, confirm, record_step=None, plan_gate=None, recovery=None,
-    remember=None, recall=None,
+    remember=None, recall=None, ask=None,
 ) -> tuple[int, str]:
     """Production task runner: drive the real agent loop for one goal, keeping the
     high-risk confirmation gate wired to `confirm`. Imports the agent lazily so
@@ -443,7 +491,9 @@ def agent_run_task(
     cfg_kwargs["should_stop"] = should_stop
     cfg_kwargs["on_event"] = lambda ev, payload: on_status(f"{ev}: {payload}")
     cfg_kwargs["approve_action"] = lambda prompt, high_risk: confirm(prompt, high_risk)
-    cfg_kwargs["ask_operator"] = lambda question: confirm(question, True)
+    # ask_user: through the operator bridge when there is one (the answer text
+    # returns to the model), else the plain high-risk confirmation as before.
+    cfg_kwargs["ask_operator"] = ask if ask is not None else (lambda question: confirm(question, True))
     # The loop calls approver(task, plan): show the operator the plan, not the task.
     cfg_kwargs["approve_plan"] = lambda task, plan: confirm(f"approve plan: {(plan or '')[:200]}", False)
     if record_step is not None:

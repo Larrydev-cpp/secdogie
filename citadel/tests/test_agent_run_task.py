@@ -95,6 +95,15 @@ def test_stop_status_and_recording_hooks_are_wired(captured):
     assert cfg.plan_gate is gate
 
 
+def test_ask_goes_to_the_operator_bridge_when_given_else_to_confirm(captured):
+    answers = []
+    _, _, cfg, calls, _ = _run(captured, ask=lambda q: answers.append(q) or "Downloads")
+    assert cfg.ask_operator("which folder?") == "Downloads"
+    assert answers == ["which folder?"] and calls == []
+    _, _, cfg, calls, _ = _run(captured)
+    assert cfg.ask_operator("which folder?") is True and calls == [("which folder?", True)]
+
+
 def test_staged_memory_hooks_are_wired(captured):
     remember, recall = (lambda value, key: "held"), (lambda: "- confirmed fact")
     _, _, cfg, _, _ = _run(captured, remember=remember, recall=recall)

@@ -342,3 +342,9 @@ Inspector 归并规则（`inspector.apply`）：只采纳能干净应用的增�
    - 心跳每 2 s；连续 3 个间隔没听到对端即 `on_peer_down`，再次听到即 `on_peer_up`。
    - 只投递本会话对端 DID 签的包：信任策略里的其他钥匙也不算这个对端。
    - 一切计时都走 `tick(now)`，测试用假时钟和带种子的丢包 / 重复 / 乱序内存链路驱动，结果确定；另有一条真实 UDP 回环用例。变异测试 20/20 全杀。
+10. **节点端桥接 `agent_bridge.py`（C3，即原设计的切片 7）**：`OperatorBridge` 以 citadel 的 `OperatorHooks` 形式接进 `Supervisor`，citadel 不引入 dialogue 依赖。
+   - **Gate 2**：门（`loop_gate.make_plan_gate(authorize=…)`）对每个破坏性动作调用 `authorize(planned)`；桥发 `Gate2ChallengePacket`（动作、风险、节点算出的 hash、节点 DID、时效）并阻塞等待；Approve 带回的令牌**交由门校验**（`_check_authorization`），桥自己不判令牌。Deny、超时、对端消失、答非所问一律返回 None → 门拒绝；`unauthorized-action` 在循环里阻断。
+   - **签名即确认（机主已定）**：门放行一个刚由操作员签过的破坏性动作后，桥记一个一次性标记；循环随后的高风险确认消费该标记即通过，不再二次询问。标记只对"同一动作 + 门放行 + 操作员刚签"成立，用过即清，对端下线也清；其他确认（计划批准、无签名的步骤）走 Approve / Deny 追问，且只有字面 `Approve` 算数。
+   - **ask_user → 追问**：`ask(question)` 经 `ProbeLedger` 发出追问、等待回答，返回操作员的文字；循环把它写进模型历史继续推演（返回 `bool` 的旧接法照旧可用）。Supervisor 把问答记为 `ask_request` / `ask_result` 日志事件。
+   - **控制与会话**：`ControlPacket` 交给节点的 `on_control`，结果以 `in_reply_to = request_id` 的 `SystemStatus` 回复（无处理器或处理器抛错都回 `refused: …`）；`RESYNC` 交给快照发布者；`BYE` 视为对端下线。
+   - 变异测试：dialogue 17、citadel 15、agent 4 个变异体全杀。

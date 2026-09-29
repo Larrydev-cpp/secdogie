@@ -20,6 +20,7 @@ Design: [DESIGN.zh.md](DESIGN.zh.md).
 | `inspector.py` | Structural tree merge (AX / UIA + DIB metadata, never pixels) and text render model | done |
 | `dialogue.py` | Socratic probe / clarification state machine (timeout = fail closed) | done |
 | `session.py` | Envelopes over a lossy link: fragmentation, a reliable control channel (ack + backoff, give-up reported), unreliable snapshots, heartbeats; `SessionRouter` binds sessions to a transport `ChannelMux` channel by verified peer DID | done |
+| `agent_bridge.py` | The node's end: `OperatorBridge` turns a destructive step into a Gate 2 challenge (the gate verifies the returned token; the signature is the step's confirmation), `ask_user` into a Socratic probe whose answer returns as text, and answers control requests; a vanished peer fails every pending wait | done |
 | `app.py` | Textual TUI over the pure models above | planned |
 
 ## The wire, in one paragraph

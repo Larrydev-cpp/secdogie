@@ -14,9 +14,11 @@ class RecordingProvider(VisionProvider):
     def __init__(self, script):
         self.script = list(script)
         self.tasks: list[str] = []
+        self.results: list[list[str]] = []  # the step results in the history shown each step
 
     def next_action(self, task, screenshot_png, screen_size, history):
         self.tasks.append(task)
+        self.results.append([h.result for h in history])
         return Action.from_dict(self.script.pop(0))
 
 
@@ -65,6 +67,28 @@ def test_the_models_rollback_and_irreversible_reach_the_plan_gate():
     assert loop.run(provider, config) == 0
     assert [(v["rollback"], v["irreversible"]) for v in seen] == [
         ("close the viewer", False), ("", True), ("", False)]
+
+
+# ---- ask_user through an operator that answers in words ----------------------------
+
+
+@pytest.mark.parametrize("reply,code,expect", [
+    ("the Downloads folder", 0, "the operator answered: the Downloads folder"),
+    ("   ", 2, None),  # an empty answer is no answer
+    (True, 0, "user confirmed, continuing"),  # the old boolean protocol still works
+    (False, 2, None),
+])
+def test_ask_user_takes_the_operators_answer_or_a_plain_yes_no(reply, code, expect):
+    seen = []
+    provider = RecordingProvider([
+        {"action": "ask_user", "text": "which folder?"},
+        {"action": "done", "text": "ok"},
+    ])
+    config = loop.AgentConfig(task="t", auto=True, max_steps=10, ask_operator=lambda q: seen.append(q) or reply)
+    assert loop.run(provider, config) == code
+    assert seen == ["which folder?"]
+    if expect:
+        assert provider.results[-1] == [expect]  # the model sees the answer in its history
 
 
 # ---- staged memory hooks -----------------------------------------------------------
