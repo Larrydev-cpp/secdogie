@@ -229,3 +229,28 @@ def test_memory_offer_and_goal_commands():
         assert "unknown command" in app.message
 
     run(t)
+
+
+def test_the_panels_keep_updating_under_the_passphrase_prompt():
+    async def t(app, pilot, ctl, s):
+        deliver(ctl, challenge())
+        app.refresh_panels()
+        await type_line(pilot, "/approve")
+        assert isinstance(app.screen, PassphraseScreen)
+        deliver(ctl, DialoguePacket("p9", DialogueType.SOCRATIC_QUESTION, "Still there?"))
+        app.refresh_panels()  # a timer tick while the prompt is the active screen
+        assert "Still there?" in app.screen_stack[0].query_one("#convo").content.plain
+        await pilot.press("escape")
+        await pilot.pause()
+        assert s.sent == []
+
+    run(t, unlock_with=lambda p: OPERATOR)
+
+
+def test_a_refresh_during_teardown_draws_nothing_and_does_not_crash():
+    async def t(app, pilot, ctl, s):
+        await app.screen_stack[0].query_one("#status").remove()  # the screen is being torn down
+        app.refresh_panels()
+        assert app._panels() is None
+
+    run(t)
