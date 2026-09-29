@@ -70,8 +70,9 @@ passphrase prompt, and only a challenge the App's own review passed gets one.
 
 Headless (`--headless SCRIPT`, JSON lines, one result line per step, exit 0
 only if every step succeeded) is for end-to-end tests. A script approves
-nothing by default: each `approve` step names the action (its kind and a
-target) and signs the one challenge that matches, after the same review.
+nothing by default: each `approve` step names the action (its kind, and a
+target id / name or, for a key press, its text) and signs the one challenge
+that matches, after the same review.
 
 ```json
 {"op": "add_goal", "title": "file the report", "goal_id": "g1"}

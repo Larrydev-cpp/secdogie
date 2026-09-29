@@ -55,6 +55,12 @@ jobs:
             needs_identity: true
             needs_citadel: true
             needs_transport: true  # so the real-UDP session round trip runs (not skip)
+          - dir: node       # resident node: end-to-end loop over real UDP, process smoke tests
+            needs_identity: true
+            needs_citadel: true
+            needs_transport: true
+            needs_agent: true      # the end-to-end test drives the real agent loop
+            needs_dialogue: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -85,6 +91,9 @@ jobs:
           fi
           if [ "${{ matrix.needs_console }}" = "true" ]; then
             pip install -e ../console
+          fi
+          if [ "${{ matrix.needs_dialogue }}" = "true" ]; then
+            pip install -e "../dialogue[tui]"
           fi
           pip install -e ".${{ matrix.extras }}" pytest
 

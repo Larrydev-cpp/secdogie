@@ -378,6 +378,7 @@ def test_goal_controls():
 @pytest.mark.parametrize("step", [
     {"op": "approve_all"},
     {"op": "approve", "action": {"kind": "delete"}},  # which target?
+    {"op": "approve", "action": {"kind": "key", "text": ""}},  # an empty name names nothing
     {"op": "approve", "action": {"target_name": "x"}},  # which kind?
     {"op": "approve", "action": {"kind": "delete", "target_name": "x", "hash": "y"}},
     {"op": "approve"},

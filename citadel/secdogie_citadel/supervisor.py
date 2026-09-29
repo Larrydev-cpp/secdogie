@@ -90,6 +90,7 @@ class Supervisor:
         self.run_task = run_task
         self.max_attempts = max_attempts
         self._confirm_handler = confirm_handler
+        self._plain_confirm = confirm_handler  # what confirms when no operator bridge is attached
         self.log = logger or logging.getLogger("secdogie_citadel.supervisor")
         self._build_goal_tree = build_goal_tree
         self.recorder = RunRecorder(journal)
@@ -159,14 +160,16 @@ class Supervisor:
         return self.journal.append("control", {"op": "resume", "goal_id": goal_id})
 
     def set_confirm_handler(self, handler: Callable[[str, bool], bool] | None) -> None:
-        self._confirm_handler = handler
+        self._plain_confirm = handler
+        if self._hooks.confirm is None:
+            self._confirm_handler = handler
 
     def set_operator_hooks(self, hooks: OperatorHooks | None) -> None:
         """Reach the operator through the Dialogue App bridge. Its ``confirm``
-        replaces the plain confirm handler."""
+        replaces the plain confirm handler; clearing the hooks (the App went
+        away) puts the plain handler back -- None denies."""
         self._hooks = hooks or OperatorHooks()
-        if self._hooks.confirm is not None:
-            self._confirm_handler = self._hooks.confirm
+        self._confirm_handler = self._hooks.confirm if self._hooks.confirm is not None else self._plain_confirm
 
     # -- projections ---------------------------------------------------------
 

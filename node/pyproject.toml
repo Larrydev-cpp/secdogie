@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secdogie-node"
+version = "0.1.0"
+description = "The resident secdogie node: a DID-authenticated transport, the operator dialogue, a signed journal and the supervised agent loop with staged memory, in one foreground process."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# Assembly only: every piece comes from these packages.
+dependencies = ["secdogie-identity", "secdogie-transport", "secdogie-citadel", "secdogie-dialogue"]
+
+[project.optional-dependencies]
+# The real agent loop (what a goal actually runs). Without it the node still
+# starts, talks to the App and keeps its journal; a goal fails with a clear error.
+agent = ["secdogie-agent"]
+
+[project.scripts]
+secdogie-node = "secdogie_node.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["secdogie_node*"]
