@@ -16,11 +16,12 @@
 ## 五条并行 track
 
 - **A 分散式网络** —— DID 身份 → 会话/端点 → 真 P2P UDP → rendezvous → 直连升级/relay 兜底 →
-  成员 gossip →(后)Kademlia 路由、bootstrap 加固、数据面机密性接上 tunnel/WireGuard。
+  成员 gossip → Kademlia 路由 →(后)rendezvous 上 UDP、线上 gossip、C + libsodium 隧道加固(T9)。
 - **B 分布式状态与学习** —— 签名日志 + StateStore → 反熵复制在 mesh 上收敛 → 内容寻址的观测/
   知识存储(大数据按 content_hash 引用)→(后)评估真正的 CRDT。
 - **C 心智(苏格拉底 + 监督)** —— 指令门 + 计划门 → **2.7 Agent↔Citadel run 闭环** →
-  2.8 崩溃恢复(executing 崩溃先重观测再重试)。
+  2.8 崩溃恢复(executing 崩溃先重观测再重试)→ 第二阶段:意图契约 + 阶段式记忆(S1–S3)接入实时回路,
+  Gate 2 由 Dialogue App 签名。
 - **D 受认证设备实战** —— 结构化观测融合(AX + DIB 按引用)+ 目标 TOCTOU → 2.9 能力签名授权
   模型 → AX 原生身份/代际的 OS 侧接线(macOS/Windows 验证)→ DIB 完整接入运行时。
 - **E 控制与运维** —— desktop 原生 GUI / console / fleet 协调 / CI 矩阵 / 发布 / 文档,贯穿维护。
@@ -31,9 +32,11 @@
   每一步可验证,全 headless 绿。
 - **M2 P2P mesh + 状态收敛 — ✅ 已达成**:P2P.2 直连升级 + P2P.3 成员 gossip + Replication.1。
   判据:任意两个授权节点能直连或经 relay 通信,一个节点写入的签名状态收敛到其余节点(loopback 多节点测)。
-- **M3 运行闭环 + 能力治理 — 🔨 进行中(2.7 / 2.8 / 2.9 构件已建成,待接入实时 agent 回路)**:C 的 2.7/2.8 + D 的 2.9。判据:交给节点一个目标,它能
+- **M3 运行闭环 + 能力治理 — ✅ 已达成(第二阶段,#56 / #57 / #60 / #61 / #62)**:C 的 2.7/2.8 + D 的 2.9。判据:交给节点一个目标,它能
   规划→观测→过门→(能力 + HITL)执行→验证→写回,崩溃后先重观测再安全恢复,每个动作经签名能力校验。
-- **M4 端到端纵切 — 🔜**:一个授权节点「学习 + 行动」,结果全网收敛,可 headless 演示整条链。
+  由 `secdogie-node` 的真实 UDP 端到端测试验证(Gate 1、Gate 2 签名、追问、阶段式记忆、已知失败拒绝)。
+- **M4 端到端纵切 — 🔨 部分**:单节点「学习 + 行动」的整条链已可 headless 演示(`node/tests/test_e2e.py`);
+  结果经复制在多节点间收敛的演示留到第三阶段。
 - **M5 加固 / 落地 — 🔜**:OS 原生接线在实机验证、tunnel 机密性接上数据面、打包/发布/文档、安全复审。
 
 ## 切片计划（2026-09）
@@ -41,7 +44,7 @@
 每项一个 PR：审计 → 实现 → 测试 → 跑全量 → lint → 提交。✅ 已完成，🔨 进行中，🔜 未开始。
 
 **已定决策**：
-- Tunnel T2 走双后端 + 统一 DID 控制面（生产 WireGuard，实验/气隙网 C SDTP）；
+- 加密隧道只用本仓库的 C + libsodium 实现（`tunnel/`），不引入另一套 VPN 后端；加固（v2 握手、rekey、端到端中继、控制 socket）为第三阶段 T9；
 - 中转只转发密文（端到端）；NAT 穿透经 mesh 协调，只在白名单节点之间；
 - 整机路由 = 网格子网 + 出口节点；
 - 撤销由 Master **k-of-n 门限签名**、**永久**生效；
@@ -50,22 +53,24 @@
 
 | 轨道 | 切片 | 状态 |
 | --- | --- | --- |
-| S 安全修复/纠偏 | S1 SDTP 确认后再切换（= T2.0a）· S2 fleet 安全模式全有或全无 · S3 文档与代码对齐 | ✅ ✅ ✅ |
-| A 网格运行时 | 2C 任一白名单节点兼任 relay · A0 rendezvous 上 UDP · A1 wire gossip · A2 `secdogie-node` 运行时 | ✅ 🔜 🔜 🔜 |
-| R 3.0 撤销 | R1 MasterSet/门限撤销声明/TrustPolicy · R2 全面执行 + 缓存失效 · R3 零信任默认关闭 · R4 传播（journal + 快速帧）· R5 自检停机 | 🔜 |
-| T2 隧道 | C 轨：T2.0b 卫生/fuzz/netns 冒烟 → T2.0c Noise IK v2 握手 → T2.1 定时器/rekey/DoS 限速 → T2.2 mesh 模式 → T2.3 本地控制 socket | 🔜 |
-| | Py 轨（`netd/`）：T2.4a 记录字段/地址派生/期望状态 → T2.4b WireGuard 后端 + 调和器 + 子网 → T2.4c SDTP 后端 → T2.5 密文中转 → T2.6 NAT 穿透 → T2.8 出口节点 → T2.9 撤销联动 + netns e2e | 🔜 |
-| C M3 实时回路 | C1 CI 跑真实回路测试 · C2 HITL 修正（高风险清单、全入口必确认、签名审批）· C3 fleet/console/desktop 审批通路 · C4 门控加强 · C5 运行记录前移 · C6 统一入口 · C7 设备类别与无头隔离 | 🔜 |
+| S 安全修复/纠偏 | S1 SDTP 确认后再切换· S2 fleet 安全模式全有或全无 · S3 文档与代码对齐 | ✅ ✅ ✅ |
+| A 网格运行时 | 2C 任一白名单节点兼任 relay · A0 rendezvous 上 UDP（T3）· A1 wire gossip（T4）· A2 `secdogie-node` 运行时 | ✅ 🔜 🔜 ✅ |
+| R 3.0 撤销 | R1 MasterSet/门限撤销声明/TrustPolicy · R2 全面执行 + 缓存失效 · R3 零信任默认关闭 · R4 传播（快速帧已建成；经日志的持久传播 = T6）· R5 自检停机 | ✅ ✅ ✅ 🔨 ✅ |
+| T9 隧道加固 | C + libsodium 隧道：卫生/fuzz/netns 冒烟 → Noise IK v2 握手 → 定时器/rekey/DoS 限速 → 端到端中继 → 本地控制 socket | 🔜（第三阶段） |
+| C M3 实时回路 | C1 CI 跑真实回路测试 · C2 HITL 修正（高风险清单、全入口必确认、签名审批 = Gate 2 经 Dialogue App）· C3 fleet/console/desktop 审批通路 · C4 门控加强（意图契约 + 已知失败）· C5 运行记录前移（每步 `action_key` / 结果）· C6 统一入口（`secdogie-node`）· C7 设备类别与无头隔离（T7） | ✅ ✅ 🔜 ✅ ✅ ✅ 🔜 |
 | D 感知 | D1 observation/target 入环 · D2 结构化优先（Windows UIA 结构图，截图显式开启）· D3 macOS AX 命中测试 · D4 Atlas 只读桥 | 🔜 |
 | W 浏览器 | W1 浏览器 DID + 信令 DID 认证 · W2 跨语言签名向量 · W3 aiortc 桥接技术验证 · W4 浏览器作为观察/审批端 | 🔜 |
 | M 收尾 | M4 纵切演示 · M5 安全复审 / 实机验证 / 发布 | 🔜 |
 
-**顺序**：
-1. S；
-2. R1–R3、A0/A1、C1/C2；
-3. A2（含 R4/R5）、T2 两条轨并行、C3–C7；
-4. T2.5–T2.9、D；
-5. W、M。
+**第二阶段（可运行闭环）已完成**：P0、Wave A / B / C / D / E（#56、#57、#60、#61、#62 及文档 PR），7 条退出条件见 [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md) 第 5 节。
+
+**第三阶段顺序**：
+1. T3 rendezvous 上 UDP、T4 线上 gossip、T6 撤销持久传播；
+2. T7 设备类别、C3 fleet/console/desktop 审批通路；
+3. T9 隧道加固；
+4. W、M（多节点纵切演示、安全复审、实机验证、发布）。
+
+感知轨道（D）由机主推进。
 
 网络轨道与 agent 轨道改动的包不同，可以并行推进。
 

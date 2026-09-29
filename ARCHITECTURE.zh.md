@@ -19,27 +19,34 @@
 | 节点归属 | 只在**自有或已授权**的设备/账号上运行。**不**隐蔽嵌入第三方服务、**不**把别人的网站当作隐蔽宿主。 |
 | 网页资源 | 只读取**公开的或已获授权的**网页/接口数据用于学习。**不**规避检测、**不**做未授权持久化。 |
 | 内存 | **只读**。有 `WriteProcessMemory` / `VirtualProtectEx` / `CreateRemoteThread` 的等价物一律拒绝(见 `native/atlas`)。 |
-| 执行 | **受监督,且只在具身执行层**(物理带屏 UI 节点)。高风险动作 **fail-closed**,且在任何模式、任何入口都必须人工确认(没有开关可以关闭);物理动作需**显式能力授权**;HITL(人类在环)不得被改成默认自动批准。传输、状态、鉴权三层不含 HITL,见 0.1。 |
+| 执行 | **受监督,且只在具身执行层**(物理带屏 UI 节点)。高风险动作 **fail-closed**,且在任何模式、任何入口都必须人工确认(没有开关可以关闭);物理动作需**显式能力授权**;HITL(人类在环)不得被改成默认自动批准。网络层与状态层不含 HITL;人的确认只落在具身执行层的高风险动作上(Gate 2 操作员签名即确认),见 0.1。 |
 
 > 这四条前提不是外挂的“安全说明”,而是代码的实际形状:DID 签名、能力授权、只读句柄、
 > 苏格拉底门与 fail-closed 都是既有实现。凡与之冲突的“捷径”都不属于本项目。
 
-### 0.1 北极星:云原生自治网格,四层解耦
+### 0.1 北极星:零信任自治网格,四层解耦
 
-目标是基于零信任的**云原生自动化持续运行网格**:网格由云端无头节点与本地端点共同自治构成,
-不以某台本地设备为中心。四层各自独立:
+目标是一张**零信任的自治网格**:由你自有或已授权的无头节点与带屏节点共同构成,不以某台设备为中心,
+也不依赖中心服务器。四层各自独立:
 
-1. **网络传输层**:UDP 打洞 / 中转、WebRTC、Tunnel T2 / WireGuard。任何白名单节点(包括云端 VPS)
-   都可以**全自动**充当 relay(`transport/relay.py`,独立进程为 `secdogie-relay`)。
-2. **Citadel 状态层**:SQLite 签名哈希链 + 反熵。无头节点 7×24 全自动参与状态收敛与数据流转,
-   **这一层没有任何人机交互或 HITL 阻塞**。
-3. **鉴权与决策层**:Ed25519 强密码学鉴权与 k-of-n 撤销。是否放行只看签名、白名单与撤销,
-   去中心自治。签名、白名单、k-of-n 撤销均已建成:`TrustPolicy` 与 allowlist 同为
-   `.contains` 接口,撤销即“白名单减去被撤销 DID”。fleet / console / desktop / citadel /
-   relay 的命令行都接受 `--masters` / `--revocations`,运行中每隔几秒重读撤销库:被撤销者处处被拒、
-   已连上的节点被断开,自身被撤销的进程停下工作并以 0 退出。
-4. **具身执行层(只在物理带屏 UI 节点)**:AX 结构化感知、Atlas 只读。**HITL 只锁在这一层的
-   物理破坏性动作上**,不得阻塞前三层的无头运转。
+1. **网络层**:C + libsodium 加密隧道(`tunnel/`,机密性);跑在 Cloudflare Workers 上的
+   WebRTC 信令网关(`webrtc/`,只交换 offer / answer / candidate,不经手业务数据);
+   DID 认证的 UDP 直连(`transport/udp.py`,帧可选 X25519 密封);白名单中继
+   (`transport/relay.py`,独立进程 `secdogie-relay`)——任何白名单节点都可以**全自动**充当 relay,
+   打洞失败即回落中继,中继只转发端到端签名 / 密封的帧。
+2. **Citadel 状态与鉴权层**:SQLite 签名哈希链 + 反熵;Ed25519 签名与 k-of-n 撤销。
+   是否放行只看签名、白名单与撤销,去中心自治:`TrustPolicy` 与 allowlist 同为 `.contains` 接口,
+   撤销即“白名单减去被撤销 DID”;各命令行都接受 `--masters` / `--revocations`,被撤销者处处被拒,
+   自身被撤销的进程停下工作并以 0 退出。**零信任默认**:任何决定“听谁的”的组件在没给白名单时
+   拒绝启动,“任何人”只能显式说出(代码里 `ALLOW_ANY`,命令行 `--insecure-dev`,带警告),
+   见 [`docs/ZERO-TRUST-MIGRATION.md`](docs/ZERO-TRUST-MIGRATION.md)。**这一层没有人机交互或 HITL 阻塞**。
+3. **双重苏格拉底门**:Gate 1 审视意图——指令门(`citadel/socratic.py`)与计划门
+   (`citadel/action_gate.py`:意图契约、已知失败记忆、能力授权);Gate 2 要操作员签名——破坏性动作
+   必须带操作员钥签发、绑定到这一个动作与这一个节点的授权令牌(`citadel/authz.py`),由 Dialogue App
+   在操作员复核后签出(`dialogue/`)。阶段式记忆(S1 情节 → S2 隔离区 → S3 巩固)只喂给 Gate 1,
+   只能让门更严;**Gate 2 从不读记忆**。
+4. **具身执行层(只在物理带屏 UI 节点)**:AX 结构化感知、Atlas 只读(由机主维护)。
+   **HITL 只锁在这一层的高风险动作上**(Gate 2 签名即该步的确认),不得阻塞前两层的无头运转。
 
 **节点角色**:
 - **无头基础设施节点**(VPS、NAS):承担 relay、membership gossip、日志复制。它们只看签名、白名单与撤销,
@@ -47,6 +54,8 @@
   不导入 agent / citadel / fleet,SIGTERM 时干净退出;给了 `--masters` 后,被撤销的 DID 立即停止被中转,
   而当这台 relay 自身的 DID 被合法撤销时,它像被机主停掉一样干净退出(`exit(0)`)。
 - **带屏交互节点**:在前三层之上再运行具身执行层,高风险物理动作在这里经人工确认。
+  `secdogie-node` 是这样一个常驻前台进程:组装传输、对话会话、签名日志与受监督的 agent 回路,
+  只接受白名单内的 Dialogue App,没有 App 可达时需要操作员的步骤一律拒绝。
 - **撤销即吊销授权**:Master 门限签名的撤销记录经 gossip 泛洪扩散,任一节点收到即拒绝被撤销 DID(静默丢弃),
   被撤销的节点收到针对自身的记录即自停机。这是授权吊销的正常收尾,不是隐蔽或对抗行为。
 - 第 4 节的严禁清单对全系统有效,无论节点是否无头。
@@ -78,7 +87,8 @@
 
 - **真正的 P2P 传输**:`transport/udp.py` 的 `DirectUDPTransport`(Phase 2.10 提前实现)——
   真实 UDP、每个数据报都是 **DID 签名帧**,投递按**已认证的签名者 DID**而非源地址,
-  NAT 漂移自动适配。机密性交给隧道(`tunnel/`)或 WireGuard,这里不自造密码学、不做流量混淆。
+  NAT 漂移自动适配。机密性:帧可选用绑定的 X25519 传输密钥密封(`transport/sealed.py`,libsodium),
+  整机数据面走 C + libsodium 隧道(`tunnel/`);不自造密码学、不做流量混淆。
 - **签名事件日志**:`citadel/journal.py` —— 每作者一条**哈希链**、只增、可离线合并;
   确定性全序 `(lamport, author, seq)`;明确 **`事件日志 ≠ CRDT`**,靠反熵复制收敛。
 - **分布式状态**:`citadel/state.py`(Phase 2.3)在日志之上给出
@@ -98,6 +108,14 @@
 - **计划级苏格拉底门**(Phase 2.6,已建成):`citadel/action_gate.py` —— 在动作计划层给出
   `GateDecision(allow | reject | rewrite | request_reobserve)`,检重复/空操作/目标错配/
   陈旧目标/破坏性链条/缺验证/超预算/越权。**门只判定,不执行**——执行仍要过 Safety 与 HITL。
+- **意图契约与已知失败**(第二阶段,已建成、已接入实时回路):破坏性一步必须说明回退办法或明确声明不可逆,
+  否则被拒;同一动作在多次运行中反复失败,巩固为“已知失败”,下一次运行由计划门直接拒绝
+  (`citadel/loop_gate.py`、`loop_memory.py`)。每一步都记下 `action_key` 与结果。
+- **Gate 2 · 操作员签名**(已建成、已接入):破坏性一步向操作员的 Dialogue App 发出挑战;App 在本地
+  重算动作哈希、核对节点身份与时效后,才解锁操作员钥签一次;节点验证令牌后放行,签名即这一步的确认。
+- **阶段式记忆**(第二阶段,已建成):S1 情节(日志投影)→ S2 本地隔离区(模型的 `remember` 只进这里)→
+  S3 巩固记忆(签名事件)。“小心”类记忆凭证据晋升;事实 / 偏好必须经操作员在 App 上签名确认才进 S3 与提示词。
+  详见 [`citadel/MEMORY.zh.md`](citadel/MEMORY.zh.md)。
 
 > 关键立场:苏格拉底门让系统**明白某些动作为何不该做**,靠的是把判断显式化、留痕、可复核,
 > 而**不是**去掉约束。
@@ -122,7 +140,9 @@
 - **人在环 + fail-closed**:高风险动作(保存/删除/关闭/打开/提权执行)默认需人类确认,
   失败即停,不猜、不重复提交(Phase 2.8 崩溃恢复:先**重新观测**确认动作是否已发生再决定重试)。
 - **控制面**:`desktop/`(原生窗口 GUI)与 `console/`(本地 127.0.0.1、operator-DID 门控)
-  让你随时看到、批准或中止。
+  让你随时看到、批准或中止。**Dialogue App**(`dialogue/`,`secdogie-dialogue`)是节点的操作员端:
+  苏格拉底追问与回答、结构化视界(只有 AX 结构与 DIB 尺寸 / 哈希,没有像素)、Gate 2 签名台、
+  记忆确认;它不截屏、不读进程内存、不依赖中心服务器。
 
 ---
 
@@ -155,7 +175,7 @@ flowchart TB
     subgraph ACT["⑤ 受认证设备实战 (agent/ · native/atlas · desktop/ · console/)"]
         obs["观测融合: AX + DIB(按引用) → Observation (不截屏)"]
         cap["能力授权 (读≠写, 观测≠执行)"]
-        hitl["HITL + fail-closed"]
+        hitl["HITL: Dialogue App 签名(Gate 2)/ 追问 + fail-closed"]
         obs --> gate
         gate -->|allow| cap --> hitl --> world["现实动作"]
         world -->|结果写回| jrnl
@@ -198,6 +218,14 @@ flowchart TB
 | `agent/target.py` | AX 不透明目标 + 代际,修 TOCTOU(2.5) | ④ | ✅ 已建成 |
 | `citadel/run.py` | Agent↔Citadel run 闭环(2.7):run/step 签名状态、链式 `state_hash`、随复制收敛 | ③④ | ✅ 已建成 |
 | `identity/capability.py` | 签名能力授权(2.9):白名单 scope、带过期、受信 issuer;计划门据此逐动作校验 | ④ | ✅ 已建成 |
+| `identity/allowlist.py` | 零信任默认:`ALLOW_ANY` 显式哨兵 + `require_trust`;全仓生产调用点的信任参数有测试把关 | ① | ✅ 已建成 |
+| `webrtc/` | Cloudflare Workers 上的 WebRTC 信令网关 + 浏览器数据通道(只经手信令,不经手业务数据) | ② | ✅ 已建成 |
+| `transport/mux.py` | `ChannelMux`:一个传输上的多条应用通道(`dialogue/v1` 等) | ② | ✅ 已建成 |
+| `citadel/authz.py` | Gate 2 操作员授权令牌:绑定动作哈希与节点 DID、短时效 | ③④ | ✅ 已建成 |
+| `citadel/loop_gate.py` · `loop_memory.py` | 两道门接入实时 agent 回路;每步记录 `action_key` / 结果 | ③④ | ✅ 已建成 |
+| `citadel/episodes.py` · `lessons.py` · `consolidate.py` | 阶段式记忆 S1 / S2 / S3 | ③ | ✅ 已建成 |
+| `dialogue/` | Dialogue App:签名信封协议、丢包 / 乱序下的会话层、节点侧桥接、控制器 + Textual 界面 + 无头脚本、结构化视界发布 | ③④ | ✅ 已建成 |
+| `node/` | `secdogie-node` 常驻节点:组装传输、对话、签名日志与受监督回路;真实 UDP 端到端测试 | 全部 | ✅ 已建成 |
 
 ---
 
@@ -233,7 +261,35 @@ flowchart TB
 | 2.10 | P2P 直连传输 / rendezvous | ✅ 直连传输 + rendezvous + 直连升级/relay 兜底 + 成员 gossip 反熵(P2P.1–P2P.3)已实现 |
 | 2C | 节点角色泛化(relay) | ✅ 任一白名单节点可兼任 relay(`relay.py`);rendezvous 角色已可在 membership 中宣告,UDP 上的承载待接 |
 
-完整审计与冲突记录见 [`docs/AUDIT-P2P-ALIGNMENT.zh.md`](docs/AUDIT-P2P-ALIGNMENT.zh.md)。
+完整审计与冲突记录见 [`docs/AUDIT-P2P-ALIGNMENT.zh.md`](docs/AUDIT-P2P-ALIGNMENT.zh.md)(历史记录,照原样保留)。
+
+### 第二阶段收口:可运行闭环(✅ 已完成)
+
+| 波次 | 内容 | PR |
+| --- | --- | --- |
+| P0 | Gate 1 意图契约 + 阶段式记忆 S1–S3 | #56 |
+| A | 记忆与两道门接入实时 agent 回路;模型的 `remember` 进隔离区 | #57 |
+| C | Dialogue 协议修订、`ChannelMux`、会话层、节点侧桥接、App(控制器 / Textual / 无头)、结构化视界发布 | #60 |
+| B | 零信任默认(破坏性变更,见迁移说明) | #61 |
+| D | `secdogie-node` + 真实 UDP 端到端测试 + 双进程测试 | #62 |
+| E | 文档对齐 | 本 PR |
+
+端到端判据(`node/tests/test_e2e.py`,CI 中运行):App 提交目标 → 破坏性一步经 Gate 2 由操作员签名放行 →
+`ask_user` 成为追问、回答回到模型 → 模型的笔记在 App 确认前只在隔离区、确认后进入 S3 与提示词 →
+App 看到结构化视界 → 同一动作三次失败后第四次被 Gate 1 拒绝。
+
+### 第三阶段(规划中)
+
+| 编号 | 内容 |
+| --- | --- |
+| T3 | rendezvous 承载到 UDP 上 |
+| T4 | membership 线上 gossip |
+| T6 | 撤销的持久传播(经日志) |
+| T7 | 设备类别(无头 / 带屏)与隔离 |
+| T9 | C Tunnel 加固:v2 握手(Noise IK)、rekey、端到端中继、本地控制 socket |
+| M4 | 多节点纵切演示:一个节点的结果经复制在全网收敛 |
+
+感知层(AX / Atlas / DIB)由机主维护,不在本路线图的改动范围内。
 
 ---
 
@@ -245,6 +301,10 @@ flowchart TB
 # 身份 / 状态 / 传输(纯逻辑,Linux 可测)
 pip install -e identity -e citadel -e transport
 python -m pytest identity/tests citadel/tests transport/tests -q
+
+# Dialogue App 与常驻节点(含真实 UDP 端到端测试)
+pip install -e agent -e 'dialogue[tui]' -e node
+python -m pytest dialogue/tests node/tests -q
 
 # 观测融合(agent 包,headless)
 cd agent && python -m pytest tests/test_observation.py -q

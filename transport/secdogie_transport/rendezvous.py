@@ -16,7 +16,7 @@ Two boundaries keep this an honest, compliant advance:
     ever indexes the operator's OWN authorized nodes. It is a dumb directory of
     (DID -> endpoints); it never sees or relays data-plane plaintext, and it adds
     no traffic obfuscation and no detection-evasion. Confidentiality of actual
-    traffic stays delegated to the tunnel / WireGuard.
+    traffic stays delegated to the C `tunnel/` (or the sealed v2 frames).
   * **No new crypto.** Signing/verification reuse secdogie-identity exactly as
     the direct UDP transport does; the reflexive address is standard connectivity
     discovery, not evasion.
