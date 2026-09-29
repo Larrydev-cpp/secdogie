@@ -130,6 +130,10 @@ class AgentConfig:
     # from memory_block() (confirmed memory only) instead of memory_path.
     remember_hook: Callable[[str, str | None], str] | None = None
     memory_block: Callable[[], str] | None = None
+    # Structural view for the operator (dialogue's snapshot publisher): called
+    # with the element targets offered to the model each step. An observer
+    # only -- it cannot change the step, and a failing one never costs the run.
+    on_targets: Callable[[list], None] | None = None
     require_focus: bool = False
     # GUI: after the operator approves the plan, low-risk steps run without a
     # Yes/No popup (high-risk still asks). --confirm-each restores per-step
@@ -169,6 +173,15 @@ def _emit(config: AgentConfig, event: str, **payload) -> None:
         cb(event, payload)
     except Exception:
         pass
+
+
+def _publish_targets(config: AgentConfig, targets: list, logger) -> None:
+    if config.on_targets is None:
+        return
+    try:
+        config.on_targets(list(targets))
+    except Exception as e:  # noqa: BLE001 - the operator's view is an aid, not a dependency
+        logger.warning("could not publish the structural view: %s", e)
 
 
 def _gate_view(action, high_risk: bool) -> dict:
@@ -484,6 +497,7 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                     listing = elements.render_for_model(step_targets)
                     if stale_tree and listing:
                         listing += _STALE_TREE_NOTE
+                    _publish_targets(config, step_targets, logger)
 
                 screen_unchanged = (
                     last_sent_hash is not None

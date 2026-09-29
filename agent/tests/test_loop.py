@@ -386,6 +386,57 @@ def test_loop_click_element_uses_last_known_when_tree_empty(monkeypatch):
     assert calls["n"] >= 2
 
 
+def _element_backend(el, executed):
+    class B:
+        def setup(self, logger):
+            pass
+
+        def capture(self, region=None):
+            return _solid_png(), (64, 64)
+
+        def execute(self, action):
+            executed.append(action.kind)
+            return "ok"
+
+        def element_targets(self):
+            return [el]
+
+        def invoke_element(self, _el):
+            executed.append("invoke")
+            return "invoked"
+
+    return B()
+
+
+def test_on_targets_sees_the_targets_offered_each_step(monkeypatch):
+    from secdogie_agent.axtree import AxElement
+
+    el = AxElement(role="Button", name="Zoom", automation_id="ID_ZOOM", bounds=(0, 0, 10, 10))
+    seen, executed = [], []
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+    provider = ScriptedProvider([{"action": "click_element", "element": "e1"}, {"action": "done", "text": "ok"}])
+    config = loop.AgentConfig(task="x", auto=True, max_steps=10, backend=_element_backend(el, executed),
+                              verify_actions=False, action_pause=0, on_targets=seen.append)
+    assert loop.run(provider, config) == 0
+    assert seen == [[el], [el]] and executed == ["invoke"]
+
+
+def test_a_failing_on_targets_never_costs_the_run(monkeypatch):
+    from secdogie_agent.axtree import AxElement
+
+    el = AxElement(role="Button", name="Zoom", automation_id="ID_ZOOM", bounds=(0, 0, 10, 10))
+    executed = []
+
+    def broken(targets):
+        raise RuntimeError("the view went away")
+
+    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
+    provider = ScriptedProvider([{"action": "click_element", "element": "e1"}, {"action": "done", "text": "ok"}])
+    config = loop.AgentConfig(task="x", auto=True, max_steps=10, backend=_element_backend(el, executed),
+                              verify_actions=False, action_pause=0, on_targets=broken)
+    assert loop.run(provider, config) == 0 and executed == ["invoke"]
+
+
 def test_gui_first_step_shows_working(monkeypatch):
     """After the plan, step 1 must show Working so the desktop is not blank."""
     from secdogie_agent import loop as loop_mod

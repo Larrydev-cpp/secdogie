@@ -107,6 +107,24 @@ def test_without_an_ask_hook_no_ask_is_passed():
     assert "ask" not in seen
 
 
+def test_on_targets_reaches_the_task_only_when_given():
+    seen = {}
+
+    def task(t, *, should_stop, on_status, confirm, record_step, **kw):
+        seen.update(kw)
+        return 0, "done"
+
+    sup = Supervisor(_journal(), task)
+    sup.add_goal("g1")
+    sup.run_goal("g1")
+    assert "on_targets" not in seen
+    view = []
+    sup.set_operator_hooks(OperatorHooks(on_targets=view.append))
+    sup.add_goal("g2")
+    sup.run_goal("g2")
+    assert seen["on_targets"] == view.append
+
+
 def test_authorize_alone_installs_the_gate():
     seen = {}
 

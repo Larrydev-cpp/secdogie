@@ -58,13 +58,16 @@ class OperatorHooks:
     destructive action -> an operator-signed Gate 2 token, or None; the gate
     verifies it against ``operators``. ``observe(planned, decision)`` sees every
     gate decision (the bridge uses it to make a fresh signature count as the
-    step's confirmation)."""
+    step's confirmation). ``on_targets(elements)`` receives the element targets
+    the loop offers the model each step, for the operator's structural view
+    (an observer: it cannot change the step)."""
 
     confirm: Callable[[str, bool], bool] | None = None
     ask: Callable[[str], str | None] | None = None
     authorize: Callable[[Any], dict | None] | None = None
     operators: Any = None
     observe: Callable[[Any, Any], None] | None = None
+    on_targets: Callable[[list], None] | None = None
 
 
 class Supervisor:
@@ -388,6 +391,8 @@ class Supervisor:
             extra["recall"] = self._recall
         if hooks.ask is not None:
             extra["ask"] = lambda question: self._ask(goal_id, question)
+        if hooks.on_targets is not None:
+            extra["on_targets"] = hooks.on_targets
         if recovery is not None:
             extra["recovery"] = {
                 "run_id": recovery.run_id,
@@ -453,7 +458,7 @@ def terminal_confirm(prompt: str, high_risk: bool) -> bool:
 
 def agent_run_task(
     task: str, *, should_stop, on_status, confirm, record_step=None, plan_gate=None, recovery=None,
-    remember=None, recall=None, ask=None,
+    remember=None, recall=None, ask=None, on_targets=None,
 ) -> tuple[int, str]:
     """Production task runner: drive the real agent loop for one goal, keeping the
     high-risk confirmation gate wired to `confirm`. Imports the agent lazily so
@@ -509,5 +514,7 @@ def agent_run_task(
         cfg_kwargs["remember_hook"] = remember
     if recall is not None:
         cfg_kwargs["memory_block"] = recall
+    if on_targets is not None:  # the operator's structural view (dialogue's snapshot publisher)
+        cfg_kwargs["on_targets"] = on_targets
     code = run(provider, AgentConfig(**cfg_kwargs))
     return code, f"agent exited {code}"

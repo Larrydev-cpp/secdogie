@@ -19,6 +19,9 @@ Three hooks, one session:
   * ``ask(question)`` -- the model's ask_user, as a Socratic probe. Returns the
     operator's answer text, or None when none came in time.
 
+With a ``SnapshotPublisher`` the bridge also hands the loop's element targets
+to it (``on_targets``) and answers the App's RESYNC with a full view.
+
 Fail closed throughout: no answer is a no; a peer reported down fails every
 pending challenge and probe at once; a handler exception reaches the loop's
 own fail-closed confirm path. Thread-safe: hooks block on the loop thread while
@@ -67,14 +70,15 @@ class OperatorBridge:
     def __init__(self, identity, session: DialogueSession, *, operators, challenge_ttl: float = DEFAULT_CHALLENGE_TTL,
                  probe_ttl: float = DEFAULT_PROBE_TTL, clock=time.time,
                  on_control: Callable[[object, str], str] | None = None,
-                 on_resync: Callable[[], None] | None = None):
+                 on_resync: Callable[[], None] | None = None, publisher=None):
         if operators is None:
             raise ValueError("the bridge needs the operator trust set tokens are verified against")
         self.identity = identity
         self.session = session
         self.operators = operators
         self.on_control = on_control
-        self.on_resync = on_resync
+        self.publisher = publisher
+        self.on_resync = on_resync if on_resync is not None or publisher is None else publisher.request_full
         self._challenge_ttl = float(challenge_ttl)
         self._probe_ttl = float(probe_ttl)
         self._clock = clock
@@ -90,7 +94,8 @@ class OperatorBridge:
         from secdogie_citadel.supervisor import OperatorHooks
 
         return OperatorHooks(confirm=self.confirm, ask=self.ask, authorize=self.authorize,
-                             operators=self.operators, observe=self.observe)
+                             operators=self.operators, observe=self.observe,
+                             on_targets=self.publisher.publish if self.publisher is not None else None)
 
     # -- Gate 2 -----------------------------------------------------------------
 

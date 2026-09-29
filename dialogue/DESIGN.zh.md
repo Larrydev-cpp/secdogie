@@ -357,3 +357,10 @@ Inspector 归并规则（`inspector.apply`）：只采纳能干净应用的增�
    - **无头脚本**（`--headless`，供端到端测试）：严格 schema；`approve` / `deny` 必须写明动作的 kind 与目标，只匹配、只签一个挑战，没有“全部批准”。
    - **CLI**：`secdogie-dialogue connect` 只信任 `--node` 指名的那一个 DID（传输层与会话层共用这一个白名单）；`--transport-key` 与 `--node-binding` 必须成对给出；`new-operator-key` 生成加密的操作员钥。
    - 测试：控制器 44 例、Textual pilot 9 例、CLI 8 例（含一条真实 UDP 回环：App 脚本批准、节点 `verify_authorization` 通过）；变异测试 31/31 全杀。
+12. **结构化视界的发布端（C5）**：`publisher.py` 的 `SnapshotPublisher` 在节点侧把循环每步交给模型的无障碍元素目标（`AgentConfig.on_targets` 钩子，经 `OperatorHooks.on_targets` 由 Supervisor 透传）整形成 `StateSnapshotPacket`。
+   - **只整形，不感知**：不截屏、不访问进程、不导入 Agent（纯洁性测试把关）；每个元素只读 `FIELDS` 列出的结构字段（角色、名字、automation id、边界、enabled、is_interactive、visual_reference），DIB 只读 `DIB_FIELDS`（宽、高、像素格式、位深、内容哈希）。测试用“绊线”对象证明它碰不到任何别的属性，也就带不出任何像素缓冲。没有改动感知层。
+   - **稳定句柄**：同一身份（角色、名字、automation id、在相同元素中的名次）跨步保持同一句柄，视图按增量变化而不是整体闪烁；循环给的是扁平的目标列表，全部挂在一个合成的窗口节点下。
+   - **增量与重同步**：首帧全量，之后只发 ADD / UPDATE / REMOVE，每个增量都写明所基于的代际；换窗口即开新流；每 50 帧兜底发一次全量；发送失败则下一帧全量。App 的 RESYNC 立即以当前全树应答，循环正等待操作员时也一样。
+   - **上限**：每帧至多 2000 个节点，文本截到 200 字符，坐标异常按 0 处理、不抛错。钩子失败只记警告，绝不影响这一步。
+   - 测试：发布器 16 例（含 30×25 步随机序列经真实 Inspector 折叠、全程无缺口的性质测试）、循环钩子 2 例、Supervisor / agent_run_task 透传 2 例；变异测试 20/20 全杀。
+
