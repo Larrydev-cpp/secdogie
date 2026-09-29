@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from .protocol import (
     PROTOCOL_VERSION,
+    ControlOp,
+    ControlPacket,
     DialoguePacket,
     DialogueType,
     DibRef,
@@ -18,6 +20,7 @@ from .protocol import (
     Gate2ChallengePacket,
     Gate2ResponsePacket,
     Header,
+    MemoryCandidatePacket,
     NodeDelta,
     NodeOp,
     Opened,
@@ -39,6 +42,8 @@ __version__ = "0.1.0"
 
 __all__ = [
     "PROTOCOL_VERSION",
+    "ControlOp",
+    "ControlPacket",
     "DialoguePacket",
     "DialogueType",
     "DibRef",
@@ -46,6 +51,7 @@ __all__ = [
     "Gate2ChallengePacket",
     "Gate2ResponsePacket",
     "Header",
+    "MemoryCandidatePacket",
     "NodeDelta",
     "NodeOp",
     "Opened",

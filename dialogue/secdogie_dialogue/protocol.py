@@ -76,6 +76,7 @@ class PacketKind(str, Enum):
     GATE2_RESPONSE = "gate2_response"
     SESSION = "session"
     CONTROL = "control"
+    MEMORY_CANDIDATE = "memory_candidate"
 
 
 # ---- (1) Socratic dialogue --------------------------------------------------
@@ -299,6 +300,30 @@ class ControlPacket:
             raise ProtocolError("only confirm_memory carries a confirmation, and it always does")
 
 
+# ---- (6) memory offered for confirmation ------------------------------------------
+
+
+@dataclass(frozen=True)
+class MemoryCandidatePacket:
+    """Node -> App: a quarantined (S2) memory the operator may confirm. The
+    content travels in full, so the App recomputes ``memory_id`` from what it
+    shows (``secdogie_citadel.lessons.candidate_id``) before it signs anything:
+    a node cannot show one note and collect a confirmation for another."""
+
+    memory_id: str
+    mclass: str  # "fact" / "preference" / "caution"
+    scope: str
+    key: str
+    value: str
+    source: str
+
+    def __post_init__(self):
+        if not self.memory_id:
+            raise ProtocolError("a memory candidate needs its memory_id")
+        if not self.key.strip() or not self.value.strip():
+            raise ProtocolError("a memory candidate needs a key and a value")
+
+
 PACKET_TYPES: dict[PacketKind, type] = {
     PacketKind.DIALOGUE: DialoguePacket,
     PacketKind.STATE_SNAPSHOT: StateSnapshotPacket,
@@ -306,6 +331,7 @@ PACKET_TYPES: dict[PacketKind, type] = {
     PacketKind.GATE2_RESPONSE: Gate2ResponsePacket,
     PacketKind.SESSION: SessionPacket,
     PacketKind.CONTROL: ControlPacket,
+    PacketKind.MEMORY_CANDIDATE: MemoryCandidatePacket,
 }
 _KIND_OF = {cls: kind for kind, cls in PACKET_TYPES.items()}
 
@@ -591,6 +617,7 @@ __all__ = [
     "SessionPacket",
     "ControlOp",
     "ControlPacket",
+    "MemoryCandidatePacket",
     "DEFAULT_REPLAY_WINDOW",
     "PACKET_TYPES",
     "kind_of",

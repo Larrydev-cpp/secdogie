@@ -14,5 +14,13 @@ license = { text = "MIT" }
 # recomputes a challenge's hash byte for byte as the node does.
 dependencies = ["secdogie-identity", "secdogie-citadel"]
 
+[project.optional-dependencies]
+# `connect` talks to a node over the transport; the screen needs Textual.
+net = ["secdogie-transport"]
+tui = ["secdogie-transport", "textual>=0.80"]
+
+[project.scripts]
+secdogie-dialogue = "secdogie_dialogue.cli:main"
+
 [tool.setuptools.packages.find]
 include = ["secdogie_dialogue*"]

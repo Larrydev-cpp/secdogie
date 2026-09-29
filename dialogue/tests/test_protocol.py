@@ -16,6 +16,7 @@ from secdogie_dialogue.protocol import (
     Gate2ChallengePacket,
     Gate2ResponsePacket,
     Header,
+    MemoryCandidatePacket,
     NodeDelta,
     NodeOp,
     ProtocolError,
@@ -76,6 +77,7 @@ def _packets():
         StateSnapshotPacket(42, 7, 4, (NodeDelta(NodeOp.REMOVE, 2),), base_generation=3),
         ControlPacket("r1", ControlOp.ADD_GOAL, goal_id="g1", title="tidy the desktop"),
         ControlPacket("r2", ControlOp.CONFIRM_MEMORY, memory_id="m1", confirmation={"type": "x", "sig": "y"}),
+        MemoryCandidatePacket("m1", "fact", "global", "report-folder", "reports go to ~/Reports", "model"),
     ]
 
 
@@ -369,6 +371,9 @@ def test_packet_invariants():
     lambda: ControlPacket("r", ControlOp.CONFIRM_MEMORY, memory_id="m"),  # confirmation missing
     lambda: ControlPacket("r", ControlOp.CONFIRM_MEMORY, confirmation={"sig": "x"}),  # which memory?
     lambda: ControlPacket("r", ControlOp.RETRACT_MEMORY, memory_id="m", confirmation={"sig": "x"}),
+    lambda: MemoryCandidatePacket("", "fact", "global", "k", "v", "model"),  # which memory?
+    lambda: MemoryCandidatePacket("m", "fact", "global", " ", "v", "model"),  # no key
+    lambda: MemoryCandidatePacket("m", "fact", "global", "k", "", "model"),  # nothing to remember
 ])
 def test_snapshot_and_control_invariants(make):
     with pytest.raises(ProtocolError):

@@ -158,7 +158,7 @@ class ProbeLedger:
 
 @dataclass(frozen=True)
 class Entry:
-    who: str  # "agent" or "you"
+    who: str  # "agent", "you", or "app" (a note from this App itself)
     kind: DialogueType
     text: str
     probe_id: str = ""  # the probe this entry asks, answers or closes
@@ -195,6 +195,15 @@ class Conversation:
     def pending(self) -> tuple[DialoguePacket, ...]:
         return tuple(self._pending.values())
 
+    def drop_pending(self, note: str) -> tuple[str, ...]:
+        """Close every open probe locally (the node went away and has failed
+        them on its side); ``note`` is recorded once. Returns the dropped ids."""
+        gone = tuple(self._pending)
+        self._pending.clear()
+        if gone:
+            self._entries.append(Entry("app", DialogueType.SYSTEM_STATUS, note))
+        return gone
+
     def answer(self, probe_id: str, text: str | None = None, *, option: int | None = None) -> DialoguePacket:
         """The operator's clarification of ``probe_id``: free text, or the
         1-based number of one of the suggested options. Exactly one of the two."""
@@ -221,7 +230,7 @@ class Conversation:
         quote other applications' UI), so every line is cleaned."""
         out: list[str] = []
         for e in self._entries:
-            who = "Agent" if e.who == "agent" else "You"
+            who = {"agent": "Agent", "you": "You"}.get(e.who, "App")
             out.append(f"{who}: {clean(e.text, 500)}")
             if e.kind is DialogueType.SOCRATIC_QUESTION:
                 out.extend(f"  [{i}] {clean(o)}" for i, o in enumerate(e.options, 1))

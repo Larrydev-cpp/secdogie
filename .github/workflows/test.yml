@@ -51,6 +51,7 @@ jobs:
             needs_fleet: true
             needs_console: true
           - dir: dialogue   # operator Dialogue App: signed wire, Gate 2 client, structural inspector
+            extras: "[tui]"  # so the Textual pilot tests run (not skip)
             needs_identity: true
             needs_citadel: true
             needs_transport: true  # so the real-UDP session round trip runs (not skip)
