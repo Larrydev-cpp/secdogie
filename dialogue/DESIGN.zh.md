@@ -335,3 +335,10 @@ Inspector 归并规则（`inspector.apply`）：只采纳能干净应用的增�
 6. **防重放改为滑动窗口**：`ReplayGuard` 对每个 (sender, session) 记下最高 seq 以及其下 256 个的位图，做法同 transport 的帧计数器。窗口内乱序到达的包照常接收，且只接收一次；落后超过窗口的包拒收。原先“严格递增”的规则在 UDP 上会误杀被重排的包，也会误杀比新包晚到的重传。
 7. **`StateSnapshotPacket.base_generation`**：增量必须声明它基于哪一代（`0 ≤ base < generation`），全量快照为 -1。Inspector 只在 base 等于当前持有的代际时才应用增量，否则判为有缺口、请求重同步。这样丢了一个中间增量能被发现，不会让视图悄悄停在旧状态。
 8. **`ControlPacket`（`PacketKind.CONTROL`）**：App → 节点的操作员请求，包括 `add_goal` / `stop` / `pause` / `resume` / `confirm_memory`（携带会话钥签名的 memory-confirmation）/ `retract_memory`。节点用 `in_reply_to = request_id` 的 `SystemStatus` 回复结果。不变量：目标类操作必须带 `goal_id`，`add_goal` 必须带任务标题，记忆类操作必须带 `memory_id`，只有 `confirm_memory` 携带确认。
+9. **会话层 `session.py`（C2）**，跑在 transport 的 `ChannelMux`（C1）之上，通道名 `dialogue/v1`：
+   - 分片 ≤16 KiB；重组有三重上限（单条 4 MiB、并发 32 条、10 s 超时），越界索引、超大总数、超长分片、总数不一致、重复分片一律丢弃且不入库。
+   - 可靠通道：dialogue / gate2 / control / session（心跳除外）按消息确认，指数退避重传，6 次未确认即 `on_undeliverable` 上报——上层按 fail closed 处理，绝不假定送达；重复到达只回确认不重复投递（信封层的滑动窗口拒收）。
+   - 快照走不可靠通道，靠 `base_generation` 发现缺口后请求重同步。
+   - 心跳每 2 s；连续 3 个间隔没听到对端即 `on_peer_down`，再次听到即 `on_peer_up`。
+   - 只投递本会话对端 DID 签的包：信任策略里的其他钥匙也不算这个对端。
+   - 一切计时都走 `tick(now)`，测试用假时钟和带种子的丢包 / 重复 / 乱序内存链路驱动，结果确定；另有一条真实 UDP 回环用例。变异测试 20/20 全杀。

@@ -53,6 +53,7 @@ jobs:
           - dir: dialogue   # operator Dialogue App: signed wire, Gate 2 client, structural inspector
             needs_identity: true
             needs_citadel: true
+            needs_transport: true  # so the real-UDP session round trip runs (not skip)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -74,6 +75,9 @@ jobs:
           fi
           if [ "${{ matrix.needs_citadel }}" = "true" ]; then
             pip install -e ../citadel
+          fi
+          if [ "${{ matrix.needs_transport }}" = "true" ]; then
+            pip install -e ../transport
           fi
           if [ "${{ matrix.needs_fleet }}" = "true" ]; then
             pip install -e ../fleet

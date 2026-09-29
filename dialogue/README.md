@@ -19,7 +19,7 @@ Design: [DESIGN.zh.md](DESIGN.zh.md).
 | `guard.py` / `keystore.py` | Gate 2 operator client: encrypted operator key, challenge review, signed response | done |
 | `inspector.py` | Structural tree merge (AX / UIA + DIB metadata, never pixels) and text render model | done |
 | `dialogue.py` | Socratic probe / clarification state machine (timeout = fail closed) | done |
-| `session.py` | Binds the protocol to the transport (Tunnel / relay / WebRTC signaling) | planned |
+| `session.py` | Envelopes over a lossy link: fragmentation, a reliable control channel (ack + backoff, give-up reported), unreliable snapshots, heartbeats; `SessionRouter` binds sessions to a transport `ChannelMux` channel by verified peer DID | done |
 | `app.py` | Textual TUI over the pure models above | planned |
 
 ## The wire, in one paragraph
