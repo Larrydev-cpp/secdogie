@@ -3,7 +3,9 @@
 ``Node`` assembles what the other packages already provide -- no new protocol:
 
   * a DID-authenticated UDP transport (``DirectUDPTransport``) that hears only
-    the operator Apps on ``apps``, with the dialogue channel on a ``ChannelMux``;
+    the operator Apps on ``apps``, with the dialogue channel on a ``ChannelMux``
+    -- and, given relay records, a ``FailoverTransport``: direct first, the
+    relay whenever the App has not been heard directly of late;
   * per App, a ``DialogueSession`` + ``OperatorBridge`` (Gate 2 challenges,
     Socratic probes, control requests) + ``SnapshotPublisher`` (the structural
     view), handed to the Supervisor as its ``OperatorHooks``;
@@ -40,7 +42,15 @@ from secdogie_dialogue.protocol import ControlOp, MemoryCandidatePacket
 from secdogie_dialogue.publisher import SnapshotPublisher
 from secdogie_dialogue.session import DialogueSession, SessionRouter
 from secdogie_identity import require_trust
-from secdogie_transport import ChannelMux, DirectUDPTransport, Endpoint, PeerIdentity, Session, UDPChannel
+from secdogie_transport import (
+    ChannelMux,
+    DirectUDPTransport,
+    Endpoint,
+    FailoverTransport,
+    PeerIdentity,
+    Session,
+    UDPChannel,
+)
 
 log = logging.getLogger("secdogie_node")
 
@@ -60,6 +70,7 @@ class NodeConfig:
     listen: tuple[str, int] = ("127.0.0.1", 0)
     transport_key: object = None
     app_bindings: list = field(default_factory=list)  # signed DID -> transport-key bindings of the Apps
+    relay_records: list = field(default_factory=list)  # relays' self-signed records: the fallback path
     run_task: Callable = agent_run_task
     challenge_ttl: float = 120.0
     probe_ttl: float = 300.0
@@ -97,8 +108,12 @@ class Node:
             for binding in cfg.app_bindings:
                 if not self.transport.add_peer_binding(binding):
                     raise ValueError(f"an App binding did not verify: {binding.get('did', '?')}")
-            self.mux = ChannelMux(self.transport, Session("node", PeerIdentity(cfg.identity.did, ""),
-                                                          active=Endpoint("local", *self.channel.address)))
+            self.link = None
+            carrier = self.transport
+            if cfg.relay_records:
+                self.link = carrier = FailoverTransport.from_records(self.transport, cfg.relay_records)
+            self.mux = ChannelMux(carrier, Session("node", PeerIdentity(cfg.identity.did, ""),
+                                                   active=Endpoint("local", *self.channel.address)))
             self.router = SessionRouter(self.mux, accept=self._accept)
         except Exception:
             self.channel.close()
@@ -116,6 +131,8 @@ class Node:
             log.info("resumed %d interrupted goal(s): %s", len(requeued), ", ".join(requeued))
         self._worker = threading.Thread(target=self._work, daemon=True, name="secdogie-node-worker")
         self._worker.start()
+        if self.link is not None:
+            self.link.start()
 
     def stop(self, timeout: float = 10.0) -> None:
         """Stop taking work, stop the running goal, say goodbye, close."""
@@ -128,6 +145,8 @@ class Node:
             link, self._link = self._link, None
         if link is not None:
             link.session.close()
+        if self.link is not None:
+            self.link.close()
         self.channel.close()
 
     # -- the App ----------------------------------------------------------------------

@@ -7,11 +7,14 @@
         --node-addr 10.0.0.5:7950 [--listen 0.0.0.0:0] \\
         [--operator-keystore op.keystore] \\
         [--transport-key app.tkey --node-binding node.binding.json] \\
+        [--relay-record relay.json ...] \\
         [--headless SCRIPT.jsonl|- [--passphrase-file FILE]]
 
 ``connect`` talks to exactly one node, named by DID: that DID is the whole
 trust set, for the transport and for the dialogue session alike, so nothing
-else is heard. ``--identity`` is the App's session key (it signs envelopes and
+else is heard. With ``--relay-record`` (a relay's self-signed record, as
+``secdogie-relay`` prints it) the App also reaches the node through that relay
+whenever it has not heard the node directly of late. ``--identity`` is the App's session key (it signs envelopes and
 memory confirmations); the operator key stays in its keystore and is unlocked
 once per Gate 2 approval.
 
@@ -63,6 +66,8 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--operator-keystore", metavar="FILE", help="the operator key, for Gate 2 approvals")
     c.add_argument("--transport-key", metavar="FILE", help="this App's X25519 transport key (encrypts frames)")
     c.add_argument("--node-binding", metavar="FILE", help="the node's signed DID -> transport-key binding")
+    c.add_argument("--relay-record", action="append", default=[], metavar="FILE",
+                   help="a relay's self-signed record (repeatable): the fallback path to the node")
     c.add_argument("--headless", metavar="SCRIPT", help="run operator steps from a JSON-lines file ('-' = stdin)")
     c.add_argument("--passphrase-file", metavar="FILE", help="headless only: the operator passphrase")
     c.add_argument("--step-timeout", type=float, default=30.0, metavar="SECONDS")
@@ -125,6 +130,7 @@ def _connect(args, parser) -> int:
             ChannelMux,
             DirectUDPTransport,
             Endpoint,
+            FailoverTransport,
             PeerIdentity,
             Session,
             UDPChannel,
@@ -144,6 +150,7 @@ def _connect(args, parser) -> int:
             steps = _load_script(args.headless)
         tkey = load_transport_key(args.transport_key) if args.transport_key else None
         binding = json.loads(Path(args.node_binding).read_text(encoding="utf-8")) if args.node_binding else None
+        relays = [json.loads(Path(r).read_text(encoding="utf-8")) for r in args.relay_record]
         if args.operator_keystore:
             keystore_did(args.operator_keystore)  # fail now, not at the first approval
     except (OSError, ValueError, KeystoreError) as e:
@@ -151,14 +158,21 @@ def _connect(args, parser) -> int:
 
     trust = Allowlist({args.node})  # the one node, and nothing else
     channel = UDPChannel(*args.listen)
-    ctl = None
+    ctl = link = None
     try:
         transport = DirectUDPTransport(identity, channel, allowlist=trust, transport_key=tkey)
         if binding is not None and not (transport.add_peer_binding(binding) and binding.get("did") == args.node):
             parser.error("--node-binding is not a valid binding for --node")
         transport.set_peer_endpoint(args.node, *args.node_addr)
-        mux = ChannelMux(transport, Session("dialogue-app", PeerIdentity(identity.did, ""),
-                                            active=Endpoint("local", *channel.address)))
+        carrier = transport
+        if relays:
+            try:
+                link = carrier = FailoverTransport.from_records(transport, relays)
+            except ValueError as e:
+                parser.error(str(e))
+            link.start()
+        mux = ChannelMux(carrier, Session("dialogue-app", PeerIdentity(identity.did, ""),
+                                          active=Endpoint("local", *channel.address)))
         router = SessionRouter(mux)
         session = router.add(DialogueSession(identity, args.node, router.sender_for(args.node), trust=trust))
         ctl = AppController(session)
@@ -192,6 +206,8 @@ def _connect(args, parser) -> int:
     finally:
         if ctl is not None:
             ctl.close()
+        if link is not None:
+            link.close()
         channel.close()
 
 

@@ -64,6 +64,14 @@ another instead of partitioning the mesh (`relay.py`).
   must be fresh and monotonic; deliveries are accepted only from relays the node
   asked, with `src` equal to the inner signer; per-DID rate limit, size cap,
   bounded client table, no relay chains.
+- **Direct first, relay as the fallback** (`failover.py`). `FailoverTransport`
+  sits under an application channel: a peer heard directly within the last few
+  seconds gets direct traffic only; otherwise a message goes direct *and*
+  through a relay both hold a lease with (`RelayClient.route_via`, addressed by
+  DID, so two clients of one relay need no membership records of each other).
+  `FailoverTransport.from_records(direct, records)` builds it from the relays'
+  own signed records, as `secdogie-relay` prints them. The operator dialogue
+  (`secdogie-node`, `secdogie-dialogue connect`) uses it via `--relay-record`.
 
 ## Running a headless relay (2C.1)
 
