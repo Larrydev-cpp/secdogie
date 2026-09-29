@@ -296,3 +296,94 @@ def test_macos_focused_node_none_when_no_focus(monkeypatch):
     _macos_fake(monkeypatch, app)
     prov = desktop_ax._MacosAxProvider(sys.modules["ApplicationServices"], unlock_hidden_trees=False)
     assert prov.focused_node() is None
+
+
+# ---- backend keyboard-reach fallback -----------------------------------------
+
+from secdogie_agent import backend as backend_mod  # noqa: E402
+from secdogie_agent.backend import DesktopBackend  # noqa: E402
+
+
+class _ReachProvider:
+    """press() by identity fails (the target isn't tree-reachable); focus_node
+    walks a ring advanced by the keys the backend sends."""
+
+    def __init__(self, ring, start):
+        self.ring = ring
+        self.focus = start
+        self.keys: list[str] = []
+
+    def press(self, **attrs):
+        return False  # cannot re-find it by identity
+
+    def focused_node(self):
+        return self.focus
+
+    def _advance(self, key):
+        self.keys.append(key)
+        if key == "tab" and self.focus in self.ring:
+            self.focus = self.ring[(self.ring.index(self.focus) + 1) % len(self.ring)]
+
+
+def _backend_for(provider, monkeypatch, supported=True):
+    monkeypatch.setattr(backend_mod, "_keyboard_reach_supported", lambda: supported)
+    b = DesktopBackend(ax_provider=provider)
+    # Route sent keys into the fake ring instead of pyautogui.
+    monkeypatch.setattr(b, "_send_key", lambda chord: (provider._advance(chord) or True))
+    return b
+
+
+def test_invoke_falls_back_to_keyboard_reach(monkeypatch):
+    ring = [el("Button", "New", "new"), el("Button", "Save", "save")]
+    prov = _ReachProvider(ring, ring[0])
+    b = _backend_for(prov, monkeypatch)
+    out = b.invoke_element(el("Button", "Save", "save"))
+    assert out is not None and "by keyboard" in out and "Space" in out
+    assert prov.keys == ["tab", "space"]  # one Tab to reach Save, then activate
+
+
+def test_keyboard_reach_refused_off_windows_linux(monkeypatch):
+    ring = [el("Button", "Save", "save")]
+    prov = _ReachProvider(ring, ring[0])
+    b = _backend_for(prov, monkeypatch, supported=False)
+    assert b.invoke_element(el("Button", "Save", "save")) is None
+    assert prov.keys == []
+
+
+def test_keyboard_reach_only_activates_safe_roles(monkeypatch):
+    # A generic pane is focusable but Space wouldn't "click" it: don't pretend.
+    prov = _ReachProvider([el("Pane", "canvas", "c")], el("Pane", "canvas", "c"))
+    b = _backend_for(prov, monkeypatch)
+    assert b.invoke_element(el("Pane", "canvas", "c")) is None
+    assert "space" not in prov.keys
+
+
+def test_keyboard_reach_gives_up_when_target_absent(monkeypatch):
+    ring = [el("Button", "New", "new"), el("Button", "Open", "open")]
+    prov = _ReachProvider(ring, ring[0])
+    b = _backend_for(prov, monkeypatch)
+    assert b.invoke_element(el("Button", "Missing", "missing")) is None
+    assert "space" not in prov.keys  # never activated something that wasn't the target
+
+
+def test_identity_press_success_skips_keyboard(monkeypatch):
+    class _OK:
+        def __init__(self):
+            self.keys = []
+
+        def press(self, **attrs):
+            return True
+
+        def focused_node(self):
+            return None
+
+    prov = _OK()
+    b = _backend_for(prov, monkeypatch)
+    out = b.invoke_element(el("Button", "Save", "save"))
+    assert "via accessibility (cursor not moved)" in out and prov.keys == []
+
+
+def test_reach_supported_matches_platform(monkeypatch):
+    for plat, ok in [("win32", True), ("linux", True), ("darwin", False)]:
+        monkeypatch.setattr(backend_mod.sys, "platform", plat)
+        assert backend_mod._keyboard_reach_supported() is ok

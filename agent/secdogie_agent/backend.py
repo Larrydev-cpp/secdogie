@@ -18,8 +18,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
-from . import actions, axtree, elements, screen, target
+from . import actions, axtree, elements, focus_nav, screen, target
 from .providers.base import Action
+
+
+def _keyboard_reach_supported() -> bool:
+    """Keyboard focus traversal sends synthesized key events; allowed on
+    Windows and Linux, refused on macOS (AXPress/AXValue only)."""
+    return sys.platform.startswith("win") or sys.platform.startswith("linux")
 
 
 @dataclass(frozen=True)
@@ -267,11 +273,59 @@ class DesktopBackend:
         try:
             ok = press(**attrs)
         except Exception:
+            ok = False
+        label = el.name or el.automation_id or el.role
+        if ok:
+            return f"invoked {el.role} {label!r} via accessibility (cursor not moved)"
+        # Identity press failed (a control the tree can't re-find, e.g. inside a
+        # custom-drawn region): try to reach it with the keyboard before pixels.
+        return self.reach_element(el)
+
+    # Roles a focused control activates on Space -- the keyboard "click".
+    _SPACE_ACTIVATES = frozenset({
+        "button", "splitbutton", "checkbox", "radiobutton", "togglebutton",
+        "menuitem", "listitem", "tabitem", "treeitem", "push button",
+        "toggle button", "check box", "radio button", "menu item",
+    })
+
+    def reach_element(self, el: axtree.AxElement) -> str | None:
+        """Bring keyboard focus to `el` by walking the focus ring (Tab / arrows),
+        then activate it with Space -- no cursor, no pixels. Windows/Linux only:
+        macOS refuses synthesized key HID. None when the platform, provider, or
+        element can't support it, or the ring never reaches the target."""
+        if not _keyboard_reach_supported():
             return None
-        if not ok:
+        read_focus = getattr(self.ax_provider, "focused_node", None)
+        attrs = axtree.selector_for(el)
+        if self.ax_provider is None or not callable(read_focus) or not attrs:
+            return None
+        if el.role.strip().casefold() not in self._SPACE_ACTIVATES:
+            return None  # reaching focus without a safe "click" would look done but not be
+        nav = focus_nav.FocusNavigator(read_focus, self._send_key)
+        result = nav.to(**attrs)
+        if not result.ok:
+            return None
+        if not self._send_key("space"):
             return None
         label = el.name or el.automation_id or el.role
-        return f"invoked {el.role} {label!r} via accessibility (cursor not moved)"
+        return (
+            f"reached {el.role} {label!r} by keyboard ({result.steps} key(s)) and "
+            "activated it with Space (cursor not moved)"
+        )
+
+    def _send_key(self, chord: str) -> bool:
+        """Send one key chord (e.g. 'tab', 'shift+tab', 'space') through the
+        shared input path. Returns whether it was delivered."""
+        try:
+            out = actions.execute(
+                Action(kind="key", keys=chord.split("+")),
+                move_duration=self.move_duration,
+                settle=self.settle,
+                activate=self.activate,
+            )
+        except Exception:
+            return False
+        return not out.startswith("macOS mutation")
 
     def set_element_value(self, el: axtree.AxElement, text: str) -> str | None:
         """Native SetValue / AXValue / AT-SPI setTextContents for `el`. None if
