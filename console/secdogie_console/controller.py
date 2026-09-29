@@ -7,9 +7,10 @@ snapshot / submit / stop_task / pause_task / resume_task), so tests drive it
 with a fake and never open a socket.
 
 Authorization: when an operator Allowlist is configured, every command body must
-carry a valid operator-DID signature (secdogie-identity). With no allowlist the
-console is loopback-trusted, the same model secdogie-open uses -- fine for a
-single operator on their own machine, and the path to gate for remote exposure.
+carry a valid operator-DID signature (secdogie-identity). Without one the
+controller refuses to exist unless told ``allow_unsigned_local=True``: commands
+from this machine's loopback UI, unsigned -- the same model secdogie-open uses,
+fine for a single operator on their own machine, never a silent default.
 """
 from __future__ import annotations
 
@@ -21,7 +22,11 @@ _OPS = frozenset({"submit", "stop", "pause", "resume"})
 
 
 class ConsoleController:
-    def __init__(self, fleet: Any, *, operator_allowlist: Allowlist | None = None):
+    def __init__(self, fleet: Any, *, operator_allowlist: Allowlist | None = None,
+                 allow_unsigned_local: bool = False):
+        if operator_allowlist is None and not allow_unsigned_local:
+            raise ValueError("the console needs an operator allowlist (signed commands), or "
+                             "allow_unsigned_local=True for unsigned commands from this machine's loopback UI")
         self._fleet = fleet
         self._operator_allowlist = operator_allowlist
 

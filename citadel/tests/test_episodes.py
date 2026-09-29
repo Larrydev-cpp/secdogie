@@ -11,7 +11,7 @@ from secdogie_citadel.episodes import build_episodes, episodes_from_events  # no
 from secdogie_citadel.journal import Journal  # noqa: E402
 from secdogie_citadel.run import RunRecorder, verify_run  # noqa: E402
 from secdogie_citadel.state import StateStore, record_state  # noqa: E402
-from secdogie_identity import Allowlist, Identity  # noqa: E402
+from secdogie_identity import ALLOW_ANY, Allowlist, Identity  # noqa: E402
 
 
 def _counter():
@@ -24,7 +24,7 @@ def _counter():
     return clock
 
 
-def _journal(identity=None, allow=None):
+def _journal(identity=None, allow=ALLOW_ANY):
     return Journal(identity=identity or Identity.generate(), allowlist=allow, clock=_counter())
 
 

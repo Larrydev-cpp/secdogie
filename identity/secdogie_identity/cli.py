@@ -66,7 +66,8 @@ def _verify_binding(args: argparse.Namespace) -> int:
     allow = Allowlist.load(args.allowlist) if args.allowlist else None
     res = _binding.verify_binding(obj, allowlist=allow)
     if res.ok:
-        print(f"valid: {res.did} -> transport {res.transport_public_key} (v{res.key_version})")
+        scope = "" if allow is not None else "  (signature only: no allowlist given, so not an authorization)"
+        print(f"valid: {res.did} -> transport {res.transport_public_key} (v{res.key_version}){scope}")
         return 0
     print(f"INVALID: {res.reason}")
     return 1

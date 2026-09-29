@@ -15,6 +15,7 @@ from secdogie_citadel.cli import main  # noqa: E402
 from secdogie_citadel.journal import Journal  # noqa: E402
 from secdogie_citadel.supervisor import Supervisor  # noqa: E402
 from secdogie_identity import (  # noqa: E402
+    ALLOW_ANY,
     Allowlist,
     Identity,
     MasterSet,
@@ -44,7 +45,7 @@ def test_a_revoked_authors_events_stop_merging():
     author, reader = Identity.generate(), Identity.generate()
     policy = TrustPolicy(Allowlist({author.did, reader.did}), masters=MasterSet([master.did]))
 
-    theirs = Journal(identity=author, clock=_counter())
+    theirs = Journal(allowlist=ALLOW_ANY, identity=author, clock=_counter())
     theirs.append("note", {"n": 1})
     ours = Journal(identity=reader, allowlist=policy, clock=_counter())
     assert ours.merge(theirs.events()) == 1           # authorized: merged
@@ -56,7 +57,7 @@ def test_a_revoked_authors_events_stop_merging():
 
 def test_halt_stops_the_running_goal_and_schedules_nothing_more():
     ran = []
-    j = Journal(identity=Identity.generate(), clock=_counter())
+    j = Journal(allowlist=ALLOW_ANY, identity=Identity.generate(), clock=_counter())
 
     def run_task(task, *, should_stop, on_status, confirm, record_step=None, **_):
         ran.append(task)
@@ -81,6 +82,7 @@ def _node_files(tmp_path, master, revoked=()):
     masters = tmp_path / "masters.conf"
     masters.write_text(f"master_did = {master.did}\n", encoding="utf-8")
     store = tmp_path / "revocations.jsonl"
+    (tmp_path / "nodes.allow").write_text(f"authorized_did = {node.did}\n", encoding="utf-8")
     if revoked == "self":
         RevocationStore(store).append(_revocation(master, [node.did]))
     return node, key, masters, store
@@ -90,11 +92,11 @@ def test_run_does_not_start_when_this_node_is_revoked(tmp_path, monkeypatch, cap
     master = Identity.generate()
     node, key, masters, store = _node_files(tmp_path, master, revoked="self")
     db = str(tmp_path / "j.db")
-    main(["add-goal", db, "g1", "--identity", str(key), "--title", "g1"])
+    main(["add-goal", db, "g1", "--identity", str(key), "--authorized", str(tmp_path / "nodes.allow"), "--title", "g1"])
     calls = []
     monkeypatch.setattr(sup_mod, "agent_run_task", lambda *a, **k: calls.append(1) or (0, "ok"))
 
-    assert main(["run", db, "--identity", str(key), "--masters", str(masters),
+    assert main(["run", db, "--identity", str(key), "--authorized", str(tmp_path / "nodes.allow"), "--masters", str(masters),
                  "--revocations", str(store)]) == 0
     assert calls == []
     assert "revoked" in capsys.readouterr().out
@@ -104,8 +106,8 @@ def test_run_halts_when_this_node_is_revoked_mid_run(tmp_path, monkeypatch, caps
     master = Identity.generate()
     node, key, masters, store = _node_files(tmp_path, master)
     db = str(tmp_path / "j.db")
-    main(["add-goal", db, "g1", "--identity", str(key), "--title", "g1"])
-    main(["add-goal", db, "g2", "--identity", str(key), "--title", "g2"])
+    main(["add-goal", db, "g1", "--identity", str(key), "--authorized", str(tmp_path / "nodes.allow"), "--title", "g1"])
+    main(["add-goal", db, "g2", "--identity", str(key), "--authorized", str(tmp_path / "nodes.allow"), "--title", "g2"])
     monkeypatch.setattr(cli_mod, "_REFRESH_INTERVAL", 0.02)
     ran = []
 
@@ -119,7 +121,7 @@ def test_run_halts_when_this_node_is_revoked_mid_run(tmp_path, monkeypatch, caps
         return (5, "stopped") if should_stop() else (0, "ran to the end")
 
     monkeypatch.setattr(sup_mod, "agent_run_task", fake_run_task)
-    assert main(["run", db, "--identity", str(key), "--masters", str(masters),
+    assert main(["run", db, "--identity", str(key), "--authorized", str(tmp_path / "nodes.allow"), "--masters", str(masters),
                  "--revocations", str(store), "--max-goals", "5"]) == 0
     out = capsys.readouterr().out
     assert ran == ["g1"]                              # g2 never scheduled

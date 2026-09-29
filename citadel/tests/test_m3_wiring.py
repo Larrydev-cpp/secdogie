@@ -16,7 +16,7 @@ from secdogie_citadel.recovery import REOBSERVE_BEFORE_RETRY, recovery_preamble 
 from secdogie_citadel.run import EXECUTING, STOPPED  # noqa: E402
 from secdogie_citadel.state import StateStore  # noqa: E402
 from secdogie_citadel.supervisor import Supervisor  # noqa: E402
-from secdogie_identity import Allowlist, Identity  # noqa: E402
+from secdogie_identity import ALLOW_ANY, Allowlist, Identity  # noqa: E402
 from secdogie_identity.capability import create_capability  # noqa: E402
 
 
@@ -36,7 +36,7 @@ def _view(kind, **kw):
 
 def test_grants_in_the_journal_reach_the_loop_gate():
     op, node = Identity.generate(), Identity.generate()
-    j = Journal(identity=node, clock=_counter())
+    j = Journal(allowlist=ALLOW_ANY, identity=node, clock=_counter())
     seen = {}
 
     def run_task(task, *, should_stop, on_status, confirm, record_step=None, plan_gate=None):
@@ -54,27 +54,48 @@ def test_grants_in_the_journal_reach_the_loop_gate():
 
 def test_untrusted_grant_gives_nothing():
     op, node, rogue = Identity.generate(), Identity.generate(), Identity.generate()
-    sup = Supervisor(Journal(identity=node, clock=_counter()), lambda *a, **k: (0, "ok"),
+    sup = Supervisor(Journal(allowlist=ALLOW_ANY, identity=node, clock=_counter()), lambda *a, **k: (0, "ok"),
                      issuers=Allowlist({op.did}))
     sup.add_grant(create_capability(rogue, node.did, ["physical.click"]))
     assert sup.node_scopes() == frozenset()
 
 
-def test_without_issuers_no_gate_is_passed():
-    # A run_task that doesn't know about the new hooks keeps working.
+def test_a_runner_that_cannot_take_the_gate_never_runs_ungated():
+    # Zero trust: the capability gate is always passed. A run_task that cannot
+    # take it fails its goal instead of running without it ...
     def old_style(task, *, should_stop, on_status, confirm, record_step=None):
         return (0, "ok")
 
-    sup = Supervisor(Journal(identity=Identity.generate(), clock=_counter()), old_style)
+    sup = Supervisor(Journal(allowlist=ALLOW_ANY, identity=Identity.generate(), clock=_counter()), old_style)
+    sup.add_goal("g1", title="g1")
+    code, summary = sup.run_goal("g1")
+    assert code == 1 and "plan_gate" in summary
+    # ... unless the capability check is turned off, out loud.
+    sup = Supervisor(Journal(allowlist=ALLOW_ANY, identity=Identity.generate(), clock=_counter()), old_style,
+                     unrestricted=True)
     sup.add_goal("g1", title="g1")
     assert sup.run_goal("g1") == (0, "ok")
 
 
+def test_without_issuers_every_mutating_action_is_refused():
+    seen = {}
+
+    def task(t, *, should_stop, on_status, confirm, record_step=None, plan_gate=None):
+        seen["click"] = plan_gate({"kind": "left_click", "x": 1, "y": 1}, [])
+        seen["look"] = plan_gate({"kind": "screenshot"}, [])
+        return (0, "ok")
+
+    sup = Supervisor(Journal(allowlist=ALLOW_ANY, identity=Identity.generate(), clock=_counter()), task)
+    sup.add_goal("g1", title="g1")
+    sup.run_goal("g1")
+    assert seen["click"][0] is False and seen["look"][0] is True
+
+
 def test_executing_crash_is_superseded_and_recovery_is_passed():
-    j = Journal(identity=Identity.generate(), clock=_counter())
+    j = Journal(allowlist=ALLOW_ANY, identity=Identity.generate(), clock=_counter())
     got = {}
 
-    def run_task(task, *, should_stop, on_status, confirm, record_step=None, recovery=None):
+    def run_task(task, *, should_stop, on_status, confirm, record_step=None, recovery=None, plan_gate=None):
         got["recovery"] = recovery
         return (0, "ok")
 
@@ -122,7 +143,7 @@ def test_end_to_end_grant_gates_the_real_agent_loop(monkeypatch):
     monkeypatch.setattr(loop.time, "sleep", lambda s: None)
 
     op, node = Identity.generate(), Identity.generate()
-    j = Journal(identity=node, clock=_counter())
+    j = Journal(allowlist=ALLOW_ANY, identity=node, clock=_counter())
 
     def run_task(task, *, should_stop, on_status, confirm, record_step=None, plan_gate=None):
         provider = Scripted([

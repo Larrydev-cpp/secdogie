@@ -7,7 +7,7 @@ import pytest
 
 pytest.importorskip("nacl")
 
-from secdogie_identity import Allowlist, Identity, create_binding  # noqa: E402
+from secdogie_identity import ALLOW_ANY, Allowlist, Identity, create_binding  # noqa: E402
 from secdogie_transport import (  # noqa: E402
     Endpoint,
     EndpointSet,
@@ -25,7 +25,7 @@ def _peer(caps=()) -> tuple[Identity, str, PeerIdentity]:
     idn = Identity.generate()
     tpk = _tpk()
     binding = create_binding(idn, tpk, key_version=1, capabilities=caps)
-    peer = PeerIdentity.from_binding(binding)
+    peer = PeerIdentity.from_binding(binding, allowlist=ALLOW_ANY)
     return idn, tpk, peer
 
 
@@ -46,7 +46,19 @@ def test_peer_from_unauthorized_binding_is_none():
 def test_peer_from_expired_binding_is_none():
     idn = Identity.generate()
     binding = create_binding(idn, _tpk(), key_version=1, valid_from=0.0, expires_at=1.0)
-    assert PeerIdentity.from_binding(binding, now=100.0) is None
+    assert PeerIdentity.from_binding(binding, allowlist=ALLOW_ANY, now=100.0) is None
+
+
+def test_nothing_trusts_by_default():
+    """Zero trust: a missing allowlist is refused, never read as "anyone"."""
+    idn = Identity.generate()
+    binding = create_binding(idn, _tpk(), key_version=1)
+    with pytest.raises(ValueError, match="ALLOW_ANY"):
+        PeerIdentity.from_binding(binding)
+    with pytest.raises(ValueError):
+        HubTransport()
+    with pytest.raises(ValueError):
+        HubTransport(allowlist=None)
 
 
 def test_endpoint_set_prefers_public_then_observed():
@@ -76,7 +88,7 @@ def test_session_migration_keeps_identity():
 def test_hub_routes_between_two_registered_peers():
     _a_id, _a_tpk, a = _peer()
     _b_id, _b_tpk, b = _peer()
-    hub = HubTransport()
+    hub = HubTransport(allowlist=ALLOW_ANY)
     inbox_b = []
     assert hub.register(Session("sa", a), lambda frm, msg: None)
     assert hub.register(Session("sb", b), lambda frm, msg: inbox_b.append((frm, msg)))
@@ -93,7 +105,7 @@ def test_hub_refuses_unauthorized_peer():
 
 def test_hub_route_fails_to_unknown_destination():
     _a_id, _a_tpk, a = _peer()
-    hub = HubTransport()
+    hub = HubTransport(allowlist=ALLOW_ANY)
     hub.register(Session("sa", a), lambda frm, msg: None)
     assert hub.route(a.did, "did:key:zNobody", b"x") is False
 
@@ -101,7 +113,7 @@ def test_hub_route_fails_to_unknown_destination():
 def test_hub_migration_keeps_delivery():
     _a_id, _a_tpk, a = _peer()
     _b_id, _b_tpk, b = _peer()
-    hub = HubTransport()
+    hub = HubTransport(allowlist=ALLOW_ANY)
     got = []
     hub.register(Session("sa", a), lambda frm, msg: None)
     hub.register(Session("sb", b, EndpointSet([Endpoint("local", "10.0.0.2", 6000)])), lambda frm, msg: got.append(msg))

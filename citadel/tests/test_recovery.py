@@ -18,7 +18,7 @@ from secdogie_citadel.replication import ReplicationPeer  # noqa: E402
 from secdogie_citadel.run import RunRecorder  # noqa: E402
 from secdogie_citadel.state import StateStore  # noqa: E402
 from secdogie_citadel.supervisor import Supervisor  # noqa: E402
-from secdogie_identity import Allowlist, Identity  # noqa: E402
+from secdogie_identity import ALLOW_ANY, Allowlist, Identity  # noqa: E402
 
 
 def _counter(start=0.0):
@@ -31,7 +31,7 @@ def _counter(start=0.0):
     return clock
 
 
-def _journal(identity=None, allow=None):
+def _journal(identity=None, allow=ALLOW_ANY):
     return Journal(identity=identity or Identity.generate(), allowlist=allow, clock=_counter())
 
 

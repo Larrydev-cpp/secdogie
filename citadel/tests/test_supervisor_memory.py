@@ -42,7 +42,7 @@ def _counter():
 def _supervisor(**memory_kw):
     j = Journal(identity=NODE, allowlist=Allowlist({NODE.did}), clock=_counter())
     cfg = MemoryConfig(confirmers=Allowlist({APP.did}), **memory_kw)
-    return Supervisor(j, _fake_task, memory=cfg)
+    return Supervisor(j, _fake_task, memory=cfg, unrestricted=True)  # memory is under test, not capabilities
 
 
 SCRIPT: list = []  # (view, outcome) the fake loop plays each run
@@ -188,7 +188,7 @@ def test_without_memory_nothing_changes():
         record_step(observation={"f": 1}, action=CLICK, result="clicked")
         return 0, "done"
 
-    sup = Supervisor(j, task)
+    sup = Supervisor(j, task, unrestricted=True)
     sup.add_goal("g1")
     assert sup.run_goal("g1") == (0, "done")
     assert passed == {}  # no plan gate, no memory hooks

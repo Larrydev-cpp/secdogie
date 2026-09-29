@@ -98,9 +98,9 @@ def test_record_review_appends_signed_event():
 
     pytest.importorskip("nacl")
     from secdogie_citadel.journal import Journal
-    from secdogie_identity import Identity
+    from secdogie_identity import ALLOW_ANY, Identity
 
-    j = Journal(identity=Identity.generate())
+    j = Journal(allowlist=ALLOW_ANY, identity=Identity.generate())
     r = socratic.review("Keep it read-only but delete the temp files.")
     event = socratic.record_review(j, "Keep it read-only but delete the temp files.", r)
     assert event["kind"] == "socratic"

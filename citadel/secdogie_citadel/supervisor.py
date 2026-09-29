@@ -81,6 +81,7 @@ class Supervisor:
         logger: logging.Logger | None = None,
         issuers=None,
         memory: MemoryConfig | None = None,
+        unrestricted: bool = False,
     ):
         from .goals import build_goal_tree
         from .run import RunRecorder
@@ -92,9 +93,13 @@ class Supervisor:
         self.log = logger or logging.getLogger("secdogie_citadel.supervisor")
         self._build_goal_tree = build_goal_tree
         self.recorder = RunRecorder(journal)
-        # Trusted capability issuers (operator DIDs). When set, every action the
-        # agent is about to execute is checked against this node's grants.
+        # Trusted capability issuers (operator DIDs). Every action the agent is
+        # about to execute is checked against this node's grants from them; with
+        # no issuers there are no grants, so every mutating action is refused
+        # (zero trust). `unrestricted` turns the capability check off -- INSECURE,
+        # for tests and local development only, and never a default.
         self.issuers = issuers
+        self.unrestricted = bool(unrestricted)
         self.memory = memory
         self._hooks = OperatorHooks()
         self._candidates = None
@@ -358,11 +363,11 @@ class Supervisor:
         # don't accept them keep working.
         extra: dict = {}
         hooks = self._hooks
-        if self.issuers is not None or self.memory is not None or hooks.authorize is not None:
+        if not self.unrestricted or self.memory is not None or hooks.authorize is not None:
             from .loop_gate import make_plan_gate
 
             instruction = node.title or goal_id
-            enforce = self.issuers is not None
+            enforce = not self.unrestricted
             ident = getattr(self.journal, "identity", None)
             subject_did = getattr(ident, "did", "") if ident is not None else ""
             observers = [o for o in (correlator.observe if correlator is not None else None, hooks.observe)

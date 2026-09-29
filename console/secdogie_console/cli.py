@@ -42,6 +42,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="coordinator DID signing key (fleet secure mode)")
     parser.add_argument("--authorized", default=None, metavar="ALLOWLIST",
                         help="authorized node DIDs (fleet secure mode)")
+    parser.add_argument("--insecure-dev", action="store_true",
+                        help="run the fleet without --identity/--authorized (no authentication); "
+                             "throwaway local tests only")
     parser.add_argument("--operator-authorized", default=None, metavar="ALLOWLIST",
                         help="authorized operator DIDs; requires signed console commands")
     parser.add_argument("--masters", default=None, metavar="FILE",
@@ -61,6 +64,10 @@ def main(argv: list[str] | None = None) -> int:
     if (args.masters or args.revocations) and not (args.authorized or args.operator_authorized):
         print("error: --masters/--revocations need --authorized or --operator-authorized", file=sys.stderr)
         return 2
+    if not args.identity and not args.insecure_dev:
+        print("error: refusing to run the fleet without DID authentication: pass --identity and "
+              "--authorized, or --insecure-dev for a throwaway local test", file=sys.stderr)
+        return 2
     revocation = {"masters": args.masters, "revocations": args.revocations}
     try:
         signer, node_allowlist = _load_identity_and_allowlist(args.identity, args.authorized, **revocation)
@@ -68,16 +75,22 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
+    if signer is None:
+        log.warning("--insecure-dev: no authentication -- any host that reaches the fleet port can join")
     fleet = FleetServer(
         host=args.fleet_host, port=args.fleet_port,
-        logger=log, signer=signer, node_allowlist=node_allowlist,
+        logger=log, signer=signer, node_allowlist=node_allowlist, insecure_dev=signer is None,
     )
     fleet.start()
     log.info("fleet coordinator listening on %s:%d", *fleet.address)
 
-    controller = ConsoleController(fleet, operator_allowlist=operator_allowlist)
+    controller = ConsoleController(fleet, operator_allowlist=operator_allowlist,
+                                   allow_unsigned_local=operator_allowlist is None)
     if operator_allowlist is not None:
         log.info("console commands require an operator DID signature (%d authorized)", len(operator_allowlist))
+    else:
+        log.warning("console commands are unsigned: anything on this machine that reaches the loopback UI "
+                    "can command the fleet (use --operator-authorized to require signatures)")
 
     server = build_server(controller, port=args.port)
     host, port = server.server_address[:2]

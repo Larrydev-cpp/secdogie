@@ -17,6 +17,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 
+from secdogie_identity import require_trust
+
 from .endpoint import Endpoint
 from .session import Session
 
@@ -40,17 +42,18 @@ class Transport(ABC):
 
 class HubTransport(Transport):
     """In-memory hub-and-spoke router. Peers register their sessions with the
-    hub; messages route through it. With an allowlist, only authorized DIDs may
-    register (a message to/from an unregistered peer is not delivered)."""
+    hub; messages route through it. Only allowlisted DIDs may register (a
+    message to/from an unregistered peer is not delivered); an allowlist is
+    required -- ``ALLOW_ANY`` says "anyone" on purpose, ``None`` is refused."""
 
     def __init__(self, *, allowlist=None):
-        self._allowlist = allowlist
+        self._allowlist = require_trust(allowlist, "HubTransport")
         self._sessions: dict[str, Session] = {}          # did -> session
         self._deliver: dict[str, DeliverFn] = {}         # did -> inbound callback
 
     def register(self, session: Session, deliver: DeliverFn) -> bool:
         did = session.peer.did
-        if self._allowlist is not None and not self._allowlist.contains(did):
+        if not self._allowlist.contains(did):
             return False
         self._sessions[did] = session
         self._deliver[did] = deliver

@@ -5,7 +5,7 @@ import pytest
 pytest.importorskip("nacl")
 
 from secdogie_citadel.journal import GENESIS, Journal  # noqa: E402
-from secdogie_identity import Allowlist, Identity  # noqa: E402
+from secdogie_identity import ALLOW_ANY, Allowlist, Identity  # noqa: E402
 
 
 def _counter():
@@ -20,7 +20,7 @@ def _counter():
 
 def test_append_chains_and_signs():
     idn = Identity.generate()
-    j = Journal(identity=idn, clock=_counter())
+    j = Journal(allowlist=ALLOW_ANY, identity=idn, clock=_counter())
     e1 = j.append("note", {"x": 1})
     e2 = j.append("note", {"x": 2})
     assert e1["author"] == idn.did
@@ -31,7 +31,7 @@ def test_append_chains_and_signs():
 
 
 def test_append_requires_identity():
-    j = Journal()  # replica, no key
+    j = Journal(allowlist=ALLOW_ANY)  # replica, no key
     with pytest.raises(RuntimeError):
         j.append("note", {})
 
@@ -61,7 +61,7 @@ def test_merge_is_idempotent_and_converges():
 def test_merge_rejects_unauthorized_did():
     a, stranger = Identity.generate(), Identity.generate()
     j = Journal(allowlist=Allowlist({a.did}))
-    js = Journal(identity=stranger, clock=_counter())
+    js = Journal(allowlist=ALLOW_ANY, identity=stranger, clock=_counter())
     ev = js.append("note", {})
     assert j.merge([ev]) == 0  # stranger not on the allowlist
     assert j.events() == []
@@ -70,7 +70,7 @@ def test_merge_rejects_unauthorized_did():
 def test_merge_rejects_tampered_event():
     a = Identity.generate()
     j = Journal(allowlist=Allowlist({a.did}))
-    src = Journal(identity=a, clock=_counter())
+    src = Journal(allowlist=ALLOW_ANY, identity=a, clock=_counter())
     ev = src.append("note", {"amount": 1})
     ev["body"] = {"amount": 999}  # tamper after signing
     assert j.merge([ev]) == 0
@@ -78,7 +78,7 @@ def test_merge_rejects_tampered_event():
 
 def test_merge_handles_out_of_order_within_author():
     a = Identity.generate()
-    src = Journal(identity=a, clock=_counter())
+    src = Journal(allowlist=ALLOW_ANY, identity=a, clock=_counter())
     e1 = src.append("note", {"n": 1})
     e2 = src.append("note", {"n": 2})
     e3 = src.append("note", {"n": 3})
@@ -91,7 +91,7 @@ def test_merge_handles_out_of_order_within_author():
 
 def test_merge_drops_gap_until_predecessor_arrives():
     a = Identity.generate()
-    src = Journal(identity=a, clock=_counter())
+    src = Journal(allowlist=ALLOW_ANY, identity=a, clock=_counter())
     e1 = src.append("note", {"n": 1})
     e2 = src.append("note", {"n": 2})
     j = Journal(allowlist=Allowlist({a.did}))
@@ -101,7 +101,7 @@ def test_merge_drops_gap_until_predecessor_arrives():
 
 def test_heads_and_since():
     a = Identity.generate()
-    j = Journal(identity=a, clock=_counter())
+    j = Journal(allowlist=ALLOW_ANY, identity=a, clock=_counter())
     for i in range(3):
         j.append("note", {"n": i})
     assert j.heads() == {a.did: 3}
@@ -120,3 +120,16 @@ def test_total_order_is_lamport_then_tiebreak():
     ja.merge([e_b1])
     order = [(e["author"], e["seq"]) for e in ja.events()]
     assert order == [(a.did, 1), (b.did, 1)]  # a1 causally precedes b1
+
+
+def test_a_journal_needs_to_know_whose_events_it_accepts():
+    import pytest
+
+    with pytest.raises(ValueError, match="Journal needs an allowlist"):
+        Journal()
+    stranger = Identity.generate()
+    strict = Journal(allowlist=Allowlist(set()))  # an empty list trusts no one; it is not "unset"
+    src = Journal(allowlist=ALLOW_ANY, identity=stranger, clock=_counter())
+    src.append("goal", {"op": "add", "id": "g"})
+    assert strict.merge(src.events()) == 0
+

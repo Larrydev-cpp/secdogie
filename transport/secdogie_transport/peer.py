@@ -20,9 +20,9 @@ class PeerIdentity:
     def from_binding(cls, binding: dict, *, allowlist=None, now=None) -> PeerIdentity | None:
         """Build a PeerIdentity from a signed DID->transport binding, or None if
         the binding is invalid / the DID is not authorized."""
-        from secdogie_identity import verify_binding
+        from secdogie_identity import require_trust, verify_binding
 
-        res = verify_binding(binding, allowlist=allowlist, now=now)
+        res = verify_binding(binding, allowlist=require_trust(allowlist, "PeerIdentity.from_binding"), now=now)
         if not res.ok or res.did is None or res.transport_public_key is None:
             return None
         return cls(res.did, res.transport_public_key, tuple(res.capabilities))

@@ -15,7 +15,7 @@ commands** (`--operator-key`), which a browser can't do easily.
 
 ```sh
 pip install -e identity -e fleet -e console -e desktop
-secdogie-desktop --fleet-port 47810
+secdogie-desktop --fleet-port 47810 --insecure-dev   # a throwaway local test only
 # a window opens; nodes dial the coordinator (secdogie-fleet node --connect ...)
 ```
 

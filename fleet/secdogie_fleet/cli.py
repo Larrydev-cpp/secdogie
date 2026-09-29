@@ -86,7 +86,7 @@ def _run_coordinator(args) -> int:
     server = FleetServer(
         host=args.host, port=args.port,
         max_concurrent=args.max_concurrent, max_attempts=args.max_attempts,
-        logger=log, signer=signer, node_allowlist=node_allowlist,
+        logger=log, signer=signer, node_allowlist=node_allowlist, insecure_dev=signer is None,
     )
     server.start()
     log.info("waiting for nodes to dial in on %s:%d", *server.address)
@@ -169,7 +169,7 @@ def _run_node(args) -> int:
             node_mod.connect_and_serve(
                 host, port, node_id=node_id, label=args.label,
                 identity=identity, coordinator_allowlist=coordinator_allowlist, logger=log,
-                stop_event=stopped,
+                stop_event=stopped, insecure_dev=identity is None,
             )
             delay = 1.0  # a clean disconnect resets the backoff
         except (OSError, ConnectionError) as e:

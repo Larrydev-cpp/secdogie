@@ -15,6 +15,11 @@
                                       print the scopes this node currently holds
 
 verify/goals/log are read-only; add-goal/run need this node's signing key.
+
+Zero trust: every command needs --authorized ALLOWLIST (whose events the
+journal accepts), and ``run`` refuses every mutating action unless --issuers
+names who may grant this node capabilities. --insecure-dev lifts both, loudly,
+for a throwaway local test -- it is never implied.
 """
 from __future__ import annotations
 
@@ -28,6 +33,10 @@ from .journal import Journal
 _REFRESH_INTERVAL = 5.0  # seconds between re-reads of the revocation store
 
 
+class _Refused(Exception):
+    """A command that would have run without saying whom it trusts."""
+
+
 def _policy(args, path):
     """An allowlist file loaded revocation-aware when --masters is given."""
     if not path:
@@ -38,11 +47,25 @@ def _policy(args, path):
                              revocations_path=getattr(args, "revocations", None))
 
 
+def _journal_trust(args):
+    """--authorized, or ALLOW_ANY under an explicit --insecure-dev; else refuse."""
+    path = getattr(args, "authorized", None)
+    if path:
+        return _policy(args, path)
+    if getattr(args, "insecure_dev", False):
+        from secdogie_identity import ALLOW_ANY
+
+        print("WARNING: --insecure-dev: this journal accepts events from any signer", file=sys.stderr)
+        return ALLOW_ANY
+    raise _Refused("the journal needs --authorized ALLOWLIST (whose events to accept), "
+                   "or --insecure-dev for a throwaway local test")
+
+
 def _open_writable(args) -> Journal:
     from secdogie_identity import Identity
 
     identity = Identity.load(args.identity)
-    return Journal(args.db, identity=identity, allowlist=_policy(args, getattr(args, "authorized", None)))
+    return Journal(args.db, identity=identity, allowlist=_journal_trust(args))
 
 
 def _self_policy(args):
@@ -89,15 +112,21 @@ def _run(args) -> int:
         return 0
 
     issuers = _policy(args, args.issuers)
+    unrestricted = issuers is None and args.insecure_dev
     sup = Supervisor(
         _open_writable(args), run_task=agent_run_task,
         max_attempts=args.max_attempts, confirm_handler=terminal_confirm,
-        issuers=issuers,
+        issuers=issuers, unrestricted=unrestricted,
     )
     if self_policy is not None:
         self_policy.on_change(lambda newly: halt_on_self_revocation(
             newly, node_did, [lambda: sup.halt("this node's DID was revoked")]))
-    if issuers is not None:
+    if unrestricted:
+        print("WARNING: --insecure-dev without --issuers: NO capability check -- the agent may take any "
+              "action (high-risk steps still ask on this terminal)", file=sys.stderr)
+    elif issuers is None:
+        print("no --issuers: nobody can grant this node a capability -- every mutating action will be refused")
+    else:
         scopes = sorted(sup.node_scopes())
         print("capability enforcement on: " + (", ".join(scopes) if scopes
               else "(no scopes granted -- every mutating action will be refused)"))
@@ -114,13 +143,13 @@ def _run(args) -> int:
 
 
 def _verify(args) -> int:
-    ok, reason = Journal(args.db).verify()
+    ok, reason = Journal(args.db, allowlist=_journal_trust(args)).verify()
     print("ok" if ok else f"BROKEN: {reason}")
     return 0 if ok else 1
 
 
 def _goals(args) -> int:
-    tree = build_goal_tree(Journal(args.db).events())
+    tree = build_goal_tree(Journal(args.db, allowlist=_journal_trust(args)).events())
     if tree.has_cycle():
         print("goal graph has a cycle")
         return 1
@@ -133,7 +162,7 @@ def _goals(args) -> int:
 
 
 def _log(args) -> int:
-    for e in Journal(args.db).events():
+    for e in Journal(args.db, allowlist=_journal_trust(args)).events():
         print(f"{e['lamport']:>5} {e['author'][:16]}#{e['seq']:<4} {e['kind']}: {e['body']}")
     return 0
 
@@ -180,6 +209,8 @@ def main(argv: list[str] | None = None) -> int:
     for name, fn in (("verify", _verify), ("goals", _goals), ("log", _log)):
         s = sub.add_parser(name)
         s.add_argument("db", help="path to the journal SQLite file")
+        s.add_argument("--authorized", default=None, metavar="ALLOWLIST", help="authors whose events count")
+        s.add_argument("--insecure-dev", action="store_true", help="accept any signer (throwaway local test)")
         s.set_defaults(fn=fn)
 
     ag = sub.add_parser("add-goal", help="append a goal to the journal")
@@ -223,13 +254,20 @@ def main(argv: list[str] | None = None) -> int:
                                  "(and, for run, stops this node if its own DID is revoked)")
         parser.add_argument("--revocations", default=None, metavar="FILE",
                             help="revocation store, re-read every few seconds (requires --masters)")
+        parser.add_argument("--insecure-dev", action="store_true",
+                            help="INSECURE, throwaway local tests only: accept any signer without "
+                                 "--authorized; with run and no --issuers, turn the capability check off")
 
     args = p.parse_args(argv)
     if getattr(args, "revocations", None) and not getattr(args, "masters", None):
         print("error: --revocations needs --masters (revocations are verified against the masters)",
               file=sys.stderr)
         return 2
-    return args.fn(args)
+    try:
+        return args.fn(args)
+    except _Refused as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

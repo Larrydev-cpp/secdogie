@@ -30,7 +30,7 @@ import json
 import time
 from dataclasses import dataclass
 
-from secdogie_identity import Identity, sign_payload, verify_payload
+from secdogie_identity import Allowlist, Identity, require_trust, sign_payload, verify_payload
 
 from .endpoint import Endpoint, EndpointSet
 
@@ -90,7 +90,7 @@ class RendezvousServer:
     def __init__(self, identity: Identity, *, allowlist=None, clock=time.time):
         self.identity = identity
         self.did = identity.did
-        self._allowlist = allowlist
+        self._allowlist = require_trust(allowlist, "RendezvousServer")
         self._clock = clock
         self._registry: dict[str, _Registration] = {}
 
@@ -133,7 +133,7 @@ class RendezvousServer:
             return None
         target = obj.get("target_did")
         endpoints: list[dict] = []
-        if isinstance(target, str) and (self._allowlist is None or self._allowlist.contains(target)):
+        if isinstance(target, str) and (self._allowlist.contains(target)):
             reg = self._registry.get(target)
             if reg is not None:
                 endpoints = _endpoints_to_json(reg.endpoints)
@@ -176,9 +176,9 @@ class RendezvousClient:
         obj = _decode(raw)
         if obj is None or obj.get("type") != expected_type:
             return None
-        ok, signer = verify_payload(obj)  # signature validity...
+        ok, signer = verify_payload(obj, Allowlist({self.server_did}))  # only the pinned server...
         if not ok or signer != self.server_did or obj.get("to") != self.identity.did:
-            return None  # ...and the reply must be from the pinned rendezvous, to us
+            return None  # ...and the reply must be to us
         return obj
 
     def handle_register_ack(self, raw: bytes) -> Endpoint | None:

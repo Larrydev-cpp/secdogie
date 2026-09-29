@@ -30,6 +30,8 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Callable
 
+from secdogie_identity import require_trust
+
 from .membership import PeerRecord, verify_record
 
 # id space: 256-bit, matching sha256 / a did:key's identity.
@@ -99,8 +101,8 @@ class RoutingTable:
     def add_signed(self, obj, *, allowlist=None, now: float | None = None) -> bool:
         """Verify a signed record (domain/type, signature==did, allowlist,
         anti-rollforward) and, if authentic, add it. A forged or unauthorized
-        record is refused, never stored."""
-        rec = verify_record(obj, allowlist=allowlist, now=now)
+        record is refused, never stored. ``allowlist`` is required."""
+        rec = verify_record(obj, allowlist=require_trust(allowlist, "RoutingTable.add_signed"), now=now)
         if rec is None:
             return False
         return self.add(rec)
@@ -141,6 +143,7 @@ def _lookup(
     """The iterative Kademlia lookup shared by ``find_node``/``find_peer``. Returns
     ``(dids_closest_to_target, {did: signed_record})``. Bounded and terminating: a
     round that discovers no new node stops it."""
+    require_trust(allowlist, "a DHT lookup")
     shortlist: dict[str, int] = {did: node_id(did) ^ target_id for did in seed}
     records: dict[str, dict] = {}
     queried: set[str] = set()

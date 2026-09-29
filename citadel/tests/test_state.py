@@ -74,9 +74,9 @@ def test_end_to_end_over_a_real_journal():
     pytest.importorskip("nacl")
     from secdogie_citadel.journal import Journal
     from secdogie_citadel.state import record_state
-    from secdogie_identity import Identity
+    from secdogie_identity import ALLOW_ANY, Identity
 
-    j = Journal(identity=Identity.generate())
+    j = Journal(allowlist=ALLOW_ANY, identity=Identity.generate())
     record_state(j, "goal", "g1", "set", {"title": "tidy"})
     record_state(j, "goal", "g1", "patch", {"status": "done"})
     record_state(j, "knowledge", "obs-1", "set",
