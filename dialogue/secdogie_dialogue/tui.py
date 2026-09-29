@@ -29,6 +29,7 @@ from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.css.query import NoMatches
 from textual.screen import ModalScreen
 from textual.widgets import Input, Static
 
@@ -117,16 +118,31 @@ class DialogueApp(App):
 
     # -- rendering -------------------------------------------------------------
 
+    def _panels(self) -> dict[str, Static] | None:
+        """The main screen's panels -- found on the base screen, not the active
+        one, so they keep updating under the passphrase prompt. None while the
+        screen is being built or torn down (a timer tick can land then)."""
+        if not self.screen_stack:
+            return None
+        base = self.screen_stack[0]
+        try:
+            return {name: base.query_one(f"#{name}", Static) for name in ("convo", "view", "events", "gate", "status")}
+        except NoMatches:
+            return None
+
     def refresh_panels(self) -> None:
         self.ctl.tick()
+        panels = self._panels()
+        if panels is None:
+            return
         if self.ctl.version != self._seen_version:
             self._seen_version = self.ctl.version
-            self.query_one("#convo", Static).update(_text(self.ctl.conversation_lines() or ["(no dialogue yet)"]))
-            self.query_one("#view", Static).update(_text(self.ctl.inspector_lines()))
-            self.query_one("#events", Static).update(_text(list(self.ctl.events())[-3:]))
-        self.query_one("#gate", Static).update(_text(self._gate_lines()))  # the expiry countdown moves
+            panels["convo"].update(_text(self.ctl.conversation_lines() or ["(no dialogue yet)"]))
+            panels["view"].update(_text(self.ctl.inspector_lines()))
+            panels["events"].update(_text(list(self.ctl.events())[-3:]))
+        panels["gate"].update(_text(self._gate_lines()))  # the expiry countdown moves
         status = self.ctl.status_line() + (f"  ·  {self.message}" if self.message else "")
-        self.query_one("#status", Static).update(Text(status))
+        panels["status"].update(Text(status))
 
     def _gate_lines(self) -> list[str]:
         challenges, memories = self.ctl.challenges(), self.ctl.memories()
