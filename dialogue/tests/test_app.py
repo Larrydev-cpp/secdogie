@@ -145,6 +145,17 @@ def test_a_probe_is_shown_and_answered():
     assert len(s.of(DialoguePacket)) == 1
 
 
+def test_transcript_and_pending_probes_are_read_views():
+    ctl, _, _ = make()
+    deliver(ctl, DialoguePacket("p1", DialogueType.SOCRATIC_QUESTION, "Which folder?"))
+    deliver(ctl, DialoguePacket("s1", DialogueType.SYSTEM_STATUS, "working"))
+    assert [p.probe_id for p in ctl.pending_probes()] == ["p1"]
+    assert [(e.who, e.text) for e in ctl.transcript()] == [("agent", "Which folder?"), ("agent", "working")]
+    ctl.answer("p1", "Desktop")
+    assert ctl.pending_probes() == ()
+    assert ctl.transcript()[-1].who == "you"
+
+
 def test_the_node_cannot_answer_for_the_operator():
     ctl, _, _ = make()
     deliver(ctl, DialoguePacket("x", DialogueType.USER_CLARIFICATION, "yes", in_reply_to="p1"))

@@ -305,8 +305,23 @@ def write_template(path: Path | None = None) -> Path:
     return target
 
 
+def api_key_problem(api_key: str | None) -> str | None:
+    """Why a pasted API key cannot be saved, or None. The one check every key
+    form shares (the launcher's key dialog, the secdogie window's key card)."""
+    key = (api_key or "").strip()
+    if not key:
+        return "Please paste a key first."
+    if len(key) < 8:
+        return "That looks too short for an API key."
+    if any(c.isspace() for c in key):
+        return "An API key has no spaces or line breaks in it."
+    return None
+
+
 def _upsert_line(lines: list[str], env_var: str, value: str) -> list[str]:
     """Replace or append `ENV=value` in a list of config lines."""
+    if "\n" in value or "\r" in value:  # one value is one line: nothing rides along into the file
+        raise ValueError(f"{env_var}: a value cannot contain a line break")
     key_line = f"{env_var}={value}"
     found = False
     new_lines: list[str] = []

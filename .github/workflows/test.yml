@@ -61,6 +61,14 @@ jobs:
             needs_transport: true
             needs_agent: true      # the end-to-end test drives the real agent loop
             needs_dialogue: true
+          - dir: app        # the one secdogie window: view model, local node, end-to-end flow, Tk view
+            needs_identity: true
+            needs_citadel: true
+            needs_transport: true
+            needs_agent: true
+            needs_dialogue: true
+            needs_node: true
+            display: true          # the Tk tests run under Xvfb (not skip)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -95,11 +103,22 @@ jobs:
           if [ "${{ matrix.needs_dialogue }}" = "true" ]; then
             pip install -e "../dialogue[tui]"
           fi
+          if [ "${{ matrix.needs_node }}" = "true" ]; then
+            pip install -e ../node
+          fi
+          if [ "${{ matrix.display }}" = "true" ]; then
+            sudo apt-get update -q && sudo apt-get install -y -q xvfb
+          fi
           pip install -e ".${{ matrix.extras }}" pytest
 
       - name: Test
         working-directory: ${{ matrix.dir }}
-        run: pytest tests/ -q
+        run: |
+          if [ "${{ matrix.display }}" = "true" ]; then
+            xvfb-run -a pytest tests/ -q
+          else
+            pytest tests/ -q
+          fi
 
       # P2 commercial gate: offline CAD golden-scenario fixtures must load cleanly.
       # No real mouse / model; just validates expected.json presence + schema.

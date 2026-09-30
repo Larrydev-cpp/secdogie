@@ -390,6 +390,16 @@ class AppController:
                     f"{len(self._challenges)} to sign · {len(self.conversation.pending())} to answer · "
                     f"{len(self._memories)} to confirm")
 
+    def transcript(self) -> tuple:
+        """The conversation so far (``dialogue.Entry``), read under the lock."""
+        with self._cond:
+            return self.conversation.transcript()
+
+    def pending_probes(self) -> tuple[DialoguePacket, ...]:
+        """The questions still waiting for an answer, oldest first."""
+        with self._cond:
+            return self.conversation.pending()
+
     def conversation_lines(self) -> list[str]:
         with self._cond:
             return self.conversation.lines()
