@@ -18,7 +18,11 @@ A record may also carry two optional, equally self-signed lists (2C): ``roles``
 -- the mesh services the node currently offers (``relay`` / ``rendezvous``), so
 any allowlisted node can take one on and be found -- and ``relays`` -- the relay
 DIDs through which the node can be reached right now (a circuit address, as in
-libp2p). Records without them encode exactly as before. No new crypto (signing
+libp2p). Records without them encode exactly as before. A record may also say
+what kind of device the node is (``device_class``, T7): ``display`` -- it has a
+desktop and may take embodied goals -- or ``headless`` -- a relay, a rendezvous,
+a server, which never acts on a screen. Self-signed like the rest, so no one
+else can reclassify a node. No new crypto (signing
 reuses secdogie-identity), no traffic obfuscation, no detection-evasion -- an
 authenticated, self-owned directory that converges. Pure and loopback-testable.
 """
@@ -37,9 +41,12 @@ ROLE_RENDEZVOUS = "rendezvous"
 # The only roles a record can advertise; anything else is dropped on verify.
 ROLES = frozenset({ROLE_RELAY, ROLE_RENDEZVOUS})
 MAX_ADVERTISED_RELAYS = 4
+DEVICE_DISPLAY = "display"
+DEVICE_HEADLESS = "headless"
+DEVICE_CLASSES = frozenset({DEVICE_DISPLAY, DEVICE_HEADLESS})
 
 
-def sign_record(identity, endpoints, *, last_seen: float, roles=(), relays=()) -> dict:
+def sign_record(identity, endpoints, *, last_seen: float, roles=(), relays=(), device_class=None) -> dict:
     """A node's self-signed reachability announcement. ``endpoints`` is an
     ``EndpointSet`` or an iterable of ``Endpoint``; ``roles`` are the mesh
     services it offers (a subset of ``ROLES``); ``relays`` are the relay DIDs it
@@ -66,6 +73,10 @@ def sign_record(identity, endpoints, *, last_seen: float, roles=(), relays=()) -
             raise ValueError("a node cannot advertise itself as its own relay")
     if relays:
         payload["relays"] = relays
+    if device_class is not None:
+        if device_class not in DEVICE_CLASSES:
+            raise ValueError(f"device_class must be one of {sorted(DEVICE_CLASSES)}, got {device_class!r}")
+        payload["device_class"] = device_class
     return sign_payload(identity, payload)
 
 
@@ -80,6 +91,7 @@ class PeerRecord:
     signed: dict
     roles: tuple[str, ...] = ()
     relays: tuple[str, ...] = ()
+    device_class: str = ""  # "display" / "headless", or "" when the record does not say
 
 
 def verify_record(obj, *, allowlist=None, now: float | None = None, max_future_skew: float = 300.0):
@@ -109,8 +121,10 @@ def verify_record(obj, *, allowlist=None, now: float | None = None, max_future_s
             continue
     roles = tuple(sorted({r for r in _strings(obj.get("roles")) if r in ROLES}))
     relays = tuple(dict.fromkeys(r for r in _strings(obj.get("relays")) if r != signer))
+    device_class = obj.get("device_class")
     return PeerRecord(did=signer, last_seen=last_seen, endpoints=es, signed=obj,
-                      roles=roles, relays=relays[:MAX_ADVERTISED_RELAYS])
+                      roles=roles, relays=relays[:MAX_ADVERTISED_RELAYS],
+                      device_class=device_class if device_class in DEVICE_CLASSES else "")
 
 
 def _strings(value) -> list[str]:
@@ -197,6 +211,9 @@ __all__ = [
     "ROLE_RENDEZVOUS",
     "ROLES",
     "MAX_ADVERTISED_RELAYS",
+    "DEVICE_CLASSES",
+    "DEVICE_DISPLAY",
+    "DEVICE_HEADLESS",
     "PeerRecord",
     "MembershipView",
     "sign_record",

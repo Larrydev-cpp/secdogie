@@ -49,7 +49,7 @@ from secdogie_identity import (
 )
 
 from .endpoint import Endpoint
-from .membership import ROLE_RELAY, ROLE_RENDEZVOUS, sign_record
+from .membership import DEVICE_HEADLESS, ROLE_RELAY, ROLE_RENDEZVOUS, sign_record
 from .relay import DEFAULT_LEASE, MAX_LEASE, RelayService
 from .rendezvous import RendezvousService
 from .revocation_gossip import RevocationGossip
@@ -206,7 +206,7 @@ def main(argv=None) -> int:
     endpoint = (Endpoint("public", args.public_host, bound_port) if args.public_host
                 else Endpoint("local", host, bound_port))
     roles = [ROLE_RELAY] + ([ROLE_RENDEZVOUS] if rendezvous is not None else [])
-    record = sign_record(identity, [endpoint], last_seen=time.time(), roles=roles)
+    record = sign_record(identity, [endpoint], last_seen=time.time(), roles=roles, device_class=DEVICE_HEADLESS)
     line = json.dumps(record, sort_keys=True) + "\n"
     if args.record_out:
         _write_atomically(args.record_out, line)

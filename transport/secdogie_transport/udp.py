@@ -47,7 +47,7 @@ import threading
 import time
 from collections.abc import Callable
 
-from secdogie_identity import Identity, require_trust, sign_payload, verify_payload
+from secdogie_identity import ALLOW_ANY, Identity, require_trust, sign_payload, verify_payload
 
 from . import sealed as _sealed
 from .endpoint import Endpoint
@@ -161,6 +161,7 @@ class DirectUDPTransport(Transport):
         self._ctr = time.time_ns()                  # keeps increasing across restarts
         self._ctr_lock = threading.Lock()
         self._handlers: dict[str, FrameHandler] = {}  # envelope type -> handler (e.g. relay role)
+        self._on_refused: Callable[[str, tuple], None] | None = None
         channel.start(self._on_datagram)
 
     @property
@@ -202,6 +203,14 @@ class DirectUDPTransport(Transport):
     def peer_endpoint(self, did: str) -> tuple[str, int] | None:
         """Where frames to `did` go now (set, or learned from its newest frame)."""
         return self._endpoints.get(did)
+
+    def on_refused(self, handler: Callable[[str, tuple], None] | None) -> None:
+        """Call ``handler(signer, addr)`` for an authentic frame addressed to
+        this node from a DID it does not trust (never heard, or revoked). The
+        frame itself is still dropped; this only lets the node answer, e.g. by
+        telling a revoked node it is revoked. It costs one signature check per
+        refused frame, so it is off unless a handler is set."""
+        self._on_refused = handler
 
     def on_frame(self, frame_type: str, handler: FrameHandler | None) -> None:
         """Hand inbound envelopes whose `t` is `frame_type` to `handler(obj,
@@ -286,6 +295,21 @@ class DirectUDPTransport(Transport):
             return None  # replayed or too old: dropped before it can move the endpoint
         return signer, data, before is None or ctr > before
 
+    def _report_refused(self, raw: bytes, addr: tuple) -> None:
+        obj = _parse(raw)
+        if obj is None or obj.get("t") not in (_FRAME_TYPE, _sealed.SEALED_TYPE):
+            return
+        signer = obj.get("from")
+        if obj.get("to") != self.identity.did or not isinstance(signer, str) or self._allowlist.contains(signer):
+            return  # not for us, or a trusted signer's frame that failed for another reason (replay, ...)
+        # Deliberately any signer: the question is only "is this really that DID?"
+        ok, who = verify_payload(obj, ALLOW_ANY)
+        if ok and who == signer:
+            try:
+                self._on_refused(signer, addr)
+            except Exception:  # noqa: BLE001 - the receive loop must survive the handler
+                pass
+
     def _on_datagram(self, raw: bytes, addr: tuple) -> None:
         if self._handlers:
             obj = _parse(raw)
@@ -295,6 +319,8 @@ class DirectUDPTransport(Transport):
                 return
         opened = self._open(raw)
         if opened is None:
+            if self._on_refused is not None:
+                self._report_refused(raw, addr)
             return
         signer, data, newest = opened
         # Roaming: adopt the source address for this DID (keyed by identity, not

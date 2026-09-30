@@ -191,6 +191,7 @@ def test_relay_process_with_rendezvous_lets_nodes_find_each_other_by_did(keys):
         record = json.loads(record_file.read_text(encoding="utf-8"))
         rec = verify_record(record, allowlist=allow)
         assert rec is not None and rec.roles == (ROLE_RELAY, ROLE_RENDEZVOUS)
+        assert rec.device_class == "headless"  # a relay never acts on a screen
 
         # A and B hold only the record; B finds A by DID and reaches it directly.
         a, b = Client(id_a, allow, Clock()), Client(id_b, allow, Clock())

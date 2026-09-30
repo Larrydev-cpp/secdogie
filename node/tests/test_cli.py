@@ -244,3 +244,21 @@ def test_a_bootstrap_record_can_be_a_whole_ready_line(files, tmp_path, capsys, m
     (tmp_path / "junk.json").write_text("[1, 2]", encoding="utf-8")
     with pytest.raises(SystemExit):
         main([*files["args"], "--bootstrap-record", str(tmp_path / "junk.json")])
+
+
+def test_a_headless_node_says_so_in_its_ready_line(files):
+    from secdogie_transport.membership import verify_record
+
+    env = dict(os.environ, PYTHONUNBUFFERED="1")
+    proc = subprocess.Popen([sys.executable, "-m", "secdogie_node.cli", *files["args"], "--device-class", "headless"],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+    try:
+        ready = json.loads(proc.stdout.readline())
+        rec = verify_record(ready["record"], allowlist=Allowlist({files["node"].did}))
+        assert rec.device_class == "headless"
+        proc.send_signal(signal.SIGTERM)
+        assert proc.wait(timeout=20) == 0
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
