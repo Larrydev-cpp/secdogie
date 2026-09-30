@@ -29,6 +29,13 @@ trusted host/operator boundary:
   and they are never written to the run log. Don't commit them.
 - **The tunnel's static keys are secrets.** `genkey` writes private-key files
   `chmod 600`; keep them that way and never commit them.
+- **Nothing on the network is trusted by default.** Every component that
+  decides whom to hear -- transports, the membership view, the journal, the
+  fleet coordinator and node, the console, the Dialogue App -- refuses to start
+  without an allowlist. "Anyone" must be said out loud (`ALLOW_ANY` in code,
+  `--insecure-dev` on the command line, with a warning), and a Citadel node with
+  no capability issuers refuses every mutating action. See
+  [docs/ZERO-TRUST-MIGRATION.md](docs/ZERO-TRUST-MIGRATION.md).
 - **SYSTEM elevation is off by default and operator-gated.** The `run_elevated`
   action (Windows) can run a command as SYSTEM, but *only* commands the operator
   declares at launch with `--allow-elevated-command` — the vision model can never

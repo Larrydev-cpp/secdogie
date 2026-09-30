@@ -17,7 +17,7 @@ from secdogie_citadel.replication import ReplicationPeer  # noqa: E402
 from secdogie_citadel.run import RunRecorder, verify_run  # noqa: E402
 from secdogie_citadel.state import StateStore  # noqa: E402
 from secdogie_citadel.supervisor import Supervisor  # noqa: E402
-from secdogie_identity import Allowlist, Identity  # noqa: E402
+from secdogie_identity import ALLOW_ANY, Allowlist, Identity  # noqa: E402
 
 
 def _counter(start=0.0):
@@ -30,7 +30,7 @@ def _counter(start=0.0):
     return clock
 
 
-def _journal(identity=None, allow=None):
+def _journal(identity=None, allow=ALLOW_ANY):
     ident = identity or Identity.generate()
     return Journal(identity=ident, allowlist=allow, clock=_counter())
 
@@ -137,7 +137,7 @@ def test_finish_run_maps_code_to_terminal_state():
 # --- supervisor integration -------------------------------------------------
 
 
-def _run_task_two_steps(task, *, should_stop, on_status, confirm, record_step=None):
+def _run_task_two_steps(task, *, should_stop, on_status, confirm, record_step=None, plan_gate=None):
     record_step(observation={"win": 1, "node": "Save"},
                 action={"kind": "click", "target": "Save"}, result="clicked")
     record_step(observation={"win": 1, "node": "OK"},

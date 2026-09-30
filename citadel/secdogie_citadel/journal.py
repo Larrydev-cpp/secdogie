@@ -30,7 +30,7 @@ import threading
 import time
 from typing import Any
 
-from secdogie_identity import Allowlist, Identity, PublicIdentity, canonical
+from secdogie_identity import Allowlist, Identity, PublicIdentity, canonical, require_trust
 
 # prev_hash of an author's first event -- a fixed, checkable anchor.
 GENESIS = "0" * 64
@@ -51,8 +51,9 @@ class Journal:
 
     `identity` (this node's signing key) is required to append; a read-only /
     replica journal can omit it and still merge and project others' events.
-    `allowlist` (authorized author DIDs) gates merge; None accepts any
-    validly-signed event."""
+    `allowlist` (authorized author DIDs, or a TrustPolicy) gates merge and is
+    required: a journal with none refuses to open. `ALLOW_ANY` accepts any
+    validly-signed event -- said on purpose, for tests and local development."""
 
     def __init__(
         self,
@@ -63,7 +64,7 @@ class Journal:
         clock=time.time,
     ):
         self.identity = identity
-        self.allowlist = allowlist
+        self.allowlist = require_trust(allowlist, "Journal")
         self._clock = clock
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(path, check_same_thread=False)
@@ -178,7 +179,7 @@ class Journal:
             pub = PublicIdentity.from_did(author)
         except ValueError:
             return False
-        if self.allowlist is not None and not self.allowlist.contains(author):
+        if not self.allowlist.contains(author):
             return False
         try:
             sig = base64.b64decode(event["sig"], validate=True)

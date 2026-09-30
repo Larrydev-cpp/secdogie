@@ -13,7 +13,7 @@ from secdogie_fleet.server import FleetServer
 
 @pytest.fixture
 def server():
-    s = FleetServer(host="127.0.0.1", port=0)  # port 0 = let the OS pick a free one
+    s = FleetServer(host="127.0.0.1", port=0, insecure_dev=True)  # the plain path; port 0 = a free port
     s.start()
     yield s
     s.shutdown()
@@ -24,7 +24,7 @@ def _spawn_node(server, node_id, run_task, label=""):
     host, port = server.address
     t = threading.Thread(
         target=lambda: node_mod.connect_and_serve(
-            host, port, node_id=node_id, label=label, run_task=run_task
+            host, port, node_id=node_id, label=label, run_task=run_task, insecure_dev=True
         ),
         daemon=True, name=f"test-node-{node_id}",
     )
@@ -145,7 +145,7 @@ def test_a_node_that_disappears_hands_its_task_to_another_desktop(server):
 
 def test_max_concurrent_holds_the_fleet_below_the_node_count():
     """The binding limit is usually the shared API quota, not the desktops."""
-    server = FleetServer(host="127.0.0.1", port=0, max_concurrent=1)
+    server = FleetServer(host="127.0.0.1", port=0, max_concurrent=1, insecure_dev=True)
     server.start()
     try:
         release = threading.Event()

@@ -158,7 +158,7 @@ def test_authorize_installs_the_gate_and_the_observers_compose():
         return 0, "done"
 
     asked = []
-    sup = Supervisor(_journal(), task, memory=MemoryConfig())
+    sup = Supervisor(_journal(), task, memory=MemoryConfig(), unrestricted=True)  # capabilities are not under test
     sup.set_operator_hooks(OperatorHooks(authorize=lambda p: asked.append(p.kind) or _token_for(p), operators=OPS,
                                          observe=lambda p, d: observed.append((p.kind, d.verdict))))
     sup.add_goal("g1", "tidy")

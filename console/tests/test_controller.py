@@ -36,7 +36,7 @@ class FakeFleet:
 
 
 def test_state_snapshot_flags_signature_requirement():
-    c = ConsoleController(FakeFleet())
+    c = ConsoleController(FakeFleet(), allow_unsigned_local=True)
     assert c.state_snapshot()["requires_signature"] is False
     c2 = ConsoleController(FakeFleet(), operator_allowlist=Allowlist({Identity.generate().did}))
     assert c2.state_snapshot()["requires_signature"] is True
@@ -44,7 +44,7 @@ def test_state_snapshot_flags_signature_requirement():
 
 def test_submit_and_control_ops():
     fleet = FakeFleet()
-    c = ConsoleController(fleet)
+    c = ConsoleController(fleet, allow_unsigned_local=True)
     assert c.command({"op": "submit", "task": "tidy", "options": {"auto": True}}) == {"op": "submit", "task_id": "t-1"}
     assert c.command({"op": "stop", "task_id": "t-1"}) == {"op": "stop", "ok": True}
     assert c.command({"op": "pause", "task_id": "t-1"})["op"] == "pause"
@@ -53,7 +53,7 @@ def test_submit_and_control_ops():
 
 
 def test_bad_commands_raise():
-    c = ConsoleController(FakeFleet())
+    c = ConsoleController(FakeFleet(), allow_unsigned_local=True)
     with pytest.raises(ValueError):
         c.command({"op": "explode"})
     with pytest.raises(ValueError):
@@ -63,7 +63,7 @@ def test_bad_commands_raise():
 
 
 def test_authorize_loopback_dev_mode_allows_all():
-    c = ConsoleController(FakeFleet())  # no allowlist
+    c = ConsoleController(FakeFleet(), allow_unsigned_local=True)  # no allowlist
     ok, signer = c.authorize({"op": "submit", "task": "x"})
     assert ok and signer is None
 

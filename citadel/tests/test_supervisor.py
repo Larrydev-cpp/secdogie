@@ -7,7 +7,7 @@ pytest.importorskip("nacl")
 from secdogie_citadel.goals import build_goal_tree  # noqa: E402
 from secdogie_citadel.journal import Journal  # noqa: E402
 from secdogie_citadel.supervisor import Supervisor  # noqa: E402
-from secdogie_identity import Identity  # noqa: E402
+from secdogie_identity import ALLOW_ANY, Identity  # noqa: E402
 
 
 def _counter():
@@ -21,7 +21,7 @@ def _counter():
 
 
 def _journal():
-    return Journal(identity=Identity.generate(), clock=_counter())
+    return Journal(allowlist=ALLOW_ANY, identity=Identity.generate(), clock=_counter())
 
 
 def _status_of(sup, gid):
@@ -30,8 +30,8 @@ def _status_of(sup, gid):
 
 def _behaviors(mapping):
     """run_task that dispatches on the task string (we set title == goal id)."""
-    def run_task(task, *, should_stop, on_status, confirm, record_step=None):
-        fn = mapping.get(task, lambda **k: (0, "ok"))
+    def run_task(task, *, should_stop, on_status, confirm, record_step=None, plan_gate=None):
+        fn = mapping.get(task, lambda **k: (0, "ok"))  # these fakes take no actions, so the gate is idle
         return fn(should_stop=should_stop, on_status=on_status, confirm=confirm)
     return run_task
 

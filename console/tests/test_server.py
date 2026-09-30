@@ -42,7 +42,7 @@ def _post(base, path, payload):
 
 @pytest.fixture
 def dev_server():
-    server, thread, base = _serve(ConsoleController(FakeFleet()))  # loopback dev mode
+    server, thread, base = _serve(ConsoleController(FakeFleet(), allow_unsigned_local=True))  # loopback dev mode
     try:
         yield base
     finally:

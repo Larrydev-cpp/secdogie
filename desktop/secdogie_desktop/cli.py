@@ -31,6 +31,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--fleet-port", type=int, default=47810, help="port nodes dial in to")
     p.add_argument("--identity", default=None, metavar="KEYFILE", help="coordinator DID key (secure fleet)")
     p.add_argument("--authorized", default=None, metavar="ALLOWLIST", help="authorized node DIDs (secure fleet)")
+    p.add_argument("--insecure-dev", action="store_true",
+                   help="run the fleet without --identity/--authorized (no authentication); throwaway local tests only")
     p.add_argument("--operator-key", default=None, metavar="KEYFILE",
                    help="operator DID key; the window signs its commands with it")
     p.add_argument("--operator-authorized", default=None, metavar="ALLOWLIST",
@@ -44,17 +46,21 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     log = logging.getLogger("secdogie_desktop")
 
-    from secdogie_console.controller import ConsoleController
-    from secdogie_fleet.server import FleetServer
-
-    from .app import FleetWindow
-
     if bool(args.identity) != bool(args.authorized):
         print("error: fleet secure mode needs both --identity and --authorized", file=sys.stderr)
         return 2
     if (args.masters or args.revocations) and not (args.authorized or args.operator_authorized):
         print("error: --masters/--revocations need --authorized or --operator-authorized", file=sys.stderr)
         return 2
+    if not args.identity and not args.insecure_dev:
+        print("error: refusing to run the fleet without DID authentication: pass --identity and "
+              "--authorized, or --insecure-dev for a throwaway local test", file=sys.stderr)
+        return 2
+    from secdogie_console.controller import ConsoleController
+    from secdogie_fleet.server import FleetServer
+
+    from .app import FleetWindow
+
     revocation = {"masters": args.masters, "revocations": args.revocations}
     try:
         signer, node_allow = _load(args.identity, args.authorized, **revocation)
@@ -62,12 +68,15 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
+    if signer is None:
+        log.warning("--insecure-dev: no authentication -- any host that reaches the fleet port can join")
     fleet = FleetServer(host=args.fleet_host, port=args.fleet_port,
-                        logger=log, signer=signer, node_allowlist=node_allow)
+                        logger=log, signer=signer, node_allowlist=node_allow, insecure_dev=signer is None)
     fleet.start()
     log.info("fleet coordinator listening on %s:%d", *fleet.address)
 
-    controller = ConsoleController(fleet, operator_allowlist=operator_allow)
+    controller = ConsoleController(fleet, operator_allowlist=operator_allow,
+                                   allow_unsigned_local=operator_allow is None)
 
     try:
         window = FleetWindow(controller, address=fleet.address, operator_identity=operator_identity)

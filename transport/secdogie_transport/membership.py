@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from secdogie_identity import pubkey_from_did, sign_payload, verify_payload
+from secdogie_identity import pubkey_from_did, require_trust, sign_payload, verify_payload
 
 from .endpoint import Endpoint, EndpointSet
 
@@ -123,7 +123,7 @@ class MembershipView:
     admitted."""
 
     def __init__(self, *, allowlist=None):
-        self._allowlist = allowlist
+        self._allowlist = require_trust(allowlist, "MembershipView")
         self._records: dict[str, PeerRecord] = {}
 
     def merge_record(self, obj, *, now: float | None = None) -> bool:

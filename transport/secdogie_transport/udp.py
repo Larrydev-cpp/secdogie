@@ -47,7 +47,7 @@ import threading
 import time
 from collections.abc import Callable
 
-from secdogie_identity import Identity, sign_payload, verify_payload
+from secdogie_identity import Identity, require_trust, sign_payload, verify_payload
 
 from . import sealed as _sealed
 from .endpoint import Endpoint
@@ -147,7 +147,7 @@ class DirectUDPTransport(Transport):
                  transport_key=None):
         self.identity = identity
         self.channel = channel
-        self._allowlist = allowlist
+        self._allowlist = require_trust(allowlist, "DirectUDPTransport")
         self._inbound: DeliverFn | None = None
         self._local_session: Session | None = None
         self._endpoints: dict[str, tuple[str, int]] = {}

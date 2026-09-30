@@ -51,6 +51,7 @@ class FleetServer:
         on_event: Callable[[str, Message], None] | None = None,
         signer: Identity | None = None,
         node_allowlist: Allowlist | None = None,
+        insecure_dev: bool = False,
     ):
         # Secure mode is all or nothing. A signer without an allowlist would check
         # every inbound line against no allowlist -- accepting any validly signed
@@ -58,6 +59,11 @@ class FleetServer:
         # secure node drops. Refuse half a configuration instead of running one.
         if (signer is None) != (node_allowlist is None):
             raise ValueError("fleet secure mode needs both a signer and a node_allowlist")
+        # Zero trust: no authentication at all is never the default. It takes an
+        # explicit insecure_dev=True (a throwaway local test).
+        if signer is None and not insecure_dev:
+            raise ValueError("the fleet coordinator needs a signer and a node_allowlist "
+                             "(insecure_dev=True runs it unauthenticated, for local tests only)")
         self.log = logger or logging.getLogger("secdogie_fleet.server")
         self._lock = threading.RLock()
         self.coordinator = Coordinator(

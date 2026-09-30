@@ -253,6 +253,7 @@ def connect_and_serve(
     logger: logging.Logger | None = None,
     stop_event: threading.Event | None = None,
     stop_grace: float = 10.0,
+    insecure_dev: bool = False,
 ) -> None:
     """Dial the coordinator and serve assignments until the socket closes.
 
@@ -274,6 +275,9 @@ def connect_and_serve(
         return
     if (identity is None) != (coordinator_allowlist is None):
         raise ValueError("fleet secure mode needs both an identity and a coordinator_allowlist")
+    if identity is None and not insecure_dev:
+        raise ValueError("a fleet node needs an identity and a coordinator_allowlist "
+                         "(insecure_dev=True runs it unauthenticated, for local tests only)")
     log = logger or logging.getLogger("secdogie_fleet.node")
     nid = node_id or default_node_id()
 

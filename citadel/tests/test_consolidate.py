@@ -26,6 +26,7 @@ from secdogie_citadel.journal import Journal  # noqa: E402
 from secdogie_citadel.lessons import CandidateStore, MemoryClass, Tally, make_candidate  # noqa: E402
 from secdogie_citadel.run import RunRecorder  # noqa: E402
 from secdogie_identity import (  # noqa: E402
+    ALLOW_ANY,
     Allowlist,
     Identity,
     MasterSet,
@@ -54,7 +55,7 @@ def _counter():
     return clock
 
 
-def _journal(ident=NODE, allow=None):
+def _journal(ident=NODE, allow=ALLOW_ANY):
     return Journal(identity=ident, allowlist=allow, clock=_counter())
 
 

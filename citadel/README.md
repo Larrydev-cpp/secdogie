@@ -54,10 +54,19 @@ make the gates stricter; Gate 2 never reads it.
 ## CLI
 
 ```sh
-secdogie-citadel verify citadel.db   # re-derive chains + signatures
-secdogie-citadel goals  citadel.db   # projected goal tree (ready * / order)
-secdogie-citadel log    citadel.db   # events in total order
+secdogie-citadel verify citadel.db --authorized nodes.allow   # re-derive chains + signatures
+secdogie-citadel goals  citadel.db --authorized nodes.allow   # projected goal tree (ready * / order)
+secdogie-citadel log    citadel.db --authorized nodes.allow   # events in total order
+secdogie-citadel run    citadel.db --identity node.key --authorized nodes.allow --issuers operators.allow
 ```
+
+Zero trust: every command needs `--authorized` (whose events the journal
+accepts), and `run` refuses every mutating action unless `--issuers` names who
+may grant this node capabilities (`secdogie-identity grant`, then `add-grant`).
+`--insecure-dev` lifts both for a throwaway local test, with a warning. In code,
+`Journal` requires an allowlist and `Supervisor` without issuers is deny-all
+(`unrestricted=True` is the explicit, test-only opt-out); see
+[../docs/ZERO-TRUST-MIGRATION.md](../docs/ZERO-TRUST-MIGRATION.md).
 
 `add-goal`, `run`, `add-grant` and `scopes` take `--masters masters.conf
 --revocations revocations.jsonl`. Events from a revoked author stop merging, and

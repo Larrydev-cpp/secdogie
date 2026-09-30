@@ -10,13 +10,17 @@ the browser. A human control panel, so an operator stays in the loop.
 - **Operator-DID-gated commands.** With `--operator-authorized`, every mutating
   command must carry a valid operator-DID signature
   ([secdogie-identity](../identity)); reads stay open over loopback. Without it,
-  the console is loopback-trusted (single operator on their own machine).
+  commands are unsigned and accepted only from the loopback UI (single operator
+  on their own machine); the console logs a warning saying so.
+- **No unauthenticated fleet by default.** The coordinator needs `--identity`
+  and `--authorized`; `--insecure-dev` runs it without authentication, for a
+  throwaway local test only. See [zero-trust migration](../docs/ZERO-TRUST-MIGRATION.md).
 
 ## Run
 
 ```sh
 pip install -e identity -e fleet -e console
-secdogie-console --fleet-port 47810
+secdogie-console --fleet-port 47810 --insecure-dev   # a throwaway local test only
 # nodes dial the coordinator (secdogie-fleet node --connect ...); the browser
 # opens the console UI on a 127.0.0.1 port.
 ```
