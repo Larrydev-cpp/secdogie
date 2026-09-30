@@ -467,16 +467,26 @@ backed by SQLite). The model saves a durable fact with a `remember` action:
 
 - A `key` makes it an **upsert** — re-remembering the same key updates that fact.
   Omit the key for a one-off note (auto-keyed, time-ordered).
-- On the next run, everything remembered is **recalled into the prompt** so the
-  model reads what it learned before instead of rediscovering it — where a
+- What the model remembers is held **unconfirmed** until you confirm it. Only
+  confirmed facts are **recalled into the prompt** on later steps and runs, so
+  the model reads what it learned before instead of rediscovering it — where a
   control lives, a preference you confirmed, how far it got on a long job. The
-  block is rebuilt each step (and capped), so a fact saved mid-run is visible on
-  the very next step, not just next time.
+  model may be quoting text off another application's screen; confirming keeps
+  an unreviewed note from steering every later run. Changing a fact makes it
+  unconfirmed again. Facts stored before confirmation existed stay confirmed.
 
 ```sh
 secdogie-agent "learn where things are in this app, remember them" --memory app.sqlite --auto
+secdogie-agent memory list --memory app.sqlite              # UNCONFIRMED / confirmed
+secdogie-agent memory confirm save_btn --memory app.sqlite  # now it is recalled
+secdogie-agent memory forget stale_note --memory app.sqlite
 secdogie-agent "now use what you learned to export a report" --memory app.sqlite --auto
 ```
+
+Under a Citadel node (`secdogie-citadel run`), memory is the node's staged
+memory instead: `remember` goes to its quarantine, cautions are learned from
+verified runs, and facts need the operator's signed confirmation — see
+[citadel/MEMORY.zh.md](../citadel/MEMORY.zh.md).
 
 **Never have it store secrets.** The file is plaintext on disk — it's your
 machine, your file. The prompt tells the model not to save passwords/tokens, and

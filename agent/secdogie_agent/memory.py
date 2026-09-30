@@ -6,6 +6,14 @@ where a control lives, a preference it confirmed, how far it got on a long job.
 The model writes with the `remember` action; the loop injects a recalled block
 into the model's prompt on later runs so it reads what it learned before.
 
+What the model writes is held UNCONFIRMED until the operator confirms it
+(`secdogie-agent memory confirm KEY --memory FILE`): only confirmed facts are
+rendered into a prompt. The model may be quoting text off another application's
+screen, and an unreviewed note re-injected into every later run would let that
+text steer the agent indefinitely. Rows written before confirmation existed
+count as confirmed (the operator chose to keep behaviour unchanged for them);
+changing a fact makes it unconfirmed again.
+
 Plaintext on disk by design -- it's your machine, your file. NEVER store secrets
 (passwords, tokens, card numbers) here. The prompt tells the model the same, and
 `remember` refuses values that obviously look like credentials as a backstop --
@@ -24,6 +32,7 @@ class MemoryItem:
     key: str
     value: str
     updated_at: float
+    confirmed: bool = True
 
 
 class SecretRefused(ValueError):
@@ -66,6 +75,11 @@ class Memory:
             "CREATE TABLE IF NOT EXISTS memories("
             " key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at REAL NOT NULL)"
         )
+        cols = {row[1] for row in self._db.execute("PRAGMA table_info(memories)")}
+        if "confirmed" not in cols:
+            # Migration: rows that predate confirmation stay usable (DEFAULT 1);
+            # everything remember() writes from now on starts unconfirmed.
+            self._db.execute("ALTER TABLE memories ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 1")
         self._db.commit()
 
     def remember(self, value: str, *, key: str | None = None) -> str:
@@ -80,9 +94,13 @@ class Memory:
         # A keyless note is time-ordered so items() lists newest first; the
         # microsecond timestamp keeps rapid consecutive notes from colliding.
         stored_key = (key or "").strip() or f"note:{self._now():.6f}"
+        # Unconfirmed, and a changed fact becomes unconfirmed again -- unless the
+        # value is exactly what was already confirmed.
         self._db.execute(
-            "INSERT INTO memories(key, value, updated_at) VALUES(?, ?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+            "INSERT INTO memories(key, value, updated_at, confirmed) VALUES(?, ?, ?, 0) "
+            "ON CONFLICT(key) DO UPDATE SET updated_at=excluded.updated_at, "
+            "confirmed=CASE WHEN memories.value = excluded.value THEN memories.confirmed ELSE 0 END, "
+            "value=excluded.value",
             (stored_key, value, self._now()),
         )
         self._db.commit()
@@ -92,25 +110,34 @@ class Memory:
         row = self._db.execute("SELECT value FROM memories WHERE key=?", (key,)).fetchone()
         return row[0] if row else None
 
+    def confirm(self, key: str) -> bool:
+        """The operator confirms ``key``: it will be rendered into prompts."""
+        cur = self._db.execute("UPDATE memories SET confirmed=1 WHERE key=?", (key,))
+        self._db.commit()
+        return cur.rowcount > 0
+
     def forget(self, key: str) -> bool:
         cur = self._db.execute("DELETE FROM memories WHERE key=?", (key,))
         self._db.commit()
         return cur.rowcount > 0
 
-    def items(self) -> list[MemoryItem]:
-        """Every memory, newest first (ties broken by key for a stable order)."""
-        rows = self._db.execute(
-            "SELECT key, value, updated_at FROM memories ORDER BY updated_at DESC, key"
-        ).fetchall()
-        return [MemoryItem(k, v, t) for (k, v, t) in rows]
+    def items(self, *, confirmed_only: bool = False) -> list[MemoryItem]:
+        """Every memory (or only confirmed ones), newest first (ties broken by
+        key for a stable order)."""
+        q = "SELECT key, value, updated_at, confirmed FROM memories"
+        if confirmed_only:
+            q += " WHERE confirmed=1"
+        rows = self._db.execute(q + " ORDER BY updated_at DESC, key").fetchall()
+        return [MemoryItem(k, v, t, bool(c)) for (k, v, t, c) in rows]
 
     def render(self, *, limit: int = 20, max_chars: int = 2000) -> str:
-        """A compact, newest-first block for the model's prompt, or "" if empty.
+        """A compact, newest-first block of CONFIRMED memories for the model's
+        prompt, or "" if there are none.
         Keyed facts render as `key: value`; auto-notes as `- value`. Capped to
         `limit` items and `max_chars` characters so a growing memory can't blow
         up every prompt."""
         rendered = []
-        for item in self.items()[:limit]:
+        for item in self.items(confirmed_only=True)[:limit]:
             if item.key.startswith("note:"):
                 rendered.append(f"- {item.value}")
             else:
@@ -122,3 +149,33 @@ class Memory:
 
     def close(self) -> None:
         self._db.close()
+
+
+def admin_main(argv: list[str]) -> int:
+    """``secdogie-agent memory list|confirm KEY|forget KEY --memory FILE``: the
+    operator reviews what the model asked to remember."""
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="secdogie-agent memory",
+                                     description="Review the agent's remembered facts.")
+    parser.add_argument("op", choices=("list", "confirm", "forget"))
+    parser.add_argument("key", nargs="?")
+    parser.add_argument("--memory", required=True, help="the SQLite memory file the agent uses")
+    args = parser.parse_args(argv)
+    mem = Memory(args.memory)
+    try:
+        if args.op == "list":
+            for item in mem.items():
+                mark = "confirmed  " if item.confirmed else "UNCONFIRMED"
+                print(f"{mark}  {item.key}: {item.value}")
+            return 0
+        if not args.key:
+            parser.error(f"{args.op} needs a KEY")
+        done = mem.confirm(args.key) if args.op == "confirm" else mem.forget(args.key)
+        if not done:
+            print(f"no memory with key {args.key!r}")
+            return 1
+        print(f"{args.op}ed {args.key}" if args.op == "confirm" else f"forgot {args.key}")
+        return 0
+    finally:
+        mem.close()

@@ -1,6 +1,6 @@
 # 苏格拉底 Gate 1 意图契约 + 阶段式记忆 设计 v1
 
-> 状态：v1 已确认（2026-09-27）。M1–M4 已实现（`action_gate.py` / `episodes.py` / `lessons.py` / `consolidate.py`），M5–M7 待做。实现时的修订见文末“附录：实现修订”。
+> 状态：v1 已确认（2026-09-27）。M1–M5、M7 已实现（`action_gate.py` / `episodes.py` / `lessons.py` / `consolidate.py`，接入真实循环见 `loop_gate.py` / `loop_memory.py` / `supervisor.py`）；M6（经 Dialogue App 追问与确认）随第二阶段 Wave C 完成。实现时的修订见文末“附录：实现修订”。
 
 ## 0. 定位与红线
 
@@ -246,3 +246,14 @@ M1–M4 都是纯逻辑，完全可以 headless 测试。M5 才开始接入真�
 8. **`run.check_chain`**：把 `verify_run` 的链校验抽成对已物化实体的纯函数，折叠多个 run 时只物化一次；遇到畸形 step 时返回失败，而不是抛异常。
 
 M1 的四个检查、S1 / S2 / S3 的各项核对都做了变异测试（M1 16、M2 13、M3 18、M4 27，共 74 个变异体全部被杀，每个都在 1 秒内失败）。
+
+### 接入真实循环（第二阶段 Wave A，M5 + M7）
+
+- **每步关联**：`loop_gate.make_plan_gate(observer=…)` 在门判定时交给 `loop_memory.StepCorrelator` 该动作的 `action_hash` 与 findings；循环紧接着写的那条 trace 只有在动作 kind 对得上时才取用它，且只取一次。没过门的步骤（done / look / ask_user…）不带 key，其 outcome 不计入记忆。
+- **outcome**：`secdogie_agent.loop.classify_result` 与它解析的结果字符串放在同一处：门拒 / 操作员拒 / `refused:` → rejected；`error:` → failed；无可见变化 → no_change；提权未启动 → failed；其余已执行 → ok。
+- **记忆进门**：`Supervisor(memory=MemoryConfig(…))`。每次 run 开始时读一次 S3 → `known_failures`；`purpose` = 当前 goal_id；`active_goal_ids` 来自目标树；`require_intent` 默认开。循环里 `known-failure` / `intent-unproven` / `intent-contradiction` 会阻断（拒绝原因进入模型历史），其余启发式仍只作提示。
+- **意图字段**：模型动作可带 `rollback` / `irreversible`（只认字面 `true`），系统提示已说明；高风险一步两者皆无时被拒，模型据此重提。
+- **自动巩固**：每个目标结束后跑一次 `consolidate`；失败只记日志，不影响目标结果。
+- **M7**：`remember` 经 `remember_hook` 进 S2 隔离区；提示词里的记忆来自 `memory_block`（只有已确认的 S3）。独立 agent CLI 的 `--memory` 也改为“先隔离、确认后才注入”，管理命令为 `secdogie-agent memory list|confirm|forget`；按机主决定，迁移前已有条目视为已确认。
+
+变异测试：citadel 18 个、agent 15 个变异体全部被杀。

@@ -49,9 +49,33 @@ _MEMORY_DIRECTIVE = (
     "for your future self -- where a control is, a preference the user confirmed, how "
     "far you got on a long job -- reply with "
     '{"action": "remember", "text": "the fact", "key": "optional_stable_name"}. Reuse '
-    'a "key" to update that fact; omit it for a one-off note. NEVER store passwords, '
-    "tokens, card numbers, or other secrets -- this memory is plaintext on disk."
+    'a "key" to update that fact; omit it for a one-off note. What you save is held '
+    "for the operator to confirm before it is shown to you again. NEVER store passwords, "
+    "tokens, card numbers, or other secrets -- memory is stored in plain text."
 )
+
+
+def classify_result(result: str) -> str:
+    """How a step that went through the plan gate came out, for episodic memory:
+    ``rejected`` (the gate refused it or the operator declined -- it never ran),
+    ``failed`` (it raised, or an elevated launch did not launch), ``no_change``
+    (it ran but nothing visibly changed), ``ok`` (it ran). It reads the result
+    strings this module writes, which is why it lives next to them. Only
+    meaningful for gated steps; the run recorder never asks about others."""
+    r = str(result or "")
+    if r.startswith(("refused by plan gate", "skipped (", "refused:")):
+        return "rejected"
+    if r.startswith("error:"):
+        return "failed"
+    if _NO_CHANGE_NOTE in r:
+        return "no_change"
+    from . import elevate  # lazy, as at its call site
+
+    not_launched = {elevate.NOT_ELEVATED, elevate.NO_SESSION, elevate.UNSUPPORTED, elevate.BAD_COMMAND,
+                    elevate.FAILED, elevate.REFUSED_IDENTITY}
+    if r.split(":", 1)[0] in not_launched:
+        return "failed"
+    return "ok"
 
 
 @dataclass
@@ -100,6 +124,12 @@ class AgentConfig:
     # (allowed, note). A refusal skips the action. Unset -> behavior unchanged.
     plan_gate: Callable[[dict, list], tuple[bool, str]] | None = None
     memory_path: str | None = None
+    # Staged memory (citadel): when set, the model's `remember` goes to
+    # remember_hook(value, key) -> a short note on where it went (e.g. the
+    # quarantine awaiting operator confirmation), and the recalled block comes
+    # from memory_block() (confirmed memory only) instead of memory_path.
+    remember_hook: Callable[[str, str | None], str] | None = None
+    memory_block: Callable[[], str] | None = None
     require_focus: bool = False
     # GUI: after the operator approves the plan, low-risk steps run without a
     # Yes/No popup (high-risk still asks). --confirm-each restores per-step
@@ -119,6 +149,18 @@ class AgentConfig:
     notify_operator: Callable[[str, str], None] | None = None
 
 
+def _recall(config: AgentConfig, memory, logger) -> str:
+    """The remembered block for the prompt: confirmed memory only. A failing
+    hook costs the recall, never the run."""
+    try:
+        if config.memory_block is not None:
+            return config.memory_block() or ""
+        return memory.render() if memory is not None else ""
+    except Exception as e:  # noqa: BLE001 - memory is an aid, not a dependency
+        logger.warning("could not recall memory: %s", e)
+        return ""
+
+
 def _emit(config: AgentConfig, event: str, **payload) -> None:
     cb = config.on_event
     if cb is None:
@@ -132,6 +174,7 @@ def _emit(config: AgentConfig, event: str, **payload) -> None:
 def _gate_view(action, high_risk: bool) -> dict:
     """A plain-data view of an action for an injected plan gate, so the gate
     needs no agent types."""
+    raw = getattr(action, "raw", None)
     return {
         "kind": action.kind,
         "element": action.element,
@@ -141,6 +184,9 @@ def _gate_view(action, high_risk: bool) -> dict:
         "keys": list(action.keys or ()),
         "path": action.path or "",
         "high_risk": bool(high_risk),
+        # Gate 1 intent, as the model stated it (optional action fields).
+        "rollback": str(raw.get("rollback") or "") if isinstance(raw, dict) else "",
+        "irreversible": isinstance(raw, dict) and raw.get("irreversible") is True,
     }
 
 
@@ -501,9 +547,9 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
                 step_task = effective_task
                 if plan is not None and not plan.is_done:
                     step_task = f"{effective_task}\n\n{plan.progress_note()}"
-                if memory is not None:
+                if memory is not None or config.remember_hook is not None:
                     step_task += f"\n\n{_MEMORY_DIRECTIVE}"
-                    recalled = memory.render()
+                    recalled = _recall(config, memory, logger)
                     if recalled:
                         step_task += f"\n\nWhat you remember from earlier runs:\n{recalled}"
                 if listing:
@@ -683,11 +729,19 @@ def run(provider: VisionProvider, config: AgentConfig) -> int:
             if action.kind == "remember":
                 value = action.text or action.raw.get("text", "")
                 key = action.raw.get("key")
-                if memory is None:
+                if memory is None and config.remember_hook is None:
                     logger.info("model tried to remember but no memory file is set; ignoring")
                     record_result("memory not enabled; nothing was stored")
                 elif not (value or "").strip():
                     record_result("could not remember: the value was empty")
+                elif config.remember_hook is not None:
+                    try:
+                        note = config.remember_hook(value, key)
+                        logger.info("memory candidate held for the operator: %s", note)
+                        record_result(f"noted, held for the operator to confirm ({note})")
+                    except ValueError as e:  # includes a secret refusal
+                        logger.warning("memory refused a value: %s", e)
+                        record_result(f"refused: {e}")
                 else:
                     try:
                         stored_key = memory.remember(value, key=key)

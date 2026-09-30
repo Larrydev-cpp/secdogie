@@ -25,7 +25,26 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
+
+
+@dataclass(frozen=True)
+class MemoryConfig:
+    """Staged memory for a supervised node (see MEMORY.zh.md).
+
+    ``candidates_path``: the local S2 quarantine (SQLite). ``min_runs``: failing
+    runs before a caution is promoted. ``confirmers``: the operator App session
+    keys whose signed confirmations promote facts (None: no fact ever counts).
+    ``scope``: which memories this node reads (plus global). ``require_intent``:
+    Gate 1 asks a destructive step for its rollback or an explicit
+    irreversible."""
+
+    candidates_path: str = ":memory:"
+    min_runs: int = 3
+    confirmers: Any = None
+    scope: str = "global"
+    require_intent: bool = True
 
 
 class Supervisor:
@@ -38,6 +57,7 @@ class Supervisor:
         confirm_handler: Callable[[str, bool], bool] | None = None,
         logger: logging.Logger | None = None,
         issuers=None,
+        memory: MemoryConfig | None = None,
     ):
         from .goals import build_goal_tree
         from .run import RunRecorder
@@ -52,6 +72,12 @@ class Supervisor:
         # Trusted capability issuers (operator DIDs). When set, every action the
         # agent is about to execute is checked against this node's grants.
         self.issuers = issuers
+        self.memory = memory
+        self._candidates = None
+        if memory is not None:
+            from .lessons import CandidateStore
+
+            self._candidates = CandidateStore(memory.candidates_path)
         self._halted = threading.Event()
 
     # -- halting ---------------------------------------------------------------
@@ -187,6 +213,40 @@ class Supervisor:
             self.recorder.record_recovery(d.run_id, d.action, from_state=d.from_state)
         return decisions
 
+    # -- staged memory -----------------------------------------------------
+
+    def memory_view(self):
+        """Consolidated (S3) memory as this node may use it: memory events from
+        authors the journal still trusts, facts only with a verified operator
+        confirmation, global plus this node's scope."""
+        from .consolidate import build_memory
+
+        cfg = self.memory
+        return build_memory(self.journal.events(), trust=getattr(self.journal, "allowlist", None),
+                            confirmers=cfg.confirmers if cfg else None, scope=cfg.scope if cfg else None)
+
+    def _active_goal_ids(self) -> frozenset:
+        return frozenset(g for g, n in self._tree().nodes.items() if n.status in ("pending", "active"))
+
+    def _remember(self, value: str, key: str | None) -> str:
+        c = self._candidates.note(value, key=key, scope=self.memory.scope)
+        return c.key
+
+    def _recall(self) -> str:
+        return self.memory_view().render()
+
+    def consolidate_memory(self):
+        """One S1 -> S2 -> S3 pass over this node's journal. Returns the report,
+        or None when memory is off."""
+        if self.memory is None:
+            return None
+        from .consolidate import consolidate
+        from .episodes import episodes_from_events
+
+        return consolidate(self.journal, self._candidates, episodes_from_events(self.journal.events()),
+                           min_runs=self.memory.min_runs, scope="global",
+                           trust=getattr(self.journal, "allowlist", None), confirmers=self.memory.confirmers)
+
     # -- execution -----------------------------------------------------------
 
     def _confirm(self, goal_id: str, prompt: str, high_risk: bool) -> bool:
@@ -235,26 +295,51 @@ class Supervisor:
         def confirm(prompt: str, high_risk: bool = True) -> bool:
             return self._confirm(goal_id, prompt, high_risk)
 
-        def record_step(observation=None, action=None, result="", verdict="", state="executing") -> str:
+        # With memory on, every gated step is tied to its action's effect hash
+        # (for episodic memory), and the gate knows what failed before.
+        correlator = None
+        known: frozenset = frozenset()
+        if self.memory is not None:
+            from .loop_memory import StepCorrelator
+
+            correlator = StepCorrelator()
+            known = self.memory_view().known_failures
+
+        def record_step(observation=None, action=None, result="", verdict="", state="executing",
+                        outcome="") -> str:
+            key, findings = correlator.take(action) if correlator is not None else ("", ())
             return self.recorder.record_step(
                 run_id, observation=observation, action=action,
                 result=result, verdict=verdict, state=state,
+                # an outcome only means something for a step the gate judged
+                action_key=key, outcome=outcome if key else "", findings=findings,
             )
 
         # Optional hooks, passed only when in use so older run_task callables that
         # don't accept them keep working.
         extra: dict = {}
-        if self.issuers is not None:
+        if self.issuers is not None or self.memory is not None:
             from .loop_gate import make_plan_gate
 
             instruction = node.title or goal_id
+            enforce = self.issuers is not None
 
             def plan_gate(view, recent):
-                # Re-read grants on every check, so an expiry or a new grant
-                # takes effect mid-run.
-                return make_plan_gate(self.node_scopes(), instruction=instruction)(view, recent)
+                # Re-read grants and goals on every check, so an expiry, a new
+                # grant or a removed goal takes effect mid-run.
+                return make_plan_gate(
+                    self.node_scopes() if enforce else (), enforce=enforce, instruction=instruction,
+                    known_failures=known,
+                    active_goal_ids=self._active_goal_ids() if self.memory is not None else (),
+                    purpose=goal_id if self.memory is not None else "",
+                    require_intent=bool(self.memory is not None and self.memory.require_intent),
+                    observer=correlator.observe if correlator is not None else None,
+                )(view, recent)
 
             extra["plan_gate"] = plan_gate
+        if self.memory is not None:
+            extra["remember"] = self._remember
+            extra["recall"] = self._recall
         if recovery is not None:
             extra["recovery"] = {
                 "run_id": recovery.run_id,
@@ -274,6 +359,11 @@ class Supervisor:
 
         code = int(code)
         self.recorder.finish_run(run_id, code, summary)
+        if self.memory is not None:
+            try:
+                self.consolidate_memory()
+            except Exception:  # memory is an aid: a failed pass never fails the goal
+                self.log.exception("memory consolidation after goal %s failed", goal_id)
         self.journal.append("result", {"goal_id": goal_id, "code": code, "summary": str(summary)})
         if code == 0:
             self.journal.append("goal", {"op": "complete", "id": goal_id})
@@ -314,7 +404,8 @@ def terminal_confirm(prompt: str, high_risk: bool) -> bool:
 
 
 def agent_run_task(
-    task: str, *, should_stop, on_status, confirm, record_step=None, plan_gate=None, recovery=None
+    task: str, *, should_stop, on_status, confirm, record_step=None, plan_gate=None, recovery=None,
+    remember=None, recall=None,
 ) -> tuple[int, str]:
     """Production task runner: drive the real agent loop for one goal, keeping the
     high-risk confirmation gate wired to `confirm`. Imports the agent lazily so
@@ -356,10 +447,17 @@ def agent_run_task(
     # The loop calls approver(task, plan): show the operator the plan, not the task.
     cfg_kwargs["approve_plan"] = lambda task, plan: confirm(f"approve plan: {(plan or '')[:200]}", False)
     if record_step is not None:
+        from secdogie_agent.loop import classify_result
+
         cfg_kwargs["trace_on_entry"] = lambda entry: record_step(
             observation=entry.frame_sha256, action=entry.action, result=entry.result,
+            outcome=classify_result(entry.result),
         )
     if plan_gate is not None:
         cfg_kwargs["plan_gate"] = plan_gate
+    if remember is not None:
+        cfg_kwargs["remember_hook"] = remember
+    if recall is not None:
+        cfg_kwargs["memory_block"] = recall
     code = run(provider, AgentConfig(**cfg_kwargs))
     return code, f"agent exited {code}"

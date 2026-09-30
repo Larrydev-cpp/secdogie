@@ -71,8 +71,8 @@ def test_render_is_empty_when_there_is_nothing():
 
 def test_render_formats_facts_and_notes_newest_first():
     m = Memory(":memory:", now=_clock())
-    m.remember("top-right", key="settings")
-    m.remember("a loose observation")
+    m.confirm(m.remember("top-right", key="settings"))
+    m.confirm(m.remember("a loose observation"))
     block = m.render()
     # keyed facts as `key: value`, auto-notes as `- value`, newest first.
     assert block == "- a loose observation\nsettings: top-right"
@@ -81,7 +81,7 @@ def test_render_formats_facts_and_notes_newest_first():
 def test_render_caps_item_count_and_length():
     m = Memory(":memory:", now=_clock())
     for i in range(30):
-        m.remember(f"note {i}", key=f"k{i}")
+        m.confirm(m.remember(f"note {i}", key=f"k{i}"))
     assert len(m.render(limit=5).splitlines()) == 5
     long = m.render(limit=100, max_chars=40)
     assert len(long) <= 44 and long.endswith("...")  # 40 + " ..."
@@ -116,5 +116,60 @@ def test_memory_persists_across_reopen(tmp_path):
 
     m2 = Memory(path, now=_clock())  # a fresh "run" reopening the same file
     assert m2.recall("login_btn") == "the login button is top-right"
-    assert m2.items() == [MemoryItem("login_btn", "the login button is top-right", m2.items()[0].updated_at)]
+    assert m2.items() == [MemoryItem("login_btn", "the login button is top-right", m2.items()[0].updated_at,
+                                     confirmed=False)]
     m2.close()
+
+
+# -- operator confirmation ------------------------------------------------------
+
+def test_what_the_model_remembers_is_not_rendered_until_confirmed():
+    m = Memory(":memory:", now=_clock())
+    m.remember("the Save that matters is in the toolbar", key="save")
+    assert m.render() == "" and m.items()[0].confirmed is False
+    assert m.recall("save")  # still stored, just not fed back to the model
+    assert m.confirm("save") is True and m.render() == "save: the Save that matters is in the toolbar"
+    assert m.confirm("nope") is False
+
+
+def test_changing_a_fact_needs_confirming_again_but_restating_it_does_not():
+    m = Memory(":memory:", now=_clock())
+    m.confirm(m.remember("PDF", key="export"))
+    m.remember("PDF", key="export")  # same value: stays confirmed
+    assert m.render() == "export: PDF"
+    m.remember("PNG", key="export")  # changed: back to unconfirmed
+    assert m.render() == ""
+
+
+def test_rows_from_before_confirmation_existed_stay_usable(tmp_path):
+    import sqlite3
+
+    path = str(tmp_path / "old.sqlite")
+    db = sqlite3.connect(path)
+    db.execute("CREATE TABLE memories(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at REAL NOT NULL)")
+    db.execute("INSERT INTO memories VALUES('settings', 'top-right', 1.0)")
+    db.commit()
+    db.close()
+    m = Memory(path, now=_clock())
+    assert m.render() == "settings: top-right"  # migrated as confirmed, as the operator chose
+    m.remember("new note", key="fresh")
+    assert "fresh" not in m.render()  # new writes still wait for confirmation
+    m.close()
+
+
+def test_the_operator_reviews_memory_from_the_command_line(tmp_path, capsys):
+    from secdogie_agent.cli import main
+    from secdogie_agent.memory import admin_main
+
+    path = str(tmp_path / "mem.sqlite")
+    m = Memory(path, now=_clock())
+    m.remember("top-right", key="settings")
+    m.close()
+    assert main(["memory", "list", "--memory", path]) == 0
+    assert "UNCONFIRMED  settings: top-right" in capsys.readouterr().out
+    assert admin_main(["confirm", "settings", "--memory", path]) == 0
+    assert Memory(path).render() == "settings: top-right"
+    assert admin_main(["forget", "settings", "--memory", path]) == 0
+    assert admin_main(["forget", "settings", "--memory", path]) == 1
+    with pytest.raises(SystemExit):
+        admin_main(["confirm", "--memory", path])  # no key

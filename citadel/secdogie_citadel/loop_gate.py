@@ -5,8 +5,10 @@ hook and hands it plain-data views of the action it is about to execute and of
 the last few actions. This module turns those views into ``PlannedAction`` s,
 runs ``action_gate.gate`` with the node's granted capabilities, and decides.
 
-Only *authorization* findings block inside the loop: a missing capability, or an
-instruction asking to post unattended. The gate's heuristic findings (no-op,
+Only *authorization* and *memory / intent* findings block inside the loop: a
+missing capability, an instruction asking to post unattended, an action that
+already failed repeatedly (consolidated memory), and a Gate 1 intent that is
+missing or contradicts itself. The gate's heuristic findings (no-op,
 repeated, polling, destructive chain, cost) are returned as a note but do not
 block here, because they cannot see whether the screen changed -- pressing Down
 twice or scrolling twice is normal -- and the loop already has its own
@@ -19,9 +21,14 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 
 from .action_gate import (
+    INTENT_CONTRADICTION,
+    INTENT_UNPROVEN,
+    KNOWN_FAILURE,
     OUT_OF_CAPABILITY,
     UNATTENDED_POSTING,
     GateContext,
+    GateDecision,
+    IntentContract,
     PlannedAction,
     gate,
 )
@@ -48,13 +55,18 @@ _KIND_MAP = {
     "look": "observe",
 }
 
-BLOCKING = frozenset({OUT_OF_CAPABILITY, UNATTENDED_POSTING})
+BLOCKING = frozenset({OUT_OF_CAPABILITY, UNATTENDED_POSTING, KNOWN_FAILURE, INTENT_CONTRADICTION,
+                      INTENT_UNPROVEN})
 
 PlanGate = Callable[[dict, list], "tuple[bool, str]"]
+GateObserver = Callable[[PlannedAction, GateDecision], None]
 
 
-def to_planned(view: dict) -> PlannedAction:
-    """A ``PlannedAction`` from the loop's plain-data action view."""
+def to_planned(view: dict, *, purpose: str = "") -> PlannedAction:
+    """A ``PlannedAction`` from the loop's plain-data action view. The Gate 1
+    intent comes from the view's optional ``rollback`` / ``irreversible`` (the
+    model states them) plus ``purpose`` (the caller knows which goal is
+    running). ``irreversible`` counts only as a literal ``true``."""
     raw_kind = str(view.get("kind") or "")
     element = view.get("element")
     x, y = view.get("x"), view.get("y")
@@ -74,13 +86,29 @@ def to_planned(view: dict) -> PlannedAction:
         target_id=target,
         text=text,
         high_risk=bool(view.get("high_risk")),
+        intent=IntentContract(
+            purpose=purpose,
+            rollback=str(view.get("rollback") or ""),
+            irreversible=view.get("irreversible") is True,
+        ),
     )
 
 
-def make_plan_gate(capabilities: Iterable[str], *, enforce: bool = True, instruction: str = "") -> PlanGate:
+def make_plan_gate(capabilities: Iterable[str], *, enforce: bool = True, instruction: str = "",
+                   known_failures: Iterable[str] = (), active_goal_ids: Iterable[str] = (),
+                   purpose: str = "", require_intent: bool = False,
+                   observer: GateObserver | None = None) -> PlanGate:
     """A loop hook enforcing ``capabilities`` (the node's current scopes, e.g.
-    from ``secdogie_identity.capability.effective_scopes``)."""
+    from ``secdogie_identity.capability.effective_scopes``).
+
+    ``known_failures`` (consolidated memory), ``active_goal_ids`` and
+    ``purpose`` / ``require_intent`` (Gate 1) are optional; left at their
+    defaults the gate behaves exactly as before. ``observer(planned,
+    decision)`` sees every judgment -- the run recorder uses it to tie a step
+    to the action's effect hash."""
     caps = frozenset(capabilities)
+    known = frozenset(known_failures)
+    active = frozenset(active_goal_ids)
 
     def plan_gate(view: dict, recent: list) -> tuple[bool, str]:
         ctx = GateContext(
@@ -89,8 +117,14 @@ def make_plan_gate(capabilities: Iterable[str], *, enforce: bool = True, instruc
             recent_actions=tuple(to_planned(r) for r in recent),
             requires_verification=False,
             instruction=instruction,
+            require_intent=require_intent,
+            active_goal_ids=active,
+            known_failures=known,
         )
-        decision = gate(to_planned(view), ctx)
+        planned = to_planned(view, purpose=purpose)
+        decision = gate(planned, ctx)
+        if observer is not None:
+            observer(planned, decision)
         if any(k in BLOCKING for k in decision.findings):
             return False, decision.reason
         return True, decision.reason
@@ -98,4 +132,4 @@ def make_plan_gate(capabilities: Iterable[str], *, enforce: bool = True, instruc
     return plan_gate
 
 
-__all__ = ["BLOCKING", "PlanGate", "make_plan_gate", "to_planned"]
+__all__ = ["BLOCKING", "PlanGate", "GateObserver", "make_plan_gate", "to_planned"]

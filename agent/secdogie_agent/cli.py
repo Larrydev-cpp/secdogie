@@ -40,6 +40,13 @@ def main(argv: list[str] | None = None) -> int:
     # (so you can actually see/run the real menu without building the exe).
     if argv is None:
         argv = sys.argv[1:]
+    # `secdogie-agent memory list|confirm|forget ...`: the operator reviews what
+    # the model asked to remember. Matched exactly, so a task is never mistaken
+    # for it (a task is one quoted argument, e.g. "memory cleanup").
+    if len(argv) >= 2 and argv[0] == "memory" and argv[1] in ("list", "confirm", "forget"):
+        from .memory import admin_main
+
+        return admin_main(argv[1:])
     # Before our own menu/dialogs steal focus, remember what was in front, so we
     # can restore it before the agent's first action (else the first clicks land
     # on a ghost of our GUI). Only when we're actually going to pop GUI.
