@@ -221,6 +221,7 @@ flowchart TB
 | `identity/allowlist.py` | 零信任默认:`ALLOW_ANY` 显式哨兵 + `require_trust`;全仓生产调用点的信任参数有测试把关 | ① | ✅ 已建成 |
 | `webrtc/` | Cloudflare Workers 上的 WebRTC 信令网关 + 浏览器数据通道(只经手信令,不经手业务数据) | ② | ✅ 已建成 |
 | `transport/mux.py` | `ChannelMux`:一个传输上的多条应用通道(`dialogue/v1` 等) | ② | ✅ 已建成 |
+| `transport/failover.py` | 直连优先、中继兜底:近期直接听到对端才只走直连,否则同时经双方都持有租约的中继发送;由中继自签名记录构建 | ② | ✅ 已建成 |
 | `citadel/authz.py` | Gate 2 操作员授权令牌:绑定动作哈希与节点 DID、短时效 | ③④ | ✅ 已建成 |
 | `citadel/loop_gate.py` · `loop_memory.py` | 两道门接入实时 agent 回路;每步记录 `action_key` / 结果 | ③④ | ✅ 已建成 |
 | `citadel/episodes.py` · `lessons.py` · `consolidate.py` | 阶段式记忆 S1 / S2 / S3 | ③ | ✅ 已建成 |
@@ -271,10 +272,10 @@ flowchart TB
 | A | 记忆与两道门接入实时 agent 回路;模型的 `remember` 进隔离区 | #57 |
 | C | Dialogue 协议修订、`ChannelMux`、会话层、节点侧桥接、App(控制器 / Textual / 无头)、结构化视界发布 | #60 |
 | B | 零信任默认(破坏性变更,见迁移说明) | #61 |
-| D | `secdogie-node` + 真实 UDP 端到端测试 + 双进程测试 | #62 |
+| D | `secdogie-node`、对话路径的中继兜底、真实 UDP 端到端测试(进程内 + 三进程) | #62 |
 | E | 文档对齐 | 本 PR |
 
-端到端判据(`node/tests/test_e2e.py`,CI 中运行):App 提交目标 → 破坏性一步经 Gate 2 由操作员签名放行 →
+端到端判据(`node/tests/test_e2e.py` 进程内;`node/tests/test_multiprocess.py` 三进程——`secdogie-relay`、节点、App 各自独立进程,App 拿到的是节点的无效地址,全程经中继;均在 CI 中运行):App 提交目标 → 破坏性一步经 Gate 2 由操作员签名放行 →
 `ask_user` 成为追问、回答回到模型 → 模型的笔记在 App 确认前只在隔离区、确认后进入 S3 与提示词 →
 App 看到结构化视界 → 同一动作三次失败后第四次被 Gate 1 拒绝。
 
