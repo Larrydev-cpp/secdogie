@@ -32,12 +32,13 @@ def files(tmp_path):
                  "--apps", _allow(tmp_path / "apps.allow", app.did),
                  "--operators", _allow(tmp_path / "operators.allow", op.did),
                  "--authorized", _allow(tmp_path / "nodes.allow", node.did),
+                 "--mesh", _allow(tmp_path / "peers.allow", node.did),
                  "--journal", str(tmp_path / "node.db"), "--listen", "127.0.0.1:0"],
         "tmp": tmp_path,
     }
 
 
-@pytest.mark.parametrize("drop", ["--apps", "--operators", "--authorized"])
+@pytest.mark.parametrize("drop", ["--apps", "--operators", "--authorized", "--mesh"])
 def test_run_refuses_to_start_without_a_trust_set(files, drop, capsys):
     args = list(files["args"])
     i = args.index(drop)
@@ -56,6 +57,10 @@ def test_the_process_announces_itself_and_stops_cleanly_on_sigterm(files):
         ready = json.loads(line)
         assert ready["event"] == "ready" and ready["did"] == files["node"].did
         assert ready["listen"].startswith("127.0.0.1:")
+        from secdogie_transport.membership import verify_record
+
+        rec = verify_record(ready["record"], allowlist=Allowlist({files["node"].did}))
+        assert rec is not None and f"{rec.endpoints.best().host}:{rec.endpoints.best().port}" == ready["listen"]
         proc.send_signal(signal.SIGTERM)
         assert proc.wait(timeout=20) == 0
     finally:
@@ -215,3 +220,27 @@ def test_the_app_says_so_when_the_node_is_not_at_the_rendezvous(files, tmp_path,
         assert rc == 1 and "not registered at any rendezvous" in capsys.readouterr().err
     finally:
         channel.close()
+
+
+def test_a_bootstrap_record_can_be_a_whole_ready_line(files, tmp_path, capsys, monkeypatch):
+    """``--bootstrap-record`` takes a record, or the ready line another node
+    printed; one that is not a mesh node's is refused before starting."""
+    from secdogie_node.node import Node
+    from secdogie_transport import Endpoint
+    from secdogie_transport.membership import sign_record
+
+    def must_not_start(self):
+        raise AssertionError("the node started with a bootstrap record it should have refused")
+
+    monkeypatch.setattr(Node, "start", must_not_start)
+
+    stranger = Identity.generate()
+    line = {"event": "ready", "did": stranger.did, "listen": "127.0.0.1:9",
+            "record": sign_record(stranger, [Endpoint("local", "127.0.0.1", 9)], last_seen=1.0)}
+    (tmp_path / "peer.json").write_text(json.dumps(line), encoding="utf-8")
+    with pytest.raises(SystemExit) as e:
+        main([*files["args"], "--bootstrap-record", str(tmp_path / "peer.json")])
+    assert e.value.code == 2 and "bootstrap record" in capsys.readouterr().err
+    (tmp_path / "junk.json").write_text("[1, 2]", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        main([*files["args"], "--bootstrap-record", str(tmp_path / "junk.json")])

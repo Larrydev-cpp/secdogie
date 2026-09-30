@@ -12,6 +12,7 @@ journals together for tests, with no sockets.
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 HAVE = "journal_have"
@@ -33,14 +34,48 @@ def events_since(journal: Any, remote_heads: dict) -> list[dict]:
     return out
 
 
-def events_message(events: list[dict]) -> dict:
-    return {"kind": EVENTS, "events": events}
+def events_batch(journal: Any, remote_heads: dict, max_bytes: int) -> tuple[list[dict], bool]:
+    """Like `events_since`, but at most about ``max_bytes`` of JSON, so one
+    message fits a datagram. Returns (events, more): ``more`` when something was
+    left out for a later round. Each author's events stay a prefix in seq order
+    (``journal.merge`` needs a chain without gaps), and authors are taken round
+    robin, so an author the peer cannot accept never crowds out the rest. At
+    least one event goes out whenever any is due, so every round makes progress."""
+    heads = remote_heads if isinstance(remote_heads, dict) else {}
+    queues = []
+    for author, local_seq in sorted(journal.heads().items()):
+        have = int(heads.get(author, 0))
+        if local_seq > have:
+            queues.append(journal.since(author, have))
+    out: list[dict] = []
+    size = 0
+    while any(queues):
+        for q in queues:
+            if not q:
+                continue
+            cost = len(json.dumps(q[0], separators=(",", ":"))) + 1
+            if out and size + cost > max_bytes:
+                return out, True
+            out.append(q.pop(0))
+            size += cost
+    return out, False
 
 
-def respond_to_have(journal: Any, have_msg: dict) -> dict:
-    """Given a peer's have-message, build the events-message to send back."""
+def events_message(events: list[dict], *, more: bool = False) -> dict:
+    msg = {"kind": EVENTS, "events": events}
+    if more:
+        msg["more"] = True
+    return msg
+
+
+def respond_to_have(journal: Any, have_msg: dict, *, max_bytes: int | None = None) -> dict:
+    """Given a peer's have-message, build the events-message to send back --
+    with ``max_bytes``, at most about that much, flagged ``more`` if truncated."""
     heads = have_msg.get("heads") if isinstance(have_msg, dict) else {}
-    return events_message(events_since(journal, heads or {}))
+    if max_bytes is None:
+        return events_message(events_since(journal, heads or {}))
+    events, more = events_batch(journal, heads or {}, max_bytes)
+    return events_message(events, more=more)
 
 
 def apply_events_message(journal: Any, msg: dict) -> int:

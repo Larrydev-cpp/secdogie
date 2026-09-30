@@ -72,6 +72,14 @@ another instead of partitioning the mesh (`relay.py`).
   `FailoverTransport.from_records(direct, records)` builds it from the relays'
   own signed records, as `secdogie-relay` prints them. The operator dialogue
   (`secdogie-node`, `secdogie-dialogue connect`) uses it via `--relay-record`.
+- **Membership gossip on the wire** (`gossip.py`, T4). `MembershipGossip`
+  runs the membership have/want exchange between nodes on a `ChannelMux`
+  channel (`membership/v1`), so every message is already DID-signed,
+  allowlist-checked and replay-windowed by the transport. Only the mesh
+  `peers` are answered. Each round refreshes the node's own record and offers
+  its digest to one random peer; the exchange is two messages each way at
+  most. Records go out in datagram-sized batches, and a node started from one
+  bootstrap record learns the rest.
 - **Rendezvous on the wire** (`rendezvous.py`, T3). `RendezvousService` serves
   the rendezvous role on a node's own UDP transport (`secdogie-relay
   --rendezvous`); `RendezvousLink` is a node's side: it registers periodically

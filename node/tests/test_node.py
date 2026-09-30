@@ -18,7 +18,8 @@ NODE, APP, OTHER_APP, OPERATOR, STRANGER = (Identity.generate() for _ in range(5
 
 def make(**kw):
     cfg = dict(identity=NODE, apps=Allowlist({APP.did, OTHER_APP.did}), operators=Allowlist({OPERATOR.did}),
-               authorized=Allowlist({NODE.did}), run_task=lambda *a, **k: (0, "ok"), idle_poll=0.05)
+               authorized=Allowlist({NODE.did}), mesh=Allowlist({NODE.did}), run_task=lambda *a, **k: (0, "ok"),
+               idle_poll=0.05)
     cfg.update(kw)
     return Node(NodeConfig(**cfg))
 

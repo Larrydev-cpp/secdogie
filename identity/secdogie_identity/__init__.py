@@ -6,7 +6,7 @@ nothing hand-rolled.
 """
 from __future__ import annotations
 
-from .allowlist import ALLOW_ANY, Allowlist, require_trust
+from .allowlist import ALLOW_ANY, Allowlist, AnyOf, require_trust
 from .binding import (
     BindingResult,
     create_binding,
@@ -46,6 +46,7 @@ __all__ = [
     "PublicIdentity",
     "Allowlist",
     "ALLOW_ANY",
+    "AnyOf",
     "require_trust",
     "did_key_from_pubkey",
     "pubkey_from_did",

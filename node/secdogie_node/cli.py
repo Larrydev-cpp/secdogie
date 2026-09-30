@@ -1,7 +1,8 @@
 """``secdogie-node``: run the resident node, or look at its journal.
 
     secdogie-node run --identity node.key --apps apps.allow --operators operators.allow \\
-        --authorized nodes.allow --issuers issuers.allow --journal node.db \\
+        --authorized nodes.allow --mesh mesh.allow --issuers issuers.allow --journal node.db \\
+        [--bootstrap-record peer.json ...] \\
         [--candidates memory.db] [--listen 0.0.0.0:7950] \\
         [--masters masters.conf [--revocations revocations.jsonl]] \\
         [--transport-key node.tkey --app-binding app.binding.json ...] \\
@@ -10,12 +11,16 @@
     secdogie-node status --journal node.db --authorized nodes.allow
 
 ``run`` is a foreground process the owner starts and stops: it prints one JSON
-line when it is ready (its DID and address), logs to stderr, and exits 0 on
-SIGTERM / SIGINT. Nothing installs itself or keeps running in the background.
+line when it is ready (its DID, address and self-signed membership record, which
+other nodes can start from with ``--bootstrap-record``), logs to stderr, and
+exits 0 on SIGTERM / SIGINT. Nothing installs itself or keeps running in the
+background.
 
 Zero trust: ``--apps`` (the operator Apps' session keys), ``--operators``
 (the keys whose Gate 2 signatures authorize destructive steps) and
-``--authorized`` (journal authors) are required. Without ``--issuers`` nobody
+``--authorized`` (journal authors) and ``--mesh`` (the other nodes this one
+gossips membership and replicates its journal with; every one of them must
+also be on ``--authorized``) are required. Without ``--issuers`` nobody
 can grant this node a capability, so every mutating action is refused; only
 ``--insecure-dev`` turns the capability check off, with a warning. High-risk
 steps always go to the operator, whatever the flags.
@@ -60,6 +65,10 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--apps", required=True, metavar="ALLOWLIST", help="operator App session keys (dialogue)")
     r.add_argument("--operators", required=True, metavar="ALLOWLIST", help="Gate 2 operator keys")
     r.add_argument("--authorized", required=True, metavar="ALLOWLIST", help="journal authors (this node included)")
+    r.add_argument("--mesh", required=True, metavar="ALLOWLIST",
+                   help="the other nodes: membership gossip and journal replication (each also on --authorized)")
+    r.add_argument("--bootstrap-record", action="append", default=[], metavar="FILE",
+                   help="a mesh node's self-signed record, as its ready line prints it (repeatable)")
     r.add_argument("--issuers", metavar="ALLOWLIST", help="capability issuers; without: every mutating action refused")
     r.add_argument("--journal", required=True, metavar="FILE", help="the node's journal (SQLite)")
     r.add_argument("--candidates", default=None, metavar="FILE", help="S2 memory quarantine (default: next to the journal)")
@@ -90,6 +99,17 @@ def _trust(args, path):
     return load_trust_policy(path, masters_path=args.masters, revocations_path=args.revocations)
 
 
+def _record(text: str) -> dict:
+    """A membership record from a file: the record itself, or a node's whole
+    ready line (``{"event": "ready", ..., "record": {...}}``)."""
+    obj = json.loads(text)
+    if isinstance(obj, dict) and isinstance(obj.get("record"), dict):
+        return obj["record"]
+    if not isinstance(obj, dict):
+        raise ValueError("a bootstrap record must be a JSON object")
+    return obj
+
+
 def _run(args, parser) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stderr)
     if args.revocations and not args.masters:
@@ -98,7 +118,8 @@ def _run(args, parser) -> int:
         parser.error("--app-binding needs --transport-key (bindings are for encrypted frames)")
     try:
         identity = Identity.load(args.identity)
-        apps, operators, authorized = (_trust(args, f) for f in (args.apps, args.operators, args.authorized))
+        apps, operators, authorized, mesh = (_trust(args, f) for f in
+                                             (args.apps, args.operators, args.authorized, args.mesh))
         issuers = _trust(args, args.issuers) if args.issuers else None
         tkey = None
         if args.transport_key:
@@ -108,6 +129,7 @@ def _run(args, parser) -> int:
         bindings = [json.loads(Path(b).read_text(encoding="utf-8")) for b in args.app_binding]
         relays = [json.loads(Path(r).read_text(encoding="utf-8")) for r in args.relay_record]
         rendezvous = [json.loads(Path(r).read_text(encoding="utf-8")) for r in args.rendezvous_record]
+        bootstrap = [_record(Path(r).read_text(encoding="utf-8")) for r in args.bootstrap_record]
     except (OSError, ValueError) as e:
         parser.error(str(e))
 
@@ -133,23 +155,24 @@ def _run(args, parser) -> int:
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     candidates = args.candidates or (args.journal + ".memory" if args.journal != ":memory:" else ":memory:")
     try:
-        node = Node(NodeConfig(identity=identity, apps=apps, operators=operators, authorized=authorized,
+        node = Node(NodeConfig(identity=identity, apps=apps, operators=operators, authorized=authorized, mesh=mesh,
                                issuers=issuers, unrestricted=unrestricted, journal_path=args.journal,
                                candidates_path=candidates, listen=args.listen, transport_key=tkey,
                                app_bindings=bindings, relay_records=relays,
-                               rendezvous_records=rendezvous))
+                               rendezvous_records=rendezvous, bootstrap_records=bootstrap))
     except (OSError, ValueError) as e:
         parser.error(str(e))
     if self_policy is not None:
         self_policy.on_change(lambda newly: halt_on_self_revocation(newly, identity.did, [stop.set]))
         if args.revocations:
             start_refresher(self_policy)
-    for policy in (apps, operators, authorized, issuers):
+    for policy in (apps, operators, authorized, mesh, issuers):
         if policy is not None and args.revocations:
             start_refresher(policy)
     node.start()
     host, port = node.address
-    sys.stdout.write(json.dumps({"event": "ready", "did": identity.did, "listen": f"{host}:{port}"}) + "\n")
+    sys.stdout.write(json.dumps({"event": "ready", "did": identity.did, "listen": f"{host}:{port}",
+                                 "record": node.record()}) + "\n")
     sys.stdout.flush()
     try:
         while not stop.wait(0.5):

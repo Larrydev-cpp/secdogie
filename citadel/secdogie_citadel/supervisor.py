@@ -173,13 +173,25 @@ class Supervisor:
 
     # -- projections ---------------------------------------------------------
 
+    def _local_events(self) -> list[dict]:
+        """This node's own events. Goals, controls, attempts and runs are local:
+        a peer's goals and runs reach this journal through replication -- so
+        this node can learn from them (memory) -- but they are never this node's
+        to run, stop, count or recover. Shared projections (memory, grants) read
+        every trusted author's events instead."""
+        events = self.journal.events()
+        ident = getattr(self.journal, "identity", None)
+        if ident is None:
+            return events  # a read-only replica: nothing here runs anyway
+        return [e for e in events if e.get("author") == ident.did]
+
     def _tree(self):
-        return self._build_goal_tree(self.journal.events())
+        return self._build_goal_tree(self._local_events())
 
     def _controls(self) -> tuple[set, set]:
         stops: set = set()
         paused: set = set()
-        for e in self.journal.events():
+        for e in self._local_events():
             if e.get("kind") != "control":
                 continue
             body = e.get("body") or {}
@@ -195,7 +207,7 @@ class Supervisor:
 
     def _attempts(self, goal_id: str) -> int:
         return sum(
-            1 for e in self.journal.events()
+            1 for e in self._local_events()
             if e.get("kind") == "result" and (e.get("body") or {}).get("goal_id") == goal_id
         )
 
@@ -225,7 +237,7 @@ class Supervisor:
         from .state import StateStore
 
         store = StateStore()
-        store.merge_events(self.journal.events())
+        store.merge_events(self._local_events())
         out = []
         for rid, r in sorted(store.entities("run").items()):
             if r.get("goal_id") == goal_id and r.get("state") not in TERMINAL_STATES:
@@ -246,7 +258,7 @@ class Supervisor:
         from .state import StateStore
 
         store = StateStore()
-        store.merge_events(self.journal.events())
+        store.merge_events(self._local_events())
         decisions = plan_recovery(store)
         for d in decisions:
             self.recorder.record_recovery(d.run_id, d.action, from_state=d.from_state)

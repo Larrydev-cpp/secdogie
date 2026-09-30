@@ -78,6 +78,36 @@ class _AllowAny:
 ALLOW_ANY = _AllowAny()
 
 
+class AnyOf:
+    """Trusts a DID any of ``parts`` trusts -- for one transport that serves
+    two roles (a node hears its operator Apps and its mesh peers). Each part is
+    consulted live, so a revocation in any of them takes effect at once. Every
+    part is required: ``None`` refuses, as everywhere else."""
+
+    def __init__(self, *parts):
+        if not parts:
+            raise ValueError("AnyOf needs at least one allowlist")
+        self.parts = tuple(require_trust(p, "AnyOf") for p in parts)
+
+    def contains(self, did: str) -> bool:
+        return any(p.contains(did) for p in self.parts)
+
+    def __contains__(self, did: object) -> bool:
+        return isinstance(did, str) and self.contains(did)
+
+    def dids(self) -> set[str]:
+        out: set[str] = set()
+        for p in self.parts:
+            out |= set(p.dids())
+        return out
+
+    def __bool__(self) -> bool:
+        return any(bool(p) for p in self.parts)
+
+    def __repr__(self) -> str:
+        return f"AnyOf{self.parts!r}"
+
+
 def require_trust(trust, what: str):
     """Zero-trust by default: return ``trust`` unless it is ``None``, in which
     case refuse -- naming ``what`` needed it and how to say "anyone" on purpose."""

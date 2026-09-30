@@ -86,6 +86,7 @@ def test_the_loop_across_three_processes_through_a_relay(tmp_path):
                          "--apps", _allow(tmp_path / "apps.allow", app.did),
                          "--operators", _allow(tmp_path / "ops.allow", operator.did),
                          "--authorized", _allow(tmp_path / "nodes.allow", node.did),
+                         "--mesh", _allow(tmp_path / "peers.allow", node.did),
                          "--issuers", _allow(tmp_path / "issuers.allow", issuer.did),
                          "--journal", str(journal_path), "--listen", "127.0.0.1:0",
                          "--relay-record", str(tmp_path / "relay.json")], env)

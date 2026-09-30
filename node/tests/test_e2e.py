@@ -66,7 +66,7 @@ def test_the_stage_two_loop_end_to_end(wired, tmp_path):
     desk, histories = wired
     node = Node(NodeConfig(
         identity=NODE, apps=Allowlist({APP.did}), operators=Allowlist({OPERATOR.did}),
-        authorized=Allowlist({NODE.did}), issuers=Allowlist({ISSUER.did}),
+        authorized=Allowlist({NODE.did}), mesh=Allowlist({NODE.did}), issuers=Allowlist({ISSUER.did}),
         journal_path=str(tmp_path / "node.db"), candidates_path=str(tmp_path / "memory.db"),
         challenge_ttl=20.0, probe_ttl=20.0, idle_poll=0.1,
     ))

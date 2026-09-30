@@ -14,7 +14,13 @@
   * a signed ``Journal`` (authors on ``authorized``) and a ``Supervisor`` with
     staged memory, whose capability gate trusts ``issuers`` -- none means every
     mutating action is refused;
-  * a worker thread that runs ready goals one at a time.
+  * a worker thread that runs ready goals one at a time;
+  * the mesh (stage 3): the same transport also hears the other nodes on
+    ``mesh``. Membership records are gossiped with them (``MembershipGossip``)
+    and the journal is replicated with them (``ReplicationPeer``, in
+    datagram-sized batches). What this node learns from a peer -- a caution
+    earned by the peer's failing runs -- reaches its Gate 1; a peer's goals
+    reach its journal but are never run here (the Supervisor runs only its own).
 
 Zero trust throughout: ``apps``, ``operators`` and ``authorized`` are required
 (``None`` refuses to start); ``unrestricted`` (no capability check) is an
@@ -29,35 +35,43 @@ ended and offers any quarantined (S2) facts / preferences for confirmation.
 """
 from __future__ import annotations
 
+import json
 import logging
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from secdogie_citadel.consolidate import confirm_and_promote, retract_memory
 from secdogie_citadel.journal import Journal
 from secdogie_citadel.lessons import MemoryClass
+from secdogie_citadel.replication import ReplicationPeer
 from secdogie_citadel.supervisor import MemoryConfig, Supervisor, agent_run_task
 from secdogie_dialogue.agent_bridge import OperatorBridge
 from secdogie_dialogue.dialogue import system_status
 from secdogie_dialogue.protocol import ControlOp, MemoryCandidatePacket
 from secdogie_dialogue.publisher import SnapshotPublisher
 from secdogie_dialogue.session import DialogueSession, SessionRouter
-from secdogie_identity import require_trust
+from secdogie_identity import AnyOf, require_trust
 from secdogie_transport import (
     ChannelMux,
     DirectUDPTransport,
     Endpoint,
     FailoverTransport,
+    MembershipGossip,
+    MembershipView,
     PeerIdentity,
     RendezvousLink,
     Session,
     UDPChannel,
 )
+from secdogie_transport.membership import sign_record
 
 log = logging.getLogger("secdogie_node")
 
 OFFERED_CLASSES = (MemoryClass.FACT, MemoryClass.PREFERENCE)  # cautions are promoted on evidence
+REPLICATION_CHANNEL = "replication/v1"
+REPLICATION_MAX_BYTES = 24_000  # events per message: one datagram, even through a relay
 
 
 @dataclass
@@ -66,6 +80,7 @@ class NodeConfig:
     apps: object  # operator App session keys: who may open a dialogue and confirm memory
     operators: object  # operator keys whose Gate 2 signatures authorize destructive steps
     authorized: object  # journal authors whose events this node accepts
+    mesh: object  # the other nodes: who gossips membership and replicates the journal with this one
     issuers: object = None  # capability grant issuers; None -> every mutating action is refused
     unrestricted: bool = False  # INSECURE: no capability check (tests / local development)
     journal_path: str = ":memory:"
@@ -75,6 +90,8 @@ class NodeConfig:
     app_bindings: list = field(default_factory=list)  # signed DID -> transport-key bindings of the Apps
     relay_records: list = field(default_factory=list)  # relays' self-signed records: the fallback path
     rendezvous_records: list = field(default_factory=list)  # where this node registers, so Apps find it by DID
+    bootstrap_records: list = field(default_factory=list)  # mesh nodes' self-signed records to start from
+    mesh_every: float = 5.0  # seconds between gossip / replication rounds
     run_task: Callable = agent_run_task
     challenge_ttl: float = 120.0
     probe_ttl: float = 300.0
@@ -93,8 +110,13 @@ class Node:
         self.identity = cfg.identity
         self.apps = require_trust(cfg.apps, "the node's App allowlist")
         self.operators = require_trust(cfg.operators, "the node's operator allowlist")
-        self.journal = Journal(cfg.journal_path, identity=cfg.identity,
-                               allowlist=require_trust(cfg.authorized, "the node's journal allowlist"))
+        authorized = require_trust(cfg.authorized, "the node's journal allowlist")
+        self.mesh = require_trust(cfg.mesh, "the node's mesh allowlist")
+        if hasattr(self.mesh, "dids") and hasattr(authorized, "dids"):
+            outside = sorted(self.mesh.dids() - authorized.dids())
+            if outside:  # their replicated events would be dropped without a word
+                raise ValueError(f"every mesh node must also be a journal author (--authorized): {outside[0]}")
+        self.journal = Journal(cfg.journal_path, identity=cfg.identity, allowlist=authorized)
         self.supervisor = Supervisor(
             self.journal, cfg.run_task, issuers=cfg.issuers, unrestricted=cfg.unrestricted,
             memory=MemoryConfig(candidates_path=cfg.candidates_path, confirmers=self.apps),
@@ -107,7 +129,7 @@ class Node:
         self._refused: set[str] = set()
         self.channel = UDPChannel(*cfg.listen)
         try:
-            self.transport = DirectUDPTransport(cfg.identity, self.channel, allowlist=self.apps,
+            self.transport = DirectUDPTransport(cfg.identity, self.channel, allowlist=AnyOf(self.apps, self.mesh),
                                                 transport_key=cfg.transport_key)
             for binding in cfg.app_bindings:
                 if not self.transport.add_peer_binding(binding):
@@ -122,9 +144,20 @@ class Node:
             self.mux = ChannelMux(carrier, Session("node", PeerIdentity(cfg.identity.did, ""),
                                                    active=Endpoint("local", *self.channel.address)))
             self.router = SessionRouter(self.mux, accept=self._accept)
+            self.view = MembershipView(allowlist=self.mesh)
+            for record in cfg.bootstrap_records:
+                if not self.view.merge_record(record, now=time.time()):
+                    raise ValueError("a bootstrap record must be a valid, self-signed record of a mesh node")
+            self.gossip = MembershipGossip(self.mux, self.view, peers=self.mesh, self_record=self.record,
+                                           on_learn=self._learn_peer)
+            self.replica = ReplicationPeer(self.journal, self._send_replication, max_bytes=REPLICATION_MAX_BYTES)
+            self.mux.channel(REPLICATION_CHANNEL, self._on_replication)
+            for did in self.view.known():
+                self._learn_peer(self.view.get(did))
         except Exception:
             self.channel.close()
             raise
+        self._mesh_thread: threading.Thread | None = None
 
     @property
     def address(self) -> tuple[str, int]:
@@ -142,12 +175,67 @@ class Node:
             self.link.start()
         if self.rendezvous is not None:
             self.rendezvous.start(self._own_endpoints)
+        self._mesh_thread = threading.Thread(target=self._mesh_loop, daemon=True, name="secdogie-node-mesh")
+        self._mesh_thread.start()
 
     def _own_endpoints(self) -> list[Endpoint]:
         # What this node can say about itself; a rendezvous adds the address it
         # sees the node's packets come from (the one that works across NAT).
         host, port = self.channel.address
         return [] if host in ("", "0.0.0.0") else [Endpoint("local", host, port)]
+
+    # -- the mesh -------------------------------------------------------------------
+
+    def record(self) -> dict:
+        """This node's self-signed membership record, fresh: where it can be
+        reached (its own address, and any address a rendezvous saw it at). Other
+        nodes can start from it (``--bootstrap-record``)."""
+        endpoints = self._own_endpoints()
+        if self.rendezvous is not None:
+            endpoints += [Endpoint("observed", e.host, e.port) for e in self.rendezvous.reflexive.values()]
+        return sign_record(self.identity, endpoints, last_seen=time.time())
+
+    def _learn_peer(self, rec) -> None:
+        # A peer found through gossip becomes reachable; an address already
+        # known (set, or learned from the peer's own newest frame) is kept.
+        if rec is None or rec.did == self.identity.did or self.transport.peer_endpoint(rec.did) is not None:
+            return
+        best = rec.endpoints.best()
+        if best is not None:
+            self.transport.set_peer_endpoint(rec.did, best.host, best.port)
+
+    def peers(self) -> list[str]:
+        """The mesh nodes this node currently knows."""
+        return self.gossip.targets()
+
+    def replicate_now(self) -> None:
+        """Offer this node's journal heads to every known peer (they answer
+        with what this node lacks, and ask for what they lack)."""
+        for did in self.peers():
+            self.replica.initiate(did)
+
+    def _send_replication(self, to_did: str, payload: dict) -> None:
+        self.mux.send(to_did, REPLICATION_CHANNEL, json.dumps(payload, separators=(",", ":")).encode())
+
+    def _on_replication(self, from_did: str, payload: bytes) -> None:
+        if not self.mesh.contains(from_did):
+            return  # an App shares the transport; only mesh nodes replicate
+        try:
+            msg = json.loads(payload)
+        except (ValueError, UnicodeDecodeError):
+            return
+        merged = self.replica.on_message(from_did, msg)
+        if merged:
+            log.info("replicated %d event(s) from %s", merged, from_did)
+
+    def _mesh_loop(self) -> None:
+        while not self._stopping.is_set():
+            try:
+                self.gossip.tick()
+                self.replicate_now()
+            except Exception:  # noqa: BLE001 - a failed round retries on the next one
+                log.exception("mesh round failed")
+            self._stopping.wait(self.cfg.mesh_every)
 
     def stop(self, timeout: float = 10.0) -> None:
         """Stop taking work, stop the running goal, say goodbye, close."""
@@ -164,6 +252,9 @@ class Node:
             self.link.close()
         if self.rendezvous is not None:
             self.rendezvous.close()
+        if self._mesh_thread is not None:
+            self._mesh_thread.join(timeout)
+        self.gossip.close()
         self.channel.close()
 
     # -- the App ----------------------------------------------------------------------
@@ -284,7 +375,8 @@ class Node:
         log.info("goal %s: exit %s -- %s", gid, code, summary)
         self._send(system_status(f"goal {gid} finished: exit {code} -- {summary}"))
         self._offer_memories()
+        self.replicate_now()  # what this goal taught the node goes out now, not at the next round
         return True
 
 
-__all__ = ["Node", "NodeConfig", "OFFERED_CLASSES"]
+__all__ = ["Node", "NodeConfig", "OFFERED_CLASSES", "REPLICATION_CHANNEL"]

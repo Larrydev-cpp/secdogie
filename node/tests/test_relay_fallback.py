@@ -39,7 +39,7 @@ def test_the_dialogue_survives_a_blocked_direct_path(tmp_path):
         return 0, "done"
 
     node = Node(NodeConfig(identity=NODE, apps=Allowlist({APP.did}), operators=Allowlist({OPERATOR.did}),
-                           authorized=Allowlist({NODE.did}), run_task=task, idle_poll=0.05,
+                           authorized=Allowlist({NODE.did}), mesh=Allowlist({NODE.did}), run_task=task, idle_poll=0.05,
                            journal_path=str(tmp_path / "node.db"), relay_records=[record]))
     node.start()
 
@@ -77,5 +77,5 @@ def test_the_dialogue_survives_a_blocked_direct_path(tmp_path):
 def test_a_bad_relay_record_is_refused():
     with pytest.raises(ValueError, match="relay record"):
         Node(NodeConfig(identity=NODE, apps=Allowlist({APP.did}), operators=Allowlist({OPERATOR.did}),
-                        authorized=Allowlist({NODE.did}),
+                        authorized=Allowlist({NODE.did}), mesh=Allowlist({NODE.did}),
                         relay_records=[sign_record(RELAY, [Endpoint("local", "127.0.0.1", 9)], last_seen=1.0)]))

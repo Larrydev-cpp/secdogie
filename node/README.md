@@ -16,6 +16,15 @@ The resident node: one foreground process that puts the pieces together.
 - **Supervised loop.** A signed journal and a Supervisor that run each goal
   through the real agent loop, with Gate 1 (intent and known-failure memory),
   Gate 2 (operator signatures) and staged memory (S1–S3).
+- **The mesh (stage 3).** The same transport also hears the nodes on `--mesh`.
+  - **Gossip.** The nodes gossip their self-signed membership records, so a
+    node started with one `--bootstrap-record` learns the rest and can reach
+    them.
+  - **Replication.** They replicate their journals in datagram-sized batches.
+    What one node learns reaches the others: a caution earned by one node's
+    failing runs is refused at the others' Gate 1 on their first try. Each
+    node still runs only its own goals; a peer's goals, stops and interrupted
+    runs arrive in the journal but are never run, obeyed or recovered here.
 
 It assembles what the other packages provide; it adds no protocol of its own.
 
@@ -25,11 +34,13 @@ It assembles what the other packages provide; it adds no protocol of its own.
 pip install -e ../identity -e ../transport -e ../citadel -e ../dialogue -e ../agent -e .
 secdogie-node run --identity node.key \
     --apps apps.allow --operators operators.allow --authorized nodes.allow \
+    --mesh mesh.allow [--bootstrap-record other-node.json] \
     --issuers issuers.allow --journal node.db --listen 0.0.0.0:7950
 ```
 
-It prints one JSON line when it is ready: its DID and the address it listens
-on. It logs to stderr, and exits 0 on SIGTERM or Ctrl-C. It never installs
+It prints one JSON line when it is ready: its DID, the address it listens on,
+and its self-signed membership record. Save that line as another node's
+`--bootstrap-record`. It logs to stderr, and exits 0 on SIGTERM or Ctrl-C. It never installs
 itself or keeps running in the background.
 
 The operator connects with the App:
@@ -49,6 +60,7 @@ goals and the memory recorded in a journal.
 | `--apps` | operator App session keys that may open a dialogue and confirm memory | yes |
 | `--operators` | keys whose Gate 2 signatures authorize destructive steps | yes |
 | `--authorized` | journal authors (this node included) | yes |
+| `--mesh` | the other nodes it gossips and replicates with; each also on `--authorized` (alone: name only this node) | yes |
 | `--issuers` | who may grant this node capabilities (`secdogie-identity grant`) | no: without it every mutating action is refused |
 
 - **No capability check needs saying out loud.** `--insecure-dev` without

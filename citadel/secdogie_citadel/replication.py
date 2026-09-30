@@ -39,9 +39,10 @@ class ReplicationPeer:
     the single source of truth -- merges go straight through ``journal.merge()``
     (self-verifying), so this class holds no security decisions of its own."""
 
-    def __init__(self, journal: Any, send: SendFn):
+    def __init__(self, journal: Any, send: SendFn, *, max_bytes: int | None = None):
         self.journal = journal
         self._send = send
+        self._max_bytes = max_bytes  # cap per events-message, so one fits a datagram
 
     def initiate(self, to_did: str) -> None:
         """Start a sync with ``to_did`` by offering our have-vector."""
@@ -57,12 +58,17 @@ class ReplicationPeer:
             # Send what they lack; and -- unless this HAVE is itself a reply --
             # one counter-HAVE so they send what we lack. That bounds the whole
             # thing to a two-round exchange that converges and then stops.
-            self._send(from_did, sync.respond_to_have(self.journal, payload))
+            self._send(from_did, sync.respond_to_have(self.journal, payload, max_bytes=self._max_bytes))
             if not payload.get("reply"):
                 self._send(from_did, _have(self.journal, reply=True))
             return 0
         if kind == sync.EVENTS:
-            return sync.apply_events_message(self.journal, payload)
+            merged = sync.apply_events_message(self.journal, payload)
+            if payload.get("more") and merged:
+                # The sender held more back; ask again from the new heads. Only
+                # after progress, so a batch this journal refuses cannot loop.
+                self._send(from_did, _have(self.journal, reply=True))
+            return merged
         return 0
 
 

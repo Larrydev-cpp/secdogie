@@ -49,6 +49,12 @@ agent loop.
   - The fleet needs `--identity` and `--authorized`, or `--insecure-dev`.
   - Without `--operator-authorized`, console commands are unsigned. They are
     accepted only from the loopback UI, and startup logs a warning saying so.
+- **`secdogie-node` (stage 3).** `--mesh ALLOWLIST` is required: the other
+  nodes this one gossips membership and replicates its journal with. Every DID
+  on it must also be on `--authorized`, or the node refuses to start (their
+  replicated events would otherwise be dropped without a word). A node that
+  runs alone names only itself. `NodeConfig(mesh=...)` is required the same
+  way; `None` refuses.
 - **Unchanged.** `secdogie-fleet` already worked this way. So do
   `secdogie-relay`, which requires `--authorized`, and
   `secdogie-dialogue connect`, where the `--node` DID is the whole trust set.

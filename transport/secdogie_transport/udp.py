@@ -199,6 +199,10 @@ class DirectUDPTransport(Transport):
     def set_peer_endpoint(self, did: str, host: str, port: int) -> None:
         self._endpoints[did] = (host, port)
 
+    def peer_endpoint(self, did: str) -> tuple[str, int] | None:
+        """Where frames to `did` go now (set, or learned from its newest frame)."""
+        return self._endpoints.get(did)
+
     def on_frame(self, frame_type: str, handler: FrameHandler | None) -> None:
         """Hand inbound envelopes whose `t` is `frame_type` to `handler(obj,
         addr)` instead of the direct-message path; `None` removes the handler.
