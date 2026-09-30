@@ -6,7 +6,10 @@ The resident node: one foreground process that puts the pieces together.
   Apps you list. Frames are optionally encrypted with an X25519 transport key.
   Given `--relay-record` (a relay's self-signed record, as `secdogie-relay`
   prints it), the node also reaches the App through that relay whenever it has
-  not heard the App directly of late.
+  not heard the App directly of late. Given `--rendezvous-record` (as
+  `secdogie-relay --rendezvous` prints it), the node registers there and keeps
+  renewing, so an App finds it by DID (`secdogie-dialogue connect
+  --rendezvous-record`) without being told its address.
 - **Operator dialogue.** For the connected App, a dialogue session over which
   the node sends Gate 2 challenges, Socratic probes, the structural view and
   memory offers, and receives control requests.

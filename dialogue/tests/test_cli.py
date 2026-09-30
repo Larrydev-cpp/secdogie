@@ -77,6 +77,25 @@ def test_connect_checks_the_keystore_and_script_before_connecting(tmp_path, caps
     assert "script line 2" in capsys.readouterr().err
 
 
+def test_connect_needs_to_know_where_the_node_is(tmp_path, capsys):
+    Identity.generate().save(tmp_path / "app.key")
+    with pytest.raises(SystemExit) as e:
+        main(["connect", "--identity", str(tmp_path / "app.key"), "--node", "did:key:z6MkNode"])
+    assert e.value.code == 2 and "--rendezvous-record" in capsys.readouterr().err
+
+
+def test_connect_refuses_a_record_that_is_not_a_rendezvous(tmp_path, capsys):
+    pytest.importorskip("secdogie_transport")
+    from secdogie_transport import Endpoint
+    from secdogie_transport.membership import sign_record
+
+    rec = sign_record(Identity.generate(), [Endpoint("local", "127.0.0.1", 9)], last_seen=1.0)
+    (tmp_path / "rv.json").write_text(json.dumps(rec))
+    with pytest.raises(SystemExit) as e:
+        main(_app_args(tmp_path, "did:key:z6MkNode", "--rendezvous-record", str(tmp_path / "rv.json")))
+    assert e.value.code == 2 and "rendezvous role" in capsys.readouterr().err
+
+
 def test_connect_requires_the_node_did(tmp_path):
     with pytest.raises(SystemExit):
         main(["connect", "--identity", str(tmp_path / "k"), "--node-addr", "127.0.0.1:9"])
