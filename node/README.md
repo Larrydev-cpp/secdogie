@@ -4,6 +4,9 @@ The resident node: one foreground process that puts the pieces together.
 
 - **Transport.** A DID-authenticated UDP transport that hears only the operator
   Apps you list. Frames are optionally encrypted with an X25519 transport key.
+  Given `--relay-record` (a relay's self-signed record, as `secdogie-relay`
+  prints it), the node also reaches the App through that relay whenever it has
+  not heard the App directly of late.
 - **Operator dialogue.** For the connected App, a dialogue session over which
   the node sends Gate 2 challenges, Socratic probes, the structural view and
   memory offers, and receives control requests.
@@ -71,6 +74,13 @@ pytest tests -q
   - a model note held in quarantine until the App confirms it;
   - the structural view in the App's inspector;
   - an action that failed three times being refused on the fourth run.
+- **Three processes** (`tests/test_multiprocess.py`): `secdogie-relay`, the
+  node (the real CLI, with the scripted model patched in by
+  `tests/fake_desk_node.py`) and `secdogie-dialogue connect --headless`. The
+  App is given a dead address for the node, so every frame goes through the
+  relay; the same scenario and checks as the in-process test.
+- **Relay fallback** (`tests/test_relay_fallback.py`): the dialogue survives a
+  blocked direct path.
 - **Process tests** (`tests/test_cli.py`):
   - the node refuses to start without each trust set;
   - it announces itself and stops cleanly on SIGTERM;

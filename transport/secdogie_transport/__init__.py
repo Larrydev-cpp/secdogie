@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from .dht import RoutingTable, find_node, find_peer, node_id, xor_distance
 from .endpoint import Endpoint, EndpointSet
+from .failover import FailoverTransport
 from .membership import MembershipView, PeerRecord, gossip_round
 from .mux import ChannelMux
 from .peer import PeerIdentity
@@ -49,6 +50,7 @@ __all__ = [
     "PeerRecord",
     "gossip_round",
     "RoutingTable",
+    "FailoverTransport",
     "find_node",
     "find_peer",
     "node_id",

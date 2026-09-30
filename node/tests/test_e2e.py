@@ -17,18 +17,12 @@ desktop (a fake with an accessibility tree) are stand-ins. The scenario:
 """
 from __future__ import annotations
 
-import struct
-import zlib
-
 import pytest
 
 pytest.importorskip("nacl")
 pytest.importorskip("secdogie_agent")
 
-from secdogie_agent import cli_common, screen  # noqa: E402
-from secdogie_agent import loop as agent_loop  # noqa: E402
-from secdogie_agent.axtree import AxElement  # noqa: E402
-from secdogie_agent.providers.base import Action, VisionProvider  # noqa: E402
+import fakes  # noqa: E402
 from secdogie_citadel.episodes import episodes_from_events  # noqa: E402
 from secdogie_dialogue.app import AppController, run_script  # noqa: E402
 from secdogie_dialogue.session import DialogueSession, SessionRouter  # noqa: E402
@@ -46,83 +40,11 @@ from secdogie_transport import (  # noqa: E402
 
 NODE, APP, OPERATOR, ISSUER = (Identity.generate() for _ in range(4))
 
-DELETE_BUTTON = AxElement(role="Button", name="Delete", automation_id="ID_DELETE", bounds=(0, 0, 40, 20))
-NAME_FIELD = AxElement(role="Edit", name="File name", automation_id="", bounds=(0, 30, 200, 50))
-
-
-def _png() -> bytes:
-    raw = b"\x00" + b"\x80\x80\x80" * 4
-    ihdr = struct.pack(">IIBBBBB", 4, 1, 8, 2, 0, 0, 0)
-
-    def chunk(t, d):
-        return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xFFFFFFFF)
-
-    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
-
-
-class FakeDesk:
-    """A desktop with an accessibility tree; a click at (5, 5) always fails."""
-
-    def __init__(self):
-        self.done: list[str] = []
-
-    def setup(self, logger):
-        pass
-
-    def capture(self, region=None):
-        return _png(), (200, 100)
-
-    def execute(self, action):
-        if action.kind == "left_click":
-            return "error: nothing to click there"
-        self.done.append(action.kind)
-        return "ok"
-
-    def element_targets(self):
-        return [DELETE_BUTTON, NAME_FIELD]
-
-    def invoke_element(self, el):
-        self.done.append(f"invoke:{el.name}")
-        return "invoked"
-
-
-class Scripted(VisionProvider):
-    def __init__(self, script, seen):
-        self.script, self.seen = list(script), seen
-
-    def next_action(self, task, screenshot_png, screen_size, history):
-        self.seen.append([getattr(h, "result", "") for h in history])
-        return Action.from_dict(self.script.pop(0))
-
-
-FILE_THE_REPORT = [
-    {"action": "click_element", "element": "e2"},  # focus the file name field (not destructive)
-    {"action": "key", "keys": ["delete"], "rollback": "restore it from the Trash"},  # high-risk: Gate 2
-    {"action": "ask_user", "text": "Which folder should the report go to?"},
-    {"action": "remember", "text": "reports go to ~/Reports", "key": "report-folder"},
-    {"action": "done", "text": "filed"},
-]
-TIDY_UP = [{"action": "left_click", "x": 5, "y": 5}, {"action": "done", "text": "tidied"}]
-
 
 @pytest.fixture
 def wired(monkeypatch):
     """The production runner with a scripted model and the fake desk."""
-    scripts = [FILE_THE_REPORT, TIDY_UP, TIDY_UP, TIDY_UP, TIDY_UP]  # one per goal, in goal-id order
-    histories: list = []
-    desk = FakeDesk()
-    monkeypatch.setattr(cli_common, "resolve_provider", lambda args, prog: Scripted(scripts.pop(0), histories))
-    real_kwargs = cli_common.loop_config_kwargs
-
-    def kwargs(args, *, task, backend=None):
-        kw = real_kwargs(args, task=task, backend=desk)
-        kw.update(action_pause=0, verify_actions=False)
-        return kw
-
-    monkeypatch.setattr(cli_common, "loop_config_kwargs", kwargs)
-    monkeypatch.setattr(screen, "prepare_for_model", lambda raw, size, **kw: (raw, size, 1.0))
-    monkeypatch.setattr(agent_loop.time, "sleep", lambda s: None)
-    return desk, histories
+    return fakes.install(monkeypatch.setattr)
 
 
 def _app(node_addr):

@@ -68,6 +68,9 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--transport-key", metavar="FILE", help="this node's X25519 transport key (encrypts frames)")
     r.add_argument("--app-binding", action="append", default=[], metavar="FILE",
                    help="an App's signed DID -> transport-key binding (repeatable; needs --transport-key)")
+    r.add_argument("--relay-record", action="append", default=[], metavar="FILE",
+                   help="a relay's self-signed record, as secdogie-relay prints it (repeatable): "
+                        "the fallback path when the App cannot be reached directly")
     r.add_argument("--insecure-dev", action="store_true",
                    help="INSECURE, throwaway local tests only: without --issuers, turn the capability check off")
     r.set_defaults(fn=_run)
@@ -99,6 +102,7 @@ def _run(args, parser) -> int:
 
             tkey = load_transport_key(args.transport_key)
         bindings = [json.loads(Path(b).read_text(encoding="utf-8")) for b in args.app_binding]
+        relays = [json.loads(Path(r).read_text(encoding="utf-8")) for r in args.relay_record]
     except (OSError, ValueError) as e:
         parser.error(str(e))
 
@@ -127,7 +131,7 @@ def _run(args, parser) -> int:
         node = Node(NodeConfig(identity=identity, apps=apps, operators=operators, authorized=authorized,
                                issuers=issuers, unrestricted=unrestricted, journal_path=args.journal,
                                candidates_path=candidates, listen=args.listen, transport_key=tkey,
-                               app_bindings=bindings))
+                               app_bindings=bindings, relay_records=relays))
     except (OSError, ValueError) as e:
         parser.error(str(e))
     if self_policy is not None:
