@@ -45,8 +45,11 @@ OPERATOR_SCRIPT = [
 ]
 
 
-def scripts() -> list:
-    """One model script per goal, in goal-id order."""
+def scripts(plan: str = "report") -> list:
+    """One model script per goal, in goal-id order. ``report``: the operator
+    scenario above; ``tidy``: every goal is the tidy-up whose click fails."""
+    if plan == "tidy":
+        return [list(TIDY_UP) for _ in range(20)]
     return [list(FILE_THE_REPORT), list(TIDY_UP), list(TIDY_UP), list(TIDY_UP), list(TIDY_UP)]
 
 
@@ -95,10 +98,10 @@ class Scripted(VisionProvider):
         return Action.from_dict(self.script.pop(0))
 
 
-def install(set_attr) -> tuple[FakeDesk, list]:
+def install(set_attr, plan: str = "report") -> tuple[FakeDesk, list]:
     """Patch the model and the desktop into the production runner's lookups.
     Returns the desk (what it executed) and the model's view of its history."""
-    queue, histories, desk = scripts(), [], FakeDesk()
+    queue, histories, desk = scripts(plan), [], FakeDesk()
     set_attr(cli_common, "resolve_provider", lambda args, prog: Scripted(queue.pop(0), histories))
     real_kwargs = cli_common.loop_config_kwargs
 

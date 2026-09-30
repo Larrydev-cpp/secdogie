@@ -84,6 +84,8 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--rendezvous-record", action="append", default=[], metavar="FILE",
                    help="a rendezvous' self-signed record, as secdogie-relay --rendezvous prints it "
                         "(repeatable): this node registers there, so an App can find it by DID")
+    r.add_argument("--mesh-every", type=float, default=5.0, metavar="SECONDS",
+                   help="seconds between membership gossip / journal replication rounds (default 5)")
     r.add_argument("--device-class", choices=["display", "headless"], default="display",
                    help="headless: a node without a screen -- it takes no goals and never loads the agent")
     r.add_argument("--insecure-dev", action="store_true",
@@ -164,6 +166,7 @@ def _run(args, parser) -> int:
                                app_bindings=bindings, relay_records=relays,
                                rendezvous_records=rendezvous, bootstrap_records=bootstrap,
                                masters=masters, device_class=args.device_class, on_self_revoked=stop.set,
+                               mesh_every=args.mesh_every,
                                revocation_store=RevocationStore(args.revocations) if args.revocations else None))
     except (OSError, ValueError) as e:
         parser.error(str(e))
