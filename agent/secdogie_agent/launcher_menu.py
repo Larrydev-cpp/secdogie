@@ -86,11 +86,11 @@ def args_for(key: str) -> list[str] | None:
 
 
 def should_offer(argv: list[str]) -> bool:
-    """Show the menu only where it belongs: a frozen (packaged) build launched
-    with no arguments at all -- i.e. a double-click. Any explicit argument means
-    a deliberate invocation (terminal, script, the .bat passing flags), and the
-    CLI must behave exactly as documented, menu-free. Running from source keeps
-    the plain CLI too (developers have a terminal by definition)."""
+    """A double-click: a frozen (packaged) build launched with no arguments at
+    all. That opens the secdogie window (``cli.open_window``). Any explicit
+    argument means a deliberate invocation (terminal, script, the .bat passing
+    flags), and the CLI must behave exactly as documented. Running from source
+    keeps the plain CLI too (developers have a terminal by definition)."""
     return not argv and bool(getattr(sys, "frozen", False))
 
 

@@ -30,19 +30,38 @@ WINDOWED = sys.platform.startswith("win")
 # relying on how it happens to be installed in the build environment.
 PACKAGE_ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 
+# A double-click opens the one secdogie window (secdogie_app), which runs the
+# resident node in-process: the window, the node and everything they stand on
+# are bundled too. Their source directories are on pathex for the same reason
+# as the agent's.
+REPO_ROOT = os.path.abspath(os.path.join(PACKAGE_ROOT, ".."))
+WINDOW_PACKAGES = {
+    "identity": "secdogie_identity",
+    "transport": "secdogie_transport",
+    "citadel": "secdogie_citadel",
+    "dialogue": "secdogie_dialogue",
+    "node": "secdogie_node",
+    "app": "secdogie_app",
+}
+
 # anthropic and pyautogui both do dynamic/lazy imports that PyInstaller's
-# static analysis can miss; pull their whole package trees in explicitly.
+# static analysis can miss; pull their whole package trees in explicitly. The
+# window's packages import lazily too (the agent is loaded per goal), and
+# PyNaCl's libsodium binding is a compiled cffi module.
 hidden = (
     collect_submodules("secdogie_agent")
     + collect_submodules("anthropic")
     + collect_submodules("pyautogui")
     + collect_submodules("mss")
     + collect_submodules("pyperclip")
+    + [m for pkg in WINDOW_PACKAGES.values() for m in collect_submodules(pkg)]
+    + collect_submodules("nacl")
+    + ["_cffi_backend"]
 )
 
 a = Analysis(
     ["entry.py"],
-    pathex=[PACKAGE_ROOT],
+    pathex=[PACKAGE_ROOT] + [os.path.join(REPO_ROOT, d) for d in WINDOW_PACKAGES],
     binaries=[],
     datas=[],
     hiddenimports=hidden,

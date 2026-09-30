@@ -51,9 +51,32 @@ jobs:
         working-directory: agent
         run: |
           python -m pip install --upgrade pip
-          pip install -e . pyinstaller
+          # A double-click opens the secdogie window, which runs the node
+          # in-process: both ship inside this one binary.
+          pip install ../identity ../transport ../citadel ../dialogue ../node ../app -e . pyinstaller
           cd packaging
           pyinstaller secdogie-agent.spec --distpath ./dist --workpath ./build --noconfirm
+
+      # What a double-click does, on the binary just built: no arguments, a fresh
+      # user, no API key. The window must open, start the local node, and stay up.
+      - name: Smoke-test the window (Linux, Xvfb)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q xvfb
+          export HOME="$RUNNER_TEMP/smoke" SECDOGIE_HOME="$RUNNER_TEMP/smoke/app"
+          mkdir -p "$HOME"
+          xvfb-run -a bash -c '
+            agent/packaging/dist/secdogie-agent & pid=$!
+            for i in $(seq 1 60); do [ -f "$SECDOGIE_HOME/node.key" ] && break; sleep 0.5; done
+            sleep 3
+            if ! kill -0 $pid 2>/dev/null; then
+              echo "the window exited early"; cat agent/packaging/dist/secdogie.log || true; exit 1
+            fi
+            [ -f "$SECDOGIE_HOME/node.key" ] || { echo "the local node never started"; exit 1; }
+            kill $pid
+            echo "the window opened and its local node started"
+          '
 
       - name: Stage artifact
         shell: bash

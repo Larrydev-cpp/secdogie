@@ -17,7 +17,8 @@ Set-Location $AgentDir
 python -m venv .build-venv
 & ".build-venv\Scripts\Activate.ps1"
 pip install --upgrade pip | Out-Null
-pip install -e . pyinstaller | Out-Null
+# The window (secdogie_app) and the node it runs ship inside the same exe.
+pip install ..\identity ..\transport ..\citadel ..\dialogue ..\node ..\app -e . pyinstaller | Out-Null
 
 Set-Location $Here
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue build, dist

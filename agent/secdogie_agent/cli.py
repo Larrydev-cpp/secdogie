@@ -21,6 +21,14 @@ def run_gui_session(provider, config: AgentConfig) -> int:
     return console.run_worker(lambda: run(provider, config))
 
 
+def open_window() -> int:
+    """The secdogie window (``secdogie_app``), as the ``secdogie`` command opens
+    it: the local node starts, and everything happens in that one window."""
+    from secdogie_app.window import main as window_main
+
+    return int(window_main([]) or 0)
+
+
 def main(argv: list[str] | None = None) -> int:
     # FIRST of all: declare DPI awareness, before any window (the tkinter menu),
     # capture (mss), or input (pyautogui) exists -- otherwise a scaled Windows
@@ -33,13 +41,15 @@ def main(argv: list[str] | None = None) -> int:
     # from source. Must run before argparse so --help is visible in a terminal.
     frozen_runtime.bootstrap()
 
-    # One-file UX: a packaged exe double-clicked with no arguments shows the
-    # frosted-glass chooser and runs whatever card was picked; closing it exits.
-    # Any explicit argument (terminal, script) skips the menu entirely -- except
-    # `--menu`, which explicitly asks for the chooser from a normal CLI run too
-    # (so you can actually see/run the real menu without building the exe).
+    # One-file UX: a packaged exe double-clicked with no arguments opens the one
+    # secdogie window (goals, questions, approvals, memory, other machines' nodes
+    # and the API key, all in one conversation). Any explicit argument (terminal,
+    # script) keeps the CLI exactly as documented; `--menu` still shows the old
+    # chooser.
     if argv is None:
         argv = sys.argv[1:]
+    if launcher_menu.should_offer(argv):
+        return open_window()
     # `secdogie-agent memory list|confirm|forget ...`: the operator reviews what
     # the model asked to remember. Matched exactly, so a task is never mistaken
     # for it (a task is one quoted argument, e.g. "memory cleanup").
@@ -51,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     # can restore it before the agent's first action (else the first clicks land
     # on a ghost of our GUI). Only when we're actually going to pop GUI.
     pre_launch_fg = None
-    if launcher_menu.should_offer(argv) or "--menu" in argv:
+    if "--menu" in argv:
         pre_launch_fg = osfocus.current_foreground()
         chosen = launcher_menu.show_menu()
         if chosen is None:
@@ -126,8 +136,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--menu",
         action="store_true",
-        help="show the graphical start menu (the same one a double-clicked exe shows) and run the "
-        "chosen option -- so you can see/use it from a normal install, not only the packaged exe",
+        help="show the old graphical start menu and run the chosen option (a double-clicked exe now "
+        "opens the secdogie window instead; the menu is being retired)",
     )
     args = parser.parse_args(argv)
 
