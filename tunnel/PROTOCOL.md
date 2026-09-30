@@ -211,7 +211,7 @@ guarantees above.
   Confirm-before-swap contains it (established tunnels are unaffected), but an
   attacker who knows both public keys and keeps sending forged message 1s can
   keep replacing the pending session and so delay *new* handshakes from that
-  peer. The planned v2 handshake (Noise IK, Tunnel T2) removes this by
+  peer. The planned v2 handshake (Noise IK, tunnel hardening track T9) removes this by
   authenticating the initiator inside message 1.
 - No session rekeying — a session's keys live as long as the process does.
   Restart both sides periodically for fresh forward secrecy.

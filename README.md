@@ -72,19 +72,24 @@ identity/    transport/    citadel/     citadel/       agent/ + 安全边界
 | 身份 | `identity/`（DID、规范化签名、Allowlist）+ `binding.py`（DID↔传输密钥） | ✅ |
 | 网络 | `transport/`（peer/session/endpoint、`udp.py` 真 P2P、`rendezvous.py`、`upgrade.py`、`membership.py`、`relay.py` 任一白名单节点兼任 relay） | ✅ |
 | 状态 | `citadel/`（`journal.py` 签名日志、`state.py` StateStore、`sync.py` 反熵、`replication.py` 传输上收敛） | ✅ |
-| 心智 | `citadel/socratic.py`（指令门）+ `action_gate.py`（计划门）+ `supervisor.py`（受监督节点） | ✅ |
+| 心智 | `citadel/socratic.py`（指令门）+ `action_gate.py`（计划门：意图契约、已知失败、能力）+ `authz.py`（Gate 2 操作员签名）+ `supervisor.py`（受监督节点）；两道门已接入实时 agent 回路 | ✅ |
+| 记忆 | `citadel/episodes.py` / `lessons.py` / `consolidate.py`：阶段式记忆 S1 情节 → S2 隔离区 → S3 巩固；事实须操作员签名确认，只让门更严 | ✅ |
+| 对话 | `dialogue/`（`secdogie-dialogue`）：操作员的 Dialogue App——追问与回答、结构化视界（无像素）、Gate 2 签名台、记忆确认；丢包 / 乱序下的会话层 | ✅ |
+| 节点 | `node/`（`secdogie-node`）：常驻节点，组装传输、对话、签名日志与受监督回路；真实 UDP 端到端测试 | ✅ |
 | 感知/动作 | `agent/observation.py`（AX + DIB 按引用融合）+ `target.py`（TOCTOU）+ AX/safety；`native/atlas`（只读、DIB 重建） | 🔨 构件已建成，observation/target 尚未接入实时回路 |
 | 设备/会话 | `desktop/`（聊天式原生窗口 + `websession.py` 复用**已授权**浏览器会话，只读导航 + 读结构） | ✅ |
 | 承载/运维 | `tunnel/`（C 加密隧道，机密性）、`fleet/`、`console/` | ✅ |
 | 浏览器 P2P | `webrtc/`（WebRTC 数据通道客户端 + Cloudflare Worker 信令网关；仅用户点击后启动） | ✅ |
 
-**待做**（按 [`ROADMAP.md`](ROADMAP.md) 的切片计划）：
-- 3.0 撤销（k-of-n 门限、永久）+ 零信任默认关闭（去掉各处“无白名单即放行”）；
-- 网格运行时：wire gossip、`secdogie-node` 节点进程（目前 P2P 各层是库 + 回环测试）；
-- Tunnel T2：Noise IK v2 握手、mesh 模式、DID 控制面 `netd`（生产用 WireGuard）、出口节点；
-- M3 接入实时回路：2.7/2.8/2.9 构件已建成，但目前只有 `secdogie-citadel run` 一条路径接通，
-  agent CLI / fleet / console / desktop 尚未经过门控与运行记录；
-- 感知入环（observation/target）与结构化优先。
+**第二阶段（可运行闭环）已完成**：k-of-n 撤销、零信任默认（见 [`docs/ZERO-TRUST-MIGRATION.md`](docs/ZERO-TRUST-MIGRATION.md)）、
+两道门与阶段式记忆接入实时回路、Dialogue App、`secdogie-node` 与端到端测试。
+
+**第三阶段待做**（按 [`ROADMAP.md`](ROADMAP.md)）：
+- 网格运行时：rendezvous 上 UDP（T3）、线上 gossip（T4）、撤销经日志的持久传播（T6）；
+- 设备类别与无头隔离（T7）；fleet / console / desktop 的审批通路；
+- C + libsodium 隧道加固（T9）：v2 握手（Noise IK）、rekey、端到端中继、本地控制 socket；
+- 多节点纵切演示、安全复审、实机验证；
+- 感知入环与结构化优先（机主推进）。
 
 ---
 

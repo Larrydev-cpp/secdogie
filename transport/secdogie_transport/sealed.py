@@ -27,7 +27,7 @@ Honest limits (by design, not oversights):
 
   * No forward secrecy. This is a static-static key agreement: whoever later
     obtains a node's private key can decrypt traffic recorded earlier. Where that
-    matters, run over the C `tunnel/` or WireGuard, which do ephemeral handshakes.
+    matters, run over the C `tunnel/`, whose handshake is ephemeral per session.
   * Metadata is visible: who talks to whom, frame sizes and timing. There is no
     padding or traffic shaping (this project does no traffic obfuscation).
   * The X25519 key is shared with the tunnel. The two derive their session keys

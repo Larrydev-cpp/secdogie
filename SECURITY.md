@@ -90,7 +90,7 @@ re-handshakes for up to 60 s. No traffic could be decrypted. The responder now
 keeps the live session until the new one is confirmed by an authenticated
 packet (`tunnel/PROTOCOL.md`, *Confirm before swap*). Residual: repeated
 forged handshakes can still delay *new* handshakes from that peer; the planned
-v2 handshake (Noise IK, Tunnel T2) removes it.
+v2 handshake (Noise IK, tunnel hardening track T9) removes it.
 
 ## Reporting a Vulnerability
 

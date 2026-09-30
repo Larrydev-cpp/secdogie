@@ -10,7 +10,7 @@ deliberate boundaries, so this is an honest advance and not a tunnel rewrite:
     spoofed and a frame cannot be tampered with, and delivery is keyed by the
     authenticated signer DID, never by source address.
       - Without `transport_key` (v1 frames): signed plaintext, as before. Run
-        inside the C `tunnel/` or WireGuard for encryption.
+        inside the C `tunnel/` for encryption.
       - With `transport_key` (v2 frames, sealed.py): content sealed with PyNaCl
         `Box` to the peer's key from its verified DID binding, plus per-peer
         replay protection. Fail closed: a peer without a verified binding gets

@@ -138,7 +138,7 @@ reconnecting, or does not start at all if the revocation is already in the store
   bandwidth — it costs API quota.
 - **Authenticated, not encrypted.** Every line is DID-signed and checked against
   the allowlist, but the TCP stream itself is plaintext. Private network only; if
-  the host is remote, carry that hop over [`tunnel/`](../tunnel) or WireGuard —
+  the host is remote, carry that hop over [`tunnel/`](../tunnel) —
   note the tunnel itself is Linux-only, so it links *hosts*, not Windows guests.
 - **A silently dead guest** (paused VM, blackholed network) is only noticed when
   TCP keepalive eventually gives up, which can take minutes. A crashed or
