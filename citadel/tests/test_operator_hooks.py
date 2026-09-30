@@ -139,6 +139,26 @@ def test_authorize_alone_installs_the_gate():
     assert seen["gate"] is not None and seen["gate"](DELETE, [])[0] is False
 
 
+def test_clearing_the_hooks_puts_the_plain_handler_back():
+    sup = Supervisor(_journal(), lambda *a, **k: (0, "done"))  # no plain handler: deny
+    sup.set_operator_hooks(OperatorHooks(confirm=lambda p, h: True))
+    assert sup._confirm("g", "delete?", True) is True
+    sup.set_operator_hooks(None)  # the App went away
+    assert sup._confirm("g", "delete?", True) is False
+    sup.set_confirm_handler(lambda p, h: True)
+    sup.set_operator_hooks(OperatorHooks(confirm=lambda p, h: False))
+    assert sup._confirm("g", "delete?", True) is False  # the bridge still wins while attached
+    sup.set_operator_hooks(None)
+    assert sup._confirm("g", "delete?", True) is True
+
+
+def test_a_plain_handler_set_later_confirms_when_no_bridge_is_attached():
+    sup = Supervisor(_journal(), lambda *a, **k: (0, "done"))
+    assert sup._confirm("g", "delete?", True) is False
+    sup.set_confirm_handler(lambda p, h: True)
+    assert sup._confirm("g", "delete?", True) is True
+
+
 def test_the_bridge_confirm_replaces_the_plain_handler():
     calls = []
     sup = Supervisor(_journal(), lambda *a, **k: (0, "done"), confirm_handler=lambda p, h: True)

@@ -354,7 +354,7 @@ Inspector 归并规则（`inspector.apply`）：只采纳能干净应用的增�
    - **记忆确认同样本地重算**：新增 `MemoryCandidatePacket`（`PacketKind.MEMORY_CANDIDATE`，节点 → App），内容全量上线。App 用 `lessons.candidate_id` 从展示的内容重算 id，并跑同一套 `validate`（含密钥检测）；不一致或不合法即不可确认。节点无法展示一条笔记、换来另一条的确认。
    - **断线即清空**：对端下线或说再见时，未决挑战与追问在 App 侧一并清掉（节点侧已按失败处理），重新连上后自动请求全量视图。视图出现缺口时请求重同步，每 2 s 至多一次。
    - **界面**：节点给的一切文本都以 `rich.text.Text` 渲染，绝不当作 markup 解析；`/approve` 只作用于输入命令时屏幕上显示的那一个挑战，没有任何按键可以直接批准。
-   - **无头脚本**（`--headless`，供端到端测试）：严格 schema；`approve` / `deny` 必须写明动作的 kind 与目标，只匹配、只签一个挑战，没有“全部批准”。
+   - **无头脚本**（`--headless`，供端到端测试）：严格 schema；`approve` / `deny` 必须写明动作的 kind 以及它作用的对象（目标 id / 名称，按键动作则写按键文本），只匹配、只签一个挑战，没有“全部批准”。
    - **CLI**：`secdogie-dialogue connect` 只信任 `--node` 指名的那一个 DID（传输层与会话层共用这一个白名单）；`--transport-key` 与 `--node-binding` 必须成对给出；`new-operator-key` 生成加密的操作员钥。
    - 测试：控制器 44 例、Textual pilot 9 例、CLI 8 例（含一条真实 UDP 回环：App 脚本批准、节点 `verify_authorization` 通过）；变异测试 31/31 全杀。
 12. **结构化视界的发布端（C5）**：`publisher.py` 的 `SnapshotPublisher` 在节点侧把循环每步交给模型的无障碍元素目标（`AgentConfig.on_targets` 钩子，经 `OperatorHooks.on_targets` 由 Supervisor 透传）整形成 `StateSnapshotPacket`。

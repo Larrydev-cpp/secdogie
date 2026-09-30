@@ -479,8 +479,9 @@ class ScriptError(ValueError):
 
 def check_step(step) -> None:
     """Strict: a known op, its required keys, nothing unknown. An approve or
-    deny must name the action -- its kind and a target -- so a script can never
-    approve "whatever comes"."""
+    deny must name the action -- its kind and what it acts on (a target id or
+    name, or for a key press its text) -- so a script can never approve
+    "whatever comes"."""
     if not isinstance(step, dict) or not isinstance(step.get("op"), str):
         raise ScriptError("each step is an object with an 'op'")
     op = step["op"]
@@ -500,8 +501,9 @@ def check_step(step) -> None:
         action = step["action"]
         if not isinstance(action, dict) or set(action) - set(_ACTION_FIELDS):
             raise ScriptError(f"{op}: action has fields {list(_ACTION_FIELDS)} only")
-        if not action.get("kind") or not (action.get("target_id") or action.get("target_name")):
-            raise ScriptError(f"{op}: name the action: its kind and its target_id or target_name")
+        if not action.get("kind") or not (action.get("target_id") or action.get("target_name")
+                                          or action.get("text")):
+            raise ScriptError(f"{op}: name the action: its kind and its target_id, target_name or text")
 
 
 def _action_matches(action: dict, pc: PendingChallenge) -> bool:

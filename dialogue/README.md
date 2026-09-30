@@ -24,7 +24,7 @@ Design: [DESIGN.zh.md](DESIGN.zh.md).
 | `publisher.py` | The node's end of the structural view: the element targets the loop offers the model each step become a full tree, then deltas on stable handles (each names its base generation); the App's RESYNC gets the full tree at once. Reads only the named structural fields; a DIB travels as size + format + hash, never pixels | done |
 | `app.py` | `AppController`: the App without a screen -- conversation, structural view (asks for a resync on a gap), Gate 2 challenges (reviewed on arrival and again when signing; the operator key is unlocked for one signature), memory offers (id recomputed from the content shown before confirming), control requests; plus the headless script runner | done |
 | `tui.py` | Textual split screen over `AppController` (optional `[tui]` extra); node text rendered literally, never as markup; `/approve` acts only on the challenge on screen, after the passphrase prompt | done |
-| `cli.py` | `secdogie-dialogue connect` (one node, named by DID, is the whole trust set), `new-operator-key`, `operator-did`; `--headless SCRIPT` for end-to-end tests | done |
+| `cli.py` | `secdogie-dialogue connect` (one node, named by DID, is the whole trust set), `new-operator-key`, `operator-did`; `--relay-record` for a relay fallback path; `--headless SCRIPT` for end-to-end tests | done |
 
 ## The wire, in one paragraph
 
@@ -70,8 +70,9 @@ passphrase prompt, and only a challenge the App's own review passed gets one.
 
 Headless (`--headless SCRIPT`, JSON lines, one result line per step, exit 0
 only if every step succeeded) is for end-to-end tests. A script approves
-nothing by default: each `approve` step names the action (its kind and a
-target) and signs the one challenge that matches, after the same review.
+nothing by default: each `approve` step names the action (its kind, and a
+target id / name or, for a key press, its text) and signs the one challenge
+that matches, after the same review.
 
 ```json
 {"op": "add_goal", "title": "file the report", "goal_id": "g1"}

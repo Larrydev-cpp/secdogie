@@ -362,6 +362,17 @@ class RelayClient(Transport):
         relay = next((r for r in candidates if self._endpoint(r) is not None), None)
         if relay is None:
             return False
+        return self.route_via(relay, to_did, message)
+
+    def route_via(self, relay: str, to_did: str, message: bytes) -> bool:
+        """Send `message` to `to_did` through `relay` specifically -- for two
+        clients of the same relay that know each other's DID but have not
+        exchanged membership records. The relay delivers only to its registered
+        clients, and only if both DIDs are on its allowlist."""
+        if relay in (self.did, to_did) or not self._allowlist.contains(relay):
+            return False
+        if self._endpoint(relay) is None:
+            return False
         inner = self.transport.build_frame(to_did, message)
         if inner is None:
             return False  # encryption on and no verified key for the peer
