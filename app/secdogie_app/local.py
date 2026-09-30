@@ -40,12 +40,11 @@ from pathlib import Path
 
 from secdogie_citadel.supervisor import agent_run_task
 from secdogie_dialogue.app import AppController
+from secdogie_dialogue.connect import open_session
 from secdogie_dialogue.keystore import KeystoreError, keystore_did, seal_identity, unseal_identity
-from secdogie_dialogue.session import DialogueSession, SessionRouter
 from secdogie_identity import Allowlist, Identity
 from secdogie_identity.capability import create_capability
 from secdogie_node import Node, NodeConfig
-from secdogie_transport import ChannelMux, DirectUDPTransport, Endpoint, PeerIdentity, Session, UDPChannel
 
 DESKTOP_SCOPES = ("observe.read", "physical.click", "physical.type", "physical.key", "physical.scroll",
                   "physical.drag", "system.open")
@@ -221,7 +220,7 @@ class LocalBackend:
         self._grant_ttl = float(grant_ttl)
         self._stopping = threading.Event()
         self._renewer: threading.Thread | None = None
-        self._app_channel: UDPChannel | None = None
+        self._app = None  # the window's session with this node (dialogue.connect.AppLink)
         self.controller: AppController | None = None
 
     def grant(self) -> dict:
@@ -239,18 +238,9 @@ class LocalBackend:
     def start(self) -> AppController:
         self.grant()
         self.node.start()
-        node_did = self.node_identity.did
-        trust = Allowlist({node_did})
-        ch = self._app_channel = UDPChannel("127.0.0.1", 0)
-        transport = DirectUDPTransport(self.app_identity, ch, allowlist=trust)
-        transport.set_peer_endpoint(node_did, *self.node.address)
-        mux = ChannelMux(transport, Session("app", PeerIdentity(self.app_identity.did, ""),
-                                            active=Endpoint("local", *ch.address)))
-        router = SessionRouter(mux)
-        session = router.add(DialogueSession(self.app_identity, node_did, router.sender_for(node_did), trust=trust))
-        ctl = self.controller = AppController(session)
-        session.start(0.05)
-        ctl.start()
+        self._app = open_session(self.app_identity, self.node_identity.did, listen=("127.0.0.1", 0),
+                                 node_addr=self.node.address)
+        ctl = self.controller = self._app.controller
         self._renewer = threading.Thread(target=self._renew, daemon=True, name="secdogie-grant-renewal")
         self._renewer.start()
         return ctl
@@ -258,11 +248,9 @@ class LocalBackend:
     def stop(self) -> None:
         self._stopping.set()
         try:
-            if self.controller is not None:
-                self.controller.close()
+            if self._app is not None:
+                self._app.close()
             self.node.stop()
-            if self._app_channel is not None:
-                self._app_channel.close()
         finally:
             self._instance.release()
 

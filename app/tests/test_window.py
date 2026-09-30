@@ -5,6 +5,8 @@ stop, and close. The model underneath is the real one over a fake session, as
 in ``test_model.py``."""
 from __future__ import annotations
 
+import gc
+import json
 import os
 import threading
 import time
@@ -18,7 +20,8 @@ if os.name == "posix" and not os.environ.get("DISPLAY"):
     pytest.skip("no display (CI runs this under xvfb-run)", allow_module_level=True)
 
 from secdogie_app.local import OperatorKey  # noqa: E402
-from secdogie_app.model import APPROVAL, MEMORY, PROBE, DialogModel  # noqa: E402
+from secdogie_app.model import APPROVAL, MEMORY, PROBE  # noqa: E402
+from secdogie_app.nodes import NodeBook, NodeHub  # noqa: E402
 from secdogie_app.window import Window  # noqa: E402
 from secdogie_dialogue.app import AppController  # noqa: E402
 from secdogie_dialogue.protocol import (  # noqa: E402
@@ -30,6 +33,7 @@ from secdogie_dialogue.protocol import (  # noqa: E402
 )
 from secdogie_identity import Allowlist  # noqa: E402
 from test_model import (  # noqa: E402
+    APP,
     CHEAP,
     PASS,
     Clock,
@@ -42,6 +46,15 @@ from test_model import (  # noqa: E402
 )
 
 
+@pytest.fixture(autouse=True)
+def tk_garbage_on_this_thread():
+    """Closed windows' Tk objects are freed here, on the main thread: freed by
+    the cyclic collector on another thread (a node's), Tcl aborts."""
+    gc.collect()
+    yield
+    gc.collect()
+
+
 @pytest.fixture
 def win(tmp_path):
     try:
@@ -52,9 +65,10 @@ def win(tmp_path):
     session = FakeSession()
     ctl = AppController(session, clock=clock)
     keys = FakeKeys()
-    model = DialogModel(ctl, OperatorKey(tmp_path / "operator.keystore", Allowlist(), kdf=CHEAP), keys, clock=clock)
+    key = OperatorKey(tmp_path / "operator.keystore", Allowlist(), kdf=CHEAP)
+    hub = NodeHub(ctl, key, APP, NodeBook(tmp_path / "nodes.json"), api_keys=keys, clock=clock)
     closed = []
-    w = Window(root, model, on_close=lambda: closed.append(True), clock=clock)
+    w = Window(root, hub, on_close=lambda: closed.append(True), clock=clock)
     w.test = dict(ctl=ctl, session=session, keys=keys, clock=clock, closed=closed)
     yield w
     if not w._closed:
@@ -236,3 +250,140 @@ def test_main_opens_the_window_on_a_real_local_node_and_closes_cleanly(monkeypat
     assert seen == {"need_key": True, "status": "本机节点已连接 · 口令未设置"}
     assert (tmp_path / "home" / "node.key").exists()
     assert window_mod.main([]) == 0  # the lock was released: it opens again
+
+
+# ---- the structural view, and other machines' nodes ------------------------------------------
+
+
+def test_the_view_fold_shows_the_structure_the_node_sent(win):
+    from secdogie_dialogue.protocol import NodeDelta, NodeOp, StateSnapshotPacket
+
+    _ready(win)
+    assert win.view_panel.winfo_manager() == ""  # folded by default
+    deliver(win.test["ctl"], StateSnapshotPacket(1, 7, 1, (
+        NodeDelta(NodeOp.ADD, 0, role="AXWindow", name="Drawing"),
+        NodeDelta(NodeOp.ADD, 1, parent_index=0, role="AXButton", name="Save\x1b"),
+    ), focused_node_index=1, full=True))
+    win.toggle_view()
+    pump(win)
+    assert win.view_panel.winfo_manager() == "pack" and "▾" in win.view_button.cget("text")
+    text = win.view_text.get("1.0", "end")
+    assert 'AXWindow "Drawing"' in text and "\x1b" not in text
+    focused = win.view_text.tag_ranges("focus")
+    assert focused and "★" in win.view_text.get(focused[0], focused[1])
+    assert str(win.view_text.cget("state")) == "disabled"  # read-only
+    win.toggle_view()
+    assert win.view_panel.winfo_manager() == ""
+
+
+def _other_node_ready():
+    from secdogie_identity import Identity
+    from secdogie_transport import Endpoint
+    from secdogie_transport.membership import sign_record
+
+    node = Identity.generate()
+    record = sign_record(node, [Endpoint("local", "127.0.0.1", 7950)], last_seen=time.time())
+    return node, json.dumps({"event": "ready", "did": node.did, "listen": "127.0.0.1:7950", "record": record})
+
+
+class _Link:
+    def __init__(self, did, clock):
+        s = FakeSession()
+        s.peer_did = did
+        self.session, self.controller, self.closed = s, AppController(s, clock=clock), False
+
+    def close(self):
+        self.closed = True
+
+
+def test_pairing_from_the_window_and_switching_back_and_forth(win):
+    _ready(win)
+    links = []
+    win.hub._opener = lambda identity, did, **kw: links.append(_Link(did, win.test["clock"])) or links[-1]
+    win.composer.insert(0, "here")
+    win.send()
+    win.show_pair_card()
+    assert win.pair_panel.winfo_manager() == "pack" and win.pair_pass1 is not None  # no operator key yet
+    win.pair_pass1.insert(0, PASS)
+    win.pair_pass2.insert(0, PASS)
+    win.set_passphrase_now()
+    assert win.hub.key.is_set and win.pair_pass1 is None  # now it shows the operator DID to copy
+    node, line = _other_node_ready()
+    win.pair_text.insert("1.0", "not a node")
+    win.pair_now()
+    assert "ready" in win.pair_status.cget("text") and links == []
+    win.pair_text.delete("1.0", "end")
+    win.pair_text.insert("1.0", line)
+    win.pair_name.insert(0, "vm")
+    win.pair_now()
+    assert win.pair_panel.winfo_manager() == "" and win.hub.current == node.did
+    assert win.cards == {} and "vm" in win.switcher.cget("text")  # the other node's (empty) conversation
+    assert "节点「vm」" in win.status.cget("text")
+    deliver(links[0].controller, challenge())
+    pump(win)
+    win.switch("local")
+    assert [c.body.cget("text") for c in win.cards.values()] == ["here"]  # this machine's, kept
+    assert "其他节点 1 件待处理" in win.switcher.cget("text")
+    win.switch(node.did)
+    assert len(links) == 1 and card(win, APPROVAL)
+    win.forget(node.did)
+    assert links[0].closed and win.hub.current == "local" and win.hub.choices() == [("local", "本机")]
+
+
+def test_the_switcher_menu_lists_the_nodes(win, monkeypatch):
+    _ready(win)
+    shown = []
+    monkeypatch.setattr(tk.Menu, "tk_popup", lambda self, x, y: shown.append(
+        [self.entrycget(i, "label") for i in range(self.index("end") + 1) if self.type(i) == "command"]))
+    win.show_switcher()
+    assert shown == [["• 本机", "添加远程节点…"]]
+
+
+def test_a_node_that_cannot_be_reached_leaves_the_window_where_it_was(win):
+    _ready(win)
+    node, line = _other_node_ready()
+    from secdogie_app.nodes import parse_pairing
+    from secdogie_dialogue.connect import NodeNotFound
+
+    win.hub.book.add(parse_pairing(line, name="gone"))
+
+    def unreachable(*a, **k):
+        raise NodeNotFound("not registered")
+
+    win.hub._opener = unreachable
+    assert not win.switch(node.did)
+    assert "找不到" in win.error.cget("text") and win.hub.current == "local"
+
+
+def test_the_view_is_redrawn_only_when_it_changed(win, monkeypatch):
+    from secdogie_dialogue.protocol import NodeDelta, NodeOp, StateSnapshotPacket
+
+    _ready(win)
+    deliver(win.test["ctl"], StateSnapshotPacket(1, 7, 1, (NodeDelta(NodeOp.ADD, 0, role="AXWindow", name="A"),),
+                                                 full=True))
+    win.toggle_view()
+    pump(win)
+    redraws = []
+    real = win.view_text.delete
+    monkeypatch.setattr(win.view_text, "delete", lambda *a: redraws.append(a) or real(*a))
+    from test_model import status
+
+    for i in range(3):
+        deliver(win.test["ctl"], status(f"working {i}"))  # something else changed; the view did not
+        pump(win)
+    assert redraws == []
+
+
+def test_an_approval_that_expired_on_a_node_not_shown_still_shows_how_it_ended(win):
+    _ready(win)
+    links = []
+    win.hub._opener = lambda identity, did, **kw: links.append(_Link(did, win.test["clock"])) or links[-1]
+    node, line = _other_node_ready()
+    win.hub.pair(line, "vm")
+    win.switch("local")
+    deliver(links[0].controller, challenge(expires=1010.0))
+    pump(win)  # the node not shown is caught up too
+    win.test["clock"].t = 1011.0
+    pump(win)
+    win.switch(node.did)
+    assert "没有批准" in card(win, APPROVAL).state.cget("text")
