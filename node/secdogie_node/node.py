@@ -302,6 +302,10 @@ class Node:
         if not first:
             return frozenset()
         log.warning("revocation applied: %s", ", ".join(sorted(verified.revoked)))
+        if self.revocation_gossip is not None:
+            # First sight, whatever the path: flood it once to the nodes this one
+            # knows (the revoked among them, so they learn it now).
+            self.revocation_gossip.broadcast(record)
         self._on_revoked(verified.revoked)
         return verified.revoked
 
@@ -528,7 +532,8 @@ class _RevocationSink:
         self._node = node
 
     def apply(self, record) -> frozenset:
-        return self._node.apply_revocation(record)
+        self._node.apply_revocation(record)  # floods it itself, on first sight
+        return frozenset()  # so the gossip layer does not flood it a second time
 
 
 def _refuse_on_a_headless_node(task, **_):

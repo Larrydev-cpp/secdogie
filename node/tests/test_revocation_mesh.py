@@ -229,3 +229,19 @@ def test_a_knocking_revoked_did_is_told_only_its_own_records_and_not_too_often(m
     assert [m["record"]["record_id"] for m in sent] == [rec_b["record_id"]]
     a._tell_the_revoked(OPERATOR.did, ("127.0.0.1", 9))  # never revoked: nothing to say
     assert len(sent) == 1
+
+
+def test_a_node_floods_a_revocation_it_learns_to_the_nodes_it_knows(make):
+    b = make(B)
+    a = make(A, bootstrap_records=[b.record()])  # a knows where b is
+    sent = []
+    real = a.channel.send
+    a.channel.send = lambda host, port, data: sent.append((port, data)) or real(host, port, data)
+    record = revocation(C)
+    a.apply_revocation(record)  # from the store or the journal: no gossip frame came in
+    frames = [json.loads(d) for p, d in sent if p == b.address[1]]
+    assert [f["record"]["record_id"] for f in frames if f.get("t") == "secdogie/revocation/gossip/v1"] \
+        == [record["record_id"]]
+    sent.clear()
+    a.apply_revocation(record)
+    assert sent == []  # once
