@@ -32,8 +32,16 @@ def _full(gen=1, window=42, focus=-1, dib=()):
     ), dib_references=dib, focused_node_index=focus, full=True)
 
 
-def _delta(gen, *nodes, window=42, focus=-1, dib=()):
-    return StateSnapshotPacket(window, 7, gen, tuple(nodes), dib_references=dib, focused_node_index=focus)
+def _delta(gen, *nodes, window=42, focus=-1, dib=(), base=None):
+    return StateSnapshotPacket(window, 7, gen, tuple(nodes), dib_references=dib, focused_node_index=focus,
+                               base_generation=gen - 1 if base is None else base)
+
+
+def test_a_lost_delta_is_detected_not_skipped_over():
+    s = _base()  # generation 1
+    s2 = apply(s, _delta(3, NodeDelta(R, 1), base=2))  # generation 2 never arrived
+    assert s2.needs_resync and "gap" in s2.problem and s2.nodes == s.nodes
+    assert not apply(s, _delta(2, NodeDelta(R, 1), base=1)).needs_resync  # the right base applies
 
 
 def _base():

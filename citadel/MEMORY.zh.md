@@ -1,6 +1,6 @@
 # 苏格拉底 Gate 1 意图契约 + 阶段式记忆 设计 v1
 
-> 状态：v1 已确认（2026-09-27）。M1–M5、M7 已实现（`action_gate.py` / `episodes.py` / `lessons.py` / `consolidate.py`，接入真实循环见 `loop_gate.py` / `loop_memory.py` / `supervisor.py`）；M6（经 Dialogue App 追问与确认）随第二阶段 Wave C 完成。实现时的修订见文末“附录：实现修订”。
+> 状态：v1 已确认（2026-09-27）。M1–M5、M7 已实现（`action_gate.py` / `episodes.py` / `lessons.py` / `consolidate.py`，接入真实循环见 `loop_gate.py` / `loop_memory.py` / `supervisor.py`）；M6 的追问部分由 `dialogue/agent_bridge.py`（Wave C3）完成：ask_user 成为苏格拉底追问，破坏性动作成为 Gate 2 挑战；记忆确认经 `ControlPacket.confirm_memory` 送达，节点端处理在 Wave D 接上。实现时的修订见文末“附录：实现修订”。
 
 ## 0. 定位与红线
 

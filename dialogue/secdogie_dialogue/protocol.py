@@ -20,8 +20,10 @@ this side run its parser, and a trusted one can never smuggle an extra field
 Freshness and replay: each header names its sender, its recipient, a session id,
 a sequence number and a send time. A packet is admitted only if it is addressed
 to this node, its time is within ``max_skew`` of our clock, and its sequence
-number is higher than any already admitted for that (sender, session). A packet
-that fails any check is dropped; nothing is sent back.
+number has not been admitted before for that (sender, session) and is not too
+far behind the newest (a sliding window: UDP reorders, and a retransmission may
+arrive after newer packets). A packet that fails any check is dropped; nothing
+is sent back.
 
 Pure and deterministic given a clock; unit-tested headless.
 """
@@ -41,6 +43,7 @@ PROTOCOL_VERSION = "secdogie/dialogue/v1"
 
 DEFAULT_MAX_SKEW_NS = 30 * 1_000_000_000  # 30 s either way
 DEFAULT_MAX_SESSIONS = 1024
+DEFAULT_REPLAY_WINDOW = 256  # sequence numbers a packet may arrive behind the newest
 
 _ENVELOPE_KEYS = frozenset({"header", "kind", "payload"})
 
@@ -72,6 +75,8 @@ class PacketKind(str, Enum):
     GATE2_CHALLENGE = "gate2_challenge"
     GATE2_RESPONSE = "gate2_response"
     SESSION = "session"
+    CONTROL = "control"
+    MEMORY_CANDIDATE = "memory_candidate"
 
 
 # ---- (1) Socratic dialogue --------------------------------------------------
@@ -159,12 +164,20 @@ class StateSnapshotPacket:
     dib_references: tuple[DibRef, ...] = ()
     focused_node_index: int = -1  # the node the Agent is about to act on; -1 = none
     full: bool = False  # True = replace the whole tree (first frame, or a resync)
+    # A delta is built on one earlier generation and applies only to exactly
+    # that tree -- so a lost delta is detected (and resynced), never silently
+    # skipped over. -1 for a full snapshot.
+    base_generation: int = -1
 
     def __post_init__(self):
         if self.generation < 0:
             raise ProtocolError("generation must be non-negative")
         if self.full and any(d.op is NodeOp.REMOVE for d in self.nodes):
             raise ProtocolError("a full snapshot lists the tree; it cannot remove nodes")
+        if self.full and self.base_generation != -1:
+            raise ProtocolError("a full snapshot has no base generation")
+        if not self.full and not 0 <= self.base_generation < self.generation:
+            raise ProtocolError("a delta names the earlier generation it applies to")
 
 
 # ---- (3) Gate 2 challenge / response ----------------------------------------
@@ -247,12 +260,78 @@ class SessionPacket:
     note: str = ""
 
 
+# ---- (5) operator control ------------------------------------------------------
+
+
+class ControlOp(str, Enum):
+    ADD_GOAL = "add_goal"
+    STOP = "stop"
+    PAUSE = "pause"
+    RESUME = "resume"
+    CONFIRM_MEMORY = "confirm_memory"  # carries the signed memory-confirmation
+    RETRACT_MEMORY = "retract_memory"
+
+
+_GOAL_OPS = frozenset({ControlOp.ADD_GOAL, ControlOp.STOP, ControlOp.PAUSE, ControlOp.RESUME})
+
+
+@dataclass(frozen=True)
+class ControlPacket:
+    """App -> node: one operator request. The node answers with a
+    ``SystemStatus`` whose ``in_reply_to`` is ``request_id``."""
+
+    request_id: str
+    op: ControlOp
+    goal_id: str = ""
+    title: str = ""
+    memory_id: str = ""
+    confirmation: dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        if not self.request_id:
+            raise ProtocolError("a control request needs a request_id")
+        if self.op in _GOAL_OPS and not self.goal_id:
+            raise ProtocolError(f"{self.op.value} needs a goal_id")
+        if self.op is ControlOp.ADD_GOAL and not self.title.strip():
+            raise ProtocolError("add_goal needs a title (the task)")
+        if self.op in (ControlOp.CONFIRM_MEMORY, ControlOp.RETRACT_MEMORY) and not self.memory_id:
+            raise ProtocolError(f"{self.op.value} needs a memory_id")
+        if (self.op is ControlOp.CONFIRM_MEMORY) != bool(self.confirmation):
+            raise ProtocolError("only confirm_memory carries a confirmation, and it always does")
+
+
+# ---- (6) memory offered for confirmation ------------------------------------------
+
+
+@dataclass(frozen=True)
+class MemoryCandidatePacket:
+    """Node -> App: a quarantined (S2) memory the operator may confirm. The
+    content travels in full, so the App recomputes ``memory_id`` from what it
+    shows (``secdogie_citadel.lessons.candidate_id``) before it signs anything:
+    a node cannot show one note and collect a confirmation for another."""
+
+    memory_id: str
+    mclass: str  # "fact" / "preference" / "caution"
+    scope: str
+    key: str
+    value: str
+    source: str
+
+    def __post_init__(self):
+        if not self.memory_id:
+            raise ProtocolError("a memory candidate needs its memory_id")
+        if not self.key.strip() or not self.value.strip():
+            raise ProtocolError("a memory candidate needs a key and a value")
+
+
 PACKET_TYPES: dict[PacketKind, type] = {
     PacketKind.DIALOGUE: DialoguePacket,
     PacketKind.STATE_SNAPSHOT: StateSnapshotPacket,
     PacketKind.GATE2_CHALLENGE: Gate2ChallengePacket,
     PacketKind.GATE2_RESPONSE: Gate2ResponsePacket,
     PacketKind.SESSION: SessionPacket,
+    PacketKind.CONTROL: ControlPacket,
+    PacketKind.MEMORY_CANDIDATE: MemoryCandidatePacket,
 }
 _KIND_OF = {cls: kind for kind, cls in PACKET_TYPES.items()}
 
@@ -380,10 +459,44 @@ class Sender:
 # ---- opening ------------------------------------------------------------------
 
 
+class _SeqWindow:
+    """The highest sequence number seen plus a bitmap of the ``size`` below it
+    (the scheme the transport's frame counters use). Each number is admitted
+    once; one at or beyond ``size`` behind the highest is too old. Out-of-order
+    arrival inside the window is fine -- UDP reorders, and a retransmission may
+    land after newer packets."""
+
+    def __init__(self, size: int):
+        self.size = size
+        self.highest: int | None = None
+        self._bits = 0  # bit i set -> (highest - i) seen
+
+    def check(self, seq: int) -> str | None:
+        if self.highest is None or seq > self.highest:
+            return None
+        diff = self.highest - seq
+        if diff >= self.size:
+            return "sequence number too old (outside the replay window)"
+        if (self._bits >> diff) & 1:
+            return "replayed sequence number"
+        return None
+
+    def commit(self, seq: int) -> None:
+        if self.highest is None:
+            self.highest, self._bits = seq, 1
+        elif seq > self.highest:
+            shift = seq - self.highest
+            self._bits = ((self._bits << shift) | 1) & ((1 << self.size) - 1) if shift < self.size else 1
+            self.highest = seq
+        else:
+            self._bits |= 1 << (self.highest - seq)
+
+
 class ReplayGuard:
     """Admits a header only if its time is within ``max_skew_ns`` of our clock and
-    its sequence number is above every one already admitted for its (sender,
-    session). One per receiving node.
+    its sequence number has not been admitted before for its (sender, session)
+    and is not more than ``window`` behind the highest one admitted. One per
+    receiving node.
 
     It remembers at most ``max_sessions`` sessions. When full it forgets only
     sessions idle for more than twice the skew window: every packet it admitted
@@ -392,11 +505,13 @@ class ReplayGuard:
     session is refused (fail closed) rather than evicting a live one."""
 
     def __init__(self, *, max_skew_ns: int = DEFAULT_MAX_SKEW_NS,
-                 max_sessions: int = DEFAULT_MAX_SESSIONS, clock_ns=time.time_ns):
+                 max_sessions: int = DEFAULT_MAX_SESSIONS, window: int = DEFAULT_REPLAY_WINDOW,
+                 clock_ns=time.time_ns):
         self._skew = int(max_skew_ns)
         self._max = int(max_sessions)
+        self._window = int(window)
         self._clock_ns = clock_ns
-        self._last: dict[tuple[str, str], tuple[int, int]] = {}  # key -> (seq, admitted at)
+        self._sessions: dict[tuple[str, str], tuple[_SeqWindow, int]] = {}  # key -> (window, last admit)
         self._lock = threading.Lock()
 
     def admit(self, header: Header) -> str | None:
@@ -406,20 +521,24 @@ class ReplayGuard:
             return "stale or future-dated packet (outside the clock-skew window)"
         key = (header.sender_did, header.session_id)
         with self._lock:
-            prev = self._last.get(key)
-            if prev is not None and header.seq <= prev[0]:
-                return "replayed or out-of-order sequence number"
-            if prev is None and len(self._last) >= self._max:
-                self._forget_idle(now)
-                if len(self._last) >= self._max:
-                    return "too many live sessions"
-            self._last[key] = (header.seq, now)
+            entry = self._sessions.get(key)
+            if entry is None:
+                if len(self._sessions) >= self._max:
+                    self._forget_idle(now)
+                    if len(self._sessions) >= self._max:
+                        return "too many live sessions"
+                entry = (_SeqWindow(self._window), now)
+            reason = entry[0].check(header.seq)
+            if reason:
+                return reason
+            entry[0].commit(header.seq)
+            self._sessions[key] = (entry[0], now)
         return None
 
     def _forget_idle(self, now: int) -> None:
-        idle = [k for k, (_, seen) in self._last.items() if now - seen > 2 * self._skew]
+        idle = [k for k, (_, seen) in self._sessions.items() if now - seen > 2 * self._skew]
         for k in idle:
-            del self._last[k]
+            del self._sessions[k]
 
 
 @dataclass(frozen=True)
@@ -496,6 +615,10 @@ __all__ = [
     "Gate2ResponsePacket",
     "SessionEvent",
     "SessionPacket",
+    "ControlOp",
+    "ControlPacket",
+    "MemoryCandidatePacket",
+    "DEFAULT_REPLAY_WINDOW",
     "PACKET_TYPES",
     "kind_of",
     "to_wire",

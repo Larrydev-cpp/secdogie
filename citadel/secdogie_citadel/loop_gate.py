@@ -26,6 +26,7 @@ from .action_gate import (
     KNOWN_FAILURE,
     OUT_OF_CAPABILITY,
     UNATTENDED_POSTING,
+    UNAUTHORIZED_ACTION,
     GateContext,
     GateDecision,
     IntentContract,
@@ -56,7 +57,7 @@ _KIND_MAP = {
 }
 
 BLOCKING = frozenset({OUT_OF_CAPABILITY, UNATTENDED_POSTING, KNOWN_FAILURE, INTENT_CONTRADICTION,
-                      INTENT_UNPROVEN})
+                      INTENT_UNPROVEN, UNAUTHORIZED_ACTION})
 
 PlanGate = Callable[[dict, list], "tuple[bool, str]"]
 GateObserver = Callable[[PlannedAction, GateDecision], None]
@@ -97,7 +98,9 @@ def to_planned(view: dict, *, purpose: str = "") -> PlannedAction:
 def make_plan_gate(capabilities: Iterable[str], *, enforce: bool = True, instruction: str = "",
                    known_failures: Iterable[str] = (), active_goal_ids: Iterable[str] = (),
                    purpose: str = "", require_intent: bool = False,
-                   observer: GateObserver | None = None) -> PlanGate:
+                   observer: GateObserver | None = None,
+                   authorize: Callable[[PlannedAction], dict | None] | None = None,
+                   operators=None, subject_did: str = "") -> PlanGate:
     """A loop hook enforcing ``capabilities`` (the node's current scopes, e.g.
     from ``secdogie_identity.capability.effective_scopes``).
 
@@ -105,12 +108,26 @@ def make_plan_gate(capabilities: Iterable[str], *, enforce: bool = True, instruc
     ``purpose`` / ``require_intent`` (Gate 1) are optional; left at their
     defaults the gate behaves exactly as before. ``observer(planned,
     decision)`` sees every judgment -- the run recorder uses it to tie a step
-    to the action's effect hash."""
+    to the action's effect hash.
+
+    ``authorize(planned)`` is Gate 2's way to the operator: for a destructive
+    action it is asked for an operator-signed token (the Dialogue App bridge
+    sends a challenge and waits), and the gate then VERIFIES that token against
+    ``operators`` and ``subject_did`` -- the bridge collects, the gate judges.
+    With ``authorize`` set, a destructive action without a valid token is
+    refused; a raising ``authorize`` counts as no token."""
     caps = frozenset(capabilities)
     known = frozenset(known_failures)
     active = frozenset(active_goal_ids)
 
     def plan_gate(view: dict, recent: list) -> tuple[bool, str]:
+        planned = to_planned(view, purpose=purpose)
+        token = None
+        if authorize is not None and planned.destructive:
+            try:
+                token = authorize(planned)
+            except Exception:  # noqa: BLE001 - no token is a refusal, never a pass
+                token = None
         ctx = GateContext(
             capabilities=caps,
             enforce_capabilities=enforce,
@@ -120,8 +137,11 @@ def make_plan_gate(capabilities: Iterable[str], *, enforce: bool = True, instruc
             require_intent=require_intent,
             active_goal_ids=active,
             known_failures=known,
+            require_authorization=authorize is not None,
+            authorization=token,
+            operators=operators,
+            subject_did=subject_did,
         )
-        planned = to_planned(view, purpose=purpose)
         decision = gate(planned, ctx)
         if observer is not None:
             observer(planned, decision)

@@ -329,3 +329,38 @@ Inspector 归并规则（`inspector.apply`）：只采纳能干净应用的增�
 - **先认证再解析**：签名有效且签名者在信任策略上（`TrustPolicy`，撤销即拒）之后，才解析 header 与 payload；未认证的对端永远到不了解析器。
 - **严格 schema**：每个字段必填，未知字段拒收（结构化视界里无法夹带像素字段），类型精确（bool 不算 int，非有限浮点不算时间）。
 - **防重放**：`timestamp_ns` 须在本地时钟 ±30 s 内；同一 (sender, session) 的 `seq` 严格递增。被拒的包不消耗 seq。会话表有上限，满时只遗忘空闲超过两倍 skew 窗口的会话（此时它被接收过的任何包都已不新鲜，遗忘不会重新打开重放）；若全是活跃会话则拒绝新会话（fail closed），绝不驱逐活跃会话。
+
+### 第二阶段修订（Wave C0）
+
+6. **防重放改为滑动窗口**：`ReplayGuard` 对每个 (sender, session) 记下最高 seq 以及其下 256 个的位图，做法同 transport 的帧计数器。窗口内乱序到达的包照常接收，且只接收一次；落后超过窗口的包拒收。原先“严格递增”的规则在 UDP 上会误杀被重排的包，也会误杀比新包晚到的重传。
+7. **`StateSnapshotPacket.base_generation`**：增量必须声明它基于哪一代（`0 ≤ base < generation`），全量快照为 -1。Inspector 只在 base 等于当前持有的代际时才应用增量，否则判为有缺口、请求重同步。这样丢了一个中间增量能被发现，不会让视图悄悄停在旧状态。
+8. **`ControlPacket`（`PacketKind.CONTROL`）**：App → 节点的操作员请求，包括 `add_goal` / `stop` / `pause` / `resume` / `confirm_memory`（携带会话钥签名的 memory-confirmation）/ `retract_memory`。节点用 `in_reply_to = request_id` 的 `SystemStatus` 回复结果。不变量：目标类操作必须带 `goal_id`，`add_goal` 必须带任务标题，记忆类操作必须带 `memory_id`，只有 `confirm_memory` 携带确认。
+9. **会话层 `session.py`（C2）**，跑在 transport 的 `ChannelMux`（C1）之上，通道名 `dialogue/v1`：
+   - 分片 ≤16 KiB；重组有三重上限（单条 4 MiB、并发 32 条、10 s 超时），越界索引、超大总数、超长分片、总数不一致、重复分片一律丢弃且不入库。
+   - 可靠通道：dialogue / gate2 / control / session（心跳除外）按消息确认，指数退避重传，6 次未确认即 `on_undeliverable` 上报——上层按 fail closed 处理，绝不假定送达；重复到达只回确认不重复投递（信封层的滑动窗口拒收）。
+   - 快照走不可靠通道，靠 `base_generation` 发现缺口后请求重同步。
+   - 心跳每 2 s；连续 3 个间隔没听到对端即 `on_peer_down`，再次听到即 `on_peer_up`。
+   - 只投递本会话对端 DID 签的包：信任策略里的其他钥匙也不算这个对端。
+   - 一切计时都走 `tick(now)`，测试用假时钟和带种子的丢包 / 重复 / 乱序内存链路驱动，结果确定；另有一条真实 UDP 回环用例。变异测试 20/20 全杀。
+10. **节点端桥接 `agent_bridge.py`（C3，即原设计的切片 7）**：`OperatorBridge` 以 citadel 的 `OperatorHooks` 形式接进 `Supervisor`，citadel 不引入 dialogue 依赖。
+   - **Gate 2**：门（`loop_gate.make_plan_gate(authorize=…)`）对每个破坏性动作调用 `authorize(planned)`；桥发 `Gate2ChallengePacket`（动作、风险、节点算出的 hash、节点 DID、时效）并阻塞等待；Approve 带回的令牌**交由门校验**（`_check_authorization`），桥自己不判令牌。Deny、超时、对端消失、答非所问一律返回 None → 门拒绝；`unauthorized-action` 在循环里阻断。
+   - **签名即确认（机主已定）**：门放行一个刚由操作员签过的破坏性动作后，桥记一个一次性标记；循环随后的高风险确认消费该标记即通过，不再二次询问。标记只对"同一动作 + 门放行 + 操作员刚签"成立，用过即清，对端下线也清；其他确认（计划批准、无签名的步骤）走 Approve / Deny 追问，且只有字面 `Approve` 算数。
+   - **ask_user → 追问**：`ask(question)` 经 `ProbeLedger` 发出追问、等待回答，返回操作员的文字；循环把它写进模型历史继续推演（返回 `bool` 的旧接法照旧可用）。Supervisor 把问答记为 `ask_request` / `ask_result` 日志事件。
+   - **控制与会话**：`ControlPacket` 交给节点的 `on_control`，结果以 `in_reply_to = request_id` 的 `SystemStatus` 回复（无处理器或处理器抛错都回 `refused: …`）；`RESYNC` 交给快照发布者；`BYE` 视为对端下线。
+   - 变异测试：dialogue 17、citadel 15、agent 4 个变异体全杀。
+11. **App 本体（C4）**：`app.py` 的 `AppController` 是去掉屏幕的 App，Textual 界面（`tui.py`，可选依赖 `[tui]`）与无头脚本只调用它的方法、读它的视图。
+   - **两把钥匙分开用**：会话钥签信封和记忆确认；操作员钥从不常驻，`approve` 取一个 `unlock` 回调，只为这一次签名调用一次，返回即丢。
+   - **签前两次复核**：挑战到达时复核一次；按下 Approve 时、解锁操作员钥**之前**再复核一次（签不了的挑战从不弹口令框）；解锁之后 `guard.respond` 按签名时刻第三次核对（输口令期间过期也不签）。签完即结清，同一 `challenge_id` 不会被再次询问。
+   - **记忆确认同样本地重算**：新增 `MemoryCandidatePacket`（`PacketKind.MEMORY_CANDIDATE`，节点 → App），内容全量上线。App 用 `lessons.candidate_id` 从展示的内容重算 id，并跑同一套 `validate`（含密钥检测）；不一致或不合法即不可确认。节点无法展示一条笔记、换来另一条的确认。
+   - **断线即清空**：对端下线或说再见时，未决挑战与追问在 App 侧一并清掉（节点侧已按失败处理），重新连上后自动请求全量视图。视图出现缺口时请求重同步，每 2 s 至多一次。
+   - **界面**：节点给的一切文本都以 `rich.text.Text` 渲染，绝不当作 markup 解析；`/approve` 只作用于输入命令时屏幕上显示的那一个挑战，没有任何按键可以直接批准。
+   - **无头脚本**（`--headless`，供端到端测试）：严格 schema；`approve` / `deny` 必须写明动作的 kind 与目标，只匹配、只签一个挑战，没有“全部批准”。
+   - **CLI**：`secdogie-dialogue connect` 只信任 `--node` 指名的那一个 DID（传输层与会话层共用这一个白名单）；`--transport-key` 与 `--node-binding` 必须成对给出；`new-operator-key` 生成加密的操作员钥。
+   - 测试：控制器 44 例、Textual pilot 9 例、CLI 8 例（含一条真实 UDP 回环：App 脚本批准、节点 `verify_authorization` 通过）；变异测试 31/31 全杀。
+12. **结构化视界的发布端（C5）**：`publisher.py` 的 `SnapshotPublisher` 在节点侧把循环每步交给模型的无障碍元素目标（`AgentConfig.on_targets` 钩子，经 `OperatorHooks.on_targets` 由 Supervisor 透传）整形成 `StateSnapshotPacket`。
+   - **只整形，不感知**：不截屏、不访问进程、不导入 Agent（纯洁性测试把关）；每个元素只读 `FIELDS` 列出的结构字段（角色、名字、automation id、边界、enabled、is_interactive、visual_reference），DIB 只读 `DIB_FIELDS`（宽、高、像素格式、位深、内容哈希）。测试用“绊线”对象证明它碰不到任何别的属性，也就带不出任何像素缓冲。没有改动感知层。
+   - **稳定句柄**：同一身份（角色、名字、automation id、在相同元素中的名次）跨步保持同一句柄，视图按增量变化而不是整体闪烁；循环给的是扁平的目标列表，全部挂在一个合成的窗口节点下。
+   - **增量与重同步**：首帧全量，之后只发 ADD / UPDATE / REMOVE，每个增量都写明所基于的代际；换窗口即开新流；每 50 帧兜底发一次全量；发送失败则下一帧全量。App 的 RESYNC 立即以当前全树应答，循环正等待操作员时也一样。
+   - **上限**：每帧至多 2000 个节点，文本截到 200 字符，坐标异常按 0 处理、不抛错。钩子失败只记警告，绝不影响这一步。
+   - 测试：发布器 16 例（含 30×25 步随机序列经真实 Inspector 折叠、全程无缺口的性质测试）、循环钩子 2 例、Supervisor / agent_run_task 透传 2 例；变异测试 20/20 全杀。
+
