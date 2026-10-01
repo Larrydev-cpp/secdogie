@@ -39,20 +39,6 @@ def _app_args(tmp_path, node_did="did:key:z6MkNode", *extra):
     return ["connect", "--identity", str(key), "--node", node_did, "--node-addr", "127.0.0.1:9", *extra]
 
 
-@pytest.fixture(autouse=True)
-def no_screen(monkeypatch):
-    """A connect that got past its checks must not open a real screen and wait."""
-    try:
-        import secdogie_dialogue.tui as tui
-    except ImportError:
-        return
-
-    def refuse(*a, **k):
-        raise AssertionError("the screen was opened")
-
-    monkeypatch.setattr(tui, "run_tui", refuse)
-
-
 @pytest.mark.parametrize("extra, why", [
     (["--transport-key", "x"], "go together"),  # without the node's binding
     (["--node-binding", "x"], "go together"),  # without our own key
@@ -91,9 +77,19 @@ def test_connect_refuses_a_record_that_is_not_a_rendezvous(tmp_path, capsys):
 
     rec = sign_record(Identity.generate(), [Endpoint("local", "127.0.0.1", 9)], last_seen=1.0)
     (tmp_path / "rv.json").write_text(json.dumps(rec))
+    script = tmp_path / "steps.jsonl"
+    script.write_text('{"op": "resync"}\n', encoding="utf-8")
     with pytest.raises(SystemExit) as e:
-        main(_app_args(tmp_path, "did:key:z6MkNode", "--rendezvous-record", str(tmp_path / "rv.json")))
+        main(_app_args(tmp_path, "did:key:z6MkNode", "--rendezvous-record", str(tmp_path / "rv.json"),
+                       "--headless", str(script)))
     assert e.value.code == 2 and "rendezvous role" in capsys.readouterr().err
+
+
+def test_connect_is_for_scripts_the_window_is_the_screen(tmp_path, capsys):
+    with pytest.raises(SystemExit) as e:
+        main(_app_args(tmp_path))
+    err = capsys.readouterr().err
+    assert e.value.code == 2 and "--headless" in err and "secdogie window" in err
 
 
 def test_connect_requires_the_node_did(tmp_path):

@@ -21,8 +21,8 @@ takes an ``unlock`` callable, calls it once for that one signature, and drops
 the key when it returns. Nothing is approved without a named challenge and an
 explicit ``approve`` call; there is no default verdict and no "approve all".
 
-The Textual UI (``tui.py``) and the headless script runner below only call
-these methods and read these views; nothing here imports a UI. Thread-safe:
+The secdogie window (the ``app`` package) and the headless script runner below
+only call these methods and read these views; nothing here imports a UI. Thread-safe:
 the session delivers from its own threads while the UI acts from another.
 Every change bumps ``version`` and wakes ``wait_for``; a UI polls ``version``
 rather than being called back, so no UI code ever runs under this lock.

@@ -60,12 +60,12 @@ and its self-signed membership record. Save that line as another node's
 `--bootstrap-record`. It logs to stderr, and exits 0 on SIGTERM or Ctrl-C. It never installs
 itself or keeps running in the background.
 
-The operator connects with the App:
-
-```sh
-secdogie-dialogue connect --identity app.key --node did:key:z6Mk... --node-addr HOST:7950 \
-    --operator-keystore op.keystore
-```
+The operator drives it from the **secdogie window**: open the switcher, choose
+添加远程节点, and paste this ready line together with the node's address or a
+rendezvous record (see [app/README.md](../app/README.md)). Put the window's App
+DID on `--apps` and its operator DID on `--operators`; the pairing card shows
+both. For scripts and tests, `secdogie-dialogue connect --headless SCRIPT` drives
+it without a screen.
 
 `secdogie-node status --journal node.db --authorized nodes.allow` prints the
 goals and the memory recorded in a journal.
@@ -104,7 +104,7 @@ Mesh flags, all optional:
 ## Tests
 
 ```sh
-pip install -e '../dialogue[tui]' pytest
+pip install -e '../dialogue[net]' pytest
 pytest tests -q
 ```
 

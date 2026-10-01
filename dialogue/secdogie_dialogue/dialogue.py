@@ -226,7 +226,7 @@ class Conversation:
         return tuple(self._entries)
 
     def lines(self) -> list[str]:
-        """Plain-text transcript for the TUI. Agent text is untrusted (it may
+        """Plain-text transcript. Agent text is untrusted (it may
         quote other applications' UI), so every line is cleaned."""
         out: list[str] = []
         for e in self._entries:

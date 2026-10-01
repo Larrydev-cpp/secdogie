@@ -4,6 +4,19 @@ A follow-along guide that takes you from a fresh clone to a model actually
 driving a screen — first your own desktop, then a machine across the network.
 Every step lists the exact command and what you should see.
 
+> **The easy way: one window.** Download (or build) the exe and double-click it,
+> or run `secdogie` after a pip install. The secdogie window opens and asks for
+> your API key once. Everything else happens in that one conversation:
+>
+> - goals;
+> - the agent's questions;
+> - approving high-risk steps with your passphrase;
+> - memory;
+> - other machines' nodes.
+>
+> See [`app/README.md`](app/README.md). This tutorial is the command-line path
+> underneath, for developers.
+
 Work through **Part 1 first** — the desktop agent is the core.
 
 > **Safety, once, up front.** These tools take real actions — a real mouse,

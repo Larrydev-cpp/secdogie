@@ -321,7 +321,7 @@ def test_relay_process_carries_no_human_in_the_loop_layer():
     # source never reads from stdin.
     probe = ("import sys, secdogie_transport.relay_node\n"
              "print(sorted(m for m in sys.modules\n"
-             "             if m.split('.')[0] in {'secdogie_agent', 'secdogie_citadel', 'secdogie_fleet'}))")
+             "             if m.split('.')[0] in {'secdogie_agent', 'secdogie_citadel', 'secdogie_node'}))")
     result = subprocess.run([sys.executable, "-c", probe], cwd=PACKAGE_ROOT, stdin=subprocess.DEVNULL,
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr

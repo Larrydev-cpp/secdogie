@@ -1,5 +1,5 @@
 """The structural view: full snapshots, deltas, stale and inconsistent packets,
-focus and DIB metadata (never pixels), and the text rows the TUI shows."""
+focus and DIB metadata (never pixels), and the text rows the window shows."""
 from __future__ import annotations
 
 import threading

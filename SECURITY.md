@@ -31,8 +31,8 @@ trusted host/operator boundary:
   `chmod 600`; keep them that way and never commit them.
 - **Nothing on the network is trusted by default.** Every component that
   decides whom to hear -- transports, the membership view, the journal, the
-  fleet coordinator and node, the console, the Dialogue App -- refuses to start
-  without an allowlist. "Anyone" must be said out loud (`ALLOW_ANY` in code,
+  node, the Dialogue App, the secdogie window -- refuses to start without an
+  allowlist. "Anyone" must be said out loud (`ALLOW_ANY` in code,
   `--insecure-dev` on the command line, with a warning), and a Citadel node with
   no capability issuers refuses every mutating action. See
   [docs/ZERO-TRUST-MIGRATION.md](docs/ZERO-TRUST-MIGRATION.md).
@@ -57,6 +57,24 @@ trusted host/operator boundary:
   changes nothing on any path. A node revoked while it was away is cut off by
   everyone, so when it knocks it is sent the records that revoke it; it checks
   them against its own masters and halts.
+- **One window, and the operator key stays sealed.** The secdogie window
+  (`app/`) is the only operator surface.
+  - **Its own node.** It runs its own node in-process, on 127.0.0.1 only, wired
+    as a remote pair would be (own keys, signed dialogue, allowlists naming
+    each other).
+  - **The operator key.** It is created at the first approval, under a
+    passphrase set in the window (typed twice). It exists on disk only sealed
+    (Argon2id + XSalsa20-Poly1305). It is unsealed for one signature, only
+    after the challenge has been checked, and dropped. The passphrase is never
+    written anywhere. A wrong passphrase signs nothing.
+  - **Nothing high-risk before the key.** Until the key exists, the node
+    trusts no operator, so nothing high-risk can be approved.
+  - **Capabilities.** A fresh issuer key held only in memory grants the
+    window's node the desktop scopes, and nothing else: no `process.run`, no
+    network. A grant never replaces Gate 2.
+  - **Pairing.** Pairing with another machine's node accepts only records
+    self-signed by the DID they name. The session then trusts exactly that DID,
+    and each approval is signed for that node alone.
 - **Headless nodes never act on a screen.** A node started with
   `--device-class headless`, and every `secdogie-relay`, says so in its
   self-signed record. It takes no goals and never loads the agent.
@@ -67,8 +85,8 @@ trusted host/operator boundary:
   off. It requires the agent to already be Administrator (it acquires SYSTEM from
   an admin token — the PsExec `-s` mechanism — and is **not a UAC bypass**). Use
   it only on machines you own or are the authorized administrator of. It stays
-  high-risk (confirms even under `--auto`), and a `fleet/` coordinator cannot
-  turn it on for a node — elevation is node-local by design.
+  high-risk (confirms even under `--auto`), and nothing remote can turn it on
+  for a node — elevation is node-local by design.
 - **TrustedInstaller impersonation is refused.** `NT SERVICE\TrustedInstaller`
   is a Windows servicing identity, not an application privilege. secdogie will
   not steal that token, impersonate it, or use it to read PPL / protected
@@ -123,8 +141,8 @@ Report privately through a
 on this repository. To make a report easy to act on, include:
 
 - what you found and why it's security-relevant;
-- the affected component (`identity`, `transport`, `citadel`, `agent`,
-  `desktop`, `fleet`, `console`, `tunnel`, `native/atlas`) and the commit SHA;
+- the affected component (`identity`, `transport`, `citadel`, `dialogue`,
+  `node`, `app`, `agent`, `tunnel`, `native/atlas`) and the commit SHA;
 - reproduction steps or a proof of concept against the current `main`;
 - the actual impact — which boundary above is crossed;
 - any fix or mitigation you can suggest.

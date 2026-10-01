@@ -182,18 +182,22 @@ window). Close or STOP ends the run.
 On **macOS** the GUI path always uses Accessibility (`--desktop-ax` /
 AXPress). HID / `CGEvent` / `IOHID` / pyautogui clicks are refused.
 
-**One-file selection window.** Double-clicking `secdogie-agent.exe` itself (no
-launcher, no terminal) pops a small **frosted-glass selection window** built into
-the program — pick how to start: describe a task, preview it (`--dry-run`),
-element/accessibility mode (`--desktop-ax`), unattended (`--auto`), or set up the
-API key — and it runs that choice. Running from a normal (pip) install instead of
-the exe? `secdogie-agent --menu` shows the same window and runs your pick, so you
-can see and use it without building anything. It appears **only** on a bare double-click; run
-the exe with any argument (or from a terminal) and the plain CLI is unchanged.
-On Windows the panel gets real acrylic blur + rounded corners from the OS
-compositor (Windows 10 1803+/11); anywhere that can't apply, it's a clean dark
-panel, and with no display at all it falls back to `--gui`, so opening the exe
-always does something.
+**Double-click: the secdogie window.** Double-clicking `secdogie-agent.exe` itself
+(no launcher, no terminal) opens the one **secdogie window** (`app/`). It is a
+single conversation where you:
+
+- set the API key, the first time;
+- say what you want;
+- answer the agent's questions;
+- approve or deny its high-risk steps with your passphrase (Gate 2);
+- confirm what it wants to remember;
+- see the structure it acts on;
+- drive nodes on other machines.
+
+The window runs the resident node in the same process. From a normal (pip)
+install, the `secdogie` command opens the same window. Run the exe with any
+argument (or from a terminal) and the plain CLI below is unchanged. The old
+card menu is retired.
 
 The Windows exe is built **windowed** (no black console box behind the panel),
 with three safety nets so that's never a silent "blind box"
@@ -225,7 +229,7 @@ Alt+F4, Ctrl/Cmd+W) and the send/submit combo of chat and mail clients
 an unconfirmed high-risk action **fails closed — it's skipped, never silently
 run.** There is no switch to skip this: the old `--allow-risky` flag was
 removed and now fails with an error. The same rule holds for skills
-(`--skill`), fleet nodes and citadel runs.
+(`--skill`), resident nodes and citadel runs.
 
 ### Running a command as SYSTEM (`run_elevated`, Windows)
 
@@ -319,7 +323,7 @@ before acting. Two ways it's used:
 - **`--window "Exact Title"`** pins the agent to that window — forced frontmost
   and confirmed before the first frame *and* before every action, so clicks can't
   stray onto whatever else grabs focus.
-- **Default** (no `--window`): before the frosted-glass menu or any `--gui` dialog
+- **Default** (no `--window`): before any `--gui` dialog
   steals focus, the agent remembers what was in front, and restores it once before
   the first screenshot — so its opening clicks don't land on a leftover of its own
   windows. (The first screenshot is then of the restored window, so the model

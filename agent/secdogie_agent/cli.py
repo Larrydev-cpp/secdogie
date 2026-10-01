@@ -44,8 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     # One-file UX: a packaged exe double-clicked with no arguments opens the one
     # secdogie window (goals, questions, approvals, memory, other machines' nodes
     # and the API key, all in one conversation). Any explicit argument (terminal,
-    # script) keeps the CLI exactly as documented; `--menu` still shows the old
-    # chooser.
+    # script) keeps the CLI exactly as documented.
     if argv is None:
         argv = sys.argv[1:]
     if launcher_menu.should_offer(argv):
@@ -57,16 +56,10 @@ def main(argv: list[str] | None = None) -> int:
         from .memory import admin_main
 
         return admin_main(argv[1:])
-    # Before our own menu/dialogs steal focus, remember what was in front, so we
+    # Before our own dialogs steal focus, remember what was in front, so we
     # can restore it before the agent's first action (else the first clicks land
     # on a ghost of our GUI). Only when we're actually going to pop GUI.
     pre_launch_fg = None
-    if "--menu" in argv:
-        pre_launch_fg = osfocus.current_foreground()
-        chosen = launcher_menu.show_menu()
-        if chosen is None:
-            return 0
-        argv = chosen  # the picked card's flags REPLACE argv (incl. the --menu that got us here)
 
     parser = argparse.ArgumentParser(
         prog="secdogie-agent",
@@ -132,12 +125,6 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="use GUI dialogs: enter the task in a window, review the model's plan before it acts, "
         "and answer its questions in a popup (needs tkinter; falls back to the terminal if unavailable)",
-    )
-    parser.add_argument(
-        "--menu",
-        action="store_true",
-        help="show the old graphical start menu and run the chosen option (a double-clicked exe now "
-        "opens the secdogie window instead; the menu is being retired)",
     )
     args = parser.parse_args(argv)
 

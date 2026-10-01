@@ -2,7 +2,7 @@
 
 The Agent streams ``StateSnapshotPacket``s -- a full tree, then deltas -- built
 from the AX / UIA tree plus DIB *metadata*. This module folds them into one
-immutable ``InspectorState`` and turns that into rows for the TUI. It does no
+immutable ``InspectorState`` and turns that into rows for display. It does no
 perception of its own: no screen capture, no process access, nothing but the
 packets it is given. There are no pixels anywhere in the model, only a DIB
 region's size, format and content hash.
@@ -216,7 +216,7 @@ def header_line(state: InspectorState) -> str:
 
 
 def render_lines(state: InspectorState) -> list[str]:
-    """Plain-text view: the TUI styles the same rows; tests read these lines."""
+    """Plain-text view: the secdogie window's 视界 fold shows these lines; tests read them."""
     lines = [header_line(state)]
     for r in rows(state):
         marks = ""

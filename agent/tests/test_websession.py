@@ -1,4 +1,4 @@
-"""Tests for reusing an already-authorized browser session (desktop/websession).
+"""Tests for reusing an already-authorized browser session (agent/secdogie_agent/websession.py).
 
 Headless: a FakeDriver stands in for the browser so the validate -> navigate ->
 extract -> normalize flow is exercised with no Playwright and no network. A real-
@@ -7,7 +7,7 @@ installed."""
 from __future__ import annotations
 
 import pytest
-from secdogie_desktop.websession import (
+from secdogie_agent.websession import (
     AuthorizedContext,
     PageObservation,
     RawPage,
@@ -154,7 +154,7 @@ def test_read_page_validates_context_before_navigating():
 
 def test_real_browser_smoke_reads_a_data_document(tmp_path):
     pytest.importorskip("playwright")
-    from secdogie_desktop.websession import PlaywrightDriver
+    from secdogie_agent.websession import PlaywrightDriver
 
     ss = tmp_path / "storage_state.json"
     ss.write_text('{"cookies": [], "origins": []}')  # a valid empty authorized state

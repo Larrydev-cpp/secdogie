@@ -246,7 +246,7 @@ jobs:
           # package name binary inner [extra files...]
           # Produces:
           #  * a bare binary named secdogie-<component>-<platform>-<version>[.exe]
-          #    self-contained (built-in menu, config in the user dir, launchers are
+          #    self-contained (double-click opens the window, config in the user dir, launchers are
           #    optional), so nothing needs to sit beside it.
           #  * a .zip with docs + the double-click launcher, for anyone who wants
           #    the full bundle (a console window on Windows, the macOS Gatekeeper

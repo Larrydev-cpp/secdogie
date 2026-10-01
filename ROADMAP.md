@@ -24,7 +24,7 @@
   Gate 2 由 Dialogue App 签名。
 - **D 受认证设备实战** —— 结构化观测融合(AX + DIB 按引用)+ 目标 TOCTOU → 2.9 能力签名授权
   模型 → AX 原生身份/代际的 OS 侧接线(macOS/Windows 验证)→ DIB 完整接入运行时。
-- **E 控制与运维** —— desktop 原生 GUI / console / fleet 协调 / CI 矩阵 / 发布 / 文档,贯穿维护。
+- **E 操作界面与运维** —— **一个原生对话框**(`app/`,第四阶段收敛;启动菜单卡片、终端界面、desktop / console / fleet 已退役)/ CI 矩阵 / 发布 / 文档,贯穿维护。
 
 ## 里程碑(每个给「完成判据」)
 
@@ -38,7 +38,10 @@
 - **M4 端到端纵切 — ✅ 已达成(第三阶段,#64 / #65 / #66 及收口 PR)**:单节点「学习 + 行动」的整条链(`node/tests/test_e2e.py`),
   以及结果经复制在多节点间收敛(`node/tests/test_mesh_multiprocess.py`:一个节点三次失败的教训让另一个从未失败过的节点
   第一次就拒绝同一动作;撤销经日志传到离线后回来的节点)。
-- **M5 加固 / 落地 — 🔜**:OS 原生接线在实机验证、tunnel 机密性接上数据面、打包/发布/文档、安全复审。
+- **收敛为一个对话框 — ✅ 已达成(第四阶段,#68 / #69 / #70 及收口 PR)**:判据:双击只打开一个原生对话框,第一次只问 API key;
+  目标、追问、Gate 2 审批(口令保护的操作员钥,首次审批时设口令)、记忆确认、视界、其他机器的节点都在这一个窗口里完成;
+  其余入口退役。由 `app/tests`(本机端到端、远程节点端到端、Tk 视图)与 `release.yml` 的 Xvfb 冒烟验证。
+- **M5 加固 / 落地 — 🔜(第五阶段)**:OS 原生接线在实机验证、tunnel 机密性接上数据面、打包/发布/文档、安全复审。
 
 ## 切片计划（2026-09）
 
@@ -57,10 +60,10 @@
 | S 安全修复/纠偏 | S1 SDTP 确认后再切换· S2 fleet 安全模式全有或全无 · S3 文档与代码对齐 | ✅ ✅ ✅ |
 | A 网格运行时 | 2C 任一白名单节点兼任 relay · A0 rendezvous 上 UDP（T3）· A1 wire gossip（T4）· A2 `secdogie-node` 运行时 · A3 节点间日志复制 | ✅ ✅ ✅ ✅ ✅ |
 | R 3.0 撤销 | R1 MasterSet/门限撤销声明/TrustPolicy · R2 全面执行 + 缓存失效 · R3 零信任默认关闭 · R4 传播（快速帧 + 经日志的持久传播 T6，被撤销节点敲门时被告知）· R5 自检停机 | ✅ ✅ ✅ ✅ ✅ |
-| T9 隧道加固 | C + libsodium 隧道：卫生/fuzz/netns 冒烟 → Noise IK v2 握手 → 定时器/rekey/DoS 限速 → 端到端中继 → 本地控制 socket | 🔜（第四阶段） |
-| C M3 实时回路 | C1 CI 跑真实回路测试 · C2 HITL 修正（高风险清单、全入口必确认、签名审批 = Gate 2 经 Dialogue App）· C3 fleet/console/desktop 审批通路 · C4 门控加强（意图契约 + 已知失败）· C5 运行记录前移（每步 `action_key` / 结果）· C6 统一入口（`secdogie-node`）· C7 设备类别与无头隔离（T7） | ✅ ✅ 🔜 ✅ ✅ ✅ ✅ |
+| T9 隧道加固 | C + libsodium 隧道：卫生/fuzz/netns 冒烟 → Noise IK v2 握手 → 定时器/rekey/DoS 限速 → 端到端中继 → 本地控制 socket | 🔜（第五阶段） |
+| C M3 实时回路 | C1 CI 跑真实回路测试 · C2 HITL 修正（高风险清单、全入口必确认、签名审批 = Gate 2 经 Dialogue App）· C3 ~~fleet/console/desktop 审批通路~~（入口已退役，审批统一在对话框里经 Gate 2）· C4 门控加强（意图契约 + 已知失败）· C5 运行记录前移（每步 `action_key` / 结果）· C6 统一入口（`secdogie-node`）· C7 设备类别与无头隔离（T7） | ✅ ✅ ✅ ✅ ✅ ✅ ✅ |
 | D 感知 | D1 observation/target 入环 · D2 结构化优先（Windows UIA 结构图，截图显式开启）· D3 macOS AX 命中测试 · D4 Atlas 只读桥 | 🔜 |
-| W 浏览器 | W1 浏览器 DID + 信令 DID 认证 · W2 跨语言签名向量 · W3 aiortc 桥接技术验证 · W4 浏览器作为观察/审批端 | 🔜 |
+| K 一个对话框 | K 对话框本体（`app/`，首次审批设口令）· K2 视界折叠区 + 同一窗口切换其他机器的节点 · L 双击 exe 只开对话框 · M 其余入口退役 · N 文档 | ✅ ✅ ✅ ✅ ✅ |
 | M 收尾 | M4 纵切演示 · M5 安全复审 / 实机验证 / 发布 | ✅ 🔜 |
 
 **第二阶段（可运行闭环）已完成**：P0、Wave A / B / C / D / E（#56、#57、#60、#61、#62 及文档 PR），7 条退出条件见 [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md) 第 5 节。
@@ -68,11 +71,13 @@
 **第三阶段（多节点网格）已完成**：Wave F / G / H / I+J（#64、#65、#66 及收口 PR）——rendezvous 上 UDP、线上 gossip、
 节点间日志复制、撤销经日志持久传播、设备类别、五进程网格端到端测试；7 条退出条件见 [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md) 第 5 节。
 
-**第四阶段（加固）顺序**：
+**第四阶段（收敛为一个对话框）已完成**：Wave K / K2 / L / M+N（#68、#69、#70 及收口 PR）——面向用户只剩一个原生对话框加 API key；
+浏览器端（W 轨道）从路线图删除，`webrtc/` 保留、不再扩展；迁移说明见 [`docs/ONE-WINDOW-MIGRATION.md`](docs/ONE-WINDOW-MIGRATION.md)，
+7 条退出条件见 [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md) 第 5 节。
+
+**第五阶段（加固）顺序**：
 1. T9 隧道加固；
-2. C3 fleet/console/desktop 审批通路（Gate 2）；
-3. W 浏览器端；
-4. M5 安全复审、实机验证、发布。
+2. M5 安全复审、实机验证、发布。
 
 感知轨道（D）由机主推进。
 
