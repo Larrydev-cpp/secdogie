@@ -23,7 +23,8 @@ python3 -m venv .build-venv
 # shellcheck disable=SC1091
 source .build-venv/bin/activate
 pip install --upgrade pip >/dev/null
-pip install -e . pyinstaller >/dev/null
+# The window (secdogie_app) and the node it runs ship inside the same binary.
+pip install ../identity ../transport ../citadel ../dialogue ../node ../app -e . pyinstaller >/dev/null
 
 cd "$HERE"
 rm -rf build dist

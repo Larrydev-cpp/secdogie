@@ -4,6 +4,13 @@ This packages the agent into one standalone executable that bundles Python
 and every dependency, so an end user can run it **without installing Python
 or `pip install`-ing anything** — they download one file and run it.
 
+Opened with no arguments (a double-click), it opens the **secdogie window**
+(`app/`). That is one conversation for goals, questions, approvals, memory,
+other machines' nodes and the API key. It runs the resident node in the same
+process, so the window and the node (`identity`, `transport`, `citadel`,
+`dialogue`, `node`, `app`) are bundled too. With any argument it is the plain
+`secdogie-agent` CLI.
+
 ## Build
 
 From this directory (or run the script from anywhere):
@@ -24,7 +31,7 @@ Or manually — Linux/macOS:
 ```sh
 cd agent
 python3 -m venv .build-venv && source .build-venv/bin/activate
-pip install -e . pyinstaller
+pip install ../identity ../transport ../citadel ../dialogue ../node ../app -e . pyinstaller
 cd packaging
 pyinstaller secdogie-agent.spec
 ```
@@ -35,7 +42,7 @@ Windows (PowerShell):
 cd agent
 python -m venv .build-venv
 .build-venv\Scripts\Activate.ps1
-pip install -e . pyinstaller
+pip install ..\identity ..\transport ..\citadel ..\dialogue ..\node ..\app -e . pyinstaller
 cd packaging
 pyinstaller secdogie-agent.spec
 ```

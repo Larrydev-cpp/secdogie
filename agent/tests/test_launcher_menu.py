@@ -5,6 +5,7 @@ gating that decides *when* the menu appears, and the no-display fallback."""
 import sys
 from unittest import mock
 
+import pytest
 from secdogie_agent import launcher_menu as m
 
 
@@ -113,3 +114,34 @@ def test_menu_flag_cancelled_exits_without_running():
          mock.patch.object(cli, "run", return_value=0) as run:
         assert cli.main(["--menu"]) == 0    # closing the chooser just exits
         assert not run.called
+
+
+# -- a double-click opens the one secdogie window ------------------------------
+
+def test_a_double_clicked_exe_opens_the_window_not_the_menu(monkeypatch):
+    import sys
+    import types
+
+    from secdogie_agent import cli
+
+    opened = []
+    fake = types.ModuleType("secdogie_app.window")
+    fake.main = lambda argv: opened.append(argv) or 0
+    monkeypatch.setitem(sys.modules, "secdogie_app", types.ModuleType("secdogie_app"))
+    monkeypatch.setitem(sys.modules, "secdogie_app.window", fake)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    with mock.patch.object(m, "show_menu") as menu, mock.patch.object(cli, "run") as run:
+        assert cli.main([]) == 0
+    assert opened == [[]] and not menu.called and not run.called
+
+
+def test_any_argument_keeps_the_cli(monkeypatch):
+    import sys
+
+    from secdogie_agent import cli
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    with mock.patch.object(cli, "open_window") as window:
+        with pytest.raises(SystemExit):
+            cli.main(["--help"])
+    assert not window.called

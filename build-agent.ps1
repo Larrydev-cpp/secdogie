@@ -8,7 +8,7 @@
 # Output:
 #   agent\packaging\dist\secdogie-agent.exe
 #
-# Double-click the .exe → frosted menu → paste API key → run a task.
+# Double-click the .exe → the secdogie window → paste an API key once → say what you want.
 #
 # If PowerShell says "running scripts is disabled":
 #   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
@@ -35,7 +35,7 @@ if (Test-Path $Exe) {
     Write-Host "Done. Your Windows executable is here:"
     Write-Host "  $Exe"
     Write-Host ""
-    Write-Host "Double-click it → Set up / edit API key → paste any provider key → Describe a task."
+    Write-Host "Double-click it: the secdogie window opens. Paste an API key the first time, then say what you want."
 } else {
     Write-Error "Build finished but $Exe was not found."
     exit 1
