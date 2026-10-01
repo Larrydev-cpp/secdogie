@@ -84,6 +84,8 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--rendezvous-record", action="append", default=[], metavar="FILE",
                    help="a rendezvous' self-signed record, as secdogie-relay --rendezvous prints it "
                         "(repeatable): this node registers there, so an App can find it by DID")
+    r.add_argument("--device-class", choices=["display", "headless"], default="display",
+                   help="headless: a node without a screen -- it takes no goals and never loads the agent")
     r.add_argument("--insecure-dev", action="store_true",
                    help="INSECURE, throwaway local tests only: without --issuers, turn the capability check off")
     r.set_defaults(fn=_run)
@@ -133,10 +135,11 @@ def _run(args, parser) -> int:
     except (OSError, ValueError) as e:
         parser.error(str(e))
 
-    self_policy = None
+    self_policy = masters = None
     if args.masters:
         store = RevocationStore(args.revocations) if args.revocations else None
-        self_policy = TrustPolicy(Allowlist(), masters=MasterSet.load(args.masters), store=store)
+        masters = MasterSet.load(args.masters)
+        self_policy = TrustPolicy(Allowlist(), masters=masters, store=store)
         if self_policy.is_revoked(identity.did):
             log.warning("this node's DID %s is revoked; not starting", identity.did)
             return 0
@@ -159,7 +162,9 @@ def _run(args, parser) -> int:
                                issuers=issuers, unrestricted=unrestricted, journal_path=args.journal,
                                candidates_path=candidates, listen=args.listen, transport_key=tkey,
                                app_bindings=bindings, relay_records=relays,
-                               rendezvous_records=rendezvous, bootstrap_records=bootstrap))
+                               rendezvous_records=rendezvous, bootstrap_records=bootstrap,
+                               masters=masters, device_class=args.device_class, on_self_revoked=stop.set,
+                               revocation_store=RevocationStore(args.revocations) if args.revocations else None))
     except (OSError, ValueError) as e:
         parser.error(str(e))
     if self_policy is not None:

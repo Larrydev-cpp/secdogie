@@ -20,7 +20,15 @@
     and the journal is replicated with them (``ReplicationPeer``, in
     datagram-sized batches). What this node learns from a peer -- a caution
     earned by the peer's failing runs -- reaches its Gate 1; a peer's goals
-    reach its journal but are never run here (the Supervisor runs only its own).
+    reach its journal but are never run here (the Supervisor runs only its own);
+  * revocations (T6), given the master set: a Master-signed revocation record
+    is applied to every trust set the node holds, however it arrives -- the
+    fast gossip frame, the journal (replicated, so a node that was offline
+    catches up), or the operator's revocation store -- and written into the
+    journal so it lasts. A revoked peer stops being heard; a revoked App loses
+    its session; if this node is revoked it halts;
+  * a device class (T7): a ``headless`` node never takes a goal and never
+    loads the agent; only a ``display`` node acts on a screen.
 
 Zero trust throughout: ``apps``, ``operators`` and ``authorized`` are required
 (``None`` refuses to start); ``unrestricted`` (no capability check) is an
@@ -46,14 +54,16 @@ from secdogie_citadel.consolidate import confirm_and_promote, retract_memory
 from secdogie_citadel.journal import Journal
 from secdogie_citadel.lessons import MemoryClass
 from secdogie_citadel.replication import ReplicationPeer
+from secdogie_citadel.revocations import REVOCATION_KIND, publish_revocation, revocation_events
 from secdogie_citadel.supervisor import MemoryConfig, Supervisor, agent_run_task
 from secdogie_dialogue.agent_bridge import OperatorBridge
 from secdogie_dialogue.dialogue import system_status
 from secdogie_dialogue.protocol import ControlOp, MemoryCandidatePacket
 from secdogie_dialogue.publisher import SnapshotPublisher
 from secdogie_dialogue.session import DialogueSession, SessionRouter
-from secdogie_identity import AnyOf, require_trust
+from secdogie_identity import AnyOf, require_trust, verify_revocation
 from secdogie_transport import (
+    REVOCATION_GOSSIP,
     ChannelMux,
     DirectUDPTransport,
     Endpoint,
@@ -62,16 +72,18 @@ from secdogie_transport import (
     MembershipView,
     PeerIdentity,
     RendezvousLink,
+    RevocationGossip,
     Session,
     UDPChannel,
 )
-from secdogie_transport.membership import sign_record
+from secdogie_transport.membership import DEVICE_CLASSES, DEVICE_DISPLAY, DEVICE_HEADLESS, sign_record
 
 log = logging.getLogger("secdogie_node")
 
 OFFERED_CLASSES = (MemoryClass.FACT, MemoryClass.PREFERENCE)  # cautions are promoted on evidence
 REPLICATION_CHANNEL = "replication/v1"
 REPLICATION_MAX_BYTES = 24_000  # events per message: one datagram, even through a relay
+TELL_EVERY = 10.0  # seconds: how often a revoked DID that keeps knocking is told again
 
 
 @dataclass
@@ -92,6 +104,10 @@ class NodeConfig:
     rendezvous_records: list = field(default_factory=list)  # where this node registers, so Apps find it by DID
     bootstrap_records: list = field(default_factory=list)  # mesh nodes' self-signed records to start from
     mesh_every: float = 5.0  # seconds between gossip / replication rounds
+    masters: object = None  # MasterSet that signs revocations; None: revocations are neither applied nor carried
+    revocation_store: object = None  # RevocationStore the operator adds records to (revoke-apply)
+    on_self_revoked: Callable | None = None  # called once if this node's own DID is revoked
+    device_class: str = DEVICE_DISPLAY  # "headless": takes no goals, never loads the agent
     run_task: Callable = agent_run_task
     challenge_ttl: float = 120.0
     probe_ttl: float = 300.0
@@ -116,9 +132,13 @@ class Node:
             outside = sorted(self.mesh.dids() - authorized.dids())
             if outside:  # their replicated events would be dropped without a word
                 raise ValueError(f"every mesh node must also be a journal author (--authorized): {outside[0]}")
+        if cfg.device_class not in DEVICE_CLASSES:
+            raise ValueError(f"device_class must be one of {sorted(DEVICE_CLASSES)}, got {cfg.device_class!r}")
+        self.headless = cfg.device_class == DEVICE_HEADLESS
         self.journal = Journal(cfg.journal_path, identity=cfg.identity, allowlist=authorized)
         self.supervisor = Supervisor(
-            self.journal, cfg.run_task, issuers=cfg.issuers, unrestricted=cfg.unrestricted,
+            self.journal, _refuse_on_a_headless_node if self.headless else cfg.run_task,
+            issuers=cfg.issuers, unrestricted=cfg.unrestricted,
             memory=MemoryConfig(candidates_path=cfg.candidates_path, confirmers=self.apps),
         )
         self._lock = threading.RLock()
@@ -127,6 +147,17 @@ class Node:
         self._stopping = threading.Event()
         self._worker: threading.Thread | None = None
         self._refused: set[str] = set()
+        # every trust set that can hold a revocation (a TrustPolicy), once each
+        self._policies = list({id(p): p for p in (self.apps, self.operators, authorized, self.mesh, cfg.issuers)
+                               if p is not None and hasattr(p, "apply")}.values())
+        self._rev_lock = threading.Lock()
+        self._revocations_known: set[str] = set()  # record ids applied
+        self._revocations_journaled: set[str] = set()  # record ids verified in the journal
+        self._revocation_events_seen: set[str] = set()  # journal entry hashes looked at
+        self._store_stamp = None
+        self._self_revoked = False
+        self._revocation_records: dict[str, dict] = {}  # record id -> the signed record, as applied
+        self._told: dict[str, float] = {}  # revoked DID -> when it was last told so
         self.channel = UDPChannel(*cfg.listen)
         try:
             self.transport = DirectUDPTransport(cfg.identity, self.channel, allowlist=AnyOf(self.apps, self.mesh),
@@ -154,6 +185,10 @@ class Node:
             self.mux.channel(REPLICATION_CHANNEL, self._on_replication)
             for did in self.view.known():
                 self._learn_peer(self.view.get(did))
+            self.revocation_gossip = (RevocationGossip(self.transport, _RevocationSink(self), self.view)
+                                      if cfg.masters is not None else None)
+            if self.revocation_gossip is not None:
+                self.transport.on_refused(self._tell_the_revoked)
         except Exception:
             self.channel.close()
             raise
@@ -166,11 +201,14 @@ class Node:
     # -- lifecycle ------------------------------------------------------------------
 
     def start(self) -> None:
-        requeued = self.supervisor.recover()
-        if requeued:
-            log.info("resumed %d interrupted goal(s): %s", len(requeued), ", ".join(requeued))
-        self._worker = threading.Thread(target=self._work, daemon=True, name="secdogie-node-worker")
-        self._worker.start()
+        self._apply_journaled_revocations()
+        self._apply_stored_revocations()
+        if not self.headless:
+            requeued = self.supervisor.recover()
+            if requeued:
+                log.info("resumed %d interrupted goal(s): %s", len(requeued), ", ".join(requeued))
+            self._worker = threading.Thread(target=self._work, daemon=True, name="secdogie-node-worker")
+            self._worker.start()
         if self.link is not None:
             self.link.start()
         if self.rendezvous is not None:
@@ -193,7 +231,7 @@ class Node:
         endpoints = self._own_endpoints()
         if self.rendezvous is not None:
             endpoints += [Endpoint("observed", e.host, e.port) for e in self.rendezvous.reflexive.values()]
-        return sign_record(self.identity, endpoints, last_seen=time.time())
+        return sign_record(self.identity, endpoints, last_seen=time.time(), device_class=self.cfg.device_class)
 
     def _learn_peer(self, rec) -> None:
         # A peer found through gossip becomes reachable; an address already
@@ -227,15 +265,116 @@ class Node:
         merged = self.replica.on_message(from_did, msg)
         if merged:
             log.info("replicated %d event(s) from %s", merged, from_did)
+            self._apply_journaled_revocations()
 
     def _mesh_loop(self) -> None:
         while not self._stopping.is_set():
             try:
+                self._apply_stored_revocations()
                 self.gossip.tick()
                 self.replicate_now()
             except Exception:  # noqa: BLE001 - a failed round retries on the next one
                 log.exception("mesh round failed")
             self._stopping.wait(self.cfg.mesh_every)
+
+    # -- revocation (T6) ----------------------------------------------------------------
+
+    def apply_revocation(self, record) -> frozenset:
+        """Verify a Master-signed revocation record and apply it to every trust
+        set this node holds; write it into the journal (once) so it replicates
+        and lasts. Returns the DIDs it revoked if this node had not seen the
+        record before (so the fast gossip re-floods each record once), else
+        nothing. A record that does not verify against the master set changes
+        nothing, whatever path it came by."""
+        masters = self.cfg.masters
+        verified = verify_revocation(record, masters) if masters is not None else None
+        if verified is None:
+            return frozenset()
+        with self._rev_lock:
+            first = verified.record_id not in self._revocations_known
+            self._revocations_known.add(verified.record_id)
+            self._revocation_records.setdefault(verified.record_id, record)
+            if verified.record_id not in self._revocations_journaled:
+                publish_revocation(self.journal, record)
+                self._revocations_journaled.add(verified.record_id)
+        for policy in self._policies:
+            policy.apply(record)  # idempotent per policy (by record id)
+        if not first:
+            return frozenset()
+        log.warning("revocation applied: %s", ", ".join(sorted(verified.revoked)))
+        if self.revocation_gossip is not None:
+            # First sight, whatever the path: flood it once to the nodes this one
+            # knows (the revoked among them, so they learn it now).
+            self.revocation_gossip.broadcast(record)
+        self._on_revoked(verified.revoked)
+        return verified.revoked
+
+    def _on_revoked(self, revoked) -> None:
+        if self.identity.did in revoked and not self._self_revoked:
+            self._self_revoked = True
+            log.warning("this node's own DID was revoked; halting")
+            self.supervisor.halt("this node's DID was revoked")
+            if self.cfg.on_self_revoked is not None:
+                self.cfg.on_self_revoked()
+        with self._lock:
+            link = self._link
+        if link is not None and link.session.peer_did in revoked:
+            log.warning("the connected App %s was revoked; closing its session", link.session.peer_did)
+            with self._lock:
+                if self._link is link:
+                    self._link = None
+                    self.supervisor.set_operator_hooks(None)
+            self.router.remove(link.session.peer_did)
+            link.session.close()
+
+    def _tell_the_revoked(self, signer: str, addr: tuple) -> None:
+        """A node revoked while it was away is cut off by everyone, so it cannot
+        learn of it through the mesh. When one knocks (an authentic frame from
+        a DID this node no longer trusts), send it the records that revoke it --
+        master-signed, so it can check them itself, and then halt. At most once
+        per DID every ``TELL_EVERY`` seconds; nothing is sent to a DID that was
+        simply never trusted."""
+        with self._rev_lock:
+            records = [r for r in self._revocation_records.values() if signer in (r.get("revoked") or ())]
+            now = time.monotonic()
+            if not records or now - self._told.get(signer, float("-inf")) < TELL_EVERY:
+                return
+            if len(self._told) > 4096:
+                self._told.clear()
+            self._told[signer] = now
+        for record in records:
+            frame = json.dumps({"t": REVOCATION_GOSSIP, "record": record}).encode("utf-8")
+            self.channel.send(addr[0], int(addr[1]), frame)
+
+    def _apply_journaled_revocations(self) -> None:
+        """Apply revocation events that reached the journal (replication, or a
+        restart) and have not been looked at yet."""
+        masters = self.cfg.masters
+        if masters is None:
+            return
+        for event in revocation_events(self.journal.events()):
+            key = event.get("entry_hash")
+            with self._rev_lock:
+                if key in self._revocation_events_seen:
+                    continue
+                self._revocation_events_seen.add(key)
+                verified = verify_revocation(event["body"], masters)
+                if verified is not None:
+                    self._revocations_journaled.add(verified.record_id)  # already carried: not re-written
+            if verified is not None:
+                self.apply_revocation(event["body"])
+
+    def _apply_stored_revocations(self) -> None:
+        """Pick up records the operator added to the revocation store."""
+        store = self.cfg.revocation_store
+        if store is None:
+            return
+        stamp = store.stamp()
+        if stamp == self._store_stamp:
+            return
+        self._store_stamp = stamp
+        for obj in store.load():
+            self.apply_revocation(obj)
 
     def stop(self, timeout: float = 10.0) -> None:
         """Stop taking work, stop the running goal, say goodbye, close."""
@@ -252,6 +391,8 @@ class Node:
             self.link.close()
         if self.rendezvous is not None:
             self.rendezvous.close()
+        if self.revocation_gossip is not None:
+            self.revocation_gossip.close()
         if self._mesh_thread is not None:
             self._mesh_thread.join(timeout)
         self.gossip.close()
@@ -296,6 +437,8 @@ class Node:
         session.on_peer_down, session.on_peer_up = down, up
         session.start(0.05)
         log.info("operator App connected: %s", did)
+        if self.headless:
+            session.send(system_status("headless node: it takes no goals"))
         self._offer_memories()
         return session
 
@@ -303,6 +446,8 @@ class Node:
         """One operator request (already authenticated as ``signer``, an App on
         the allowlist). Returns the status line sent back."""
         op = pkt.op
+        if self.headless and op in (ControlOp.ADD_GOAL, ControlOp.RESUME):
+            return "refused: headless node -- it takes no goals (only a display node acts on a screen)"
         if op is ControlOp.ADD_GOAL:
             self.supervisor.add_goal(pkt.goal_id, title=pkt.title)
             self._wake.set()
@@ -364,8 +509,9 @@ class Node:
                 self._wake.clear()
 
     def run_ready_once(self) -> bool:
-        """Run the lowest ready goal, if any; tell the App how it ended."""
-        if self.supervisor.halted or self._stopping.is_set():
+        """Run the lowest ready goal, if any; tell the App how it ended. A
+        headless node runs none."""
+        if self.headless or self.supervisor.halted or self._stopping.is_set():
             return False
         ready = sorted(self.supervisor.pending_ready())
         if not ready:
@@ -379,4 +525,21 @@ class Node:
         return True
 
 
-__all__ = ["Node", "NodeConfig", "OFFERED_CLASSES", "REPLICATION_CHANNEL"]
+class _RevocationSink:
+    """What the fast revocation gossip applies records to: the whole node."""
+
+    def __init__(self, node: Node):
+        self._node = node
+
+    def apply(self, record) -> frozenset:
+        self._node.apply_revocation(record)  # floods it itself, on first sight
+        return frozenset()  # so the gossip layer does not flood it a second time
+
+
+def _refuse_on_a_headless_node(task, **_):
+    # A headless node's Supervisor gets this instead of the agent runner, so no
+    # goal -- however it got queued -- ever reaches a screen or loads the agent.
+    return 1, "refused: headless node -- it takes no goals"
+
+
+__all__ = ["Node", "NodeConfig", "OFFERED_CLASSES", "REPLICATION_CHANNEL", "REVOCATION_KIND"]

@@ -26,6 +26,23 @@ The resident node: one foreground process that puts the pieces together.
     node still runs only its own goals; a peer's goals, stops and interrupted
     runs arrive in the journal but are never run, obeyed or recovered here.
 
+- **Revocations that last (T6).** Given `--masters`, a Master-signed
+  revocation record is applied to every trust set the node holds, however it
+  arrives:
+  - the fast gossip frame;
+  - the journal, replicated, so a node that was offline catches up;
+  - the operator's store (`--revocations`, `revoke-apply`).
+
+  The node then writes the record into its journal so it lasts. A revoked peer
+  stops being heard, and a revoked App loses its session. A node revoked while
+  it was away is cut off by everyone, so when it knocks it is sent the records
+  that revoke it; it checks them against its own masters and halts. A record
+  that does not verify changes nothing, on any path.
+- **Device class (T7).** `--device-class headless` is for a node without a
+  screen. It takes no goals, the goals it holds are not run, and it never
+  loads the agent. Its membership record says `headless`, as `secdogie-relay`'s
+  does; only a `display` node (the default) acts on a screen.
+
 It assembles what the other packages provide; it adds no protocol of its own.
 
 ## Run

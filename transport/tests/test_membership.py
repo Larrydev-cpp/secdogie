@@ -159,3 +159,27 @@ def test_records_for_and_digest_shapes():
     # a remote that lacks me is owed my signed record
     owed = view.records_for({})
     assert len(owed) == 1 and json.loads(json.dumps(owed[0]))["did"] == me.did
+
+
+def test_a_record_says_what_kind_of_device_the_node_is():
+    from secdogie_transport.membership import DEVICE_DISPLAY, DEVICE_HEADLESS
+
+    ident = Identity.generate()
+    allow = Allowlist({ident.did})
+    ep = [Endpoint("local", "127.0.0.1", 9)]
+    assert verify_record(sign_record(ident, ep, last_seen=1.0, device_class=DEVICE_HEADLESS),
+                         allowlist=allow).device_class == DEVICE_HEADLESS
+    plain = sign_record(ident, ep, last_seen=1.0)
+    assert "device_class" not in plain and verify_record(plain, allowlist=allow).device_class == ""
+    with pytest.raises(ValueError):
+        sign_record(ident, ep, last_seen=1.0, device_class="robot")
+    # nobody but the node can reclassify it: an edited class breaks the signature
+    display = sign_record(ident, ep, last_seen=1.0, device_class=DEVICE_DISPLAY)
+    assert verify_record(dict(display, device_class=DEVICE_HEADLESS), allowlist=allow) is None
+
+
+def test_a_class_this_version_does_not_know_reads_as_unknown():
+    ident = Identity.generate()
+    payload = {"type": RECORD_TYPE, "did": ident.did, "endpoints": [], "last_seen": 1.0, "device_class": "robot"}
+    rec = verify_record(sign_payload(ident, payload), allowlist=Allowlist({ident.did}))
+    assert rec is not None and rec.device_class == ""  # neither display nor headless: never taken as either
