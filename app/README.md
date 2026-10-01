@@ -18,6 +18,13 @@ everything else in one conversation:
   Remember it, or skip it. A skipped note stays in quarantine until it expires.
 - **Stop.** Stops every goal you sent that has not finished.
 - **API key.** The key button in the corner changes the key.
+- **视界 (the structural view).** A fold, closed by default. It shows the
+  elements the agent sees and which one it is about to act on (★). The node
+  sends this structure; no screenshot is ever taken or shown.
+- **Other machines.** The switcher next to the title chooses which node the
+  window drives: this machine's own node, or a node on another machine you
+  paired with. Each node keeps its own conversation. When something waits
+  for you on a node you are not looking at, the switcher says so.
 
 ```
 pip install -e ../identity -e ../transport -e ../citadel -e ../dialogue -e ../node -e ../agent -e .
@@ -38,6 +45,43 @@ Being local loosens no check. The window itself (`model.py`, `window.py`) only
 shows what the dialogue App's controller holds and calls it. Gate 1, Gate 2 and
 the staged memory are the node's, unchanged.
 
+## Pairing with another machine
+
+The other machine (a VM, a second desk) runs the ordinary `secdogie-node`, with
+its own API key. To pair it with this window:
+
+1. **Show the card.** Open the switcher and choose "添加远程节点…".
+2. **Set the passphrase if needed.** The card shows this window's **App DID**.
+   It also shows the **operator DID**; if you have not set a passphrase yet, set
+   it here first.
+3. **Configure the other node.** On that machine, add the App DID to the node's
+   `--apps` allowlist and the operator DID to its `--operators`.
+4. **Paste what the window needs.**
+   - The node's **ready line**: the JSON line `secdogie-node` prints when it
+     starts.
+   - Where to reach it. If the node listens on `0.0.0.0`, add a line with its
+     address (`10.0.0.5:7950`, or just the host; the port comes from the ready
+     line). If it is behind NAT, add a rendezvous record (as
+     `secdogie-relay --rendezvous` prints it).
+   - Optionally, relay records for a fallback path.
+5. **Save and connect.**
+
+Nothing pasted is trusted as it stands:
+
+- The node's record must be self-signed by the DID it names.
+- A rendezvous or relay record must be self-signed and carry that role.
+- A headless node is refused, because it takes no goals.
+- The session trusts exactly that one DID.
+- Every approval is signed for that node only; the window checks each
+  challenge's subject against it.
+
+A node that does not trust your operator DID refuses the signed step; it does
+not run.
+
+Paired nodes are kept in `nodes.json` (0600), with public records only. Every
+record is re-verified when the file is loaded. "取消配对" in the switcher
+closes the session and forgets the node.
+
 ## What it keeps, and where
 
 All of it lives in the per-user config directory:
@@ -55,6 +99,7 @@ The directory is mode 0700, and each key file in it is 0600.
 | `app.key` | The window's session key. It signs messages and memory confirmations, never a Gate 2 approval. |
 | `operator.keystore` | The operator key, sealed under your passphrase (Argon2id + XSalsa20-Poly1305). It is created at your first approval. |
 | `journal.db`, `memory.db` | The node's signed journal and its memory quarantine. |
+| `nodes.json` | The nodes on other machines this window is paired with: public records only. |
 
 The API key goes where the agent reads it: next to the program when it is
 packaged, otherwise in `~/.config/secdogie/config`.
@@ -85,8 +130,9 @@ packaged, otherwise in `~/.config/secdogie/config`.
 - **One window per user.** A second window is refused rather than sharing the
   journal.
 
-The mesh (joining other nodes, rendezvous, revocations) is the job of
-`secdogie-node`, configured as before. The window's own node stays on loopback.
+The mesh between nodes (gossip, journal replication, revocations) is the job
+of `secdogie-node`, configured as before. The window's own node stays on
+loopback; the window reaches other machines' nodes as their App (above).
 
 ## Tests
 
@@ -100,4 +146,11 @@ xvfb-run -a pytest tests/ -q  # as CI runs them
 - `test_local.py`: the local node's files, permissions, trust and grant.
 - `test_flow.py`: end to end, with a real node, the production runner and the
   real agent loop. Only the model and the desktop are stand-ins.
-- `test_window.py`: the Tk view.
+- `test_nodes.py`: pairing (what is accepted and refused), the node book, and
+  the switching hub.
+- `test_remote.py`: end to end with a second real node on "another machine".
+  - A high-risk step is approved from this window and runs there.
+  - The node is found by its DID through a rendezvous.
+  - A node that does not trust this operator runs nothing.
+- `test_window.py`: the Tk view, including the switcher, the pairing card and
+  the view fold.

@@ -135,23 +135,13 @@ def _connect(args, parser) -> int:
     if args.passphrase_file and not args.headless:
         parser.error("--passphrase-file is for --headless; the screen asks for the passphrase")
     try:
-        from secdogie_transport import (
-            ChannelMux,
-            DirectUDPTransport,
-            Endpoint,
-            FailoverTransport,
-            PeerIdentity,
-            RendezvousLink,
-            Session,
-            UDPChannel,
-        )
         from secdogie_transport.sealed import load_transport_key
     except ImportError:
         parser.error("connect needs the transport: pip install 'secdogie-dialogue[net]'")
-    from secdogie_identity import Allowlist, Identity
+    from secdogie_identity import Identity
 
-    from .app import AppController, run_script
-    from .session import DialogueSession, SessionRouter
+    from .app import run_script
+    from .connect import NodeNotFound, open_session
 
     steps = None
     try:
@@ -167,47 +157,21 @@ def _connect(args, parser) -> int:
     except (OSError, ValueError, KeystoreError) as e:
         parser.error(str(e))
 
-    trust = Allowlist({args.node})  # the one node, and nothing else
-    channel = UDPChannel(*args.listen)
-    ctl = link = finder = None
     try:
-        transport = DirectUDPTransport(identity, channel, allowlist=trust, transport_key=tkey)
-        if binding is not None and not (transport.add_peer_binding(binding) and binding.get("did") == args.node):
-            parser.error("--node-binding is not a valid binding for --node")
-        if args.node_addr:
-            transport.set_peer_endpoint(args.node, *args.node_addr)
-        if rendezvous:
-            try:
-                finder = RendezvousLink.from_records(transport, rendezvous)
-            except ValueError as e:
-                parser.error(str(e))
-            found = finder.lookup(args.node)
-            if found is not None:
-                best = found.best()
-                transport.set_peer_endpoint(args.node, best.host, best.port)
-            elif not args.node_addr and not relays:
-                sys.stderr.write(f"the node {args.node} is not registered at any rendezvous given\n")
-                return 1
-        carrier = transport
-        if relays:
-            try:
-                link = carrier = FailoverTransport.from_records(transport, relays)
-            except ValueError as e:
-                parser.error(str(e))
-            link.start()
-        mux = ChannelMux(carrier, Session("dialogue-app", PeerIdentity(identity.did, ""),
-                                          active=Endpoint("local", *channel.address)))
-        router = SessionRouter(mux)
-        session = router.add(DialogueSession(identity, args.node, router.sender_for(args.node), trust=trust))
-        ctl = AppController(session)
-
+        app = open_session(identity, args.node, listen=args.listen, node_addr=args.node_addr,
+                           rendezvous=rendezvous, relays=relays, transport_key=tkey, binding=binding)
+    except NodeNotFound as e:
+        sys.stderr.write(f"{e}\n")
+        return 1
+    except ValueError as e:
+        parser.error(str(e))
+    try:
+        ctl = app.controller
         keystore = args.operator_keystore
 
         def unlock_with(passphrase: bytes):
             return unseal_identity(keystore, passphrase)
 
-        session.start(0.05)
-        ctl.start()
         if steps is not None:
             unlock = None
             if keystore and args.passphrase_file:
@@ -228,13 +192,7 @@ def _connect(args, parser) -> int:
         run_tui(ctl, unlock_with=unlock_with if keystore else None)
         return 0
     finally:
-        if ctl is not None:
-            ctl.close()
-        if link is not None:
-            link.close()
-        if finder is not None:
-            finder.close()
-        channel.close()
+        app.close()
 
 
 def main(argv=None) -> int:

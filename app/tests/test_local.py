@@ -209,3 +209,9 @@ def test_the_grant_is_renewed_while_the_window_is_open(backends):
         threading.Event().wait(0.05)
     assert len(b.node.supervisor.grants()) >= 3
     assert b.node.supervisor.node_scopes() == frozenset(DESKTOP_SCOPES)
+
+
+def test_the_windows_own_session_stays_on_loopback(backends):
+    b = backends()
+    b.start()
+    assert b._app.channel.address[0] == "127.0.0.1"

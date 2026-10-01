@@ -126,8 +126,9 @@ class DialogModel:
     ``OperatorKey`` (``local.py``); ``api_keys`` an ``ApiKeys``, or None when
     the window does not manage the model key."""
 
-    def __init__(self, controller, operator_key, api_keys=None, *, clock=time.time):
+    def __init__(self, controller, operator_key, api_keys=None, *, label: str = "本机节点", clock=time.time):
         self.controller = controller
+        self.label = label  # how the status line names the node
         self.key = operator_key
         self.api_keys = api_keys
         self._clock = clock
@@ -239,12 +240,22 @@ class DialogModel:
             return out
 
     def status(self) -> str:
-        parts = ["本机节点已连接" if self.controller.peer_up else "本机节点没有响应"]
+        parts = [f"{self.label}已连接" if self.controller.peer_up else f"{self.label}没有响应"]
         waiting = [(len(self.controller.challenges()), "待批准"), (len(self.controller.pending_probes()), "待回答"),
                    (len(self.controller.memories()), "待确认记忆")]
         parts.extend(f"{n} 个{what}" for n, what in waiting if n)
         parts.append("口令已设置" if self.key.is_set else "口令未设置")
         return " · ".join(parts)
+
+    def waiting(self) -> int:
+        """How many cards wait on the operator: approvals, questions, notes."""
+        c = self.controller
+        return len(c.challenges()) + len(c.pending_probes()) + len(c.memories())
+
+    def view_lines(self) -> list[str]:
+        """The structural view the node sent (zero screenshots): a header line,
+        then one line per element, focus marked with ★. Already cleaned."""
+        return self.controller.inspector_lines()
 
     def composer_hint(self) -> str:
         pending = self.controller.pending_probes()
