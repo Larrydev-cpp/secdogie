@@ -11,7 +11,15 @@ import pytest
 
 pytest.importorskip("nacl")
 
-from secdogie_identity import Allowlist, Identity, sign_payload  # noqa: E402
+from secdogie_identity import (  # noqa: E402
+    Allowlist,
+    Identity,
+    MasterSet,
+    TrustPolicy,
+    cosign,
+    create_revocation,
+    sign_payload,
+)
 from secdogie_transport import Endpoint, UDPChannel  # noqa: E402
 from secdogie_transport.rendezvous import (  # noqa: E402
     LOOKUP_RESULT,
@@ -192,3 +200,101 @@ def test_two_nodes_over_real_udp_discover_each_other():
         srv_ch.close()
         a_ch.close()
         b_ch.close()
+
+
+# --- freshness: what a replayed or stale frame can no longer do (T3) -----------
+
+
+class _Clock:
+    def __init__(self, now=1000.0):
+        self.now = now
+
+    def __call__(self):
+        return self.now
+
+
+def _clocked(**server_kw):
+    clock = _Clock()
+    server_id, client_id = Identity.generate(), Identity.generate()
+    allow = Allowlist({server_id.did, client_id.did})
+    server = RendezvousServer(server_id, allowlist=allow, clock=clock, **server_kw)
+    client = RendezvousClient(client_id, server_id.did, clock=clock)
+    return clock, server, client, client_id
+
+
+def test_a_replayed_register_cannot_move_the_reflexive_endpoint():
+    _, server, client, client_id = _clocked()
+    frame = client.register_frame([])
+    assert server.on_register(frame, ("198.51.100.7", 4000)) is not None
+    # an eavesdropper replays the captured frame from its own address
+    assert server.on_register(frame, ("203.0.113.66", 5555)) is None
+    assert server.known(client_id.did).best().host == "198.51.100.7"
+    assert server.stats["dropped_replayed"] == 1
+
+
+def test_a_register_outside_the_clock_window_is_dropped():
+    clock, server, client, client_id = _clocked(max_skew=60)
+    frame = client.register_frame([])
+    clock.now += 61  # delivered (or replayed) a minute late
+    assert server.on_register(frame, ("198.51.100.7", 4000)) is None
+    assert server.known(client_id.did) is None
+    assert server.stats["dropped_stale"] == 1
+
+
+def test_requests_stay_fresh_when_the_clock_does_not_move():
+    _, server, client, _ = _clocked()
+    for _ in range(3):  # a frozen clock: the client still sends strictly newer ts
+        assert server.on_register(client.register_frame([]), ("198.51.100.7", 4000)) is not None
+
+
+def test_only_the_ack_to_the_latest_register_counts():
+    _, server, client, _ = _clocked()
+    old_ack = server.on_register(client.register_frame([]), ("198.51.100.7", 4000))
+    new_ack = server.on_register(client.register_frame([]), ("198.51.100.7", 4001))
+    assert client.handle_register_ack(old_ack) is None  # answers a register that was superseded
+    assert client.handle_register_ack(new_ack).port == 4001
+    assert client.handle_register_ack(new_ack) is None  # and only once
+
+
+def test_a_lookup_result_is_accepted_once_and_only_for_the_target_asked():
+    _, server, client, client_id = _clocked()
+    server.on_register(client.register_frame([]), ("198.51.100.7", 4000))
+    result = server.on_lookup(client.lookup_frame(client_id.did))
+    assert client.handle_lookup_result(result)[1].best().port == 4000
+    assert client.handle_lookup_result(result) is None  # replayed later: unsolicited
+
+
+def test_an_unsolicited_lookup_result_is_rejected():
+    clock, server, client, client_id = _clocked()
+    other = RendezvousClient(client_id, server.did, clock=clock)  # same DID, separate request state
+    result = server.on_lookup(other.lookup_frame(client_id.did))
+    assert result is not None
+    assert client.handle_lookup_result(result) is None  # this client asked nothing
+
+
+def test_an_expired_registration_is_not_handed_out():
+    clock, server, client, client_id = _clocked(ttl=90)
+    server.on_register(client.register_frame([]), ("198.51.100.7", 4000))
+    clock.now += 91
+    assert server.known(client_id.did) is None
+    _, endpoints = client.handle_lookup_result(server.on_lookup(client.lookup_frame(client_id.did)))
+    assert endpoints.best() is None
+
+
+def test_a_flooding_peer_is_rate_limited():
+    _, server, client, _ = _clocked(rate=1, burst=3)
+    answered = [server.on_register(client.register_frame([]), ("198.51.100.7", 4000)) for _ in range(5)]
+    assert sum(a is not None for a in answered) == 3
+    assert server.stats["dropped_rate_limited"] == 2
+
+
+def test_a_peer_revoked_after_registering_is_no_longer_handed_out():
+    master, server_id, a_id, b_id = (Identity.generate() for _ in range(4))
+    policy = TrustPolicy(Allowlist({a_id.did, b_id.did}), masters=MasterSet([master.did]))
+    server = RendezvousServer(server_id, allowlist=policy)
+    a = RendezvousClient(a_id, server_id.did)
+    b = RendezvousClient(b_id, server_id.did)
+    server.on_register(a.register_frame([]), ("198.51.100.7", 4000))
+    policy.apply(cosign(master, create_revocation([a_id.did])))
+    _, endpoints = b.handle_lookup_result(server.on_lookup(b.lookup_frame(a_id.did)))
+    assert endpoints.best() is None

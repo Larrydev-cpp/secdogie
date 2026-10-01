@@ -5,7 +5,9 @@
   * a DID-authenticated UDP transport (``DirectUDPTransport``) that hears only
     the operator Apps on ``apps``, with the dialogue channel on a ``ChannelMux``
     -- and, given relay records, a ``FailoverTransport``: direct first, the
-    relay whenever the App has not been heard directly of late;
+    relay whenever the App has not been heard directly of late; given
+    rendezvous records, it registers there (and keeps renewing), so an App
+    finds it by DID alone;
   * per App, a ``DialogueSession`` + ``OperatorBridge`` (Gate 2 challenges,
     Socratic probes, control requests) + ``SnapshotPublisher`` (the structural
     view), handed to the Supervisor as its ``OperatorHooks``;
@@ -48,6 +50,7 @@ from secdogie_transport import (
     Endpoint,
     FailoverTransport,
     PeerIdentity,
+    RendezvousLink,
     Session,
     UDPChannel,
 )
@@ -71,6 +74,7 @@ class NodeConfig:
     transport_key: object = None
     app_bindings: list = field(default_factory=list)  # signed DID -> transport-key bindings of the Apps
     relay_records: list = field(default_factory=list)  # relays' self-signed records: the fallback path
+    rendezvous_records: list = field(default_factory=list)  # where this node registers, so Apps find it by DID
     run_task: Callable = agent_run_task
     challenge_ttl: float = 120.0
     probe_ttl: float = 300.0
@@ -112,6 +116,9 @@ class Node:
             carrier = self.transport
             if cfg.relay_records:
                 self.link = carrier = FailoverTransport.from_records(self.transport, cfg.relay_records)
+            self.rendezvous = None
+            if cfg.rendezvous_records:
+                self.rendezvous = RendezvousLink.from_records(self.transport, cfg.rendezvous_records)
             self.mux = ChannelMux(carrier, Session("node", PeerIdentity(cfg.identity.did, ""),
                                                    active=Endpoint("local", *self.channel.address)))
             self.router = SessionRouter(self.mux, accept=self._accept)
@@ -133,6 +140,14 @@ class Node:
         self._worker.start()
         if self.link is not None:
             self.link.start()
+        if self.rendezvous is not None:
+            self.rendezvous.start(self._own_endpoints)
+
+    def _own_endpoints(self) -> list[Endpoint]:
+        # What this node can say about itself; a rendezvous adds the address it
+        # sees the node's packets come from (the one that works across NAT).
+        host, port = self.channel.address
+        return [] if host in ("", "0.0.0.0") else [Endpoint("local", host, port)]
 
     def stop(self, timeout: float = 10.0) -> None:
         """Stop taking work, stop the running goal, say goodbye, close."""
@@ -147,6 +162,8 @@ class Node:
             link.session.close()
         if self.link is not None:
             self.link.close()
+        if self.rendezvous is not None:
+            self.rendezvous.close()
         self.channel.close()
 
     # -- the App ----------------------------------------------------------------------

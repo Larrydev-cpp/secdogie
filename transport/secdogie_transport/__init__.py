@@ -16,7 +16,7 @@ from .membership import MembershipView, PeerRecord, gossip_round
 from .mux import ChannelMux
 from .peer import PeerIdentity
 from .relay import RelayClient, RelayService
-from .rendezvous import RendezvousClient, RendezvousServer
+from .rendezvous import RendezvousClient, RendezvousLink, RendezvousServer, RendezvousService
 from .revocation_gossip import REVOCATION_GOSSIP, RevocationGossip
 from .sealed import ReplayWindow, load_transport_key
 from .session import Session
@@ -40,6 +40,8 @@ __all__ = [
     "load_transport_key",
     "RendezvousServer",
     "RendezvousClient",
+    "RendezvousService",
+    "RendezvousLink",
     "RelayService",
     "RelayClient",
     "RevocationGossip",

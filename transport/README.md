@@ -72,6 +72,18 @@ another instead of partitioning the mesh (`relay.py`).
   `FailoverTransport.from_records(direct, records)` builds it from the relays'
   own signed records, as `secdogie-relay` prints them. The operator dialogue
   (`secdogie-node`, `secdogie-dialogue connect`) uses it via `--relay-record`.
+- **Rendezvous on the wire** (`rendezvous.py`, T3). `RendezvousService` serves
+  the rendezvous role on a node's own UDP transport (`secdogie-relay
+  --rendezvous`); `RendezvousLink` is a node's side: it registers periodically
+  and looks peers up by DID across the rendezvous it was given
+  (`RendezvousLink.from_records`). The rendezvous stamps each registrant's
+  reflexive address from the packet source. Requests must be fresh (within the
+  clock window, and newer than the last one from that DID), replies echo the
+  request and are accepted once, registrations expire unless renewed, and a
+  per-DID rate limit applies. So a replayed register cannot move a peer's
+  address, and an old lookup result cannot point a client at a stale one. A
+  rendezvous can only mislead about addresses, never about identity: traffic to
+  a peer is still DID-signed (and, with transport keys, sealed) end to end.
 
 ## Running a headless relay (2C.1)
 

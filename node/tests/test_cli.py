@@ -140,3 +140,78 @@ def test_two_processes_app_and_node_over_udp(files):
         if node.poll() is None:
             node.kill()
             node.wait()
+
+
+def test_the_app_finds_the_node_by_did_at_a_rendezvous(files):
+    """Three processes: ``secdogie-relay --rendezvous``, the node (registered
+    there with ``--rendezvous-record``) and the App, which is given the node's
+    DID and the rendezvous' record -- never the node's address."""
+    pytest.importorskip("secdogie_transport")
+    tmp = files["tmp"]
+    app, rv = Identity.generate(), Identity.generate()
+    app.save(tmp / "app.key")
+    rv.save(tmp / "rv.key")
+    _allow(tmp / "apps.allow", app.did)
+    _allow(tmp / "mesh.allow", files["node"].did, app.did)
+    env = {k: v for k, v in os.environ.items() if not k.endswith("_API_KEY")}
+    env.update(PYTHONUNBUFFERED="1", HOME=str(tmp), XDG_CONFIG_HOME=str(tmp), APPDATA=str(tmp))
+    procs = []
+    try:
+        relay = subprocess.Popen(
+            [sys.executable, "-m", "secdogie_transport.relay_node", "--identity", str(tmp / "rv.key"),
+             "--authorized", str(tmp / "mesh.allow"), "--listen", "127.0.0.1:0", "--rendezvous"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+        procs.append(relay)
+        (tmp / "rv.json").write_text(relay.stdout.readline(), encoding="utf-8")
+        node = subprocess.Popen(
+            [sys.executable, "-m", "secdogie_node.cli", *files["args"], "--rendezvous-record", str(tmp / "rv.json")],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+        procs.append(node)
+        ready = json.loads(node.stdout.readline())
+        script = tmp / "script.jsonl"
+        script.write_text("\n".join(json.dumps(s) for s in [
+            {"op": "add_goal", "title": "file the report", "goal_id": "g1"},
+            {"op": "expect_status", "match": "goal g1 finished"},
+        ]) + "\n", encoding="utf-8")
+        cmd = [sys.executable, "-m", "secdogie_dialogue.cli", "connect", "--identity", str(tmp / "app.key"),
+               "--node", ready["did"], "--rendezvous-record", str(tmp / "rv.json"), "--listen", "127.0.0.1:0",
+               "--headless", str(script), "--step-timeout", "20"]
+        for _ in range(50):  # the node registers right after it starts; give that a moment
+            app_run = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=60)
+            if "not registered" not in app_run.stderr:
+                break
+        results = [json.loads(line) for line in app_run.stdout.splitlines()]
+        assert app_run.returncode == 0, (results, app_run.stderr[-2000:])
+        assert results[0]["reply"].startswith("accepted: goal g1 queued")
+        assert "goal g1 finished" in results[1]["status"]
+        for p in reversed(procs):
+            p.send_signal(signal.SIGTERM)
+            assert p.wait(timeout=20) == 0
+    finally:
+        for p in procs:
+            if p.poll() is None:
+                p.kill()
+                p.wait()
+
+
+def test_the_app_says_so_when_the_node_is_not_at_the_rendezvous(files, tmp_path, capsys):
+    pytest.importorskip("secdogie_transport")
+    from secdogie_dialogue.cli import main as app_main
+    from secdogie_transport import DirectUDPTransport, Endpoint, RendezvousService, UDPChannel
+    from secdogie_transport.membership import ROLE_RENDEZVOUS, sign_record
+
+    app, rv = Identity.generate(), Identity.generate()
+    app.save(tmp_path / "app.key")
+    channel = UDPChannel("127.0.0.1", 0)
+    transport = DirectUDPTransport(rv, channel, allowlist=Allowlist({app.did}))
+    RendezvousService(transport, allowlist=Allowlist({app.did, files["node"].did}))
+    record = sign_record(rv, [Endpoint("local", *channel.address)], last_seen=1.0, roles=[ROLE_RENDEZVOUS])
+    (tmp_path / "rv.json").write_text(json.dumps(record), encoding="utf-8")
+    (tmp_path / "script.jsonl").write_text(json.dumps({"op": "add_goal", "title": "x"}) + "\n", encoding="utf-8")
+    try:
+        rc = app_main(["connect", "--identity", str(tmp_path / "app.key"), "--node", files["node"].did,
+                       "--rendezvous-record", str(tmp_path / "rv.json"), "--listen", "127.0.0.1:0",
+                       "--headless", str(tmp_path / "script.jsonl")])
+        assert rc == 1 and "not registered at any rendezvous" in capsys.readouterr().err
+    finally:
+        channel.close()

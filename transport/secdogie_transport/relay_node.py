@@ -10,7 +10,10 @@ itself, with nobody at the keyboard::
 It binds one UDP socket, serves the relay role on it, prints its self-signed
 membership record (``roles=["relay"]``) as one JSON line so other nodes can be
 bootstrapped with it, logs a ``stats`` line to stderr every so often, and runs
-until SIGTERM / SIGINT, when it stops serving and exits 0.
+until SIGTERM / SIGINT, when it stops serving and exits 0. With ``--rendezvous``
+it also serves the rendezvous role on the same socket (``roles=["relay",
+"rendezvous"]``): the same allowlisted DIDs register their endpoints with it and
+look each other up by DID.
 
 What it deliberately does not do:
 
@@ -46,8 +49,9 @@ from secdogie_identity import (
 )
 
 from .endpoint import Endpoint
-from .membership import ROLE_RELAY, sign_record
+from .membership import ROLE_RELAY, ROLE_RENDEZVOUS, sign_record
 from .relay import DEFAULT_LEASE, MAX_LEASE, RelayService
+from .rendezvous import RendezvousService
 from .revocation_gossip import RevocationGossip
 from .udp import DirectUDPTransport, UDPChannel
 
@@ -99,6 +103,8 @@ def build_parser() -> argparse.ArgumentParser:
                         "(requires --masters)")
     p.add_argument("--lease", type=_positive(MAX_LEASE), default=DEFAULT_LEASE, metavar="SECONDS",
                    help=f"how long a client registration lasts unless renewed (default {DEFAULT_LEASE:g})")
+    p.add_argument("--rendezvous", action="store_true",
+                   help="also serve the rendezvous role: the same DIDs register and look each other up")
     p.add_argument("--stats-every", type=_positive(), default=DEFAULT_STATS_EVERY, metavar="SECONDS",
                    help=f"interval between stats lines on stderr (default {DEFAULT_STATS_EVERY:g})")
     return p
@@ -130,6 +136,13 @@ def _log(event: str, **fields) -> None:
     with _log_lock:
         sys.stderr.write(line)
         sys.stderr.flush()
+
+
+def _stats(service: RelayService, rendezvous: RendezvousService | None) -> dict:
+    stats = dict(service.stats)
+    if rendezvous is not None:
+        stats.update({f"rendezvous_{k}": v for k, v in rendezvous.stats.items()})
+    return stats
 
 
 def main(argv=None) -> int:
@@ -173,6 +186,8 @@ def main(argv=None) -> int:
     channel = UDPChannel(host or "0.0.0.0", port)
     transport = DirectUDPTransport(identity, channel, allowlist=served)
     service = RelayService(transport, allowlist=served, lease=args.lease)
+    rendezvous = RendezvousService(transport, allowlist=served) if args.rendezvous else None
+    services = [service] + ([rendezvous] if rendezvous is not None else [])
 
     # Revocation: accept gossiped records, and halt cleanly if this relay's own
     # DID is revoked -- the same wind-down as an operator stopping it locally.
@@ -180,7 +195,7 @@ def main(argv=None) -> int:
         RevocationGossip(transport, served)
 
         def on_revocation(newly):
-            if halt_on_self_revocation(newly, identity.did, [service.stop, stop.set]):
+            if halt_on_self_revocation(newly, identity.did, [*(svc.stop for svc in services), stop.set]):
                 _log("halted", did=identity.did, reason="own DID revoked")
 
         served.on_change(on_revocation)
@@ -190,7 +205,8 @@ def main(argv=None) -> int:
     bound_port = channel.address[1]
     endpoint = (Endpoint("public", args.public_host, bound_port) if args.public_host
                 else Endpoint("local", host, bound_port))
-    record = sign_record(identity, [endpoint], last_seen=time.time(), roles=[ROLE_RELAY])
+    roles = [ROLE_RELAY] + ([ROLE_RENDEZVOUS] if rendezvous is not None else [])
+    record = sign_record(identity, [endpoint], last_seen=time.time(), roles=roles)
     line = json.dumps(record, sort_keys=True) + "\n"
     if args.record_out:
         _write_atomically(args.record_out, line)
@@ -201,11 +217,12 @@ def main(argv=None) -> int:
          endpoint=f"{endpoint.kind}:{endpoint.host}:{endpoint.port}", authorized=len(allowlist))
     try:
         while not stop.wait(args.stats_every):
-            _log("stats", clients=len(service.clients()), **dict(service.stats))
+            _log("stats", clients=len(service.clients()), **_stats(service, rendezvous))
     finally:
-        service.stop()
+        for svc in services:
+            svc.stop()
         channel.close()
-    _log("stopped", **dict(service.stats))
+    _log("stopped", **_stats(service, rendezvous))
     return 0
 
 

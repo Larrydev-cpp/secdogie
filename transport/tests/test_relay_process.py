@@ -26,10 +26,11 @@ from secdogie_transport import (  # noqa: E402
     MembershipView,
     PeerIdentity,
     RelayClient,
+    RendezvousLink,
     Session,
     UDPChannel,
 )
-from secdogie_transport.membership import ROLE_RELAY, announce, verify_record  # noqa: E402
+from secdogie_transport.membership import ROLE_RELAY, ROLE_RENDEZVOUS, announce, verify_record  # noqa: E402
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 RELAY = [sys.executable, "-m", "secdogie_transport.relay_node"]
@@ -167,6 +168,55 @@ def test_headless_relay_process_forwards_without_anyone_at_the_keyboard(keys):
         if proc.poll() is None:
             proc.kill()
             proc.communicate(timeout=10)
+        for node in (a, b):
+            if node is not None:
+                node.close()
+
+
+def test_relay_process_with_rendezvous_lets_nodes_find_each_other_by_did(keys):
+    tmp, relay, id_a, id_b, allow = keys
+    record_file = tmp / "relay.record"
+    a = b = None
+    links = []
+    proc = subprocess.Popen(
+        RELAY + ["--identity", str(tmp / "relay.key"), "--authorized", str(tmp / "mesh.allow"),
+                 "--listen", "127.0.0.1:0", "--record-out", str(record_file), "--rendezvous",
+                 "--stats-every", "0.2"],
+        cwd=PACKAGE_ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert wait(lambda: record_file.exists() or proc.poll() is not None, START_TIMEOUT)
+        assert proc.poll() is None, proc.communicate(timeout=5)
+        record = json.loads(record_file.read_text(encoding="utf-8"))
+        rec = verify_record(record, allowlist=allow)
+        assert rec is not None and rec.roles == (ROLE_RELAY, ROLE_RENDEZVOUS)
+
+        # A and B hold only the record; B finds A by DID and reaches it directly.
+        a, b = Client(id_a, allow, Clock()), Client(id_b, allow, Clock())
+        la = RendezvousLink.from_records(a.transport, [record])
+        lb = RendezvousLink.from_records(b.transport, [record])
+        links += [la, lb]
+        la.register([])
+        assert wait(lambda: relay.did in la.reflexive)
+        found = lb.lookup(id_a.did)
+        assert found is not None and found.best().port == a.channel.address[1]
+        b.transport.set_peer_endpoint(id_a.did, found.best().host, found.best().port)
+        assert b.transport.route(id_b.did, id_a.did, b"found by did")
+        assert get(a.direct_inbox) == (id_b.did, b"found by did")
+
+        proc.terminate()
+        _, err = proc.communicate(timeout=10)
+        assert proc.returncode == 0, err
+        events = [json.loads(line) for line in err.splitlines() if line.startswith("{")]
+        assert events[-1]["event"] == "stopped"
+        assert events[-1]["rendezvous_registered"] >= 1 and events[-1]["rendezvous_looked_up"] >= 1
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate(timeout=10)
+        for link in links:
+            link.close()
         for node in (a, b):
             if node is not None:
                 node.close()
