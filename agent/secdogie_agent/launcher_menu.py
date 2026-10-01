@@ -1,88 +1,22 @@
-"""Built-in launcher menu: double-click the packaged exe -> a frosted-glass
-chooser, no extra files, no terminal knowledge.
+"""What a double-clicked exe does, and the agent CLI's API key dialog.
 
-A frozen single-file build launched with NO arguments (i.e. double-clicked)
-shows this window first and turns the clicked card into the CLI arguments it
-stands for -- so `secdogie-agent.exe` alone is the whole install: one file,
-open it, pick what to do. Launched *with* arguments (a terminal user, the
-macro/skill flags, scripts), the menu never appears and the CLI is untouched.
+A frozen single-file build launched with NO arguments (a double-click) opens
+the one secdogie window (``cli.open_window``, the ``secdogie_app`` package):
+goals, questions, approvals, memory, other machines' nodes and the API key, in
+one conversation. Launched *with* arguments (a terminal user, the macro/skill
+flags, scripts), the CLI is untouched. The card menu that used to open here is
+retired.
 
-First-run: if no API key is configured yet, the key dialog is shown before the
-menu so the user never hits a silent failure after picking a task.
-
-The glass: tkinter draws the panel, and on Windows the real acrylic blur comes
-from the OS compositor -- the same SetWindowCompositionAttribute call native
-apps use, applied to tkinter's HWND -- plus DWM rounded corners on Windows 11.
-Both are best-effort: anywhere they can't apply (older Windows, other OSes)
-the window still shows as a clean dark panel. The menu itself launches
-nothing; it only *returns* the chosen argv for cli.main to run, which keeps
-the choice->args mapping a pure, headless-testable table.
+``show_key_dialog`` is the key dialog the CLI's ``--gui`` path still uses when
+no API key is configured. The glass: tkinter draws the panel, and on Windows
+the real acrylic blur comes from the OS compositor (``theme.apply_glass``);
+anywhere it can't apply, the window still shows as a clean dark panel.
 """
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
 
 from . import theme as ui
-
-# -- the choices (pure data: provable without a display) -----------------------
-
-
-@dataclass(frozen=True)
-class MenuChoice:
-    key: str
-    title: str
-    blurb: str
-    args: tuple[str, ...]  # the secdogie-agent argv this card stands for
-    # Special: "config" is handled by the GUI key dialog, not by returning args.
-
-
-MENU_CHOICES: tuple[MenuChoice, ...] = (
-    MenuChoice(
-        "task",
-        "Do a task",
-        "Type what you want. A console stays on screen with STOP. High-risk steps still ask.",
-        ("--gui", "--desktop-ax"),
-    ),
-    MenuChoice(
-        "dry",
-        "Preview only (safe)",
-        "See what it would do — nothing is clicked or typed on your machine.",
-        ("--gui", "--desktop-ax", "--dry-run"),
-    ),
-    MenuChoice(
-        "ax",
-        "Smarter clicks (recommended)",
-        "Uses accessibility labels when possible — steadier on real apps.",
-        ("--gui", "--desktop-ax"),
-    ),
-    MenuChoice(
-        "step",
-        "Ask every step",
-        "Yes/No popup before each click. Slower, same as the old careful path.",
-        ("--gui", "--desktop-ax", "--confirm-each"),
-    ),
-    MenuChoice(
-        "auto",
-        "Run without asking (careful)",
-        "No plan dialog, no per-step confirm. High-risk actions still ask.",
-        ("--gui", "--desktop-ax", "--auto"),
-    ),
-    MenuChoice(
-        "config",
-        "Set up / edit API key",
-        "Paste any provider key (Anthropic, OpenAI, OpenRouter, DeepSeek, Groq, custom…).",
-        (),  # handled specially by show_key_dialog
-    ),
-)
-
-
-def args_for(key: str) -> list[str] | None:
-    """The argv for a choice key, or None for an unknown key."""
-    for c in MENU_CHOICES:
-        if c.key == key:
-            return list(c.args)
-    return None
 
 
 def should_offer(argv: list[str]) -> bool:
@@ -319,128 +253,3 @@ def ensure_api_key_or_prompt() -> bool:
     if config_mod.has_configured_api_key():
         return True
     return show_key_dialog(first_run=True)
-
-
-def show_menu() -> list[str] | None:
-    """Show the chooser; return the picked argv, or None if closed/cancelled.
-    Raises nothing: any failure to build the window returns ["--gui"] so a
-    double-clicked exe always does *something* useful.
-
-    First-run: if no API key is present, the key dialog is shown first. Closing
-    it without saving exits (returns None) so we don't start a doomed run.
-    """
-    try:
-        # Gate on key before building the menu window.
-        if not ensure_api_key_or_prompt():
-            return None
-
-        import tkinter as tk
-
-        from . import config as config_mod
-
-        root = tk.Tk()
-        root.title("secdogie-agent")
-        root.overrideredirect(True)  # borderless: the panel IS the window
-        root.configure(bg=ui.BG)
-        root.attributes("-topmost", True)
-
-        result: list = [None]
-
-        def choose(args: tuple[str, ...]) -> None:
-            result[0] = list(args)
-            root.destroy()
-
-        def cancel(_event=None) -> None:
-            result[0] = None
-            root.destroy()
-
-        def open_key_dialog(_event=None) -> None:
-            root.withdraw()
-            root.update()
-            show_key_dialog(first_run=False)
-            root.deiconify()
-
-        pad = tk.Frame(root, bg=ui.BG)
-        pad.pack(padx=22, pady=18, fill="both", expand=True)
-
-        header = tk.Frame(pad, bg=ui.BG)
-        header.pack(fill="x")
-        tk.Label(header, text="secdogie", bg=ui.BG, fg=ui.FG,
-                 font=ui.font(18, bold=True)).pack(side="left")
-        close = tk.Label(header, text="\u2715", bg=ui.BG, fg=ui.MUTED,
-                         font=ui.font(13), cursor="hand2", padx=8)
-        close.pack(side="right")
-        close.bind("<Button-1>", cancel)
-
-        tk.Label(
-            pad,
-            text="An AI that can see your screen and use the mouse & keyboard.\n"
-                 "It asks before each step. Your key stays on this machine.",
-            bg=ui.BG, fg=ui.MUTED, font=ui.font(12), justify="left",
-        ).pack(anchor="w", pady=(4, 12))
-
-        if not config_mod.has_configured_api_key():
-            # Should be rare (we gated above), but keep a visible hint.
-            tk.Label(
-                pad,
-                text="No API key yet — open Set up / edit API key first.",
-                bg=ui.BG, fg=ui.WARN, font=ui.font(12),
-            ).pack(anchor="w", pady=(0, 8))
-
-        for choice in MENU_CHOICES:
-            card = tk.Frame(pad, bg=ui.SURFACE, cursor="hand2")
-            card.pack(fill="x", pady=(0, 8), ipadx=4, ipady=4)
-            title = tk.Label(card, text=choice.title, bg=ui.SURFACE, fg=ui.FG,
-                             font=ui.font(14, bold=True), anchor="w", padx=12)
-            title.pack(fill="x", pady=(6, 0))
-            blurb = tk.Label(card, text=choice.blurb, bg=ui.SURFACE, fg=ui.MUTED,
-                             font=ui.font(12), anchor="w", padx=12,
-                             wraplength=380, justify="left")
-            blurb.pack(fill="x", pady=(0, 6))
-
-            widgets = (card, title, blurb)
-
-            def on_enter(_e, ws=widgets):
-                for w in ws:
-                    w.configure(bg=ui.SURFACE_2)
-
-            def on_leave(_e, ws=widgets):
-                for w in ws:
-                    w.configure(bg=ui.SURFACE)
-
-            if choice.key == "config":
-                def on_click(_e):
-                    open_key_dialog()
-            else:
-                def on_click(_e, args=choice.args):
-                    choose(args)
-
-            for w in widgets:
-                w.bind("<Enter>", on_enter)
-                w.bind("<Leave>", on_leave)
-                w.bind("<Button-1>", on_click)
-
-        root.bind("<Escape>", cancel)
-
-        drag = {"x": 0, "y": 0}
-
-        def start_drag(e):
-            drag["x"], drag["y"] = e.x_root - root.winfo_x(), e.y_root - root.winfo_y()
-
-        def do_drag(e):
-            root.geometry(f"+{e.x_root - drag['x']}+{e.y_root - drag['y']}")
-
-        header.bind("<Button-1>", start_drag)
-        header.bind("<B1-Motion>", do_drag)
-
-        root.update_idletasks()
-        w, h = root.winfo_reqwidth(), root.winfo_reqheight()
-        x = (root.winfo_screenwidth() - w) // 2
-        y = (root.winfo_screenheight() - h) // 2
-        root.geometry(f"+{x}+{y}")
-        _apply_windows_glass(root)
-
-        root.mainloop()
-        return result[0]
-    except Exception:
-        return ["--gui"]

@@ -9,7 +9,7 @@
         [--operator-keystore op.keystore] \\
         [--transport-key app.tkey --node-binding node.binding.json] \\
         [--relay-record relay.json ...] \\
-        [--headless SCRIPT.jsonl|- [--passphrase-file FILE]]
+        --headless SCRIPT.jsonl|- [--passphrase-file FILE]
 
 ``connect`` talks to exactly one node, named by DID: that DID is the whole
 trust set, for the transport and for the dialogue session alike, so nothing
@@ -22,13 +22,14 @@ the App looks the node up by its DID instead of being told its address.
 memory confirmations); the operator key stays in its keystore and is unlocked
 once per Gate 2 approval.
 
-Without ``--headless`` it opens the Textual screen (``pip install
-secdogie-dialogue[tui]``). With it, it runs a script of operator steps, one
-JSON object per line (see ``app.run_script``), prints one JSON result per step
-and exits 0 only if every step succeeded -- for end-to-end tests. A script
-approves nothing by default: each ``approve`` step names the exact action it
-approves, matches one challenge, and signs once, after the same review the
-screen does.
+``connect`` is for scripts: with ``--headless`` it runs a script of operator
+steps, one JSON object per line (see ``app.run_script``), prints one JSON
+result per step and exits 0 only if every step succeeded -- for end-to-end
+tests and automation. A script approves nothing by default: each ``approve``
+step names the exact action it approves, matches one challenge, and signs
+once, after the same review the window does. The operator's screen is the
+secdogie window (``secdogie``, the ``app`` package): it pairs with a node the
+same way and drives it in one conversation.
 """
 from __future__ import annotations
 
@@ -133,7 +134,10 @@ def _connect(args, parser) -> int:
     if bool(args.transport_key) != bool(args.node_binding):
         parser.error("--transport-key and --node-binding go together (encryption needs both ends' keys)")
     if args.passphrase_file and not args.headless:
-        parser.error("--passphrase-file is for --headless; the screen asks for the passphrase")
+        parser.error("--passphrase-file is for --headless; the window asks for the passphrase")
+    if not args.headless:
+        parser.error("connect runs --headless scripts; to drive a node yourself, open the secdogie window "
+                     "(`secdogie`) and pair the node there (switcher -> 添加远程节点)")
     try:
         from secdogie_transport.sealed import load_transport_key
     except ImportError:
@@ -143,11 +147,9 @@ def _connect(args, parser) -> int:
     from .app import run_script
     from .connect import NodeNotFound, open_session
 
-    steps = None
     try:
         identity = Identity.load(args.identity)
-        if args.headless:
-            steps = _load_script(args.headless)
+        steps = _load_script(args.headless)
         tkey = load_transport_key(args.transport_key) if args.transport_key else None
         binding = json.loads(Path(args.node_binding).read_text(encoding="utf-8")) if args.node_binding else None
         relays = [json.loads(Path(r).read_text(encoding="utf-8")) for r in args.relay_record]
@@ -172,25 +174,18 @@ def _connect(args, parser) -> int:
         def unlock_with(passphrase: bytes):
             return unseal_identity(keystore, passphrase)
 
-        if steps is not None:
-            unlock = None
-            if keystore and args.passphrase_file:
-                pf = args.passphrase_file
+        unlock = None
+        if keystore and args.passphrase_file:
+            pf = args.passphrase_file
 
-                def unlock():
-                    return unlock_with(_read_passphrase(pf))
+            def unlock():
+                return unlock_with(_read_passphrase(pf))
 
-            def emit(result: dict) -> None:
-                sys.stdout.write(json.dumps(result, sort_keys=True) + "\n")
-                sys.stdout.flush()
+        def emit(result: dict) -> None:
+            sys.stdout.write(json.dumps(result, sort_keys=True) + "\n")
+            sys.stdout.flush()
 
-            return run_script(ctl, steps, unlock=unlock, emit=emit, default_timeout=args.step_timeout)
-        try:
-            from .tui import run_tui
-        except ImportError:
-            parser.error("the screen needs Textual: pip install 'secdogie-dialogue[tui]' (or use --headless)")
-        run_tui(ctl, unlock_with=unlock_with if keystore else None)
-        return 0
+        return run_script(ctl, steps, unlock=unlock, emit=emit, default_timeout=args.step_timeout)
     finally:
         app.close()
 

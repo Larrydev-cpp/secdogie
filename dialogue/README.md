@@ -23,8 +23,13 @@ Design: [DESIGN.zh.md](DESIGN.zh.md).
 | `agent_bridge.py` | The node's end: `OperatorBridge` turns a destructive step into a Gate 2 challenge (the gate verifies the returned token; the signature is the step's confirmation), `ask_user` into a Socratic probe whose answer returns as text, and answers control requests; a vanished peer fails every pending wait | done |
 | `publisher.py` | The node's end of the structural view: the element targets the loop offers the model each step become a full tree, then deltas on stable handles (each names its base generation); the App's RESYNC gets the full tree at once. Reads only the named structural fields; a DIB travels as size + format + hash, never pixels | done |
 | `app.py` | `AppController`: the App without a screen -- conversation, structural view (asks for a resync on a gap), Gate 2 challenges (reviewed on arrival and again when signing; the operator key is unlocked for one signature), memory offers (id recomputed from the content shown before confirming), control requests; plus the headless script runner | done |
-| `tui.py` | Textual split screen over `AppController` (optional `[tui]` extra); node text rendered literally, never as markup; `/approve` acts only on the challenge on screen, after the passphrase prompt | done |
-| `cli.py` | `secdogie-dialogue connect` (one node, named by DID, is the whole trust set), `new-operator-key`, `operator-did`; `--relay-record` for a relay fallback path; `--headless SCRIPT` for end-to-end tests | done |
+| `connect.py` | `open_session`: the one wiring every App uses (the CLI, the secdogie window's own node, the nodes it pairs with) -- one node DID is the whole trust set; address given, else a rendezvous lookup by DID, else relays | done |
+| `cli.py` | `secdogie-dialogue connect --headless SCRIPT` (scripts and end-to-end tests), `new-operator-key`, `operator-did`; `--relay-record` / `--rendezvous-record` | done |
+
+The operator's screen is the **secdogie window** (the [`app`](../app/README.md)
+package): one conversation over this package's `AppController`, with the
+structural view as a fold and other machines' nodes one switch away. The
+Textual screen that used to live here is retired.
 
 ## The wire, in one paragraph
 
@@ -53,26 +58,21 @@ the App refuses to sign.
 
 ## Running it
 
+To drive a node yourself, open the secdogie window (`secdogie`) and pair the
+node there. From the command line, `connect` runs scripts:
+
 ```sh
-pip install -e ../identity -e ../citadel -e ../transport -e '.[tui]'
+pip install -e ../identity -e ../citadel -e ../transport -e '.[net]'
 secdogie-dialogue new-operator-key op.keystore        # prints the operator DID for the node's operators list
 secdogie-dialogue connect --identity app.key --node did:key:z6Mk... --node-addr 10.0.0.5:7950 \
-    --operator-keystore op.keystore
+    --operator-keystore op.keystore --passphrase-file pass.txt --headless steps.jsonl
 ```
 
-The screen: the dialogue on the left, the structural view and the Gate 2 /
-memory console on the right, one command line at the bottom. Type an answer
-(or an option number) for the oldest open question; `/approve` or `/deny` the
-challenge on screen; `/confirm` or `/dismiss` the memory offer on screen;
-`/goal <task>`, `/stop|/pause|/resume <goal_id>`, `/retract <memory_id>`,
-`/resync`, `/quit`. There is no key that approves: `/approve` shows a
-passphrase prompt, and only a challenge the App's own review passed gets one.
-
-Headless (`--headless SCRIPT`, JSON lines, one result line per step, exit 0
-only if every step succeeded) is for end-to-end tests. A script approves
-nothing by default: each `approve` step names the action (its kind, and a
-target id / name or, for a key press, its text) and signs the one challenge
-that matches, after the same review.
+A script is JSON lines. `connect` prints one result line per step and exits 0
+only if every step succeeded; it is for end-to-end tests and automation. A
+script approves nothing by default: each `approve` step names the action (its
+kind, and a target id / name or, for a key press, its text) and signs the one
+challenge that matches, after the same review the window does.
 
 ```json
 {"op": "add_goal", "title": "file the report", "goal_id": "g1"}
@@ -85,9 +85,8 @@ that matches, after the same review.
 ## Tests
 
 ```sh
-pip install -e ../identity -e ../citadel -e ../transport -e '.[tui]' pytest
+pip install -e ../identity -e ../citadel -e ../transport -e '.[net]' pytest
 pytest tests -q
 ```
 
-All tests are headless: the screen runs under Textual's `run_test()` pilot,
-the network is an in-memory wire or UDP on 127.0.0.1.
+All tests are headless: the network is an in-memory wire or UDP on 127.0.0.1.

@@ -50,8 +50,8 @@ ok, signer = verify_payload(msg, Allowlist({me.did}))         # (True, did)
 
 The signature covers a canonical (sorted-key, tight) JSON encoding of the
 payload — the same encoding `agent/secdogie_agent/trace.py` uses — so `signer`
-and `sig` layer onto any JSON contract that ignores unknown keys (e.g. the fleet
-wire protocol) without changing it.
+and `sig` layer onto any JSON contract that ignores unknown keys without
+changing it.
 
 ## Revocation (R1.2)
 
@@ -87,12 +87,11 @@ secdogie-identity revoke-apply rev.json --masters masters.conf --store revocatio
 `revoke-apply` checks the signatures again and appends the record to a
 revocation store, a JSON-lines file. Every command line that takes an allowlist
 also takes `--masters masters.conf --revocations revocations.jsonl`
-(`secdogie-fleet`, `secdogie-console`, `secdogie-desktop`, `secdogie-citadel`,
-`secdogie-relay`). Those processes re-read the store every few seconds, so a
+(`secdogie-node`, `secdogie-citadel`, `secdogie-relay`). Those processes re-read the store every few seconds, so a
 record appended there takes effect without a restart:
 
 - a revoked DID is refused wherever the allowlist is checked;
-- a fleet coordinator disconnects a node that was already connected;
+- a node drops the session of an App that was already connected;
 - a process whose own DID is revoked stops its work and exits 0.
 
 The store is only a transport for records: a line whose signatures do not meet

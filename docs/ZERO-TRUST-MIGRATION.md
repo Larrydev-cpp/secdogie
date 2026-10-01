@@ -1,5 +1,9 @@
 # Zero trust by default (stage 2, Wave B): migration notes
 
+> Stage 4 retired `fleet/`, `console/`, `desktop/`, the Textual screen and the
+> launcher's card menu. The rows about them below are kept as a record. See
+> [ONE-WINDOW-MIGRATION.md](ONE-WINDOW-MIGRATION.md) for what replaces them.
+
 Until this change, several constructors and command-line tools treated a
 missing allowlist as "trust anyone". That default is gone. A component that
 decides whom to hear now refuses to start without being told. The one way to

@@ -15,7 +15,7 @@ mergeable across a node's own authorized peers without a central writer.
   yet (add an LWW-Map on top only when concurrent multi-writer keys appear).
 - **Authorized only.** `merge()` accepts events only from DIDs on the allowlist.
 - **No network here.** Storage is stdlib `sqlite3`; replication rides the
-  [fleet](../fleet) transport (a later slice).
+  node's transport (`secdogie-node`, the mesh).
 
 ## Use
 

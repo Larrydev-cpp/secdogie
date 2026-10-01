@@ -51,7 +51,7 @@
 **节点角色**:
 - **无头基础设施节点**(VPS、NAS):承担 relay、membership gossip、日志复制。它们只看签名、白名单与撤销,
   无人值守、没有确认环节,也不运行具身执行层。`secdogie-relay` 就是这样一个进程:不读 stdin,
-  不导入 agent / citadel / fleet,SIGTERM 时干净退出;给了 `--masters` 后,被撤销的 DID 立即停止被中转,
+  不导入 agent / citadel / node,SIGTERM 时干净退出;给了 `--masters` 后,被撤销的 DID 立即停止被中转,
   而当这台 relay 自身的 DID 被合法撤销时,它像被机主停掉一样干净退出(`exit(0)`)。
 - **带屏交互节点**:在前三层之上再运行具身执行层,高风险物理动作在这里经人工确认。
   `secdogie-node` 是这样一个常驻前台进程:组装传输、对话会话、签名日志与受监督的 agent 回路,
@@ -78,7 +78,7 @@
   binding 证明 “DID→传输密钥”,握手证明 “持有该私钥”,二者相乘 ⇒ 会话可归属某 DID。
 - **对等抽象**:`transport/`(Phase 2.2)定义 `PeerIdentity` / `Session` / `Endpoint`
   (`local|public|observed|candidate`)/ `Transport` 接口;端点迁移(漫游)**不改变会话身份**。
-- **舰队安全**:`fleet/` 以 DID 签名保护协调面,`node_id` 与 DID 绑定关闭了节点冒充路径。
+- **节点与操作员**:每台机器跑 `secdogie-node`;操作员的对话框凭节点的自签就绪行配对,会话只信那一个 DID(第四阶段取代了 `fleet/` 协调面)。
 
 ### 支柱二 · P2P 分布式获取信息与学习
 
@@ -139,10 +139,13 @@
   在 `enforce_capabilities` 开启时据此逐动作校验:未授权 / 无 scope 映射的变更类动作一律拒绝。
 - **人在环 + fail-closed**:高风险动作(保存/删除/关闭/打开/提权执行)默认需人类确认,
   失败即停,不猜、不重复提交(Phase 2.8 崩溃恢复:先**重新观测**确认动作是否已发生再决定重试)。
-- **控制面**:`desktop/`(原生窗口 GUI)与 `console/`(本地 127.0.0.1、operator-DID 门控)
-  让你随时看到、批准或中止。**Dialogue App**(`dialogue/`,`secdogie-dialogue`)是节点的操作员端:
-  苏格拉底追问与回答、结构化视界(只有 AX 结构与 DIB 尺寸 / 哈希,没有像素)、Gate 2 签名台、
-  记忆确认;它不截屏、不读进程内存、不依赖中心服务器。
+- **操作界面:一个对话框**(第四阶段):`app/`(`secdogie`,双击 exe 即打开)是**唯一**的操作界面——
+  一个原生对话框加 API key 填写。它在一个窗口里承载 Dialogue App(`dialogue/` 的 `AppController`)的全部:
+  苏格拉底追问与回答、结构化视界(折叠区;只有 AX 结构与 DIB 尺寸 / 哈希,没有像素)、Gate 2 审批
+  (操作员私钥以口令加密,第一次审批时设口令,每次批准只解锁签一次)、记忆确认、停止;
+  本机节点在同一进程里只绑 127.0.0.1,其他机器的节点配对后在同一窗口切换。它不截屏、不读进程内存、
+  不依赖中心服务器。启动菜单卡片、终端界面、`desktop/`、`console/`、`fleet/` 已退役
+  (见 [`docs/ONE-WINDOW-MIGRATION.md`](docs/ONE-WINDOW-MIGRATION.md))。
 
 ---
 
@@ -157,7 +160,7 @@ flowchart TB
         bind["transport-binding: DID ↔ X25519 静态密钥"]
         did --> bind
     end
-    subgraph NET["② P2P 网络 (transport/ · fleet/ · tunnel/)"]
+    subgraph NET["② P2P 网络 (transport/ · node/ · tunnel/)"]
         sess["Session: 经认证的对等会话 (漫游不改身份)"]
         direct["DirectUDPTransport: DID 签名数据报"]
         bind --> sess --> direct
@@ -172,10 +175,10 @@ flowchart TB
     subgraph MIND["④ 苏格拉底质询 (citadel/socratic.py)"]
         gate["指令门 + 计划门(action_gate)"]
     end
-    subgraph ACT["⑤ 受认证设备实战 (agent/ · native/atlas · desktop/ · console/)"]
+    subgraph ACT["⑤ 受认证设备实战 (agent/ · native/atlas · node/ · app/)"]
         obs["观测融合: AX + DIB(按引用) → Observation (不截屏)"]
         cap["能力授权 (读≠写, 观测≠执行)"]
-        hitl["HITL: Dialogue App 签名(Gate 2)/ 追问 + fail-closed"]
+        hitl["HITL: 对话框里的 Gate 2 签名(口令)/ 追问 + fail-closed"]
         obs --> gate
         gate -->|allow| cap --> hitl --> world["现实动作"]
         world -->|结果写回| jrnl
@@ -214,20 +217,20 @@ flowchart TB
 | `agent/` (AX/safety/…) | 感知 + 安全边界 + 动作 schema | ④ | ✅ 已建成 |
 | `native/atlas/` (C++) | 只读进程感知、DIB 重建 | ④ | ✅ 已建成 |
 | `tunnel/` (C) | libsodium 加密隧道(机密性) | ② | ✅ 已建成 |
-| `fleet/` | DID 安全协调面 | ① | ✅ 已建成 |
-| `desktop/` · `console/` | 原生 GUI / 本地控制台(DID 门控) | ④ | ✅ 已建成 |
+| `app/` | **唯一的操作界面**:一个原生对话框 + API key;本机节点在进程内;视界折叠区;配对并切换到其他机器的节点(第四阶段) | ④ | ✅ 已建成 |
+| `agent/secdogie_agent/websession.py` | 复用已授权浏览器会话,只读导航 + 读结构(可选 `[web]`) | ④ | ✅ 已建成(尚未接入回路) |
 | `citadel/action_gate.py` | 动作计划级苏格拉底门 `GateDecision`(2.6) | ③ | ✅ 已建成 |
 | `agent/target.py` | AX 不透明目标 + 代际,修 TOCTOU(2.5) | ④ | ✅ 已建成 |
 | `citadel/run.py` | Agent↔Citadel run 闭环(2.7):run/step 签名状态、链式 `state_hash`、随复制收敛 | ③④ | ✅ 已建成 |
 | `identity/capability.py` | 签名能力授权(2.9):白名单 scope、带过期、受信 issuer;计划门据此逐动作校验 | ④ | ✅ 已建成 |
 | `identity/allowlist.py` | 零信任默认:`ALLOW_ANY` 显式哨兵 + `require_trust`;全仓生产调用点的信任参数有测试把关;`AnyOf` 合并多个信任集合、实时生效 | ① | ✅ 已建成 |
-| `webrtc/` | Cloudflare Workers 上的 WebRTC 信令网关 + 浏览器数据通道(只经手信令,不经手业务数据) | ② | ✅ 已建成 |
+| `webrtc/` | Cloudflare Workers 上的 WebRTC 信令网关 + 浏览器数据通道(只经手信令,不经手业务数据);保留、不再扩展,没有网页操作界面 | ② | ✅ 已建成 |
 | `transport/mux.py` | `ChannelMux`:一个传输上的多条应用通道(`dialogue/v1` 等) | ② | ✅ 已建成 |
 | `transport/failover.py` | 直连优先、中继兜底:近期直接听到对端才只走直连,否则同时经双方都持有租约的中继发送;由中继自签名记录构建 | ② | ✅ 已建成 |
 | `citadel/authz.py` | Gate 2 操作员授权令牌:绑定动作哈希与节点 DID、短时效 | ③④ | ✅ 已建成 |
 | `citadel/loop_gate.py` · `loop_memory.py` | 两道门接入实时 agent 回路;每步记录 `action_key` / 结果 | ③④ | ✅ 已建成 |
 | `citadel/episodes.py` · `lessons.py` · `consolidate.py` | 阶段式记忆 S1 / S2 / S3 | ③ | ✅ 已建成 |
-| `dialogue/` | Dialogue App:签名信封协议、丢包 / 乱序下的会话层、节点侧桥接、控制器 + Textual 界面 + 无头脚本、结构化视界发布 | ③④ | ✅ 已建成 |
+| `dialogue/` | Dialogue App 的内核:签名信封协议、丢包 / 乱序下的会话层、节点侧桥接、控制器、唯一的会话接线 `connect.open_session`、无头脚本、结构化视界发布 | ③④ | ✅ 已建成 |
 | `node/` | `secdogie-node` 常驻节点:组装传输、对话、签名日志与受监督回路;网格(第三阶段):rendezvous 登记、成员 gossip、日志复制、撤销经日志持久传播、无头节点;真实 UDP 端到端测试(单进程、三进程、五进程网格) | 全部 | ✅ 已建成 |
 
 ---
@@ -295,14 +298,37 @@ App 看到结构化视界 → 同一动作三次失败后第四次被 Gate 1 拒
 向无头节点 H 派目标被拒 → B 停机期间,运营者经 A 的撤销库撤销 H:A 验证、写进日志并泛洪,H 得知自己被撤销后干净退出 →
 B 带着旧日志回来,从 A 的日志补上它错过的撤销。进程内的同类测试见 `node/tests/test_mesh.py`、`test_revocation_mesh.py`。
 
-### 第四阶段(规划中:加固)
+### 第四阶段收口:收敛为一个对话框(✅ 已完成)
+
+| 波次 | 内容 | PR |
+| --- | --- | --- |
+| K | `app/`:一个原生对话框;本机节点在进程内;首次审批时设口令,操作员钥只以加密形式存在;issuer 钥只在内存、只授桌面能力 | #68 |
+| K2 | 视界折叠区;同一窗口配对并切换到其他机器的节点;会话接线合一(`dialogue.connect.open_session`) | #69 |
+| L | 双击 exe 只打开对话框;窗口与节点打进同一个可执行文件;`release.yml` 的 Xvfb 冒烟 | #70 |
+| M / N | 退役启动菜单卡片、终端界面、`desktop/`、`console/`、`fleet/`;迁移说明;文档 | 本 PR |
+
+退出条件(逐条):
+1. **单一入口**:双击 exe(或 `secdogie`)只打开一个原生对话窗口;其余入口已删除。
+2. **首次只问 API key**:其余配置(节点钥、App 会话钥、白名单、能力授权)自动生成。
+3. **一个窗口里完成全部协同**:目标、追问卡、审批卡(口令)、记忆卡、停止、改 key、视界折叠区、切换到其他机器的节点。
+4. **安全不变**:操作员私钥只以口令加密存在,签一次即丢,口令不落盘;高风险在任何节点、任何入口都必须人工确认;
+   Gate 2 不读记忆;零信任白名单一个不少;不截图、无 Web 端。
+5. **后端**:现有 `secdogie-node` + `AppController`,本机节点只绑 127.0.0.1;远程节点走现有 DID 传输 / rendezvous / 中继;
+   CLI、本机、远程共用一套会话接线。
+6. **可测**:窗口逻辑在纯视图模型里;`app/tests/test_flow.py`(本机端到端:首次审批设口令 → 签名 → 执行 → 追问 →
+   记住笔记 → 已知失败被拒 → 重开窗口,错口令不签)与 `app/tests/test_remote.py`(另一台机器上的节点:从本窗口批准后在那边执行;
+   经 rendezvous 凭 DID 找到;不信任本操作员的节点什么都不执行)在 CI 中运行,Tk 视图测试在 Xvfb 下运行。
+7. **打包与文档**:`release.yml` 干跑四个平台全绿,Linux 二进制在 Xvfb 下冒烟通过;README / ROADMAP / 本文 / SECURITY /
+   迁移说明已更新。
+
+### 第五阶段(规划中:加固)
 
 | 编号 | 内容 |
 | --- | --- |
 | T9 | C Tunnel 加固:v2 握手(Noise IK)、rekey、端到端中继、本地控制 socket |
-| C3 | fleet / console / desktop 的高风险确认改走 Gate 2 签名 |
-| W | 浏览器端:浏览器 DID、跨语言签名向量、作为观察 / 审批端 |
 | M5 | 实机验证(macOS / Windows)、安全复审、发布 |
+
+浏览器端(原 W 轨道)已从路线图删除:操作界面只有一个原生对话框。
 
 感知层(AX / Atlas / DIB)由机主维护,不在本路线图的改动范围内。
 
@@ -317,9 +343,10 @@ B 带着旧日志回来,从 A 的日志补上它错过的撤销。进程内的�
 pip install -e identity -e citadel -e transport
 python -m pytest identity/tests citadel/tests transport/tests -q
 
-# Dialogue App 与常驻节点(含真实 UDP 端到端测试)
-pip install -e agent -e 'dialogue[tui]' -e node
+# Dialogue App 内核、常驻节点与对话框(含真实 UDP 端到端测试;Tk 视图在 Xvfb 下)
+pip install -e agent -e 'dialogue[net]' -e node -e app
 python -m pytest dialogue/tests node/tests -q
+xvfb-run -a python -m pytest app/tests -q
 
 # 观测融合(agent 包,headless)
 cd agent && python -m pytest tests/test_observation.py -q
@@ -328,8 +355,8 @@ cd agent && python -m pytest tests/test_observation.py -q
 cd native/atlas && cmake -B build && cmake --build build && ctest --test-dir build
 ```
 
-单机控制沿用既有 agent 回路(逐动作 y/N 确认,详见根 [`README.md`](README.md) 与
-[`TUTORIAL.md`](TUTORIAL.md)):
+日常使用:双击 exe,或运行 `secdogie`——只打开一个对话框(见 [`app/README.md`](app/README.md))。
+开发者也可以直接用 agent 的命令行(详见根 [`README.md`](README.md) 与 [`TUTORIAL.md`](TUTORIAL.md)):
 
 ```sh
 cd agent && pip install -e .

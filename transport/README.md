@@ -1,7 +1,7 @@
 # secdogie-transport
 
-A **P2P-ready** peer / session / endpoint model. Upper layers (fleet, citadel
-sync) depend on an **authenticated peer session** -- a DID bound to a transport
+A **P2P-ready** peer / session / endpoint model. Upper layers (the node, the
+dialogue, citadel sync) depend on an **authenticated peer session** -- a DID bound to a transport
 key (via [secdogie-identity](../identity) binding), reachable at migratable
 endpoints -- instead of a hub socket.
 
@@ -15,7 +15,7 @@ endpoints -- instead of a hub socket.
   (Phase 2.10) implements the same interface for true peer-to-peer.
 
 This layer is transport-mechanism-free (no sockets): it is the identity/session/
-routing model, backed later by the fleet TCP or the C tunnel.
+routing model, backed by UDP (`udp.py`) or the C tunnel.
 
 ## Roaming: which frames may move a peer's endpoint
 
@@ -114,7 +114,7 @@ secdogie-relay --identity relay.key --authorized mesh.allow \
   that node's `RelayClient` finds the relay on its next `refresh()`.
 - **Unattended.** It never reads stdin and has no confirmation hook: forwarding
   is decided by signatures and the allowlist alone. It imports nothing from the
-  agent, Citadel or fleet packages.
+  agent, Citadel or node packages.
 - **Operations.** A JSON `stats` line goes to stderr every `--stats-every`
   seconds. SIGTERM or SIGINT stops serving and exits 0. `--lease` sets how long
   a client registration lasts unless renewed.

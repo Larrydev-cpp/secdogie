@@ -24,6 +24,9 @@ openai = ["openai>=1.0.0"]
 # The local reflex layer (secdogie_agent/reflex.py) needs numpy for its fast
 # FFT template matching; nothing else does, so it stays optional.
 reflex = ["numpy>=1.21"]
+# Reuse an already-authorized browser session, read-only (secdogie_agent/websession.py).
+# Playwright is imported lazily and only when a real page is fetched.
+web = ["playwright>=1.40"]
 # Desktop accessibility ("--desktop-ax"): element-aware desktop control reads the
 # OS accessibility tree. The reader is platform-specific and opt-in. Linux's
 # pyatspi is a system package (e.g. `apt install python3-pyatspi`), so only the

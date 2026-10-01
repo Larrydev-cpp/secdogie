@@ -13,6 +13,24 @@
 > 完整架构见 [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md)；总路线图见 [`ROADMAP.md`](ROADMAP.md)；
 > 深度源码审计与规范对齐见 [`docs/AUDIT-P2P-ALIGNMENT.zh.md`](docs/AUDIT-P2P-ALIGNMENT.zh.md)。
 
+## 怎么用：一个对话框
+
+**双击 exe（或 `pip install` 后运行 `secdogie`），只会打开一个 secdogie 对话框。**
+第一次只问一件事：模型的 API key。之后所有事都在这一个窗口里完成：
+
+- **说目标**：直接打字、回车。
+- **回答追问**：Agent 不确定时会问你；问题以卡片出现，可点选项，也可直接在输入框里回答。
+- **批准高风险步骤（Gate 2）**：审批卡写明这一步做什么、为什么危险、本机重算的操作哈希是否一致。
+  批准要输口令——第一次在这里设口令（输两次），之后每次输一次；拒绝或超时，节点就不执行。
+- **确认记忆**：模型想记住的笔记以卡片出现，"记住"或"不记"。
+- **视界**：折叠区里是 Agent 看到的结构（元素与焦点）——节点发来的结构，从不截图。
+- **别的机器**：标题旁的切换器可以切到其他机器上的节点（先配对），每个节点各有自己的对话。
+- **停止**、**改 API key**。
+
+窗口在同一进程里跑一个只绑 127.0.0.1 的本机节点。窗口和节点之间与远程完全一样：各自的钥、签名对话、互相点名的白名单。
+操作员私钥只以口令加密存在本机，每次批准只解锁一次、签完即丢。详见 [`app/README.md`](app/README.md)；
+旧入口（启动菜单卡片、终端界面、desktop / console / fleet）的替代方式见 [`docs/ONE-WINDOW-MIGRATION.md`](docs/ONE-WINDOW-MIGRATION.md)。
+
 ---
 
 ## 四大支柱
@@ -74,12 +92,13 @@ identity/    transport/    citadel/     citadel/       agent/ + 安全边界
 | 状态 | `citadel/`（`journal.py` 签名日志、`state.py` StateStore、`sync.py` 反熵、`replication.py` 传输上收敛） | ✅ |
 | 心智 | `citadel/socratic.py`（指令门）+ `action_gate.py`（计划门：意图契约、已知失败、能力）+ `authz.py`（Gate 2 操作员签名）+ `supervisor.py`（受监督节点）；两道门已接入实时 agent 回路 | ✅ |
 | 记忆 | `citadel/episodes.py` / `lessons.py` / `consolidate.py`：阶段式记忆 S1 情节 → S2 隔离区 → S3 巩固；事实须操作员签名确认，只让门更严 | ✅ |
-| 对话 | `dialogue/`（`secdogie-dialogue`）：操作员的 Dialogue App——追问与回答、结构化视界（无像素）、Gate 2 签名台、记忆确认；丢包 / 乱序下的会话层 | ✅ |
+| 对话 | `dialogue/`（`secdogie-dialogue`）：Dialogue App 的内核——追问与回答、结构化视界（无像素）、Gate 2 签名、记忆确认；丢包 / 乱序下的会话层；`connect --headless` 脚本 | ✅ |
+| 窗口 | `app/`（`secdogie`）：**唯一的操作界面**——一个原生对话框 + API key；本机节点在进程内；视界折叠区；配对并切换到其他机器的节点 | ✅ |
 | 节点 | `node/`（`secdogie-node`）：常驻节点，组装传输、对话、签名日志与受监督回路；多节点网格（rendezvous、gossip、日志复制、撤销持久传播、无头节点）；真实 UDP 端到端测试 | ✅ |
 | 感知/动作 | `agent/observation.py`（AX + DIB 按引用融合）+ `target.py`（TOCTOU）+ AX/safety；`native/atlas`（只读、DIB 重建） | 🔨 构件已建成，observation/target 尚未接入实时回路 |
-| 设备/会话 | `desktop/`（聊天式原生窗口 + `websession.py` 复用**已授权**浏览器会话，只读导航 + 读结构） | ✅ |
-| 承载/运维 | `tunnel/`（C 加密隧道，机密性）、`fleet/`、`console/` | ✅ |
-| 浏览器 P2P | `webrtc/`（WebRTC 数据通道客户端 + Cloudflare Worker 信令网关；仅用户点击后启动） | ✅ |
+| 已授权网页 | `agent/secdogie_agent/websession.py`：复用**已授权**浏览器会话，只读导航 + 读结构（可选 `[web]`） | ✅（尚未接入回路） |
+| 承载 | `tunnel/`（C 加密隧道，机密性） | ✅ |
+| 浏览器 P2P | `webrtc/`（WebRTC 数据通道客户端 + Cloudflare Worker 信令网关；仅用户点击后启动；不再扩展，无网页操作界面） | ✅ |
 
 **第二阶段（可运行闭环）已完成**：k-of-n 撤销、零信任默认（见 [`docs/ZERO-TRUST-MIGRATION.md`](docs/ZERO-TRUST-MIGRATION.md)）、
 两道门与阶段式记忆接入实时回路、Dialogue App、`secdogie-node` 与端到端测试。
@@ -87,10 +106,13 @@ identity/    transport/    citadel/     citadel/       agent/ + 安全边界
 **第三阶段（多节点网格）已完成**：节点经 rendezvous 凭 DID 互相找到、经 gossip 维持成员表、经复制让签名日志收敛——
 一个节点学到的教训到达全网，撤销经日志传到离线后回来的节点，无头节点从不执行具身动作；每个节点仍只运行自己的目标。
 
-**第四阶段待做**（按 [`ROADMAP.md`](ROADMAP.md)）：
+**第四阶段（收敛为一个对话框）已完成**：双击只打开一个原生对话框，第一次只填 API key；目标、追问、Gate 2 审批（口令保护的操作员钥）、
+记忆确认、视界、其他机器的节点都在这一个窗口里；启动菜单卡片、终端界面、`desktop/`、`console/`、`fleet/` 已退役
+（见 [`docs/ONE-WINDOW-MIGRATION.md`](docs/ONE-WINDOW-MIGRATION.md)）。
+
+**第五阶段待做**（按 [`ROADMAP.md`](ROADMAP.md)）：
 - C + libsodium 隧道加固（T9）：v2 握手（Noise IK）、rekey、端到端中继、本地控制 socket；
-- fleet / console / desktop 的高风险确认改走 Gate 2（C3）；
-- 浏览器端（W）；安全复审、实机验证、发布（M5）；
+- 安全复审、实机验证、发布（M5）；
 - 感知入环与结构化优先（机主推进）。
 
 ---
@@ -122,6 +144,7 @@ ruff check .                                   # 根 lint（ruff.toml）
 python -m pytest identity/tests  -q            # DID、签名、绑定
 python -m pytest transport/tests -q            # 会话、UDP、rendezvous、升级、成员
 python -m pytest citadel/tests   -q            # 日志、状态、反熵、复制、门、监督
+xvfb-run -a python -m pytest app/tests -q      # 对话框：视图模型、本机节点、端到端、远程节点、Tk 视图
 cd agent && python -m pytest tests/test_observation.py tests/test_target.py -q   # 结构化感知、目标
 ```
 
