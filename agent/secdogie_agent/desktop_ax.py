@@ -150,6 +150,17 @@ class _WindowsUiaProvider:
         except Exception:
             return None
 
+    def focused_node(self) -> axtree.AxElement | None:
+        """The control that currently holds keyboard focus, or None. Uses UIA's
+        `GetFocusedControl`; the focus-traversal loop reads this after each key."""
+        import uiautomation as auto
+
+        try:
+            control = auto.GetFocusedControl()
+        except Exception:
+            return None
+        return self._element_of(control) if control is not None else None
+
     def press(self, automation_id: str | None = None, name: str | None = None, role: str | None = None) -> bool:
         """Invoke/Toggle the matching UIA control without moving the cursor."""
         control = self._find(automation_id=automation_id, name=name, role=role)
@@ -307,6 +318,33 @@ class _AtspiProvider:
             )
         except Exception:
             return None
+
+    def focused_node(self) -> axtree.AxElement | None:
+        """The accessible with STATE_FOCUSED under the active frame, or None.
+        AT-SPI has no direct getter, so walk the active window's subtree for the
+        first node whose state set reports focus (bounded by MAX_TREE_DEPTH)."""
+        import pyatspi
+
+        try:
+            desktop = pyatspi.Registry.getDesktop(0)
+        except Exception:
+            return None
+        frame = self._active_frame(pyatspi, desktop)
+        if frame is None:
+            return None
+        stack = [(frame, 0)]
+        while stack:
+            node, depth = stack.pop()
+            try:
+                if node.getState().contains(pyatspi.STATE_FOCUSED):
+                    el = self._element_of(pyatspi, node)
+                    if el is not None:
+                        return el
+            except Exception:
+                pass
+            if depth < MAX_TREE_DEPTH:
+                stack.extend((c, depth + 1) for c in self._children(node))
+        return None
 
     def press(self, automation_id: str | None = None, name: str | None = None, role: str | None = None) -> bool:
         """doAction('click'/'press'/first action) on the matching AT-SPI node."""
@@ -727,6 +765,17 @@ class _MacosAxProvider:
         """Tightest AX element whose box contains (x, y). The trackpad read."""
         _ax_el, el = self._hit_ax(x, y)
         return el
+
+    def focused_node(self) -> axtree.AxElement | None:
+        """The element that holds keyboard focus (AXFocusedUIElement on the
+        focused app), or None. Read by the focus-traversal loop after each key."""
+        ax = self._ax
+        app = self._focused_app()
+        if app is None:
+            return None
+        attr = getattr(ax, "kAXFocusedUIElementAttribute", "AXFocusedUIElement")
+        element = self._attr(app, attr)
+        return self._element_of(element) if element is not None else None
 
     def press_at(self, x: int, y: int) -> bool:
         """AXPress the deepest node under (x, y). Never HID / CGEvent.
