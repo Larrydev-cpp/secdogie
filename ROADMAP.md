@@ -35,8 +35,9 @@
 - **M3 运行闭环 + 能力治理 — ✅ 已达成(第二阶段,#56 / #57 / #60 / #61 / #62)**:C 的 2.7/2.8 + D 的 2.9。判据:交给节点一个目标,它能
   规划→观测→过门→(能力 + HITL)执行→验证→写回,崩溃后先重观测再安全恢复,每个动作经签名能力校验。
   由 `secdogie-node` 的真实 UDP 端到端测试验证(Gate 1、Gate 2 签名、追问、阶段式记忆、已知失败拒绝)。
-- **M4 端到端纵切 — 🔨 部分**:单节点「学习 + 行动」的整条链已可 headless 演示(`node/tests/test_e2e.py`);
-  结果经复制在多节点间收敛的演示留到第三阶段。
+- **M4 端到端纵切 — ✅ 已达成(第三阶段,#64 / #65 / #66 及收口 PR)**:单节点「学习 + 行动」的整条链(`node/tests/test_e2e.py`),
+  以及结果经复制在多节点间收敛(`node/tests/test_mesh_multiprocess.py`:一个节点三次失败的教训让另一个从未失败过的节点
+  第一次就拒绝同一动作;撤销经日志传到离线后回来的节点)。
 - **M5 加固 / 落地 — 🔜**:OS 原生接线在实机验证、tunnel 机密性接上数据面、打包/发布/文档、安全复审。
 
 ## 切片计划（2026-09）
@@ -54,21 +55,24 @@
 | 轨道 | 切片 | 状态 |
 | --- | --- | --- |
 | S 安全修复/纠偏 | S1 SDTP 确认后再切换· S2 fleet 安全模式全有或全无 · S3 文档与代码对齐 | ✅ ✅ ✅ |
-| A 网格运行时 | 2C 任一白名单节点兼任 relay · A0 rendezvous 上 UDP（T3）· A1 wire gossip（T4）· A2 `secdogie-node` 运行时 | ✅ 🔜 🔜 ✅ |
-| R 3.0 撤销 | R1 MasterSet/门限撤销声明/TrustPolicy · R2 全面执行 + 缓存失效 · R3 零信任默认关闭 · R4 传播（快速帧已建成；经日志的持久传播 = T6）· R5 自检停机 | ✅ ✅ ✅ 🔨 ✅ |
-| T9 隧道加固 | C + libsodium 隧道：卫生/fuzz/netns 冒烟 → Noise IK v2 握手 → 定时器/rekey/DoS 限速 → 端到端中继 → 本地控制 socket | 🔜（第三阶段） |
-| C M3 实时回路 | C1 CI 跑真实回路测试 · C2 HITL 修正（高风险清单、全入口必确认、签名审批 = Gate 2 经 Dialogue App）· C3 fleet/console/desktop 审批通路 · C4 门控加强（意图契约 + 已知失败）· C5 运行记录前移（每步 `action_key` / 结果）· C6 统一入口（`secdogie-node`）· C7 设备类别与无头隔离（T7） | ✅ ✅ 🔜 ✅ ✅ ✅ 🔜 |
+| A 网格运行时 | 2C 任一白名单节点兼任 relay · A0 rendezvous 上 UDP（T3）· A1 wire gossip（T4）· A2 `secdogie-node` 运行时 · A3 节点间日志复制 | ✅ ✅ ✅ ✅ ✅ |
+| R 3.0 撤销 | R1 MasterSet/门限撤销声明/TrustPolicy · R2 全面执行 + 缓存失效 · R3 零信任默认关闭 · R4 传播（快速帧 + 经日志的持久传播 T6，被撤销节点敲门时被告知）· R5 自检停机 | ✅ ✅ ✅ ✅ ✅ |
+| T9 隧道加固 | C + libsodium 隧道：卫生/fuzz/netns 冒烟 → Noise IK v2 握手 → 定时器/rekey/DoS 限速 → 端到端中继 → 本地控制 socket | 🔜（第四阶段） |
+| C M3 实时回路 | C1 CI 跑真实回路测试 · C2 HITL 修正（高风险清单、全入口必确认、签名审批 = Gate 2 经 Dialogue App）· C3 fleet/console/desktop 审批通路 · C4 门控加强（意图契约 + 已知失败）· C5 运行记录前移（每步 `action_key` / 结果）· C6 统一入口（`secdogie-node`）· C7 设备类别与无头隔离（T7） | ✅ ✅ 🔜 ✅ ✅ ✅ ✅ |
 | D 感知 | D1 observation/target 入环 · D2 结构化优先（Windows UIA 结构图，截图显式开启）· D3 macOS AX 命中测试 · D4 Atlas 只读桥 | 🔜 |
 | W 浏览器 | W1 浏览器 DID + 信令 DID 认证 · W2 跨语言签名向量 · W3 aiortc 桥接技术验证 · W4 浏览器作为观察/审批端 | 🔜 |
-| M 收尾 | M4 纵切演示 · M5 安全复审 / 实机验证 / 发布 | 🔜 |
+| M 收尾 | M4 纵切演示 · M5 安全复审 / 实机验证 / 发布 | ✅ 🔜 |
 
 **第二阶段（可运行闭环）已完成**：P0、Wave A / B / C / D / E（#56、#57、#60、#61、#62 及文档 PR），7 条退出条件见 [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md) 第 5 节。
 
-**第三阶段顺序**：
-1. T3 rendezvous 上 UDP、T4 线上 gossip、T6 撤销持久传播；
-2. T7 设备类别、C3 fleet/console/desktop 审批通路；
-3. T9 隧道加固；
-4. W、M（多节点纵切演示、安全复审、实机验证、发布）。
+**第三阶段（多节点网格）已完成**：Wave F / G / H / I+J（#64、#65、#66 及收口 PR）——rendezvous 上 UDP、线上 gossip、
+节点间日志复制、撤销经日志持久传播、设备类别、五进程网格端到端测试；7 条退出条件见 [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md) 第 5 节。
+
+**第四阶段（加固）顺序**：
+1. T9 隧道加固；
+2. C3 fleet/console/desktop 审批通路（Gate 2）；
+3. W 浏览器端；
+4. M5 安全复审、实机验证、发布。
 
 感知轨道（D）由机主推进。
 

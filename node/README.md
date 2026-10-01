@@ -80,6 +80,16 @@ goals and the memory recorded in a journal.
 | `--mesh` | the other nodes it gossips and replicates with; each also on `--authorized` (alone: name only this node) | yes |
 | `--issuers` | who may grant this node capabilities (`secdogie-identity grant`) | no: without it every mutating action is refused |
 
+Mesh flags, all optional:
+
+| Flag | Meaning |
+| --- | --- |
+| `--bootstrap-record` | a mesh node's record, or its whole ready line, to start from (repeatable) |
+| `--rendezvous-record` | where this node registers so Apps find it by DID (repeatable) |
+| `--relay-record` | a relay to fall back to (repeatable) |
+| `--device-class` | `display` (default) or `headless` |
+| `--mesh-every` | seconds between gossip and replication rounds (default 5) |
+
 - **No capability check needs saying out loud.** `--insecure-dev` without
   `--issuers` turns the capability check off, for a throwaway local test, with
   a warning.
@@ -113,6 +123,21 @@ pytest tests -q
   relay; the same scenario and checks as the in-process test.
 - **Relay fallback** (`tests/test_relay_fallback.py`): the dialogue survives a
   blocked direct path.
+- **The mesh, five kinds of process** (`tests/test_mesh_multiprocess.py`):
+  `secdogie-relay --rendezvous`, display nodes A and B, headless node H, and
+  the App, which is given only DIDs and the rendezvous record. B and H start
+  from A's ready line. In order:
+  - a click fails in three of A's goals, and B, which never failed at it,
+    refuses it at Gate 1 on its first goal;
+  - H refuses a goal;
+  - with B stopped, the operator revokes H through A's store, and H halts by
+    itself;
+  - B comes back with its old journal and catches up on the revocation.
+- **The mesh, in process** (`tests/test_mesh.py`, `tests/test_revocation_mesh.py`):
+  - gossip from one bootstrap record;
+  - a caution crossing nodes, while each node runs only its own goals;
+  - revocation on every path, forgeries on every path, and the rejoin-and-halt case;
+  - a revoked App, the headless node, and the refusals.
 - **Process tests** (`tests/test_cli.py`):
   - the node refuses to start without each trust set;
   - it announces itself and stops cleanly on SIGTERM;

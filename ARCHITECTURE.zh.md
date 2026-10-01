@@ -195,18 +195,20 @@ flowchart TB
 | `identity/binding.py` | DID ↔ 传输密钥绑定(2.1) | ① | ✅ 已建成 |
 | `transport/` | Peer/Session/Endpoint + `HubTransport`(2.2) | ①② | ✅ 已建成 |
 | `transport/udp.py` | `DirectUDPTransport` 真 P2P(2.10 提前);漫游只认新鲜且最新的认证帧,重放与迟到帧都改不了端点,中继帧从不改端点 | ② | ✅ 已建成 |
-| `transport/rendezvous.py` | Rendezvous + 反射端点发现(STUN/AutoNAT,DID 签名) | ①② | ✅ 已建成 |
+| `transport/rendezvous.py` | Rendezvous + 反射端点发现(STUN/AutoNAT,DID 签名);经 UDP 承载(`RendezvousService` / `RendezvousLink`,T3):请求须新鲜(时钟窗口内、每个 DID 单调)、回复回显请求且只收一次、登记过期、按 DID 限速;App 凭节点 DID 即可连上 | ①② | ✅ 已建成 |
 | `transport/upgrade.py` | 直连升级 + relay 兜底(DCUtR/Tailscale 式,探测→迁移) | ①② | ✅ 已建成 |
-| `transport/membership.py` | 成员/端点 gossip 反熵(自签名记录、LWW、去中心收敛) | ①② | ✅ 已建成 |
+| `transport/membership.py` | 成员/端点 gossip 反熵(自签名记录、LWW、去中心收敛);记录可带自签名的设备类别 `display` / `headless`(T7) | ①② | ✅ 已建成 |
+| `transport/gossip.py` | 线上成员 gossip(T4):走 `ChannelMux` 的 `membership/v1` 通道,只应答网格节点,digest 先校验、记录按数据报分批,一轮交换有界;一条引导记录即可学到全网 | ①② | ✅ 已建成 |
 | `transport/dht.py` | Kademlia 路由表 + 迭代查找(P2P.4):DID=node id、XOR k-bucket、可扩展定向发现 | ①② | ✅ 已建成 |
 | `transport/relay.py` | Relay 角色化(2C):任一白名单节点可兼任 relay,经 membership 发现、租约 + 故障切换;只转发端到端签名/封装帧,每次转发重查 allowlist | ①② | ✅ 已建成 |
 | `transport/relay_node.py` | 无头 relay 进程(2C.1):`secdogie-relay` 在 VPS / NAS 上无人值守运行,输出自签名引导记录,SIGTERM 干净退出 | ①② | ✅ 已建成 |
 | `citadel/journal.py` | 签名哈希链事件日志 | ② | ✅ 已建成 |
 | `citadel/state.py` | `StateDelta` / `StateStore`(2.3) | ② | ✅ 已建成 |
 | `citadel/sync.py` | 反熵复制(have/want builder,传输无关) | ② | ✅ 已建成 |
-| `citadel/replication.py` | 把签名日志/状态收敛承载到 DID 认证传输(Replication.1,双重认证) | ② | ✅ 已建成 |
+| `citadel/replication.py` | 把签名日志/状态收敛承载到 DID 认证传输(Replication.1,双重认证);按数据报大小分批、作者轮转、有进展才续拉 | ② | ✅ 已建成 |
+| `citadel/revocations.py` | 撤销记录写进日志(T6),随复制传播,离线节点回来即补上 | ①② | ✅ 已建成 |
 | `citadel/socratic.py` | 指令级苏格拉底门 | ③ | ✅ 已建成 |
-| `citadel/supervisor.py` | 受监督持久节点、从日志恢复(含 `recover_runs()` 2.8) | ④ | ✅ 已建成 |
+| `citadel/supervisor.py` | 受监督持久节点、从日志恢复(含 `recover_runs()` 2.8);执行投影(目标、控制、尝试、run 恢复)只读本节点自己的事件,对端的目标经复制到达但从不在本机运行 | ④ | ✅ 已建成 |
 | `citadel/recovery.py` | 崩溃恢复决策(2.8):发现半途 run，executing 崩溃**先重观测再重试** | ③④ | ✅ 已建成 |
 | `agent/observation.py` | 观测融合、DIB 按引用桥接(2.4) | ④ | ✅ 已建成 |
 | `agent/` (AX/safety/…) | 感知 + 安全边界 + 动作 schema | ④ | ✅ 已建成 |
@@ -218,7 +220,7 @@ flowchart TB
 | `agent/target.py` | AX 不透明目标 + 代际,修 TOCTOU(2.5) | ④ | ✅ 已建成 |
 | `citadel/run.py` | Agent↔Citadel run 闭环(2.7):run/step 签名状态、链式 `state_hash`、随复制收敛 | ③④ | ✅ 已建成 |
 | `identity/capability.py` | 签名能力授权(2.9):白名单 scope、带过期、受信 issuer;计划门据此逐动作校验 | ④ | ✅ 已建成 |
-| `identity/allowlist.py` | 零信任默认:`ALLOW_ANY` 显式哨兵 + `require_trust`;全仓生产调用点的信任参数有测试把关 | ① | ✅ 已建成 |
+| `identity/allowlist.py` | 零信任默认:`ALLOW_ANY` 显式哨兵 + `require_trust`;全仓生产调用点的信任参数有测试把关;`AnyOf` 合并多个信任集合、实时生效 | ① | ✅ 已建成 |
 | `webrtc/` | Cloudflare Workers 上的 WebRTC 信令网关 + 浏览器数据通道(只经手信令,不经手业务数据) | ② | ✅ 已建成 |
 | `transport/mux.py` | `ChannelMux`:一个传输上的多条应用通道(`dialogue/v1` 等) | ② | ✅ 已建成 |
 | `transport/failover.py` | 直连优先、中继兜底:近期直接听到对端才只走直连,否则同时经双方都持有租约的中继发送;由中继自签名记录构建 | ② | ✅ 已建成 |
@@ -226,7 +228,7 @@ flowchart TB
 | `citadel/loop_gate.py` · `loop_memory.py` | 两道门接入实时 agent 回路;每步记录 `action_key` / 结果 | ③④ | ✅ 已建成 |
 | `citadel/episodes.py` · `lessons.py` · `consolidate.py` | 阶段式记忆 S1 / S2 / S3 | ③ | ✅ 已建成 |
 | `dialogue/` | Dialogue App:签名信封协议、丢包 / 乱序下的会话层、节点侧桥接、控制器 + Textual 界面 + 无头脚本、结构化视界发布 | ③④ | ✅ 已建成 |
-| `node/` | `secdogie-node` 常驻节点:组装传输、对话、签名日志与受监督回路;真实 UDP 端到端测试 | 全部 | ✅ 已建成 |
+| `node/` | `secdogie-node` 常驻节点:组装传输、对话、签名日志与受监督回路;网格(第三阶段):rendezvous 登记、成员 gossip、日志复制、撤销经日志持久传播、无头节点;真实 UDP 端到端测试(单进程、三进程、五进程网格) | 全部 | ✅ 已建成 |
 
 ---
 
@@ -260,7 +262,7 @@ flowchart TB
 | 2.8 | 崩溃恢复升级(先重观测再重试) | ✅ |
 | 2.9 | 能力授权模型 | ✅ |
 | 2.10 | P2P 直连传输 / rendezvous | ✅ 直连传输 + rendezvous + 直连升级/relay 兜底 + 成员 gossip 反熵(P2P.1–P2P.3)已实现 |
-| 2C | 节点角色泛化(relay) | ✅ 任一白名单节点可兼任 relay(`relay.py`);rendezvous 角色已可在 membership 中宣告,UDP 上的承载待接 |
+| 2C | 节点角色泛化(relay / rendezvous) | ✅ 任一白名单节点可兼任 relay(`relay.py`);`secdogie-relay --rendezvous` 在同一 socket 上兼任 rendezvous(第三阶段 T3) |
 
 完整审计与冲突记录见 [`docs/AUDIT-P2P-ALIGNMENT.zh.md`](docs/AUDIT-P2P-ALIGNMENT.zh.md)(历史记录,照原样保留)。
 
@@ -273,22 +275,34 @@ flowchart TB
 | C | Dialogue 协议修订、`ChannelMux`、会话层、节点侧桥接、App(控制器 / Textual / 无头)、结构化视界发布 | #60 |
 | B | 零信任默认(破坏性变更,见迁移说明) | #61 |
 | D | `secdogie-node`、对话路径的中继兜底、真实 UDP 端到端测试(进程内 + 三进程) | #62 |
-| E | 文档对齐 | 本 PR |
+| E | 文档对齐 | #63 |
 
 端到端判据(`node/tests/test_e2e.py` 进程内;`node/tests/test_multiprocess.py` 三进程——`secdogie-relay`、节点、App 各自独立进程,App 拿到的是节点的无效地址,全程经中继;均在 CI 中运行):App 提交目标 → 破坏性一步经 Gate 2 由操作员签名放行 →
 `ask_user` 成为追问、回答回到模型 → 模型的笔记在 App 确认前只在隔离区、确认后进入 S3 与提示词 →
 App 看到结构化视界 → 同一动作三次失败后第四次被 Gate 1 拒绝。
 
-### 第三阶段(规划中)
+### 第三阶段收口:多节点网格(✅ 已完成)
+
+| 波次 | 内容 | PR |
+| --- | --- | --- |
+| F | T3:rendezvous 经 UDP 承载;请求新鲜性、回复回显、登记过期、限速;`secdogie-relay --rendezvous`;节点登记,App 凭 DID 连接 | #64 |
+| G | T4:线上成员 gossip;日志复制(分批、作者轮转、有损链路上收敛);Supervisor 只运行本节点的目标;`--mesh` 必填 | #65 |
+| H | T6:撤销经日志持久传播,离线节点回来补上,被撤销的节点敲门时被告知并停机;T7:设备类别,无头节点不接目标、从不加载 agent | #66 |
+| I / J | 五进程网格端到端测试 + 文档 | 本 PR |
+
+端到端判据(`node/tests/test_mesh_multiprocess.py`,五类进程——`secdogie-relay --rendezvous`、带屏节点 A 与 B、无头节点 H、App——在 CI 中运行;B 与 H 只凭 A 的就绪行启动,其余经 gossip 找到;App 只拿到节点 DID 与 rendezvous 记录):
+同一次点击在 A 上三次失败 → A 的日志复制到 B → B 在从未失败过的情况下,第一个目标就被 Gate 1 以 `known-failure` 拒绝 →
+向无头节点 H 派目标被拒 → B 停机期间,运营者经 A 的撤销库撤销 H:A 验证、写进日志并泛洪,H 得知自己被撤销后干净退出 →
+B 带着旧日志回来,从 A 的日志补上它错过的撤销。进程内的同类测试见 `node/tests/test_mesh.py`、`test_revocation_mesh.py`。
+
+### 第四阶段(规划中:加固)
 
 | 编号 | 内容 |
 | --- | --- |
-| T3 | rendezvous 承载到 UDP 上 |
-| T4 | membership 线上 gossip |
-| T6 | 撤销的持久传播(经日志) |
-| T7 | 设备类别(无头 / 带屏)与隔离 |
 | T9 | C Tunnel 加固:v2 握手(Noise IK)、rekey、端到端中继、本地控制 socket |
-| M4 | 多节点纵切演示:一个节点的结果经复制在全网收敛 |
+| C3 | fleet / console / desktop 的高风险确认改走 Gate 2 签名 |
+| W | 浏览器端:浏览器 DID、跨语言签名向量、作为观察 / 审批端 |
+| M5 | 实机验证(macOS / Windows)、安全复审、发布 |
 
 感知层(AX / Atlas / DIB)由机主维护,不在本路线图的改动范围内。
 

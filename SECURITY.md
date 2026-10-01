@@ -36,6 +36,30 @@ trusted host/operator boundary:
   `--insecure-dev` on the command line, with a warning), and a Citadel node with
   no capability issuers refuses every mutating action. See
   [docs/ZERO-TRUST-MIGRATION.md](docs/ZERO-TRUST-MIGRATION.md).
+- **A mesh of nodes shares what it learns, not what it does.** `secdogie-node`
+  gossips membership and replicates its journal only with the nodes on
+  `--mesh`, every one of which must also be a journal author (`--authorized`).
+  - **Only its own goals.** A node runs, stops, counts and recovers only goals
+    from its own journal events. A peer's goals reach its journal but are
+    never run there.
+  - **Shared memory only tightens.** Replicated memory can only make Gate 1
+    stricter: a caution is re-derived from the replicated evidence, and a fact
+    still needs the operator App's signed confirmation. Gate 2 reads neither
+    memory nor membership.
+  - **Rendezvous is only a directory.** It indexes the operator's own
+    allowlisted nodes. Its requests must be fresh, its replies echo the
+    request and are accepted once, and it can mislead only about addresses,
+    never identity.
+- **Revocation lasts and reaches every node.** A Master-signed revocation is
+  applied to every trust set a node holds, however it arrives: the fast gossip
+  frame, the replicated journal, or the operator's store. It is written into
+  the journal so a node that was offline catches up, and a forged record
+  changes nothing on any path. A node revoked while it was away is cut off by
+  everyone, so when it knocks it is sent the records that revoke it; it checks
+  them against its own masters and halts.
+- **Headless nodes never act on a screen.** A node started with
+  `--device-class headless`, and every `secdogie-relay`, says so in its
+  self-signed record. It takes no goals and never loads the agent.
 - **SYSTEM elevation is off by default and operator-gated.** The `run_elevated`
   action (Windows) can run a command as SYSTEM, but *only* commands the operator
   declares at launch with `--allow-elevated-command` — the vision model can never
