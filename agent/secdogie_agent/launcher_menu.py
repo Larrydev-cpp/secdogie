@@ -236,11 +236,9 @@ def show_key_dialog(*, first_run: bool = False) -> bool:
 
         def save():
             key = key_var.get().strip()
-            if not key:
-                status.config(text="Please paste a key first.", fg="#e07070")
-                return
-            if len(key) < 8:
-                status.config(text="That looks too short for an API key.", fg="#e07070")
+            problem = config_mod.api_key_problem(key)
+            if problem:
+                status.config(text=problem, fg="#e07070")
                 return
 
             kind = kind_var.get()

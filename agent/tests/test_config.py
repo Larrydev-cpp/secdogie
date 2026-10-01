@@ -206,3 +206,23 @@ def test_saved_openrouter_config_keeps_vendor_model(monkeypatch, tmp_path):
     assert r.api_key == "sk-or-v1-secret"
     assert r.model and "/" in r.model, r.model
     assert not r.model.startswith("openrouter/")
+
+
+def test_api_key_problem_is_the_one_shared_check():
+    assert config_mod.api_key_problem("") == "Please paste a key first."
+    assert config_mod.api_key_problem("   ") == "Please paste a key first."
+    assert config_mod.api_key_problem(None) == "Please paste a key first."
+    assert config_mod.api_key_problem("sk-1234") == "That looks too short for an API key."
+    assert config_mod.api_key_problem("sk-ant-abc def") is not None
+    assert config_mod.api_key_problem("sk-ant-abc\nOPENAI_BASE_URL=x") is not None
+    assert config_mod.api_key_problem("  sk-ant-abcdef  ") is None  # outer blanks are trimmed
+    assert config_mod.api_key_problem("sk-12345") is None
+
+
+def test_a_value_with_a_line_break_cannot_add_a_line_to_the_file(tmp_path):
+    target = tmp_path / "secdogie.env"
+    with pytest.raises(ValueError, match="line break"):
+        config_mod.write_api_key("sk-ant-abc\nOPENAI_BASE_URL=http://x", provider="anthropic", path=target)
+    with pytest.raises(ValueError, match="line break"):
+        config_mod.write_api_key("sk-ant-abcdef", provider="anthropic", model="m\rX=1", path=target)
+    assert not target.exists() or "OPENAI_BASE_URL" not in target.read_text(encoding="utf-8")

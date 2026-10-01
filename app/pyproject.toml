@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secdogie-app"
+version = "0.1.0"
+description = "The secdogie window: one native dialog with the resident node -- goals, Socratic questions, Gate 2 approvals under a passphrase, memory confirmation -- and the API key. Nothing else to set up."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# Assembly only: the window is a thin view over the dialogue App's controller,
+# talking to the ordinary resident node, which drives the ordinary agent loop.
+dependencies = [
+    "secdogie-identity",
+    "secdogie-transport",
+    "secdogie-citadel",
+    "secdogie-dialogue",
+    "secdogie-node",
+    "secdogie-agent",
+]
+
+[project.scripts]
+secdogie = "secdogie_app.window:main"
+
+[tool.setuptools.packages.find]
+include = ["secdogie_app*"]
