@@ -1,0 +1,74 @@
+{
+  "authorization_type": "secdogie/action-authorization/v1",
+  "authorized_fields": [
+    "kind",
+    "target_id",
+    "target_role",
+    "target_name",
+    "text",
+    "high_risk"
+  ],
+  "operator": {
+    "seed_hex": "1ab6d9fccb0d3673b0b3b1576ce68b865adfca0ab961d918581a46632b4f97e5",
+    "did": "did:key:z6MkjiKt1uqEt4FUUjtMDTiXKDDP68BQQmRahfnEUeM2mmBk"
+  },
+  "node": {
+    "seed_hex": "6ba96b7acc802a642006cc1af8135d2155fe50a8a885f71b3dc972fb3b32d8a1",
+    "did": "did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg"
+  },
+  "actions": [
+    {
+      "action": {
+        "kind": "click",
+        "target_id": "ax:42",
+        "target_role": "button",
+        "target_name": "Delete account",
+        "text": "",
+        "high_risk": true
+      },
+      "hash_input": "{\"high_risk\":true,\"kind\":\"click\",\"target_id\":\"ax:42\",\"target_name\":\"Delete account\",\"target_role\":\"button\",\"text\":\"\"}",
+      "action_hash": "b6cd58026ee30c0ed010d8e3727032cb9c8191e01822e811a8fd9caf9f7edb7b"
+    },
+    {
+      "action": {
+        "kind": "type",
+        "target_id": "",
+        "target_role": "textbox",
+        "target_name": "Reason — 原因",
+        "text": "no longer needed ✅\n",
+        "high_risk": false
+      },
+      "hash_input": "{\"high_risk\":false,\"kind\":\"type\",\"target_id\":\"\",\"target_name\":\"Reason — 原因\",\"target_role\":\"textbox\",\"text\":\"no longer needed ✅\\n\"}",
+      "action_hash": "425631299fdb5bf2c583c267afd0578795136c67478fa1b2b8dac183d18aa913"
+    },
+    {
+      "action": {
+        "kind": "submit",
+        "target_id": "",
+        "target_role": "",
+        "target_name": "",
+        "text": "",
+        "high_risk": false
+      },
+      "hash_input": "{\"high_risk\":false,\"kind\":\"submit\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"\"}",
+      "action_hash": "9b240a0b5038b389448c39e458208fb2fbae101045d929b4af99c9b12383ec3f"
+    }
+  ],
+  "token": {
+    "action_index": 0,
+    "subject": "did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg",
+    "valid_from": "1759740000.0",
+    "expires_at": "1759740120.5",
+    "signed_body": "{\"action_hash\":\"b6cd58026ee30c0ed010d8e3727032cb9c8191e01822e811a8fd9caf9f7edb7b\",\"expires_at\":1759740120.5,\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"type\":\"secdogie/action-authorization/v1\",\"valid_from\":1759740000.0}",
+    "wire": "{\"action_hash\":\"b6cd58026ee30c0ed010d8e3727032cb9c8191e01822e811a8fd9caf9f7edb7b\",\"expires_at\":1759740120.5,\"sig\":\"3prPz6FEJX2Ai0z5xRR4rSztxAOjttL/UOuCuJeS62pAFp2DcBfyqWvO2ovi4i8hOXGUYtOnU/tl5+cjLyIcBQ==\",\"signer\":\"did:key:z6MkjiKt1uqEt4FUUjtMDTiXKDDP68BQQmRahfnEUeM2mmBk\",\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"type\":\"secdogie/action-authorization/v1\",\"valid_from\":1759740000.0}"
+  },
+  "challenge": {
+    "now": "1759740010.0",
+    "wire": "{\"header\":{\"recipient_did\":\"did:key:z6MkjiKt1uqEt4FUUjtMDTiXKDDP68BQQmRahfnEUeM2mmBk\",\"sender_did\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"seq\":7,\"session_id\":\"s-vectors-0001\",\"timestamp_ns\":1759740000123456789,\"version\":\"secdogie/dialogue/v1\"},\"kind\":\"gate2_challenge\",\"payload\":{\"action_hash\":\"b6cd58026ee30c0ed010d8e3727032cb9c8191e01822e811a8fd9caf9f7edb7b\",\"challenge_id\":\"c0ffee0000000001\",\"expires_at\":1759740120.0,\"risk_explanation\":\"deletes the account and its data; there is no undo\",\"risk_level\":\"irreversible\",\"subject_did\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_action\":{\"high_risk\":true,\"kind\":\"click\",\"target_id\":\"ax:42\",\"target_name\":\"Delete account\",\"target_role\":\"button\",\"text\":\"\"}},\"sig\":\"5COhuAUpCoKptBZHZU29CSVFJN7tdOQtLYztWDul27lKfBPROK0ML9y64e+d2d7p54ptZQeg6yltzjJyoAwCDQ==\",\"signer\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\"}"
+  },
+  "response": {
+    "guard_now": "1759740030.0",
+    "token_wire": "{\"action_hash\":\"b6cd58026ee30c0ed010d8e3727032cb9c8191e01822e811a8fd9caf9f7edb7b\",\"expires_at\":1759740120.0,\"sig\":\"gCmY6BqHcm76wMUBww/6OoZIia5khpP1aKCW2npPywaEGZyYAX/tcUngTRmDhEJHe6ITx+HVp6EzZusM3lhaBQ==\",\"signer\":\"did:key:z6MkjiKt1uqEt4FUUjtMDTiXKDDP68BQQmRahfnEUeM2mmBk\",\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"type\":\"secdogie/action-authorization/v1\",\"valid_from\":1759740000.0}",
+    "wire": "{\"header\":{\"recipient_did\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"sender_did\":\"did:key:z6MkjiKt1uqEt4FUUjtMDTiXKDDP68BQQmRahfnEUeM2mmBk\",\"seq\":3,\"session_id\":\"s-vectors-0002\",\"timestamp_ns\":1759740005987654321,\"version\":\"secdogie/dialogue/v1\"},\"kind\":\"gate2_response\",\"payload\":{\"action_hash\":\"b6cd58026ee30c0ed010d8e3727032cb9c8191e01822e811a8fd9caf9f7edb7b\",\"authorization\":{\"action_hash\":\"b6cd58026ee30c0ed010d8e3727032cb9c8191e01822e811a8fd9caf9f7edb7b\",\"expires_at\":1759740120.0,\"sig\":\"gCmY6BqHcm76wMUBww/6OoZIia5khpP1aKCW2npPywaEGZyYAX/tcUngTRmDhEJHe6ITx+HVp6EzZusM3lhaBQ==\",\"signer\":\"did:key:z6MkjiKt1uqEt4FUUjtMDTiXKDDP68BQQmRahfnEUeM2mmBk\",\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"type\":\"secdogie/action-authorization/v1\",\"valid_from\":1759740000.0},\"challenge_id\":\"c0ffee0000000001\",\"user_verdict\":\"Approve\"},\"sig\":\"C9cnVMguhviFjZuZlUuYPk5LlL9I/rLg9QtP/kqXIGjP14etxjGcZzbrkKlWTVFrsH/4iyBN7vai5QCeA9WBAg==\",\"signer\":\"did:key:z6MkjiKt1uqEt4FUUjtMDTiXKDDP68BQQmRahfnEUeM2mmBk\"}"
+  }
+}
