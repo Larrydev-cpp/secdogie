@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SecDogie Symbiont</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --panel: #ffffff; --ink: #1d1f1e; --muted: #67706b; --line: #e3e1da;
+    --agent: #eef3f0; --accent: #2f6f5a; --accent-ink: #ffffff; --warn: #9a5b12; --danger: #a33a2f;
+    --veil: #ecebe6; --radius: 14px; color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141716; --panel: #1c201e; --ink: #e7ebe8; --muted: #9aa49f; --line: #2c322f;
+      --agent: #1f2925; --accent: #6cc3a1; --accent-ink: #0d1411; --warn: #e0a85a; --danger: #ec8a7f;
+      --veil: #242927; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141716; --panel: #1c201e; --ink: #e7ebe8; --muted: #9aa49f; --line: #2c322f;
+    --agent: #1f2925; --accent: #6cc3a1; --accent-ink: #0d1411; --warn: #e0a85a; --danger: #ec8a7f;
+    --veil: #242927; color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 system-ui, -apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+  header { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; letter-spacing: .02em; }
+  header #mode { color: var(--muted); font-size: 13px; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; padding: 16px; max-width: 1180px; margin: 0 auto; }
+  @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+  main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  #stream { display: flex; flex-direction: column; gap: 10px; }
+  .ambient { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+  .ambient p { margin: 2px 0; }
+  .ambient .mode { color: var(--muted); font-size: 13px; }
+  .turn { max-width: 640px; margin: 0; }
+  .narration { color: var(--muted); font-size: 14px; padding-left: 4px; }
+  .held { color: var(--muted); font-size: 13px; font-style: italic; padding-left: 4px; }
+  .bubble { background: var(--agent); border-radius: var(--radius) var(--radius) var(--radius) 4px; padding: 12px 14px; border: 1px solid var(--line); }
+  .bubble .tag { font-size: 12px; color: var(--accent); font-weight: 600; letter-spacing: .03em; }
+  .bubble .finding { display: inline-block; font-size: 12px; color: var(--warn); margin: 4px 0; }
+  .bubble .question, .bubble .explanation { margin: 6px 0; }
+  .bubble .veiled { color: var(--muted); background: var(--veil); padding: 8px 10px; border-radius: 10px; margin: 6px 0 0; }
+  .options, .actions, .free { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .free input { flex: 1 1 200px; min-width: 0; }
+  button, input, select { font: inherit; color: inherit; }
+  button { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+  button:hover:not([disabled]) { border-color: var(--accent); }
+  button[disabled] { opacity: .45; cursor: default; }
+  button.approve { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button.deny { color: var(--danger); }
+  input[type=text], input[type=url], select { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; }
+  .risk { display: flex; gap: 10px; align-items: center; margin-top: 4px; font-size: 13px; }
+  .badge { border-radius: 999px; padding: 1px 9px; font-weight: 600; font-size: 12px; border: 1px solid currentColor; }
+  .risk-irreversible { color: var(--danger); } .risk-high { color: var(--warn); } .risk-low { color: var(--accent); }
+  .until { color: var(--muted); }
+  dl.action { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 12px; margin: 8px 0; font-size: 13px; }
+  dl.action dt { color: var(--muted); }
+  dl.action dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .hash { font-size: 12px; color: var(--muted); font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+  .hash.bad { color: var(--danger); }
+  .note, .answer { font-size: 13px; color: var(--muted); margin: 6px 0 0; }
+  .state-approved .note { color: var(--accent); }
+  form#composer { display: flex; gap: 8px; padding: 4px 0; }
+  form#composer input { flex: 1; min-width: 0; }
+  .suggest { display: flex; gap: 6px; flex-wrap: wrap; font-size: 13px; }
+  .suggest button { padding: 3px 10px; font-size: 13px; }
+  aside { display: flex; flex-direction: column; gap: 12px; }
+  aside section { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+  aside h2 { font-size: 14px; margin: 0 0 6px; }
+  aside p, aside label { font-size: 13px; color: var(--muted); }
+  aside label { display: block; margin: 8px 0 4px; }
+  aside input, aside select { width: 100%; }
+  aside .row { display: flex; gap: 8px; margin-top: 8px; }
+  #sandbox-out { color: var(--ink); overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<header>
+  <h1>SecDogie</h1>
+  <span id="mode">正在醒来…</span>
+</header>
+<div class="layout">
+  <main>
+    <div id="stream" aria-live="polite"></div>
+    <div class="suggest" aria-label="可以试试">
+      <button type="button" data-intent="把旧账号删掉">把旧账号删掉</button>
+      <button type="button" data-intent="打开 docs.example.com 的安装指南">打开安装指南</button>
+      <button type="button" data-intent="清空这些路由">清空这些路由</button>
+      <button type="button" data-intent="automatically post a reply on my behalf">automatically post a reply on my behalf</button>
+    </div>
+    <form id="composer" autocomplete="off">
+      <input id="intent" type="text" placeholder="说一件你想做成的事" aria-label="意图">
+      <button type="submit">交给它</button>
+    </form>
+  </main>
+  <aside>
+    <section>
+      <h2>注意力（模拟信号）</h2>
+      <p>网页看不到你在别处的输入，SecDogie 也不去看。这里用滑块模拟系统侧经授权提供的聚合信号。</p>
+      <label for="cpm">打字速度 <span id="cpm-out"></span></label>
+      <input id="cpm" type="range" min="0" max="400" step="10" value="0">
+      <label for="context">场景</label>
+      <select id="context">
+        <option value="work">工作</option>
+        <option value="communication">沟通</option>
+        <option value="sensitive">敏感（例如密码管理器）</option>
+        <option value="presenting">正在共享屏幕</option>
+      </select>
+    </section>
+    <section>
+      <h2>群体</h2>
+      <p>本页再起一个节点，用 have/want 反熵和它对齐状态图。</p>
+      <button id="sync" type="button">与页内节点同步</button>
+    </section>
+    <section>
+      <h2>沙箱</h2>
+      <p>专用 Worker：只抓取你填写的 https origin，不带 cookie、不带 referrer、不跟随重定向，限时限量。对方不允许跨域读取时如实显示，不绕过。</p>
+      <form id="sandbox-form">
+        <label for="sandbox-origin">放行的 origin</label>
+        <input id="sandbox-origin" type="url" placeholder="https://example.org" required>
+        <label for="sandbox-url">要读的页面</label>
+        <input id="sandbox-url" type="url" placeholder="https://example.org/docs" required>
+        <div class="row">
+          <button type="submit">读取</button>
+          <button id="sandbox-stop" type="button">停止沙箱</button>
+        </div>
+      </form>
+      <p id="sandbox-out"></p>
+    </section>
+  </aside>
+</div>
+<script type="module" src="./dist/demo/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,209 @@
+{
+  "cases": [
+    {
+      "instruction": "",
+      "verdict": "revise",
+      "reasons": [
+        "empty instruction: nothing actionable"
+      ],
+      "suggestion": "State a concrete goal."
+    },
+    {
+      "instruction": "   \t",
+      "verdict": "revise",
+      "reasons": [
+        "empty instruction: nothing actionable"
+      ],
+      "suggestion": "State a concrete goal."
+    },
+    {
+      "instruction": "Map the public docs on docs.example.com",
+      "verdict": "accept",
+      "reasons": [],
+      "suggestion": ""
+    },
+    {
+      "instruction": "read-only: delete the temp files",
+      "verdict": "revise",
+      "reasons": [
+        "self-contradiction: asserts read-only yet asks for a state change"
+      ],
+      "suggestion": "Split it: keep the read-only inspection separate from any change, and confirm the change explicitly."
+    },
+    {
+      "instruction": "Delete the cache but don't modify anything",
+      "verdict": "revise",
+      "reasons": [
+        "self-contradiction: asserts read-only yet asks for a state change"
+      ],
+      "suggestion": "Split it: keep the read-only inspection separate from any change, and confirm the change explicitly."
+    },
+    {
+      "instruction": "只读查看，然后删除日志",
+      "verdict": "revise",
+      "reasons": [
+        "self-contradiction: asserts read-only yet asks for a state change"
+      ],
+      "suggestion": "Split it: keep the read-only inspection separate from any change, and confirm the change explicitly."
+    },
+    {
+      "instruction": "请delete文件，只读",
+      "verdict": "accept",
+      "reasons": [],
+      "suggestion": ""
+    },
+    {
+      "instruction": "wrİte the file, read-only",
+      "verdict": "revise",
+      "reasons": [
+        "self-contradiction: asserts read-only yet asks for a state change"
+      ],
+      "suggestion": "Split it: keep the read-only inspection separate from any change, and confirm the change explicitly."
+    },
+    {
+      "instruction": "poll the inbox every 1 second",
+      "verdict": "revise",
+      "reasons": [
+        "inefficient polling: a tight/endless poll wastes cycles"
+      ],
+      "suggestion": "Prefer an event-driven trigger, or exponential backoff, over a fixed short interval."
+    },
+    {
+      "instruction": "poll the inbox every 3 seconds",
+      "verdict": "accept",
+      "reasons": [],
+      "suggestion": ""
+    },
+    {
+      "instruction": "check every 3s",
+      "verdict": "revise",
+      "reasons": [
+        "inefficient polling: a tight/endless poll wastes cycles"
+      ],
+      "suggestion": "Prefer an event-driven trigger, or exponential backoff, over a fixed short interval."
+    },
+    {
+      "instruction": "every 10 sec",
+      "verdict": "accept",
+      "reasons": [],
+      "suggestion": ""
+    },
+    {
+      "instruction": "every 500 ms",
+      "verdict": "revise",
+      "reasons": [
+        "inefficient polling: a tight/endless poll wastes cycles"
+      ],
+      "suggestion": "Prefer an event-driven trigger, or exponential backoff, over a fixed short interval."
+    },
+    {
+      "instruction": "every ٣ sec",
+      "verdict": "revise",
+      "reasons": [
+        "inefficient polling: a tight/endless poll wastes cycles"
+      ],
+      "suggestion": "Prefer an event-driven trigger, or exponential backoff, over a fixed short interval."
+    },
+    {
+      "instruction": "每 2 秒 刷新一次",
+      "verdict": "revise",
+      "reasons": [
+        "inefficient polling: a tight/endless poll wastes cycles"
+      ],
+      "suggestion": "Prefer an event-driven trigger, or exponential backoff, over a fixed short interval."
+    },
+    {
+      "instruction": "每500毫秒检查",
+      "verdict": "revise",
+      "reasons": [
+        "inefficient polling: a tight/endless poll wastes cycles"
+      ],
+      "suggestion": "Prefer an event-driven trigger, or exponential backoff, over a fixed short interval."
+    },
+    {
+      "instruction": "retry forever until it works",
+      "verdict": "revise",
+      "reasons": [
+        "inefficient polling: a tight/endless poll wastes cycles"
+      ],
+      "suggestion": "Prefer an event-driven trigger, or exponential backoff, over a fixed short interval."
+    },
+    {
+      "instruction": "poll\rforever",
+      "verdict": "revise",
+      "reasons": [
+        "inefficient polling: a tight/endless poll wastes cycles"
+      ],
+      "suggestion": "Prefer an event-driven trigger, or exponential backoff, over a fixed short interval."
+    },
+    {
+      "instruction": "一直轮询直到成功",
+      "verdict": "revise",
+      "reasons": [
+        "inefficient polling: a tight/endless poll wastes cycles"
+      ],
+      "suggestion": "Prefer an event-driven trigger, or exponential backoff, over a fixed short interval."
+    },
+    {
+      "instruction": "automatically post a reply on my behalf",
+      "verdict": "revise",
+      "reasons": [
+        "unattended posting/sending: publishing or sending content on the user's behalf without a human in the loop"
+      ],
+      "suggestion": "Real-world posting/sending should go through explicit human confirmation, not run unattended."
+    },
+    {
+      "instruction": "ſend automatically",
+      "verdict": "revise",
+      "reasons": [
+        "unattended posting/sending: publishing or sending content on the user's behalf without a human in the loop"
+      ],
+      "suggestion": "Real-world posting/sending should go through explicit human confirmation, not run unattended."
+    },
+    {
+      "instruction": "自动发布这条推文",
+      "verdict": "revise",
+      "reasons": [
+        "unattended posting/sending: publishing or sending content on the user's behalf without a human in the loop"
+      ],
+      "suggestion": "Real-world posting/sending should go through explicit human confirmation, not run unattended."
+    },
+    {
+      "instruction": "fill the form and click submit",
+      "verdict": "accept",
+      "reasons": [],
+      "suggestion": ""
+    },
+    {
+      "instruction": "open it and then read it and then copy it and then paste it and then save it and then close it and then reopen it and then check it",
+      "verdict": "revise",
+      "reasons": [
+        "overlong / unstructured: many steps in one instruction"
+      ],
+      "suggestion": "Decompose into a few named sub-goals with dependencies (a goal DAG)."
+    },
+    {
+      "instruction": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "verdict": "revise",
+      "reasons": [
+        "overlong / unstructured: many steps in one instruction"
+      ],
+      "suggestion": "Decompose into a few named sub-goals with dependencies (a goal DAG)."
+    },
+    {
+      "instruction": "中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中",
+      "verdict": "accept",
+      "reasons": [],
+      "suggestion": ""
+    },
+    {
+      "instruction": "read-only, and then post the summary automatically, every 2 seconds",
+      "verdict": "revise",
+      "reasons": [
+        "self-contradiction: asserts read-only yet asks for a state change",
+        "unattended posting/sending: publishing or sending content on the user's behalf without a human in the loop"
+      ],
+      "suggestion": "Split it: keep the read-only inspection separate from any change, and confirm the change explicitly. Real-world posting/sending should go through explicit human confirmation, not run unattended."
+    }
+  ]
+}

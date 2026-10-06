@@ -1,0 +1,178 @@
+{
+  "spec": "canonical(json.loads(input)) with canonical = json.dumps(sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode('utf-8')",
+  "cases": [
+    {
+      "name": "scalars",
+      "input": "[null,true,false,0,1,-1,\"\",[],{}]",
+      "canonical": "[null,true,false,0,1,-1,\"\",[],{}]",
+      "sha256": "1699ed00d6411351fe7d40d273018ef4c2e6159fa0454473533eb6f64a38eec4"
+    },
+    {
+      "name": "whitespace is not significant",
+      "input": "{ \"b\" : 1 ,\n\t\"a\" : [ 1 , 2 ] }",
+      "canonical": "{\"a\":[1,2],\"b\":1}",
+      "sha256": "94a786c3662bc7beeb598efa7d8cb58d7bea25d6c275ea9785a0230ff1f8c2ba"
+    },
+    {
+      "name": "keys sort by code point, not UTF-16",
+      "input": "{\"\\uffff\":1,\"\\ud83d\\ude00\":2,\"a\":3,\"B\":4,\"\\u00e9\":5,\"\":6}",
+      "canonical": "{\"\":6,\"B\":4,\"a\":3,\"é\":5,\"￿\":1,\"😀\":2}",
+      "sha256": "9b631f0af7e3532240845ecd9d6294ffaaa0bd8d42265fa5d5704039860b4899"
+    },
+    {
+      "name": "nested objects sort at every level",
+      "input": "{\"z\":{\"y\":1,\"x\":[{\"b\":1,\"a\":2}]},\"a\":null}",
+      "canonical": "{\"a\":null,\"z\":{\"x\":[{\"a\":2,\"b\":1}],\"y\":1}}",
+      "sha256": "e33b0495e6bfd853be253c19aaa57f977ec9505335ac471806e7ee264f8cef14"
+    },
+    {
+      "name": "integral float keeps .0",
+      "input": "[1.0,100.0,123456789.0,1759740120.0]",
+      "canonical": "[1.0,100.0,123456789.0,1759740120.0]",
+      "sha256": "07345f69dd24665bfb2bbf196e23abc97fa8a1c3bfcb8f33e132f89c787cdec4"
+    },
+    {
+      "name": "negative zero float",
+      "input": "[-0.0,-1e-400]",
+      "canonical": "[-0.0,-0.0]",
+      "sha256": "90e3791142f25bdfdc84c7b43dc3aa8bc32ad1fc4f935a5076626627e59f45da"
+    },
+    {
+      "name": "integer -0 is 0",
+      "input": "-0",
+      "canonical": "0",
+      "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+    },
+    {
+      "name": "exponent threshold: 1e16 and up",
+      "input": "[1e16,1.5e16,1e22,1.7976931348623157e308]",
+      "canonical": "[1e+16,1.5e+16,1e+22,1.7976931348623157e+308]",
+      "sha256": "4bbc8d667c28e7118c6c62f8b2f365eea0d0a58e9542827036b3cd76df40eaae"
+    },
+    {
+      "name": "fixed below 1e16",
+      "input": "[1e15,9999999999999998.0,1000000000000000.5]",
+      "canonical": "[1000000000000000.0,9999999999999998.0,1000000000000000.5]",
+      "sha256": "e06075c016059a31d00fe38e3698f4ac66b565d2bb56be71466cf0e29d9ff088"
+    },
+    {
+      "name": "exponent threshold: below 1e-4",
+      "input": "[0.0001,0.00001,1e-7,1.23e-18,5e-324]",
+      "canonical": "[0.0001,1e-05,1e-07,1.23e-18,5e-324]",
+      "sha256": "0fec534cab208f7247f430ce2c0b2f96adeb5b057afef99a5601dac810a6faf0"
+    },
+    {
+      "name": "shortest round trip digits",
+      "input": "[0.30000000000000004,0.1000000000000000055511151231257827,2.5,1759740120.123456]",
+      "canonical": "[0.30000000000000004,0.1,2.5,1759740120.123456]",
+      "sha256": "ca0c07dfd5fd81cea137f61d9b36f5bb87ec758ce08113c88f416fda6366743a"
+    },
+    {
+      "name": "upper-case exponent and explicit plus",
+      "input": "[1E2,1.5E+3,2e-0]",
+      "canonical": "[100.0,1500.0,2.0]",
+      "sha256": "3f1bf57cd070a1851c8c1cd43ec7f43bd9cfa9b2ed6cd2998c9ed0ecb76026d0"
+    },
+    {
+      "name": "underflow to zero is a float",
+      "input": "1e-400",
+      "canonical": "0.0",
+      "sha256": "8aed642bf5118b9d3c859bd4be35ecac75b6e873cce34e7b6f554b06f75550d7"
+    },
+    {
+      "name": "integer past 2**53 stays exact",
+      "input": "[9007199254740993,1759740000123456789,-123456789012345678901234567890]",
+      "canonical": "[9007199254740993,1759740000123456789,-123456789012345678901234567890]",
+      "sha256": "0238da41d1fd2441dc3267602ae96c3f4d95d265597d1c779265d6d6927573cb"
+    },
+    {
+      "name": "non-ASCII is emitted raw",
+      "input": "\"\\u00e9 \\u4e2d\\u6587 caf\\u00e9 \\ud83d\\ude00\"",
+      "canonical": "\"é 中文 café 😀\"",
+      "sha256": "d4ddac4bb462825ae783375ccaad92d3a3bd98c3adbb150f9d23ab413b95ff86"
+    },
+    {
+      "name": "line and paragraph separators are raw",
+      "input": "\"\\u2028\\u2029\"",
+      "canonical": "\"  \"",
+      "sha256": "e3a0e2262ac7790f4df36b522a8fbdd4ee3370d568eb15dc25c5f1775f14ed6c"
+    },
+    {
+      "name": "short escapes",
+      "input": "\"\\\" \\\\ \\/ \\b \\f \\n \\r \\t\"",
+      "canonical": "\"\\\" \\\\ / \\b \\f \\n \\r \\t\"",
+      "sha256": "53cc2efbc34d6b0d25ed1119ab05b767fe617f291a4563103f4572036f4fcb3d"
+    },
+    {
+      "name": "other control characters use lower-case \\u00xx",
+      "input": "\"\\u0000\\u0001\\u001f\\u007f\"",
+      "canonical": "\"\\u0000\\u0001\\u001f\"",
+      "sha256": "3a5f25746de9e33a0a1d8d04f3bb8e3cc03c04b69fbe67fdbc4091e2b3c48fa8"
+    }
+  ],
+  "reject": [
+    {
+      "name": "NaN",
+      "input": "[NaN]",
+      "reason": "non-finite number",
+      "python": "json.loads accepts it and canonical() emits NaN",
+      "python_result": "accepted"
+    },
+    {
+      "name": "Infinity",
+      "input": "{\"a\":Infinity}",
+      "reason": "non-finite number",
+      "python": "json.loads accepts it and canonical() emits Infinity",
+      "python_result": "accepted"
+    },
+    {
+      "name": "overflow to infinity",
+      "input": "1e400",
+      "reason": "non-finite number",
+      "python": "parses as inf; canonical() emits Infinity",
+      "python_result": "accepted"
+    },
+    {
+      "name": "lone surrogate",
+      "input": "\"\\ud800\"",
+      "reason": "lone surrogate",
+      "python": "canonical() raises UnicodeEncodeError",
+      "python_result": "rejected"
+    },
+    {
+      "name": "duplicate key",
+      "input": "{\"a\":1,\"a\":2}",
+      "reason": "duplicate key",
+      "python": "json.loads keeps the last value",
+      "python_result": "accepted"
+    },
+    {
+      "name": "leading zero",
+      "input": "[01]",
+      "reason": "invalid number",
+      "python": "json.loads raises",
+      "python_result": "rejected"
+    },
+    {
+      "name": "trailing data",
+      "input": "{} {}",
+      "reason": "trailing data",
+      "python": "json.loads raises",
+      "python_result": "rejected"
+    },
+    {
+      "name": "bare control character in string",
+      "input": "\"a\nb\"",
+      "reason": "control character in string",
+      "python": "json.loads raises",
+      "python_result": "rejected"
+    },
+    {
+      "name": "single quotes",
+      "input": "{'a':1}",
+      "reason": "invalid JSON",
+      "python": "json.loads raises",
+      "python_result": "rejected"
+    }
+  ]
+}

@@ -1,0 +1,84 @@
+{
+  "delta_type": "secdogie/state-graph-delta/v1",
+  "state_key_type": "secdogie/state-key/v1",
+  "agent": {
+    "seed_hex": "d77857d7dc5ac0ccd17a2e9ca869802239d5d246c4b18384f2bbca2dd3be56a5",
+    "did": "did:key:z6MkeiDV9o1EhKG5XN7qWWmQeBZkzUDSvS4q4UDvEWbEzwi5"
+  },
+  "stranger": {
+    "seed_hex": "f4c0e8ff006269a5d22f8899c484c0ec4689d277671cdf96cdc52756c009ebea",
+    "did": "did:key:z6MkwajPQpbAgq5JQQARHm4R2iVLaordEwW7GohrRb5YRzpa"
+  },
+  "state_keys": [
+    {
+      "origin": "https://docs.example.com",
+      "route": "/guide/install",
+      "query_keys": [
+        "lang"
+      ],
+      "key": "efcb0f570e2d2f755f7811998d1f9710f1427e206cef479bcba1566d74fc005c"
+    },
+    {
+      "origin": "https://docs.example.com",
+      "route": "/account/delete",
+      "query_keys": [],
+      "key": "27df1fa90ceaac6210ed14651aed143c358c93a36fdd4aa3d205ec78cd31212f"
+    }
+  ],
+  "valid": [
+    {
+      "name": "root",
+      "wire": "{\"author\":\"did:key:z6MkeiDV9o1EhKG5XN7qWWmQeBZkzUDSvS4q4UDvEWbEzwi5\",\"lamport\":1,\"ops\":[{\"op\":\"add_state\",\"origin\":\"https://docs.example.com\",\"query_keys\":[\"lang\"],\"route\":\"/guide/install\"},{\"byte_len\":26,\"content_hash\":\"d5bd629ee4a0226fd4dcb9d50cfae31a0f99851233daf8dbf8558228134edaf7\",\"op\":\"add_observation\",\"state\":\"efcb0f570e2d2f755f7811998d1f9710f1427e206cef479bcba1566d74fc005c\"}],\"parents\":[],\"sig\":\"PLy1uN6DPrZtk+RpuxxMzvKGTsZYmGK0a1zDgCmVhqVxLY9SnaIQxHb8a3uKFxA9TCrp0Z999+qat4OnVk36CQ==\",\"signer\":\"did:key:z6MkeiDV9o1EhKG5XN7qWWmQeBZkzUDSvS4q4UDvEWbEzwi5\",\"type\":\"secdogie/state-graph-delta/v1\"}",
+      "cid": "f11f9d177809ff8f8c0be0861c5e38dbcc8d4641c6f0cd090cde64a7a744a529",
+      "payload": "{\"author\":\"did:key:z6MkeiDV9o1EhKG5XN7qWWmQeBZkzUDSvS4q4UDvEWbEzwi5\",\"lamport\":1,\"ops\":[{\"op\":\"add_state\",\"origin\":\"https://docs.example.com\",\"query_keys\":[\"lang\"],\"route\":\"/guide/install\"},{\"byte_len\":26,\"content_hash\":\"d5bd629ee4a0226fd4dcb9d50cfae31a0f99851233daf8dbf8558228134edaf7\",\"op\":\"add_observation\",\"state\":\"efcb0f570e2d2f755f7811998d1f9710f1427e206cef479bcba1566d74fc005c\"}],\"parents\":[],\"type\":\"secdogie/state-graph-delta/v1\"}"
+    },
+    {
+      "name": "child",
+      "wire": "{\"author\":\"did:key:z6MkeiDV9o1EhKG5XN7qWWmQeBZkzUDSvS4q4UDvEWbEzwi5\",\"lamport\":2,\"ops\":[{\"op\":\"add_state\",\"origin\":\"https://docs.example.com\",\"query_keys\":[],\"route\":\"/account/delete\"},{\"fields\":[\"confirm\",\"reason\"],\"from\":\"efcb0f570e2d2f755f7811998d1f9710f1427e206cef479bcba1566d74fc005c\",\"method\":\"post\",\"op\":\"add_reference\",\"to\":\"27df1fa90ceaac6210ed14651aed143c358c93a36fdd4aa3d205ec78cd31212f\",\"via\":\"form\"}],\"parents\":[\"f11f9d177809ff8f8c0be0861c5e38dbcc8d4641c6f0cd090cde64a7a744a529\"],\"sig\":\"P59XrP5J4d1b+tqCnl1Rsv/VRL1QM6hHUF2sCgy2VQcVEtfSZ/Bgu1wf7QMdqrD9VQRP2jo/BrwQyEHa5V5zCQ==\",\"signer\":\"did:key:z6MkeiDV9o1EhKG5XN7qWWmQeBZkzUDSvS4q4UDvEWbEzwi5\",\"type\":\"secdogie/state-graph-delta/v1\"}",
+      "cid": "aecdb8bfcdaa1567b2fdae645308798b1407010c634bf67582adf734baf8c84d",
+      "payload": "{\"author\":\"did:key:z6MkeiDV9o1EhKG5XN7qWWmQeBZkzUDSvS4q4UDvEWbEzwi5\",\"lamport\":2,\"ops\":[{\"op\":\"add_state\",\"origin\":\"https://docs.example.com\",\"query_keys\":[],\"route\":\"/account/delete\"},{\"fields\":[\"confirm\",\"reason\"],\"from\":\"efcb0f570e2d2f755f7811998d1f9710f1427e206cef479bcba1566d74fc005c\",\"method\":\"post\",\"op\":\"add_reference\",\"to\":\"27df1fa90ceaac6210ed14651aed143c358c93a36fdd4aa3d205ec78cd31212f\",\"via\":\"form\"}],\"parents\":[\"f11f9d177809ff8f8c0be0861c5e38dbcc8d4641c6f0cd090cde64a7a744a529\"],\"type\":\"secdogie/state-graph-delta/v1\"}"
+    }
+  ],
+  "invalid": [
+    {
+      "name": "signature bit flipped",
+      "wire": "{\"author\":\"did:key:z6MkeiDV9o1EhKG5XN7qWWmQeBZkzUDSvS4q4UDvEWbEzwi5\",\"lamport\":1,\"ops\":[{\"op\":\"add_state\",\"origin\":\"https://docs.example.com\",\"query_keys\":[\"lang\"],\"route\":\"/guide/install\"},{\"byte_len\":26,\"content_hash\":\"d5bd629ee4a0226fd4dcb9d50cfae31a0f99851233daf8dbf8558228134edaf7\",\"op\":\"add_observation\",\"state\":\"efcb0f570e2d2f755f7811998d1f9710f1427e206cef479bcba1566d74fc005c\"}],\"parents\":[],\"sig\":\"Pby1uN6DPrZtk+RpuxxMzvKGTsZYmGK0a1zDgCmVhqVxLY9SnaIQxHb8a3uKFxA9TCrp0Z999+qat4OnVk36CQ==\",\"signer\":\"did:key:z6MkeiDV9o1EhKG5XN7qWWmQeBZkzUDSvS4q4UDvEWbEzwi5\",\"type\":\"secdogie/state-graph-delta/v1\"}",
+      "reason": "invalid signature"
+    },
+    {
+      "name": "tombstone op",
+      "wire": "{\"author\":\"did:key:z6MkeiDV9o1EhKG5XN7qWWmQeBZkzUDSvS4q4UDvEWbEzwi5\",\"lamport\":2,\"ops\":[{\"op\":\"remove_state\",\"state\":\"efcb0f570e2d2f755f7811998d1f9710f1427e206cef479bcba1566d74fc005c\"}],\"parents\":[\"f11f9d177809ff8f8c0be0861c5e38dbcc8d4641c6f0cd090cde64a7a744a529\"],\"sig\":\"88nlgQpo7IzWqkWJYlwa3+zKHCvg6gN89NVLWJ9a8Yci1AUByC15jvapHxaMCJzxy0tBxqdQEhoKHBm4Xa9eAQ==\",\"signer\":\"did:key:z6MkeiDV9o1EhKG5XN7qWWmQeBZkzUDSvS4q4UDvEWbEzwi5\",\"type\":\"secdogie/state-graph-delta/v1\"}",
+      "reason": "unknown op"
+    },
+    {
+      "name": "lamport not 1 + max(parents)",
+      "wire": "{\"author\":\"did:key:z6MkeiDV9o1EhKG5XN7qWWmQeBZkzUDSvS4q4UDvEWbEzwi5\",\"lamport\":5,\"ops\":[{\"op\":\"add_state\",\"origin\":\"https://docs.example.com\",\"query_keys\":[],\"route\":\"/a\"}],\"parents\":[\"f11f9d177809ff8f8c0be0861c5e38dbcc8d4641c6f0cd090cde64a7a744a529\"],\"sig\":\"ZVat+LKvTJjTFqenP8j6cn5GRCEINtO6Zyq9A00SP0nyAZcixctOjBKxSyA6/ie0omAgxfDnwyp7wCd2kpXOCw==\",\"signer\":\"did:key:z6MkeiDV9o1EhKG5XN7qWWmQeBZkzUDSvS4q4UDvEWbEzwi5\",\"type\":\"secdogie/state-graph-delta/v1\"}",
+      "reason": "lamport"
+    },
+    {
+      "name": "float lamport",
+      "wire": "{\"author\":\"did:key:z6MkeiDV9o1EhKG5XN7qWWmQeBZkzUDSvS4q4UDvEWbEzwi5\",\"lamport\":1.0,\"ops\":[{\"op\":\"add_state\",\"origin\":\"https://docs.example.com\",\"query_keys\":[],\"route\":\"/b\"}],\"parents\":[],\"sig\":\"evo+zfiQsFOi082y93AVvS6dsfVce9o93ZVB+Srydstfa1qgZFkeaJE8Hn6j7XVoWe91BTXZRMvo8fRCm+n4CQ==\",\"signer\":\"did:key:z6MkeiDV9o1EhKG5XN7qWWmQeBZkzUDSvS4q4UDvEWbEzwi5\",\"type\":\"secdogie/state-graph-delta/v1\"}",
+      "reason": "lamport must be an integer"
+    },
+    {
+      "name": "parents not sorted",
+      "wire": "{\"author\":\"did:key:z6MkeiDV9o1EhKG5XN7qWWmQeBZkzUDSvS4q4UDvEWbEzwi5\",\"lamport\":3,\"ops\":[{\"op\":\"add_state\",\"origin\":\"https://docs.example.com\",\"query_keys\":[],\"route\":\"/c\"}],\"parents\":[\"f11f9d177809ff8f8c0be0861c5e38dbcc8d4641c6f0cd090cde64a7a744a529\",\"aecdb8bfcdaa1567b2fdae645308798b1407010c634bf67582adf734baf8c84d\"],\"sig\":\"OGlnCzX3bJcXXDeDW501FGmKIgqslnG321uXDhTStFZKAUYTmzZJrmdthtyAXaxiQWhvXoLY9L+Zu78Y94tXCA==\",\"signer\":\"did:key:z6MkeiDV9o1EhKG5XN7qWWmQeBZkzUDSvS4q4UDvEWbEzwi5\",\"type\":\"secdogie/state-graph-delta/v1\"}",
+      "reason": "parents"
+    },
+    {
+      "name": "author not trusted",
+      "wire": "{\"author\":\"did:key:z6MkwajPQpbAgq5JQQARHm4R2iVLaordEwW7GohrRb5YRzpa\",\"lamport\":1,\"ops\":[{\"op\":\"add_state\",\"origin\":\"https://docs.example.com\",\"query_keys\":[],\"route\":\"/d\"}],\"parents\":[],\"sig\":\"oOoCZczTvhcg7Jh0c4aieuzgq7Cc8ly/j0k/8HIrtmNOSLzcCT6oXj9C2arR9W48/k2VZSKVCgLEb2szlofIAg==\",\"signer\":\"did:key:z6MkwajPQpbAgq5JQQARHm4R2iVLaordEwW7GohrRb5YRzpa\",\"type\":\"secdogie/state-graph-delta/v1\"}",
+      "reason": "untrusted author"
+    },
+    {
+      "name": "plain http origin",
+      "wire": "{\"author\":\"did:key:z6MkeiDV9o1EhKG5XN7qWWmQeBZkzUDSvS4q4UDvEWbEzwi5\",\"lamport\":1,\"ops\":[{\"op\":\"add_state\",\"origin\":\"http://docs.example.com\",\"query_keys\":[],\"route\":\"/e\"}],\"parents\":[],\"sig\":\"tlseLEvX7sD3fLRvCGhLPlXlccwVdMdIPUlpePlGn7xD3GcniHfqLIdDXRXbE/AGQWjz6tqgm4vOpWsRigriAg==\",\"signer\":\"did:key:z6MkeiDV9o1EhKG5XN7qWWmQeBZkzUDSvS4q4UDvEWbEzwi5\",\"type\":\"secdogie/state-graph-delta/v1\"}",
+      "reason": "origin"
+    },
+    {
+      "name": "signer is not the author",
+      "wire": "{\"author\":\"did:key:z6MkeiDV9o1EhKG5XN7qWWmQeBZkzUDSvS4q4UDvEWbEzwi5\",\"lamport\":1,\"ops\":[{\"op\":\"add_state\",\"origin\":\"https://docs.example.com\",\"query_keys\":[\"lang\"],\"route\":\"/guide/install\"},{\"byte_len\":26,\"content_hash\":\"d5bd629ee4a0226fd4dcb9d50cfae31a0f99851233daf8dbf8558228134edaf7\",\"op\":\"add_observation\",\"state\":\"efcb0f570e2d2f755f7811998d1f9710f1427e206cef479bcba1566d74fc005c\"}],\"parents\":[],\"sig\":\"Id7pbtNymiTMo9+HW3aKpWTTj6FHnO6NPzfvacgpcJKGb/yeOEAlwtcEb5uM8f3NOSoPk71WapjMlVB+YdH9Bg==\",\"signer\":\"did:key:z6MkwajPQpbAgq5JQQARHm4R2iVLaordEwW7GohrRb5YRzpa\",\"type\":\"secdogie/state-graph-delta/v1\"}",
+      "reason": "signer is not the author"
+    }
+  ]
+}

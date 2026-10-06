@@ -1,0 +1,21 @@
+{
+  "name": "@secdogie/symbiont",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "secdogie browser runtime: dual Socratic gates, attention-aware proposals, state-graph topology over Rust-WASM",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build:wasm": "cargo build --release --locked --target wasm32-unknown-unknown --manifest-path ../graph/Cargo.toml && node scripts/copy-wasm.mjs",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.worker.json && tsc -p tsconfig.test.json",
+    "test": "node --test \"tests/**/*.test.ts\"",
+    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.worker.json --noEmit false --outDir dist"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "6.0.3"
+  }
+}

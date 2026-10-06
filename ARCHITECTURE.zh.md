@@ -220,6 +220,8 @@ flowchart TB
 | `identity/capability.py` | 签名能力授权(2.9):白名单 scope、带过期、受信 issuer;计划门据此逐动作校验 | ④ | ✅ 已建成 |
 | `identity/allowlist.py` | 零信任默认:`ALLOW_ANY` 显式哨兵 + `require_trust`;全仓生产调用点的信任参数有测试把关 | ① | ✅ 已建成 |
 | `webrtc/` | Cloudflare Workers 上的 WebRTC 信令网关 + 浏览器数据通道(只经手信令,不经手业务数据) | ② | ✅ 已建成 |
+| `graph/` (Rust,原生 + wasm32) | 内容寻址、只追加的状态图增量(拒绝墓碑)、have/want 反熵、保守的词法路由适配器(只出候选状态)、`action-authorization/v1` 字段集上的确定性动作预览;wasm 无任何导入,自己验签 | ②④ | ✅ 已建成 |
+| `symbiont/` (TypeScript) | 浏览器侧运行时:双重苏格拉底门(Gate 1 对齐状态机 + Gate 2 内联签名气泡)、注意力感知的提案队列、意识流视图、受限抓取的沙箱 Worker;与 Python 规范化 / 令牌 / 对话信封逐字节兼容(`fixtures/vectors/`) | ②③④ | 🔨 已建成,与 Python 节点的传输桥接待做(W3) |
 | `transport/mux.py` | `ChannelMux`:一个传输上的多条应用通道(`dialogue/v1` 等) | ② | ✅ 已建成 |
 | `transport/failover.py` | 直连优先、中继兜底:近期直接听到对端才只走直连,否则同时经双方都持有租约的中继发送;由中继自签名记录构建 | ② | ✅ 已建成 |
 | `citadel/authz.py` | Gate 2 操作员授权令牌:绑定动作哈希与节点 DID、短时效 | ③④ | ✅ 已建成 |
