@@ -194,7 +194,11 @@ test('a sensitive context veils the signature bubble and refuses approval', asyn
   const [g2] = r.of('gate2');
   assert.ok(g2?.bubble);
   await r.feed(1, 0, 'sensitive');
-  assert.equal(r.of('gate2')[0]!.bubble, null, 'no content while veiled');
+  assert.deepEqual(
+    r.items().map((i) => (i.kind === 'held' ? `${i.kind}:${i.reason}` : i.kind)),
+    ['ambient', 'held:sensitive'],
+    'the whole conversation is put away',
+  );
   const res = await r.pipeline.approve(g2.id);
   assert.equal(res.ok, false);
   await r.feed(2, 0, 'work');

@@ -73,6 +73,8 @@ export interface HeldItem {
   readonly kind: 'held';
   readonly id: 'held';
   readonly count: number;
+  /** `waiting`: proposals held for a better moment; `sensitive`: the whole conversation is put away. */
+  readonly reason: 'waiting' | 'sensitive';
 }
 
 export type StreamItem = AmbientItem | NarrationItem | Gate1Item | Gate2Item | HeldItem;
@@ -153,6 +155,13 @@ export class ConsciousnessStream {
     return it?.kind === 'gate2' ? it : undefined;
   }
 
+  /** Follows the attention mode; a suppressed mode puts the whole conversation away. */
+  setMode(mode: AttentionMode): void {
+    if (mode === this.#ambient.mode) return;
+    this.#ambient = { ...this.#ambient, mode, modeLine: zh.ambient.mode[mode] ?? '' };
+    this.#changed();
+  }
+
   setHeld(count: number): void {
     if (count !== this.#held) {
       this.#held = count;
@@ -160,15 +169,23 @@ export class ConsciousnessStream {
     }
   }
 
-  /** The view, ambient first. Veiled bubbles carry no content. */
+  /**
+   * The view, ambient first. Veiled bubbles carry no content, and while the
+   * mode is suppressed (a sensitive or presented screen) nothing of the
+   * conversation is in the view at all -- only how much is put away.
+   */
   items(): StreamItem[] {
+    if (this.#ambient.mode === 'suppressed') {
+      const hidden = this.#timeline.size + this.#held;
+      return hidden > 0 ? [this.#ambient, { kind: 'held', id: 'held', count: hidden, reason: 'sensitive' }] : [this.#ambient];
+    }
     const timeline = [...this.#timeline.values()].sort((a, b) => a.at - b.at).map((it): TimelineItem => {
       if (it.kind === 'gate1' && it.veiled) return { ...it, question: '', options: [], answer: null, finding: '' };
       if (it.kind === 'gate2' && it.veiled) return { ...it, bubble: null };
       return it;
     });
     const out: StreamItem[] = [this.#ambient, ...timeline];
-    if (this.#held > 0) out.push({ kind: 'held', id: 'held', count: this.#held });
+    if (this.#held > 0) out.push({ kind: 'held', id: 'held', count: this.#held, reason: 'waiting' });
     return out;
   }
 }

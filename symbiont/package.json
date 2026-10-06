@@ -9,7 +9,7 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "build:wasm": "cargo build --release --target wasm32-unknown-unknown --manifest-path ../graph/Cargo.toml && node scripts/copy-wasm.mjs",
+    "build:wasm": "cargo build --release --locked --target wasm32-unknown-unknown --manifest-path ../graph/Cargo.toml && node scripts/copy-wasm.mjs",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.worker.json && tsc -p tsconfig.test.json",
     "test": "node --test \"tests/**/*.test.ts\"",
     "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.worker.json --noEmit false --outDir dist"

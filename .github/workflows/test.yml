@@ -128,6 +128,44 @@ jobs:
         working-directory: webrtc
         run: npm test
 
+  # --- Browser runtime: Rust-WASM state graph + TypeScript dual gates ---------
+  # graph/ is tested natively and linted for wasm32; symbiont/ then builds the
+  # wasm module and runs its tests against it (cross-language vectors from
+  # fixtures/vectors, the FlowState -> AttentionGap -> Gate 1 -> Gate 2 journey,
+  # the sandbox fetch boundary, and the purity grep).
+  runtime-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain (stable, wasm32)
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup target add wasm32-unknown-unknown
+          rustup component add rustfmt clippy
+
+      - name: graph -- fmt, clippy, tests
+        working-directory: graph
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets --locked -- -D warnings
+          cargo clippy --target wasm32-unknown-unknown --locked -- -D warnings
+          cargo test --locked
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: symbiont -- install, build the wasm, typecheck, test, build
+        working-directory: symbiont
+        run: |
+          npm ci
+          npm run build:wasm
+          npm run typecheck
+          npm test
+          npm run build
+
   # --- C tunnel: build + its own unit test binary ----------------------------
   tunnel-tests:
     runs-on: ubuntu-latest

@@ -5,7 +5,7 @@
  * steps.
  */
 
-import { zh } from './strings.ts';
+import { zh, zhReason } from './strings.ts';
 
 export type RuntimeEvent =
   | { readonly type: 'mapped'; readonly origin: string; readonly states: number; readonly at: number }
@@ -74,7 +74,7 @@ export class Narrator {
       case 'fetch-refused':
         acc.n += 1;
         acc.reason = ev.reason;
-        text = zh.narrate.fetchRefused(host(ev.origin), acc.n, ev.reason);
+        text = zh.narrate.fetchRefused(host(ev.origin), acc.n, zhReason(ev.reason));
         break;
       case 'aligned':
         text = zh.narrate.aligned(ev.summary);
@@ -89,7 +89,7 @@ export class Narrator {
         text = zh.narrate.released(ev.target);
         break;
       case 'refused':
-        text = zh.narrate.refused(ev.target, ev.reason);
+        text = zh.narrate.refused(ev.target, zhReason(ev.reason));
         break;
     }
     return { id: acc.id, at: acc.first, text };

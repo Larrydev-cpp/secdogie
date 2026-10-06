@@ -113,6 +113,11 @@ test('a veiled bubble carries nothing in the view model or the page', () => {
   assert.ok(!text.includes('account/delete') && !text.includes('哪一个'));
   assert.match(text, /还有 2 件事/);
   assert.equal(root.byClass('approve').length, 0);
+
+  s.setMode('suppressed');
+  assert.deepEqual(s.items().map((i) => i.kind), ['ambient', 'held']);
+  renderStream(fakeDoc, root, s.items(), { answer() {}, approve() {}, deny() {} }, 100);
+  assert.match(root.textContent ?? '', /对话先收起来了（4 条）/);
 });
 
 test('a Gate 1 question answers by option or in free text', () => {

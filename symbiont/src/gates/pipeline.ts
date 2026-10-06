@@ -89,7 +89,8 @@ export class DualGatePipeline {
       const prev = o.stream.gate2(b.id);
       o.stream.putGate2({ id: b.id, at: prev?.at ?? o.clock(), veiled: b.veiled, bubble: b });
     };
-    o.scheduler.onTick((ev) => {
+    o.scheduler.onTick((ev, budget) => {
+      o.stream.setMode(budget.mode);
       this.#work = this.#work.then(() => this.#onTick(ev));
     });
   }

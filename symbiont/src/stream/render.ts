@@ -162,7 +162,7 @@ function renderItem(doc: DocLike, it: StreamItem, h: StreamHandlers, now: number
     case 'gate2':
       return renderGate2(doc, it, h, now);
     case 'held':
-      return el(doc, 'p', 'turn held', zh.held(it.count));
+      return el(doc, 'p', 'turn held', it.reason === 'sensitive' ? zh.putAway(it.count) : zh.held(it.count));
   }
 }
 

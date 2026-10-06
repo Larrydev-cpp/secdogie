@@ -43,6 +43,7 @@ export const zh = {
   } as Record<string, string>,
   veiled: '有一项需要你看。现在的画面不适合展开，稍后再显示。',
   held: (n: number) => `还有 ${n} 件事等你空下来再说。`,
+  putAway: (n: number) => `对话先收起来了（${n} 条），画面不再敏感时回来。`,
   yes: '是',
   no: '否',
   ambient: {
@@ -74,3 +75,25 @@ export const zh = {
     refused: (s: string, why: string) => `没有放行：${s}（${why}）`,
   },
 } as const;
+
+/** Reasons from the fetch boundary and the gates, said in the stream's language. */
+const REASONS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^not https$/, '不是 https'],
+  [/^origin not on the allowlist$/, '不在白名单内'],
+  [/^credentials in the URL$/, 'URL 里带了凭据'],
+  [/^not a URL$/, '不是网址'],
+  [/^timed out$/, '超时'],
+  [/^network or CORS refusal/, '网络不通，或对方不允许跨域读取'],
+  [/^HTTP (\d+)$/, '对方返回 HTTP $1'],
+  [/^not HTML/, '不是网页'],
+  [/^the operator denied it$/, '你拒绝了'],
+  [/^the challenge expired/, '签名来得太晚'],
+  [/^authorization rejected: operator not trusted or revoked$/, '签名者不在受信操作员里'],
+  [/^authorization rejected/, '签名没有通过验证'],
+  [/^the answer is for a different action$/, '签名对应的不是这个动作'],
+];
+
+export function zhReason(reason: string): string {
+  for (const [re, text] of REASONS) if (re.test(reason)) return reason.replace(re, text);
+  return reason;
+}

@@ -122,6 +122,17 @@ Concrete boundary-crossing bugs, especially:
 - **A path that makes the agent act without the confirmation it promises** —
   e.g. a non-benign action executing without `--auto` and without a `y/N`
   prompt.
+- **Gate 2 release without a valid operator signature** — in `symbiont/`, an
+  action marked high-risk released by the issuer without a token that verifies
+  (action hash, subject, window, trusted operator); an inline bubble that can be
+  approved before it is armed, while veiled, or by page script without a user
+  activation; or a TS / Rust / Python disagreement on canonical bytes that lets
+  one signature cover two different actions.
+- **The sandbox fetch boundary** — a fetch from `symbiont/src/sandbox/` that
+  leaves the origin allowlist, uses `http:`, carries credentials, cookies or a
+  referrer, follows a redirect, or exceeds its body / time bound; or a state
+  graph delta accepted by `graph/` that is unsigned, signed by an untrusted
+  author, or removes state.
 
 ## Out of Scope
 
