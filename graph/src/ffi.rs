@@ -161,6 +161,7 @@ fn call(store: &mut DagStore, m: &BTreeMap<String, Value>) -> Result<Value, Stri
         "heads" => ok([
             ("heads", str_arr(store.heads())),
             ("count", Value::Int(store.len().to_string())),
+            ("next_lamport", Value::Int(store.next_lamport().to_string())),
         ]),
         "have" => ok([("message", sync::have_message(store))]),
         "on_have" => ok([(
@@ -366,6 +367,7 @@ mod tests {
 
         let heads = graph_call(h, r#"{"op":"heads"}"#);
         assert_eq!(field(&heads, "heads"), &str_arr([a.clone()]));
+        assert_eq!(field(&heads, "next_lamport"), &Value::int(2));
 
         let bad = graph_call(h, r#"{"op":"nope"}"#);
         assert_eq!(field(&bad, "ok"), &Value::Bool(false));

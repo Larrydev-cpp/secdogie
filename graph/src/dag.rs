@@ -228,6 +228,17 @@ impl DagStore {
         self.heads.iter().cloned().collect()
     }
 
+    /// The lamport a delta whose parents are the current heads must carry.
+    pub fn next_lamport(&self) -> u64 {
+        1 + self
+            .heads
+            .iter()
+            .filter_map(|h| self.nodes.get(h))
+            .map(|n| n.delta.lamport)
+            .max()
+            .unwrap_or(0)
+    }
+
     pub fn contains(&self, cid: &str) -> bool {
         self.nodes.contains_key(cid)
     }
