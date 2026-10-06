@@ -1,0 +1,23 @@
+[package]
+name = "secdogie-graph"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+publish = false
+description = "Content-addressed, append-only state graph, have/want anti-entropy and a conservative lexical route adapter for secdogie (native + wasm32)"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+base64 = { version = "0.23", default-features = false, features = ["alloc"] }
+ed25519-dalek = { version = "3", default-features = false }
+sha2 = { version = "0.11", default-features = false }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
