@@ -1,9 +1,13 @@
 /**
- * The operator dialogue wire (`secdogie/dialogue/v1`), the subset this runtime
- * speaks: Socratic dialogue packets and the two Gate 2 packets. Field for
- * field the shapes of `dialogue/secdogie_dialogue/protocol.py`, so a challenge
- * sealed by a Python node opens here and a response sealed here opens there
- * (fixtures/vectors/gate2.json).
+ * The operator dialogue wire (`secdogie/dialogue/v1`): Socratic dialogue
+ * packets, the two Gate 2 packets, session events, operator control requests
+ * and memory offers. Field for field the shapes of
+ * `dialogue/secdogie_dialogue/protocol.py`, so a challenge sealed by a Python
+ * node opens here and a response sealed here opens there
+ * (fixtures/vectors/gate2.json, link.json). A `state_snapshot` (the node's
+ * structural view of one desktop window) is authenticated and admitted -- so it
+ * takes its sequence number exactly as in Python -- and then dropped: the
+ * operator page never draws the desktop.
  *
  *   {"header": {...}, "kind": "...", "payload": {...}, "signer": did, "sig": b64}
  *
@@ -42,8 +46,12 @@ export interface Header {
 
 export const PacketKind = {
   Dialogue: 'dialogue',
+  StateSnapshot: 'state_snapshot',
   Gate2Challenge: 'gate2_challenge',
   Gate2Response: 'gate2_response',
+  Session: 'session',
+  Control: 'control',
+  MemoryCandidate: 'memory_candidate',
 } as const;
 export type PacketKind = (typeof PacketKind)[keyof typeof PacketKind];
 
@@ -90,10 +98,85 @@ export interface Gate2ResponsePacket {
   readonly authorization: CanonObject;
 }
 
+export const SessionEvent = { Hello: 'hello', Heartbeat: 'heartbeat', Bye: 'bye', Resync: 'resync' } as const;
+export type SessionEvent = (typeof SessionEvent)[keyof typeof SessionEvent];
+
+export interface SessionPacket {
+  readonly event: SessionEvent;
+  readonly note: string;
+}
+
+export const ControlOp = {
+  AddGoal: 'add_goal',
+  Stop: 'stop',
+  Pause: 'pause',
+  Resume: 'resume',
+  ConfirmMemory: 'confirm_memory',
+  RetractMemory: 'retract_memory',
+} as const;
+export type ControlOp = (typeof ControlOp)[keyof typeof ControlOp];
+
+/** App -> node: one operator request, answered by a SystemStatus naming `request_id`. */
+export interface ControlPacket {
+  readonly request_id: string;
+  readonly op: ControlOp;
+  readonly goal_id: string;
+  readonly title: string;
+  readonly memory_id: string;
+  readonly confirmation: CanonObject;
+}
+
+/** Node -> App: a quarantined memory the operator may confirm. */
+export interface MemoryCandidatePacket {
+  readonly memory_id: string;
+  readonly mclass: string;
+  readonly scope: string;
+  readonly key: string;
+  readonly value: string;
+  readonly source: string;
+}
+
 export type Packet =
   | { readonly kind: typeof PacketKind.Dialogue; readonly packet: DialoguePacket }
   | { readonly kind: typeof PacketKind.Gate2Challenge; readonly packet: Gate2ChallengePacket }
-  | { readonly kind: typeof PacketKind.Gate2Response; readonly packet: Gate2ResponsePacket };
+  | { readonly kind: typeof PacketKind.Gate2Response; readonly packet: Gate2ResponsePacket }
+  | { readonly kind: typeof PacketKind.Session; readonly packet: SessionPacket }
+  | { readonly kind: typeof PacketKind.Control; readonly packet: ControlPacket }
+  | { readonly kind: typeof PacketKind.MemoryCandidate; readonly packet: MemoryCandidatePacket }
+  /** Admitted and dropped: the page keeps no desktop view. */
+  | { readonly kind: typeof PacketKind.StateSnapshot; readonly packet: null };
+
+const GOAL_OPS: ReadonlySet<ControlOp> = new Set([ControlOp.AddGoal, ControlOp.Stop, ControlOp.Pause, ControlOp.Resume]);
+
+export function controlPacket(p: Partial<ControlPacket> & Pick<ControlPacket, 'request_id' | 'op'>): ControlPacket {
+  const pkt: ControlPacket = {
+    request_id: p.request_id,
+    op: p.op,
+    goal_id: p.goal_id ?? '',
+    title: p.title ?? '',
+    memory_id: p.memory_id ?? '',
+    confirmation: p.confirmation ?? {},
+  };
+  checkControl(pkt);
+  return pkt;
+}
+
+function checkControl(p: ControlPacket): void {
+  if (!p.request_id) throw new ProtocolError('a control request needs a request_id');
+  if (GOAL_OPS.has(p.op) && !p.goal_id) throw new ProtocolError(`${p.op} needs a goal_id`);
+  if (p.op === ControlOp.AddGoal && !p.title.trim()) throw new ProtocolError('add_goal needs a title (the task)');
+  if ((p.op === ControlOp.ConfirmMemory || p.op === ControlOp.RetractMemory) && !p.memory_id) {
+    throw new ProtocolError(`${p.op} needs a memory_id`);
+  }
+  if ((p.op === ControlOp.ConfirmMemory) !== Object.keys(p.confirmation).length > 0) {
+    throw new ProtocolError('only confirm_memory carries a confirmation, and it always does');
+  }
+}
+
+function checkMemory(p: MemoryCandidatePacket): void {
+  if (!p.memory_id) throw new ProtocolError('a memory candidate needs its memory_id');
+  if (!p.key.trim() || !p.value.trim()) throw new ProtocolError('a memory candidate needs a key and a value');
+}
 
 export function dialoguePacket(p: Partial<DialoguePacket> & Pick<DialoguePacket, 'probe_id' | 'dialogue_type' | 'content'>): DialoguePacket {
   const pkt: DialoguePacket = {
@@ -183,6 +266,25 @@ export function packetWire(p: Packet): CanonObject {
         authorization: r.authorization,
       };
     }
+    case PacketKind.Session:
+      return { event: p.packet.event, note: p.packet.note };
+    case PacketKind.Control: {
+      const c = p.packet;
+      return {
+        request_id: c.request_id,
+        op: c.op,
+        goal_id: c.goal_id,
+        title: c.title,
+        memory_id: c.memory_id,
+        confirmation: c.confirmation,
+      };
+    }
+    case PacketKind.MemoryCandidate: {
+      const m = p.packet;
+      return { memory_id: m.memory_id, mclass: m.mclass, scope: m.scope, key: m.key, value: m.value, source: m.source };
+    }
+    case PacketKind.StateSnapshot:
+      throw new ProtocolError('the operator page never sends a state snapshot');
   }
 }
 
@@ -333,6 +435,27 @@ export function parsePacket(kind: CanonValue | undefined, payload: CanonValue | 
       checkResponse(r);
       return { kind, packet: r };
     }
+    case PacketKind.Session: {
+      const s = fieldsOf(payload, { event: Object.values(SessionEvent), note: 'str' }, 'session') as unknown as SessionPacket;
+      return { kind, packet: s };
+    }
+    case PacketKind.Control: {
+      const c = fieldsOf(payload, {
+        request_id: 'str', op: Object.values(ControlOp), goal_id: 'str', title: 'str', memory_id: 'str', confirmation: 'obj',
+      }, 'control') as unknown as ControlPacket;
+      checkControl(c);
+      return { kind, packet: c };
+    }
+    case PacketKind.MemoryCandidate: {
+      const m = fieldsOf(payload, {
+        memory_id: 'str', mclass: 'str', scope: 'str', key: 'str', value: 'str', source: 'str',
+      }, 'memory_candidate') as unknown as MemoryCandidatePacket;
+      checkMemory(m);
+      return { kind, packet: m };
+    }
+    case PacketKind.StateSnapshot:
+      if (!isCanonObject(payload)) throw new ProtocolError('state_snapshot: expected an object');
+      return { kind, packet: null };
     default:
       throw new ProtocolError(`kind ${JSON.stringify(kind)} is not spoken by this runtime`);
   }

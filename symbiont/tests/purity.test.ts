@@ -1,6 +1,8 @@
 // The red lines, as a test (like dialogue/tests/test_purity.py): the source
 // may not contain a blocking modal, a focus grab, markup injection, dynamic
-// code, a credentialed or redirect-following fetch, or storage of anything.
+// code, a credentialed or redirect-following fetch, media capture, or storage
+// -- with two named exceptions: IndexedDB in net/keystore.ts (the two keys and
+// the pairing record, nothing else), and console in core/trace.ts (DevTools).
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -17,7 +19,9 @@ const FORBIDDEN: Array<[RegExp, string]> = [
   [/\beval\(|new Function\(/, 'dynamic code'],
   [/credentials:\s*['"](include|same-origin)/, 'credentialed fetch'],
   [/redirect:\s*['"]follow/, 'redirect following'],
-  [/localStorage|sessionStorage|indexedDB|document\.cookie/, 'storage or cookies'],
+  [/localStorage|sessionStorage|document\.cookie/, 'storage or cookies'],
+  [/getUserMedia|getDisplayMedia|addTrack|MediaStream/, 'camera, microphone or screen capture'],
+  [/\bautofocus\b/, 'focus grab'],
   [/importScripts\(/, 'remote script import'],
   [/window\.open\(/, 'pop-up window'],
   [/requestFullscreen|requestPointerLock/, 'taking over the screen'],
@@ -34,13 +38,28 @@ function code(path: string): string {
   return readFileSync(path, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 }
 
+/** Allowed in exactly one file each. */
+const CONFINED: Array<[RegExp, string, string]> = [
+  [/indexedDB/, 'net/keystore.ts', 'IndexedDB'],
+  [/\bconsole\./, 'core/trace.ts', 'console output'],
+];
+
 test('no source file crosses a red line', () => {
   const found: string[] = [];
   for (const f of files(SRC)) {
     const c = code(f);
-    for (const [re, what] of FORBIDDEN) if (re.test(c)) found.push(`${f.slice(SRC.length + 1)}: ${what}`);
+    const rel = f.slice(SRC.length + 1).replaceAll('\\', '/');
+    for (const [re, what] of FORBIDDEN) if (re.test(c)) found.push(`${rel}: ${what}`);
+    for (const [re, only, what] of CONFINED) if (re.test(c) && rel !== only) found.push(`${rel}: ${what} outside ${only}`);
   }
   assert.deepEqual(found, []);
+});
+
+test('the keystore opens only its two stores and keeps no conversation', () => {
+  const c = code(join(SRC, 'net', 'keystore.ts'));
+  const stores = [...c.matchAll(/createObjectStore\(\s*['"]([^'"]+)['"]/g)].map((m) => m[1]).sort();
+  assert.deepEqual(stores, ['keys', 'pairing']);
+  assert.doesNotMatch(c, /conversation|transcript|goal|answer/i);
 });
 
 test('the scan would catch a violation', () => {

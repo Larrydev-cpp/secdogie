@@ -100,6 +100,13 @@ jobs:
           fi
           pip install -e ".${{ matrix.extras }}" pytest
 
+      # node/tests/test_symbiont_interop.py runs the operator page's TypeScript wire
+      # stack against a real node; with CI set, a missing Node fails it, never skips it.
+      - uses: actions/setup-node@v4
+        if: matrix.dir == 'node'
+        with:
+          node-version: "22"
+
       - name: Check the browser-link extra is really installed
         if: matrix.extras == '[webrtc]'
         run: python -c 'import aiortc, websockets; print("aiortc", aiortc.__version__, "websockets", websockets.__version__)'

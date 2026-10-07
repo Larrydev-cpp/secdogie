@@ -33,6 +33,31 @@ export class WebCryptoSigner implements Signer {
   }
 
   /**
+   * A fresh identity plus its CryptoKey, for a store that keeps the key object
+   * itself (IndexedDB holds a non-extractable key without ever exposing it).
+   */
+  static async generateWithKey(): Promise<{ signer: WebCryptoSigner; key: CryptoKey }> {
+    const pair = (await crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])) as CryptoKeyPair;
+    const pk = new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey));
+    return { signer: new WebCryptoSigner(didFromPublicKey(pk), pair.privateKey), key: pair.privateKey };
+  }
+
+  /**
+   * A stored key back as a signer -- only if it is a non-extractable Ed25519
+   * signing key that really belongs to `did` (it signs a probe that verifies
+   * against the DID's public key). Throws otherwise.
+   */
+  static async restore(did: string, key: CryptoKey): Promise<WebCryptoSigner> {
+    if (key?.algorithm?.name !== 'Ed25519' || key.type !== 'private' || key.extractable || !key.usages.includes('sign')) {
+      throw new Error('not a non-extractable Ed25519 signing key');
+    }
+    const probe = new TextEncoder().encode(`secdogie/keystore-probe/v1 ${did}`);
+    const sig = new Uint8Array(await crypto.subtle.sign({ name: 'Ed25519' }, key, probe));
+    if (!(await verifyEd25519(did, probe, sig))) throw new Error('the stored key does not belong to its DID');
+    return new WebCryptoSigner(did, key);
+  }
+
+  /**
    * From a 32-byte seed -- for golden vectors and tests, which need the same
    * key in every language. The returned key is not extractable.
    */
