@@ -719,10 +719,12 @@ class BindingPolicy:
     ``not-enrolled`` refusal, or ``admit(did)``'s reason (``busy``). The other
     side -- a page, or a Python App -- reveals nothing until the node's
     statement verifies, and takes a node-signed refusal as final for the link
-    (``refusal`` records it)."""
+    (``refusal`` records it). ``refresh()``, when given, is called once before a
+    statement from an unknown DID is refused -- the node re-reads its allowlist
+    files, so a browser that ``pair`` enrolled a moment ago is not turned away."""
 
     def __init__(self, identity, trust, *, speak_first: bool, admit: Callable[[str], str | None] | None = None,
-                 node_did: str | None = None, clock=time.time):
+                 node_did: str | None = None, refresh: Callable[[], object] | None = None, clock=time.time):
         from secdogie_identity import linkauth
 
         if not speak_first and not node_did:
@@ -733,6 +735,7 @@ class BindingPolicy:
         self.speak_first = speak_first
         self.admit = admit
         self.node_did = node_did
+        self.refresh = refresh
         self._clock = clock
         self.refusal: str | None = None
         self.last_failure: str | None = None
@@ -761,8 +764,16 @@ class BindingPolicy:
             return
         if link.bound_did is not None:
             return  # nothing is said after binding
-        r = la.verify_link_binding(msg, trust=self.trust, room=link.room, observed_local=link.local_fingerprints,
-                                   observed_remote=link.remote_fingerprints, clock=self._clock)
+        def check():
+            return la.verify_link_binding(msg, trust=self.trust, room=link.room, observed_local=link.local_fingerprints,
+                                          observed_remote=link.remote_fingerprints, clock=self._clock)
+
+        r = check()
+        if not r.ok and r.reason == "signer not trusted" and self.refresh is not None:
+            # A browser paired a moment ago by another process: look at the allowlist again
+            # before calling it a stranger.
+            self.refresh()
+            r = check()
         if not r.ok:
             self.last_failure = r.reason
             log.warning("link %d: the peer's statement did not verify: %s", link.link_id, r.reason)

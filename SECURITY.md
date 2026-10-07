@@ -36,6 +36,39 @@ trusted host/operator boundary:
   `--insecure-dev` on the command line, with a warning), and a Citadel node with
   no capability issuers refuses every mutating action. See
   [docs/ZERO-TRUST-MIGRATION.md](docs/ZERO-TRUST-MIGRATION.md).
+- **The operator page (`symbiont/`) is an App, and only after pairing.** The
+  page reaches the node over a WebRTC data channel set up through a signaling
+  gateway (`webrtc/signaling/`), which is *not* trusted: before any frame
+  crosses, both ends sign the DTLS fingerprints they see (W1,
+  `identity/secdogie_identity/linkauth.py`), so a gateway in the middle fails on
+  both sides. A browser is enrolled only through `secdogie-node pair`: a
+  one-time link written to the node's terminal (never stdout or a log; 10
+  minutes, single use, burned by a "no" or five bad MACs), the same 12-digit
+  check code on both ends, the owner's "y" on the terminal **and** a tap on the
+  page. The link carries no address: the gateway and ICE servers are fixed in
+  the page's build, so a crafted link cannot point the page anywhere else, and a
+  paired browser ignores pairing links.
+  - *What the page keeps:* two non-extractable Ed25519 keys and the pairing
+    record, in IndexedDB. Non-extractable stops copying a key, not using it.
+  - *What runs on the page's origin is the paired App.* Any script there --
+    an extension with access to the origin, or a compromised deployment -- can
+    add goals, answer questions and stop goals as this browser. Serve the page
+    from its own origin, with the shipped headers (`symbiont/site/_headers`:
+    CSP without inline code, `frame-ancestors 'none'`, COOP, no referrer).
+  - *Gate 2 from the page is opt-in.* The browser's operator key is enrolled
+    only when the owner answers the second terminal question ("may this
+    browser also approve steps that cannot be undone?", default no). The page
+    signs only inside a real click (`navigator.userActivation`), after the
+    card has been on screen for a moment, and verifies the token before it
+    sends it; that is defense in depth against page script, not a boundary
+    against code running on the origin, which could sign while you click. If
+    that residual matters to you, answer "no" and approve on the computer.
+    Every high-risk step still needs a person's approval, whatever the flags.
+  - *What the gateway and STUN see:* the gateway sees both ends' IP addresses,
+    the room name and timing, and the SDP (addresses, fingerprints); the STUN
+    server (by default the gateway provider's own) sees the IP address. The
+    room is derived from the node's key and never printed; bump
+    `--webrtc-room-epoch` to move rooms (every browser then pairs again).
 - **SYSTEM elevation is off by default and operator-gated.** The `run_elevated`
   action (Windows) can run a command as SYSTEM, but *only* commands the operator
   declares at launch with `--allow-elevated-command` — the vision model can never
@@ -128,6 +161,14 @@ Concrete boundary-crossing bugs, especially:
   approved before it is armed, while veiled, or by page script without a user
   activation; or a TS / Rust / Python disagreement on canonical bytes that lets
   one signature cover two different actions.
+- **The browser link** -- a frame accepted over WebRTC from anyone but the DID
+  the link was bound to; a binding (W1) accepted with fingerprints that do not
+  match what this end sees; an enrollment without both the terminal "y" and the
+  page's confirmation, or of an operator key the owner did not allow; a pairing
+  link that makes the page contact a gateway or ICE server its build did not
+  name; a paired page that reveals its DID before the node's statement verified;
+  the page putting a hash, DID, element id or signature into the DOM, or
+  cutting or rewriting content a Gate 2 signature covers.
 - **The sandbox fetch boundary** — a fetch from `symbiont/src/sandbox/` that
   leaves the origin allowlist, uses `http:`, carries credentials, cookies or a
   referrer, follows a redirect, or exceeds its body / time bound; or a state

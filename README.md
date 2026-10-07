@@ -79,8 +79,8 @@ identity/    transport/    citadel/     citadel/       agent/ + 安全边界
 | 感知/动作 | `agent/observation.py`（AX + DIB 按引用融合）+ `target.py`（TOCTOU）+ AX/safety；`native/atlas`（只读、DIB 重建） | 🔨 构件已建成，observation/target 尚未接入实时回路 |
 | 设备/会话 | `desktop/`（聊天式原生窗口 + `websession.py` 复用**已授权**浏览器会话，只读导航 + 读结构） | ✅ |
 | 承载/运维 | `tunnel/`（C 加密隧道，机密性）、`fleet/`、`console/` | ✅ |
-| 浏览器 P2P | `webrtc/`（WebRTC 数据通道客户端 + Cloudflare Worker 信令网关；仅用户点击后启动） | ✅ |
-| 浏览器运行时 | `symbiont/`（TS：双重苏格拉底门、内联签名气泡、注意力调度、沙箱抓取）+ `graph/`（Rust-WASM：只追加状态图、have/want、词法路由适配器）；与 Python 逐字节兼容，见 `fixtures/vectors/` | 🔨 与 Python 节点的传输桥接待做 |
+| 浏览器 P2P | `webrtc/`（WebRTC 数据通道客户端 + Cloudflare Worker 信令网关）+ 节点侧 aiortc 对端（`transport/webrtc.py`）；W1：两端用 DID 签名各自看到的 DTLS 指纹，网关在中间就过不去 | ✅ |
+| 操作员页面 | `symbiont/`（TS）：单栏对话页，打开即经 WebRTC 挂到常驻节点；Gate 1 温和问句卡、Gate 2 毛玻璃确认卡（只有取消 / 批准）；中文为主、自动切英文；机械细节只进 DevTools。首次用 `secdogie-node pair` 两边确认配对。`graph/`（Rust-WASM 状态图）作为库保留；与 Python 逐字节兼容，见 `fixtures/vectors/` | ✅ |
 
 **第二阶段（可运行闭环）已完成**：k-of-n 撤销、零信任默认（见 [`docs/ZERO-TRUST-MIGRATION.md`](docs/ZERO-TRUST-MIGRATION.md)）、
 两道门与阶段式记忆接入实时回路、Dialogue App、`secdogie-node` 与端到端测试。

@@ -29,7 +29,7 @@ from secdogie_dialogue.protocol import (  # noqa: E402
     Verdict,
 )
 from secdogie_dialogue.session import DialogueSession, SessionRouter  # noqa: E402
-from secdogie_identity import Allowlist, AllowlistWatcher, Identity  # noqa: E402
+from secdogie_identity import Allowlist, Identity  # noqa: E402
 from secdogie_identity import linkauth as la  # noqa: E402
 from secdogie_node import Node, NodeConfig  # noqa: E402
 from secdogie_node.pairing import PairingOffer, PairingPolicy, file_enroller  # noqa: E402
@@ -152,9 +152,8 @@ def test_pair_then_attach_then_status_and_a_challenge_that_waited(tmp_path):
     room = la.derive_room(node_id)
     node = Node(NodeConfig(identity=node_id, apps=apps, operators=ops, authorized=Allowlist({node_id.did}),
                            run_task=lambda *a, **k: (0, "ok"), idle_poll=0.05, challenge_ttl=20.0,
-                           webrtc=WebRTCConfig(server.url, room, ice_servers=())))
-    watchers = [AllowlistWatcher(apps_file, apps), AllowlistWatcher(ops_file, ops)]
-    stops = [w.start(0.2) for w in watchers]
+                           webrtc=WebRTCConfig(server.url, room, ice_servers=()), apps_file=str(apps_file),
+                           operators_file=str(ops_file)))
     pairing = page = None
     try:
         node.start()
@@ -180,8 +179,9 @@ def test_pair_then_attach_then_status_and_a_challenge_that_waited(tmp_path):
         pairing.close()
         pairing = None
 
-        # -- the resident node hears the new App without a restart
-        _until(lambda: apps.contains(app.did) and ops.contains(operator.did), what="the hot reload")
+        # -- the resident node hears the new App without a restart: the page attaches at once and
+        #    the node re-reads its allowlist before it would call the page a stranger
+        assert not apps.contains(app.did)
 
         # -- a destructive step while no page is attached: it waits for one
         result = {}
@@ -202,10 +202,11 @@ def test_pair_then_attach_then_status_and_a_challenge_that_waited(tmp_path):
         _until(lambda: "token" in result, what="the authorization")
         assert result["token"] is not None and result["token"]["signer"] == operator.did
         assert node.transport.endpoint_host(app.did) == WEBRTC_HOST
+        assert apps.contains(app.did) and ops.contains(operator.did)
+        reloads = [e for e in node.journal.events() if e["kind"] == "enrollment"]
+        assert {e["body"]["list"] for e in reloads} == {"apps", "operators"}
     finally:
         node._running = None
-        for s in stops:
-            s.set()
         if page is not None:
             page.close()
         if pairing is not None:

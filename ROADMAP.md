@@ -59,7 +59,7 @@
 | T9 隧道加固 | C + libsodium 隧道：卫生/fuzz/netns 冒烟 → Noise IK v2 握手 → 定时器/rekey/DoS 限速 → 端到端中继 → 本地控制 socket | 🔜（第三阶段） |
 | C M3 实时回路 | C1 CI 跑真实回路测试 · C2 HITL 修正（高风险清单、全入口必确认、签名审批 = Gate 2 经 Dialogue App）· C3 fleet/console/desktop 审批通路 · C4 门控加强（意图契约 + 已知失败）· C5 运行记录前移（每步 `action_key` / 结果）· C6 统一入口（`secdogie-node`）· C7 设备类别与无头隔离（T7） | ✅ ✅ 🔜 ✅ ✅ ✅ 🔜 |
 | D 感知 | D1 observation/target 入环 · D2 结构化优先（Windows UIA 结构图，截图显式开启）· D3 macOS AX 命中测试 · D4 Atlas 只读桥 | 🔜 |
-| W 浏览器 | W1 浏览器 DID + 信令 DID 认证 · W2 跨语言签名向量 · W3 aiortc 桥接技术验证 · W4 浏览器作为观察/审批端（`symbiont/` + `graph/`：双重苏格拉底门、内联签名、注意力调度、WASM 状态图） | 🔜 ✅ 🔜 🔨 |
+| W 浏览器 | W1 浏览器 DID + 信令 DID 认证（DTLS 指纹绑定 + 两边确认的一次性配对）· W2 跨语言签名向量 · W3 aiortc 桥接（节点侧数据通道对端，Chromium ↔ aiortc 端到端测试）· W4 浏览器作为观察/审批端（`symbiont/` 单栏操作员页面：双重苏格拉底门、内联签名、注意力；`graph/` WASM 状态图作为库）· W5 1B：Worker 沙箱抓取与 Session Anchor、节点侧 DAG 与覆盖网、WebAuthn 硬化 Gate 2 | ✅ ✅ ✅ ✅ 🔜 |
 | M 收尾 | M4 纵切演示 · M5 安全复审 / 实机验证 / 发布 | 🔜 |
 
 **第二阶段（可运行闭环）已完成**：P0、Wave A / B / C / D / E（#56、#57、#60、#61、#62 及文档 PR），7 条退出条件见 [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md) 第 5 节。

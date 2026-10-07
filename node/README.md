@@ -109,16 +109,16 @@ secdogie-node pair --identity node.key --apps apps.allow --operators operators.a
    cannot be undone (Gate 2). The default for both is **no**.
 4. Tap **连接 / Connect** on the page. Only with your "y" here *and* the tap
    are the keys appended to `--apps` (and `--operators`).
-5. A running node notices the changed files within seconds, records the
-   change in its journal, and the page attaches from then on whenever it is
-   opened.
+5. The page attaches to the resident node right away: a running node re-reads
+   `--apps` / `--operators` the moment an unknown browser states who it is
+   (and every two seconds anyway), records each change in its journal, and
+   the page attaches by itself from then on whenever it is opened.
 
 `pair` runs beside the resident node (it meets the page in a room of its own),
 needs a terminal, and exits when the pairing is done, refused or expired. To
 remove a browser, delete its lines from both files: the running node drops it
-within seconds. A browser that is told it is no longer enrolled forgets its
-pairing.
-
+within seconds, and the page, told by the node that it is no longer enrolled,
+forgets its pairing. 
 ### Running it all the time
 
 The node never installs itself. If you want it running in the background, you

@@ -30,7 +30,9 @@
 也不依赖中心服务器。四层各自独立:
 
 1. **网络层**:C + libsodium 加密隧道(`tunnel/`,机密性);跑在 Cloudflare Workers 上的
-   WebRTC 信令网关(`webrtc/`,只交换 offer / answer / candidate,不经手业务数据);
+   WebRTC 信令网关(`webrtc/`,只交换 offer / answer / candidate,不经手业务数据;网关不被信任:
+   两端先用 DID 签名各自看到的 DTLS 指纹(W1),节点侧对端 `transport/webrtc.py` 把数据通道挂在
+   同一个 DID 认证的传输之下);
    DID 认证的 UDP 直连(`transport/udp.py`,帧可选 X25519 密封);白名单中继
    (`transport/relay.py`,独立进程 `secdogie-relay`)——任何白名单节点都可以**全自动**充当 relay,
    打洞失败即回落中继,中继只转发端到端签名 / 密封的帧。
@@ -219,9 +221,9 @@ flowchart TB
 | `citadel/run.py` | Agent↔Citadel run 闭环(2.7):run/step 签名状态、链式 `state_hash`、随复制收敛 | ③④ | ✅ 已建成 |
 | `identity/capability.py` | 签名能力授权(2.9):白名单 scope、带过期、受信 issuer;计划门据此逐动作校验 | ④ | ✅ 已建成 |
 | `identity/allowlist.py` | 零信任默认:`ALLOW_ANY` 显式哨兵 + `require_trust`;全仓生产调用点的信任参数有测试把关 | ① | ✅ 已建成 |
-| `webrtc/` | Cloudflare Workers 上的 WebRTC 信令网关 + 浏览器数据通道(只经手信令,不经手业务数据) | ② | ✅ 已建成 |
+| `webrtc/` | Cloudflare Workers 上的 WebRTC 信令网关 + 浏览器数据通道(只经手信令,不经手业务数据);节点侧 aiortc 对端在 `transport/webrtc.py`,W1 绑定在 `identity/linkauth.py` | ② | ✅ 已建成 |
 | `graph/` (Rust,原生 + wasm32) | 内容寻址、只追加的状态图增量(拒绝墓碑)、have/want 反熵、保守的词法路由适配器(只出候选状态)、`action-authorization/v1` 字段集上的确定性动作预览;wasm 无任何导入,自己验签 | ②④ | ✅ 已建成 |
-| `symbiont/` (TypeScript) | 浏览器侧运行时:双重苏格拉底门(Gate 1 对齐状态机 + Gate 2 内联签名气泡)、注意力感知的提案队列、意识流视图、受限抓取的沙箱 Worker;与 Python 规范化 / 令牌 / 对话信封逐字节兼容(`fixtures/vectors/`) | ②③④ | 🔨 已建成,与 Python 节点的传输桥接待做(W3) |
+| `symbiont/` (TypeScript) | 操作员页面:单栏对话,打开即挂到常驻节点(帧、会话、W1、配对与节点逐字节兼容,`fixtures/vectors/link.json`);Gate 1 温和问句卡、Gate 2 毛玻璃确认卡(签名只覆盖 action-authorization/v1 字段集);中文为主、自动切英文;Gate 1 规则、沙箱 Worker 与 WASM 状态图作为库保留 | ②③④ | ✅ 已建成(W1、W3、W4) |
 | `transport/mux.py` | `ChannelMux`:一个传输上的多条应用通道(`dialogue/v1` 等) | ② | ✅ 已建成 |
 | `transport/failover.py` | 直连优先、中继兜底:近期直接听到对端才只走直连,否则同时经双方都持有租约的中继发送;由中继自签名记录构建 | ② | ✅ 已建成 |
 | `citadel/authz.py` | Gate 2 操作员授权令牌:绑定动作哈希与节点 DID、短时效 | ③④ | ✅ 已建成 |

@@ -180,6 +180,64 @@ jobs:
           npm test
           npm run build
 
+  # --- The operator page in a real browser -------------------------------------
+  # The built page in Chromium with its real headers (demo flows in zh / en,
+  # desktop / phone, no machinery in the DOM, no socket while unpaired, refuses
+  # frames), then Chromium against a real node with its aiortc peer through an
+  # in-process gateway: pairing, W1, a question, Gate 2 approved after a reload.
+  operator-page:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install the node side
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e identity -e "transport[webrtc]" -e citadel -e dialogue -e node pytest
+          python -c 'import aiortc, websockets, secdogie_node'
+
+      - name: Build the page
+        working-directory: symbiont
+        run: |
+          npm ci
+          npm run build
+          node scripts/site.mjs
+
+      - name: Playwright with Chromium (pinned; not saved to the lockfile)
+        working-directory: symbiont
+        run: |
+          npm i --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+
+      - name: The page in Chromium
+        working-directory: symbiont
+        env:
+          SECDOGIE_SHOTS: ${{ runner.temp }}/shots
+        run: node tests/browser/check_page.mjs
+
+      - name: Chromium <-> a real node (pairing, W1, Gate 2 across a reload)
+        working-directory: symbiont
+        env:
+          SECDOGIE_SHOTS: ${{ runner.temp }}/shots
+        run: python -m pytest tests/browser -q
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: operator-page-screenshots
+          path: ${{ runner.temp }}/shots
+          if-no-files-found: ignore
+
   # --- C tunnel: build + its own unit test binary ----------------------------
   tunnel-tests:
     runs-on: ubuntu-latest

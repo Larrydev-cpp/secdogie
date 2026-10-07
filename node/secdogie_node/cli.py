@@ -189,10 +189,10 @@ def _run(args, parser) -> int:
                                issuers=issuers, unrestricted=unrestricted, journal_path=args.journal,
                                candidates_path=candidates, listen=args.listen, transport_key=tkey,
                                app_bindings=bindings, relay_records=relays,
-                               rendezvous_records=rendezvous, webrtc=webrtc))
+                               rendezvous_records=rendezvous, webrtc=webrtc, apps_file=args.apps,
+                               operators_file=args.operators))
     except (OSError, ValueError) as e:
         parser.error(str(e))
-    _watch_allowlists(node, {"apps": (args.apps, apps), "operators": (args.operators, operators)})
     if self_policy is not None:
         self_policy.on_change(lambda newly: halt_on_self_revocation(newly, identity.did, [stop.set]))
         if args.revocations:
@@ -214,25 +214,6 @@ def _run(args, parser) -> int:
         node.stop()
     log.info("stopped")
     return 0
-
-
-def _watch_allowlists(node, lists) -> None:
-    """Follow --apps / --operators on disk: an App that ``pair`` (another
-    process) enrolled is heard without a restart, and every change is recorded
-    in the node's journal."""
-    from secdogie_identity import AllowlistWatcher
-
-    for name, (path, target) in lists.items():
-        def changed(added, removed, _name=name):
-            log.warning("%s changed on disk: added %s, removed %s", _name, sorted(added) or "none",
-                        sorted(removed) or "none")
-            try:
-                node.journal.append("enrollment", {"op": "allowlist-reload", "list": _name,
-                                                   "added": sorted(added), "removed": sorted(removed)})
-            except Exception:  # noqa: BLE001 - the change already applied; a journal hiccup must not undo it
-                log.exception("could not journal the %s change", _name)
-
-        AllowlistWatcher(path, target, on_change=changed).start()
 
 
 def _pair(args, parser) -> int:

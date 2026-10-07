@@ -50,7 +50,7 @@ from secdogie_dialogue.dialogue import system_status
 from secdogie_dialogue.protocol import ControlOp, MemoryCandidatePacket
 from secdogie_dialogue.publisher import SnapshotPublisher
 from secdogie_dialogue.session import DialogueSession, SessionRouter
-from secdogie_identity import require_trust
+from secdogie_identity import AllowlistWatcher, require_trust
 from secdogie_transport import (
     WEBRTC_HOST,
     ChannelMux,
@@ -87,6 +87,10 @@ class NodeConfig:
     rendezvous_records: list = field(default_factory=list)  # where this node registers, so Apps find it by DID
     run_task: Callable = agent_run_task
     webrtc: object = None  # a secdogie_transport.webrtc.WebRTCConfig: the browser link (needs the [webrtc] extra)
+    # The files apps / operators were read from: followed while the node runs (``pair``,
+    # another process, appends to them), each change journaled.
+    apps_file: str | None = None
+    operators_file: str | None = None
     challenge_ttl: float = 120.0
     probe_ttl: float = 300.0
     idle_poll: float = 1.0
@@ -122,6 +126,10 @@ class Node:
                                      on_control=self.on_control, on_hello=self._report_status,
                                      hold_on_disconnect=True)
         self.supervisor.set_operator_hooks(self.bridge.hooks())
+        self._watchers = [AllowlistWatcher(path, target, on_change=self._allowlist_changed(name))
+                           for name, path, target in (("apps", cfg.apps_file, self.apps),
+                                                      ("operators", cfg.operators_file, self.operators)) if path]
+        self._watch_stops: list = []
         self.webrtc = None
         self.channel = UDPChannel(*cfg.listen)
         try:
@@ -130,7 +138,8 @@ class Node:
 
                 # The browser link: W1 against --apps, a signed refusal for a stranger or while busy.
                 self.webrtc = WebRTCChannel(cfg.webrtc, BindingPolicy(cfg.identity, self.apps, speak_first=True,
-                                                                      admit=self._admit_link))
+                                                                      admit=self._admit_link,
+                                                                      refresh=self.refresh_allowlists))
                 self.channel = CompositeChannel(self.channel, {WEBRTC_HOST: self.webrtc})
             self.transport = DirectUDPTransport(cfg.identity, self.channel, allowlist=self.apps,
                                                 transport_key=cfg.transport_key,
@@ -168,6 +177,7 @@ class Node:
             self.link.start()
         if self.rendezvous is not None:
             self.rendezvous.start(self._own_endpoints)
+        self._watch_stops = [w.start() for w in self._watchers]
         if self.webrtc is not None:
             self.webrtc.open()
 
@@ -180,6 +190,8 @@ class Node:
     def stop(self, timeout: float = 10.0) -> None:
         """Stop taking work, stop the running goal, say goodbye, close."""
         self._stopping.set()
+        for s in self._watch_stops:
+            s.set()
         self.supervisor.halt("the node is shutting down")
         self._wake.set()
         if self._worker is not None:
@@ -228,6 +240,26 @@ class Node:
         log.info("operator App connected: %s%s", did, " (over a link)" if on_link else "")
         self._offer_memories()
         return session
+
+    def refresh_allowlists(self) -> None:
+        """Re-read the allowlist files now (each is cheap when unchanged)."""
+        for w in self._watchers:
+            try:
+                w.refresh()
+            except Exception:  # noqa: BLE001 - the periodic watcher tries again
+                log.exception("re-reading an allowlist failed")
+
+    def _allowlist_changed(self, name: str):
+        def changed(added, removed) -> None:
+            log.warning("%s changed on disk: added %s, removed %s", name, sorted(added) or "none",
+                        sorted(removed) or "none")
+            try:
+                self.journal.append("enrollment", {"op": "allowlist-reload", "list": name,
+                                                   "added": sorted(added), "removed": sorted(removed)})
+            except Exception:  # noqa: BLE001 - the change already applied; a journal hiccup must not undo it
+                log.exception("could not journal the %s change", name)
+
+        return changed
 
     def _admit_link(self, did: str) -> str | None:
         """W1 passed for ``did`` on the browser link: refuse (signed) while
