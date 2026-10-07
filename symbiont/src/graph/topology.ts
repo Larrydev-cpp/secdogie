@@ -13,8 +13,15 @@ import { type CanonObject, canonicalText, compareCodePoints } from '../core/cano
 import type { Signer } from '../core/ed25519.ts';
 import { signPayload } from '../core/envelope.ts';
 import type { TopologySnapshot, TopologyTarget } from '../gate1/interpret.ts';
-import type { TopologyStatus } from '../stream/stream.ts';
 import type { IngestOutcome, ScanResult, StateGraph, ViewReference } from './wasm.ts';
+
+/** Counts for DevTools: never shown on the page. */
+export interface TopologyStatus {
+  readonly origins: number;
+  readonly states: number;
+  readonly references: number;
+  readonly recentStates: number;
+}
 
 export const DELTA_TYPE = 'secdogie/state-graph-delta/v1';
 const MAX_OPS = 256;

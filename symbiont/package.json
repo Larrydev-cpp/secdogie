@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "secdogie browser runtime: dual Socratic gates, attention-aware proposals, state-graph topology over Rust-WASM",
+  "description": "secdogie operator page: one calm column attached to your node over WebRTC; dual Socratic gates; state-graph library over Rust-WASM",
   "license": "MIT",
   "engines": {
     "node": ">=22.18"
@@ -12,7 +12,9 @@
     "build:wasm": "cargo build --release --locked --target wasm32-unknown-unknown --manifest-path ../graph/Cargo.toml && node scripts/copy-wasm.mjs",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.worker.json && tsc -p tsconfig.test.json",
     "test": "node --test \"tests/**/*.test.ts\"",
-    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.worker.json --noEmit false --outDir dist"
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && tsc -p tsconfig.worker.json --noEmit false --outDir dist && node scripts/copy-peer.mjs",
+    "site": "node scripts/site.mjs",
+    "serve": "node scripts/serve.mjs"
   },
   "devDependencies": {
     "@types/node": "22.20.5",

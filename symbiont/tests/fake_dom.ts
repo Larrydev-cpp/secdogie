@@ -1,11 +1,10 @@
-// A minimal document for rendering tests: enough of the DOM for render.ts,
-// plus helpers to find and click things.
-import type { DocLike, El, InputEl } from '../src/stream/render.ts';
+// A minimal document for rendering tests: enough of the DOM for ui/*, plus
+// helpers to read everything a person (or a screen reader) could see.
+import type { DocLike, El } from '../src/ui/dom.ts';
 
-export class FakeEl implements InputEl {
+export class FakeEl implements El {
   readonly tag: string;
   className = '';
-  value = '';
   readonly attrs = new Map<string, string>();
   readonly listeners = new Map<string, Array<(ev: unknown) => void>>();
   children: FakeEl[] = [];
@@ -36,11 +35,16 @@ export class FakeEl implements InputEl {
     this.attrs.set(name, value);
   }
 
+  removeAttribute(name: string): void {
+    this.attrs.delete(name);
+  }
+
   addEventListener(type: string, fn: (ev: unknown) => void): void {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), fn]);
   }
 
   click(): void {
+    if (this.attrs.has('disabled')) return;
     for (const fn of this.listeners.get('click') ?? []) fn({});
   }
 
@@ -49,17 +53,13 @@ export class FakeEl implements InputEl {
     for (const c of this.children) yield* c.walk();
   }
 
-  find(pred: (e: FakeEl) => boolean): FakeEl | undefined {
-    for (const e of this.walk()) if (pred(e)) return e;
-    return undefined;
-  }
-
-  all(pred: (e: FakeEl) => boolean): FakeEl[] {
-    return [...this.walk()].filter(pred);
-  }
-
   byClass(cls: string): FakeEl[] {
-    return this.all((e) => e.className.split(/\s+/).includes(cls));
+    return [...this.walk()].filter((e) => e.className.split(/\s+/).includes(cls));
+  }
+
+  /** Every string on the page: text and attribute values. */
+  everything(): string {
+    return [...this.walk()].map((e) => [e.textContent ?? '', ...e.attrs.values(), e.className].join('\n')).join('\n');
   }
 }
 

@@ -67,3 +67,13 @@ test('the scan would catch a violation', () => {
   const hits = FORBIDDEN.filter(([re]) => re.test(probe)).map(([, w]) => w);
   assert.deepEqual(hits, ['focus grab', 'markup injection', 'credentialed fetch', 'redirect following']);
 });
+
+test('the page shell: no inline code or style, no address fields, nothing that grabs focus', () => {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)[^>]*>/, 'inline script');
+  assert.doesNotMatch(html, /\bstyle=|<style/, 'inline style');
+  assert.doesNotMatch(html, /\bautofocus\b|\bon[a-z]+=/i, 'autofocus or inline handler');
+  assert.doesNotMatch(html, /type=["']?(url|range)|<select|<aside/i, 'address fields, sliders or side panels');
+  assert.match(html, /Content-Security-Policy[^>]*script-src 'self'/);
+  assert.equal([...html.matchAll(/<button/g)].length, 2, 'send and stop: the only fixed buttons');
+});
