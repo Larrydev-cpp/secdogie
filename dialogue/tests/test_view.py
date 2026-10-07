@@ -77,7 +77,7 @@ def test_status_names_the_mode_and_next_key():
 
 def test_status_flags_resync():
     good = _state()
-    bad = apply(good, StateSnapshotPacket(42, 7, 2, (NodeDelta(NodeOp.UPDATE, 99),)))
+    bad = apply(good, StateSnapshotPacket(42, 7, 2, (NodeDelta(NodeOp.UPDATE, 99),), base_generation=1))
     assert "⚠ resync" in InspectorView().with_state(bad).status()
     assert "(ok)" in InspectorView().with_state(good).status()
 

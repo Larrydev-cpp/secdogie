@@ -165,7 +165,7 @@ def test_focus_is_an_overlay_painted_last():
 
 def test_stale_state_draws_the_last_consistent_tree():
     good = _state()
-    bad = apply(good, StateSnapshotPacket(42, 7, 2, (NodeDelta(U, 99, role="AXButton"),)))
+    bad = apply(good, StateSnapshotPacket(42, 7, 2, (NodeDelta(U, 99, role="AXButton"),), base_generation=1))
     assert bad.needs_resync
     wf = VectorWireframeEngine().build(bad)
     assert wf.stale and "unknown node 99" in wf.problem
@@ -176,14 +176,15 @@ def test_stale_state_draws_the_last_consistent_tree():
 def test_folded_deltas_match_the_equivalent_full_snapshot():
     engine = VectorWireframeEngine()
     moved = NodeDelta(U, 2, role="AXButton", name="Save", parent_index=1, is_interactive=True, bounds=(300, 20, 160, 40))
-    folded = apply(_state(), StateSnapshotPacket(42, 7, 2, (moved,)))
+    folded = apply(_state(), StateSnapshotPacket(42, 7, 2, (moved,), base_generation=1))
     direct = StateSnapshotPacket(42, 7, 2, (*_nodes()[:2], moved, _nodes()[3]), full=True)
     assert engine.build(folded).shapes == engine.from_packet(direct).shapes
 
 
 def test_from_packet_refuses_a_delta():
-    with pytest.raises(ValueError, match="full snapshot"):
-        VectorWireframeEngine().from_packet(StateSnapshotPacket(42, 7, 2, ()))
+    delta = StateSnapshotPacket(42, 7, 2, (), base_generation=1)
+    with pytest.raises(ValueError, match=r"^from_packet needs a full snapshot"):
+        VectorWireframeEngine().from_packet(delta)
 
 
 def test_from_packet_on_an_inconsistent_full_snapshot_is_stale():
