@@ -1,0 +1,13 @@
+{
+  "name": "secdogie-symbiotic-runtime",
+  "private": true,
+  "type": "module",
+  "description": "Content-addressed swarm graph, attention-aware proposals, and Gate 2 inline alignment contracts for SecDogie",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test tests/core.test.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}
