@@ -103,26 +103,33 @@ class Terminal:
     on stdout or in a log. Refuses (raises OSError) when there is none."""
 
     def __init__(self, path: str = "/dev/tty"):
-        self._f = open(path, "r+", encoding="utf-8", buffering=1)  # noqa: SIM115 - held for the session
+        # Two handles: a terminal is not seekable, so one read-write text file cannot be opened on it.
+        self._in = open(path, encoding="utf-8")  # noqa: SIM115 - held for the session
+        try:
+            self._out = open(path, "w", encoding="utf-8")  # noqa: SIM115
+        except OSError:
+            self._in.close()
+            raise
         self._lock = threading.Lock()
 
     def say(self, text: str) -> None:
         with self._lock:
-            self._f.write(text + "\n")
-            self._f.flush()
+            self._out.write(text + "\n")
+            self._out.flush()
 
     def ask(self, question: str) -> bool:
         with self._lock:
-            self._f.write(question)
-            self._f.flush()
-            answer = self._f.readline()
+            self._out.write(question)
+            self._out.flush()
+            answer = self._in.readline()
         return answer.strip().lower() in ("y", "yes", "是")
 
     def close(self) -> None:
-        try:
-            self._f.close()
-        except OSError:
-            pass
+        for f in (self._in, self._out):
+            try:
+                f.close()
+            except OSError:
+                pass
 
 
 # ---- the policy on the pairing link ------------------------------------------------------------

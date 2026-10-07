@@ -197,6 +197,25 @@ def test_file_enroller(tmp_path):
         file_enroller(str(apps), str(apps), pairing_id="x")
 
 
+def test_the_terminal_talks_on_a_real_pty():
+    import os
+
+    master, slave = os.openpty()
+    try:
+        term = Terminal(os.ttyname(slave))
+        term.say("hello")
+        os.write(master, b"y\n")
+        assert term.ask("ok? [y/N] ") is True
+        os.write(master, b"\n")
+        assert term.ask("again? [y/N] ") is False  # the default is no
+        out = os.read(master, 4096).decode()
+        assert "hello" in out and "ok? [y/N]" in out
+        term.close()
+    finally:
+        os.close(master)
+        os.close(slave)
+
+
 def test_no_terminal_no_pairing(tmp_path, monkeypatch, capsys):
     with pytest.raises(OSError):
         Terminal(str(tmp_path / "no-such-tty"))
