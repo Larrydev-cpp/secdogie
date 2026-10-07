@@ -52,7 +52,11 @@ def verify_payload(obj: dict, allowlist: Allowlist | None = None) -> tuple[bool,
         sig = base64.b64decode(sig_b64, validate=True)
     except (ValueError, TypeError):
         return False, None
-    if not pub.verify(canonical(payload), sig):
+    try:
+        data = canonical(payload)
+    except (ValueError, TypeError):  # a lone surrogate, say: unsignable, so unsigned -- never a crash
+        return False, None
+    if not pub.verify(data, sig):
         return False, None
     if allowlist is not None and not allowlist.contains(signer):
         return False, signer

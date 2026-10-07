@@ -113,6 +113,20 @@ class TrustPolicy:
     def __len__(self) -> int:
         return len(self.dids())
 
+    def add(self, did: str) -> None:
+        """Enroll ``did`` live. A revoked DID stays revoked: it is refused,
+        never quietly re-admitted."""
+        with self._lock:
+            if did in self._revoked:
+                raise ValueError(f"{did} is revoked")
+            self._allowlist.add(did)
+
+    def replace(self, dids) -> None:
+        """Swap the underlying membership (a re-read allowlist file). Revoked
+        DIDs stay out whatever the file says."""
+        with self._lock:
+            self._allowlist.replace(dids)
+
     # -- revocation ----------------------------------------------------------
 
     def is_revoked(self, did: str) -> bool:

@@ -219,3 +219,16 @@ def test_refresher_thread_applies_new_records(tmp_path):
         assert not policy.contains(a)
     finally:
         stop.set()
+
+
+def test_add_and_replace_keep_revoked_dids_out():
+    master_ids, masters, allow = _setup()
+    a, b = Identity.generate().did, Identity.generate().did
+    policy = TrustPolicy(allow, masters=masters)
+    policy.add(a)
+    assert policy.contains(a)
+    policy.apply(_revoke(master_ids, [b]))
+    with pytest.raises(ValueError, match="revoked"):
+        policy.add(b)
+    policy.replace({a, b})  # a re-read file that still lists b
+    assert policy.contains(a) and not policy.contains(b)
