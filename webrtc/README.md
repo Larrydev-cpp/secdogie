@@ -5,17 +5,24 @@ WebSocket 信令网关。两个浏览器标签页（或两台机器）经网关�
 `ice-candidate` 后，数据走 **DTLS 加密的 RTCDataChannel 直连**，网关看不到、也不经手
 业务数据。
 
-**只在用户显式操作时启动。** 模块导入时不开 socket、不建 `RTCPeerConnection`、不起
-定时器；`startPeerConnection()` 在没有用户手势（点击）时直接拒绝，页面无法在加载时
-静默联网。关掉页面或点「关闭节点」即全部拆除，没有任何后台常驻逻辑。
+**由调用方决定何时连接。** 模块导入时不开 socket、不建 `RTCPeerConnection`、不起
+定时器；只有调用 `startPeerConnection()` 才会联网，`closePeerConnection()` 全部拆除，
+没有任何后台常驻逻辑。模块本身不再检查用户手势：操作员页面（[`../symbiont/`](../symbiont/)）
+在页面打开时自动挂载，但**只连它被配对进去的那个房间**——没有配对记录就不发起任何连接；
+本目录的开发测试页仍然点按钮才连。
+
+**这里只是传输。** 网关能看到也能改写 SDP，所以对端是谁不由这里判断：挂载之上，两端先
+用各自的 DID 签名自己看到的 DTLS 指纹（W1，`identity/secdogie_identity/linkauth.py`），
+验证通过后数据通道才承载业务帧。节点那端是 `transport/secdogie_transport/webrtc.py`（aiortc）。
 
 | 文件 | 作用 |
 | --- | --- |
 | [`signaling/worker.js`](signaling/worker.js) | 信令网关：Worker 入口 + `SignalingRoom` Durable Object |
 | [`client/web_peer.js`](client/web_peer.js) | 浏览器端 ES 模块：协商、数据通道、断线检测 |
-| [`index.html`](index.html) | 极简测试页：「启动节点」按钮 + 收发文本 + 日志 |
+| [`dev/index.html`](dev/index.html) | 开发测试页：「启动节点」按钮 + 收发文本 + 日志（有地址输入框，**从不随操作员页面部署**） |
 | [`wrangler.toml`](wrangler.toml) | Worker / Durable Object 配置 |
 | [`tests/worker.test.js`](tests/worker.test.js) | 网关的 headless 单测（假 socket + 假时钟，纯 Node） |
+| [`tests/web_peer.test.js`](tests/web_peer.test.js) | 浏览器端的 headless 单测（假 WebSocket / RTCPeerConnection / navigator） |
 
 ## 本地跑通（两个标签页互发）
 
@@ -24,16 +31,16 @@ WebSocket 信令网关。两个浏览器标签页（或两台机器）经网关�
 ```sh
 cd webrtc
 npx wrangler dev                 # 终端 1：信令网关 -> ws://localhost:8787/ws
-python3 -m http.server 8080      # 终端 2：测试页   -> http://localhost:8080/
+python3 -m http.server 8080      # 终端 2：测试页   -> http://localhost:8080/dev/
 ```
 
-1. 在两个标签页打开 <http://localhost:8080/>，房间名保持一致（默认 `demo`）。
+1. 在两个标签页打开 <http://localhost:8080/dev/>，房间名保持一致（默认 `demo`）。
 2. 标签页 A 点「启动节点」→ 状态 `waiting`；标签页 B 点「启动节点」→ 两边进入
    `connected`。
 3. 在任一边输入文本发送，另一边日志出现 `← …`。
 
 测试页的信令地址和房间也可以用查询参数预填：
-`index.html?signal=wss://<worker>.workers.dev/ws&room=my-room`。ES 模块不能从
+`dev/index.html?signal=wss://<worker>.workers.dev/ws&room=my-room`。ES 模块不能从
 `file://` 加载，所以测试页必须经 HTTP 打开（`localhost` 算安全上下文，WebRTC 可用）。
 
 ## 部署网关
@@ -43,8 +50,9 @@ cd webrtc
 npx wrangler deploy              # -> wss://secdogie-signaling.<account>.workers.dev/ws
 ```
 
-部署前在 `wrangler.toml` 的 `ALLOWED_ORIGINS` 里填上测试页所在的 origin（逗号分隔，
-如 `https://peer.example.com`）；留空表示允许任意 origin，只适合本地开发。Durable
+部署前在 `wrangler.toml` 的 `ALLOWED_ORIGINS` 里填上操作员页面所在的 origin（逗号分隔，
+如 `https://peer.example.com`）；留空表示允许任意 origin，只适合本地开发——公网部署时
+**不要留空**。节点用 `--webrtc-origin` 出示同一个 origin。Durable
 Object 用的是 SQLite 后端类，免费计划可用。
 
 ## 架构
@@ -86,20 +94,19 @@ offer（glare）；每个收到的 `offer` 都在一个全新的 `RTCPeerConnect
 
 ```js
 import {
-  PeerState, startPeerConnection, closePeerConnection, sendData, onMessage, onStateChange,
+  PeerState, startPeerConnection, closePeerConnection, sendData, descriptions, onMessage, onStateChange,
 } from './client/web_peer.js';
 
-onStateChange((state, detail) => console.log(state, detail));
+onStateChange((state, detail, { code, linkId }) => console.log(state, detail, code, linkId));
 onMessage((data) => console.log('收到', data));        // string 或 ArrayBuffer
 
-button.onclick = async () => {                          // 必须在用户手势里调用
-  const { peerId } = await startPeerConnection({
-    signalingUrl: 'ws://localhost:8787/ws',
-    room: 'demo',
-    // iceServers: [...],   默认 stun:stun.l.google.com:19302；需要跨对称 NAT 时加 TURN
-    // log: (line) => ...,  诊断日志，默认 console.debug
-  });
-};
+const { peerId } = await startPeerConnection({
+  signalingUrl: 'wss://<worker>.workers.dev/ws',       // wss:；ws: 只允许 localhost / 127.0.0.1 / [::1]
+  room: 'demo',                                        // 必填，没有默认房间
+  // iceServers: [...],   默认 stun:stun.cloudflare.com:3478（信令提供方自己的 STUN）；需要跨对称 NAT 时加 TURN
+  // log: (line) => ...,  诊断日志，默认 console.debug
+});
+const { id, local, remote } = descriptions();          // 当前链路的编号与双方 SDP（W1 要读指纹）
 
 await sendData('hello');            // string / ArrayBuffer / TypedArray / Blob 原样发送，其他值按 JSON 文本发送
 closePeerConnection();              // 幂等，随时可调
@@ -107,10 +114,11 @@ closePeerConnection();              // 幂等，随时可调
 
 | 函数 | 说明 |
 | --- | --- |
-| `startPeerConnection(opts)` | 连接网关并加入房间；网关接纳后 resolve `{peerId, room}`。无用户手势、已在运行、URL/房间名非法时 reject |
+| `startPeerConnection(opts)` | 连接网关并加入房间；网关接纳后 resolve `{peerId, room}`。已在运行、缺房间名、URL/房间名非法时 reject |
 | `closePeerConnection()` | 关闭数据通道、`RTCPeerConnection` 和信令 socket，状态回到 `idle` |
 | `sendData(payload)` | 经数据通道发送；通道未打开时 reject；超过 SCTP 单消息上限时抛 `RangeError`；发送缓冲超过 1 MiB 时等待排空 |
-| `onMessage(cb)` / `onStateChange(cb)` | 注册监听，返回取消函数 |
+| `descriptions()` | 当前链路 `{id, local, remote}`；`id` 每条新的 `RTCPeerConnection` 换一个，ICE 自愈时不变 |
+| `onMessage(cb)` / `onStateChange(cb)` | 注册监听，返回取消函数；状态回调第三个参数 `{code, linkId}`，`code` 为 `room-full` / `idle` / `signal-closed` / `signal-error` / `closed` |
 
 状态：`idle` → `signaling` → `waiting` → `negotiating` → `connected`，以及
 `disconnected`（ICE 暂失）和 `failed`（放弃；可重新 `startPeerConnection()`）。
@@ -148,17 +156,22 @@ cd webrtc && npm test            # = node --test，无需安装依赖
 速率限制、满房、断开通知、闲置清扫、以及入口的 health / upgrade / origin / 房间名校验。
 CI（`.github/workflows/test.yml` 的 `webrtc-tests`）每次推送都跑。
 
-浏览器侧的端到端链路（真 `wrangler dev` + 两个 Chromium 标签页）按上面「本地跑通」的
-步骤手动验证。
+`web_peer.test.js` 用假的 WebSocket / RTCPeerConnection / navigator：无手势也能启动、
+房间必填、`ws:` 只连本机、后加入者在唯一一条有序通道上发 offer、默认 STUN、
+`descriptions()` 的链路编号（ICE 自愈不变、新 offer 换新）、满房与闲置的失败码。
+
+浏览器对接真实节点（Chromium ↔ aiortc，经 W1）的端到端测试见 `symbiont/` 的
+`browser-link` 任务。
 
 ## 已知边界
 
-- **房间名就是唯一的门槛。** 网关不做身份认证，知道房间名的人都能占位（先到先得，满两
-  人即拒）。公网部署时用难猜的随机房间名，或在 Worker 前面加 Cloudflare Access。
-- **对端身份依赖信令的诚实。** DTLS 保证链路机密，但证书指纹是经网关交换的；一个恶意的
-  信令服务器可以做中间人。需要端到端身份时，应在数据通道之上再做一层基于 DID 的认证
-  （见 `identity/`）。
-- **没有默认 TURN。** 默认只配公共 STUN，双方都在对称 NAT 后面时可能打不通；需要时通过
-  `iceServers` 传入自己的 TURN。
+- **房间名是网关唯一的门槛。** 网关不做身份认证，知道房间名的人都能占位（先到先得，满两
+  人即拒）——占位只能挡住连接，拿不到任何数据：W1 之前数据通道上什么都不传。节点的房间由
+  节点密钥派生、从不打印；公网部署时再在 Worker 前面加 Cloudflare Access 更稳。
+- **对端身份不依赖信令的诚实。** 证书指纹经网关交换，恶意网关可以在中间各接一端；W1 让两端
+  各自签名看到的指纹，这样的中间人在两边都通不过（`transport/tests/test_webrtc_link.py`）。
+- **没有默认 TURN。** 默认只配信令提供方的 STUN，双方都在对称 NAT 后面时可能打不通；需要
+  时通过 `iceServers` 传入自己的 TURN。网关能看到双方 IP、房间名和时间，STUN 服务器能
+  看到 IP。
 - **一对一。** 一个房间只配对两个节点；多方需要多个房间或 mesh 扩展。
 - 单条消息受 SCTP 上限约束（Chrome 通常 256 KiB），大文件需要调用方自行分片。

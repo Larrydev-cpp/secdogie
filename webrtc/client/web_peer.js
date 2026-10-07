@@ -3,14 +3,22 @@
  * ../signaling/worker.js.
  *
  * Nothing happens at import time: no socket, no RTCPeerConnection, no timer.
- * The only way in is startPeerConnection(), which refuses to run outside a user
- * gesture (a click), and closePeerConnection() tears everything down again.
+ * The only way in is startPeerConnection() -- the caller decides when (the
+ * operator page attaches on load, and only to a room it was paired into) --
+ * and closePeerConnection() tears everything down again. This module is the
+ * transport only: who is on the other end is proven above it (W1, see
+ * identity/secdogie_identity/linkauth.py), never assumed from the gateway.
  *
  *   startPeerConnection({signalingUrl, room, iceServers?, log?}) -> Promise<{peerId, room}>
  *   closePeerConnection()
  *   sendData(payload) -> Promise<void>
+ *   descriptions() -> {id, local, remote}     the current link's id and SDP texts (nulls when none)
  *   onMessage(callback) -> unsubscribe        callback(data: string | ArrayBuffer)
- *   onStateChange(callback) -> unsubscribe    callback(state: PeerState, detail: string)
+ *   onStateChange(callback) -> unsubscribe    callback(state: PeerState, detail: string, info: {code, linkId})
+ *
+ * `info.code` names why the peer failed or went idle, for callers that act on
+ * it: 'room-full' (the gateway's room already has two peers), 'idle' (dropped
+ * for silence), 'signal-closed', 'signal-error', 'closed' (by the caller).
  *
  * A room pairs two peers. The one that joins second makes the offer; the other
  * answers. Only the offerer ever re-offers after a lost link, so the two sides
@@ -28,7 +36,8 @@ export const PeerState = Object.freeze({
   FAILED: 'failed', // gave up; startPeerConnection() may be called again
 });
 
-const DEFAULT_ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
+// The signaling provider's own STUN: no third party learns the address by default.
+const DEFAULT_ICE_SERVERS = [{ urls: 'stun:stun.cloudflare.com:3478' }];
 const DATA_CHANNEL_LABEL = 'secdogie-data';
 const ROOM_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const PING_INTERVAL_MS = 20_000; // well under the gateway's 60 s idle timeout
@@ -44,32 +53,27 @@ const stateListeners = new Set();
 let state = PeerState.IDLE;
 /** The running session, or null. At most one per page. */
 let session = null;
+let linkCounter = 0;
 
 /**
  * Joins `room` on the signaling gateway and brings up a direct data channel
- * with the other peer in it. Must be called from a user gesture handler.
- * Resolves once the gateway has admitted this peer; watch onStateChange() for
- * the P2P link itself ('connected').
+ * with the other peer in it. `room` is required: there is no shared default
+ * room to stumble into. Resolves once the gateway has admitted this peer;
+ * watch onStateChange() for the P2P link itself ('connected').
  */
 export async function startPeerConnection({
   signalingUrl,
-  room = 'default',
+  room,
   iceServers = DEFAULT_ICE_SERVERS,
   log = (line) => console.debug('[web_peer]', line),
 } = {}) {
-  // Explicit consent: a page cannot bring the peer up silently on load. Browsers
-  // without the UserActivation API cannot be checked; the demo page still only
-  // calls this from a click handler.
-  const activation = globalThis.navigator?.userActivation;
-  if (activation && !activation.isActive) {
-    throw new Error('startPeerConnection() must be called from a user gesture, e.g. a button click');
-  }
   if (session) throw new Error('peer is already running; call closePeerConnection() first');
   if (typeof RTCPeerConnection !== 'function') throw new Error('this browser does not support WebRTC');
 
   const s = {
     url: signalingEndpoint(signalingUrl, room),
     room,
+    gatewayError: null,
     iceServers,
     log,
     ws: null,
@@ -89,14 +93,25 @@ export async function startPeerConnection({
   try {
     openSignaling(s);
   } catch (err) {
-    endSession(s, PeerState.FAILED, `cannot open signaling socket: ${err.message}`);
+    endSession(s, PeerState.FAILED, `cannot open signaling socket: ${err.message}`, 'signal-error');
   }
   return joined;
 }
 
 /** Closes the data channel, the peer connection and the signaling socket. Safe to call at any time. */
 export function closePeerConnection() {
-  if (session) endSession(session, PeerState.IDLE, 'closed by user');
+  if (session) endSession(session, PeerState.IDLE, 'closed by user', 'closed');
+}
+
+/**
+ * The current link's id and both SDP texts, or nulls. The id is new for every
+ * RTCPeerConnection (it stays the same across an ICE recovery), so a caller can
+ * tell a new link -- which must prove itself again -- from a recovered one.
+ */
+export function descriptions() {
+  const link = session?.link;
+  if (!link) return { id: null, local: null, remote: null };
+  return { id: link.id, local: link.pc.localDescription?.sdp ?? null, remote: link.pc.remoteDescription?.sdp ?? null };
 }
 
 /**
@@ -132,11 +147,17 @@ export function onStateChange(callback) {
 
 // --- signaling --------------------------------------------------------------
 
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
 function signalingEndpoint(signalingUrl, room) {
   if (!signalingUrl) throw new TypeError('signalingUrl is required, e.g. "wss://<worker>.workers.dev/ws"');
   const url = new URL(signalingUrl, globalThis.location?.href);
-  if (url.protocol !== 'ws:' && url.protocol !== 'wss:') throw new TypeError('signalingUrl must be a ws: or wss: URL');
-  if (!ROOM_PATTERN.test(room)) throw new TypeError('room must be 1-64 characters of [A-Za-z0-9_-]');
+  if (url.protocol !== 'wss:' && !(url.protocol === 'ws:' && LOCAL_HOSTS.has(url.hostname))) {
+    throw new TypeError('signalingUrl must be a wss: URL (ws: only to localhost)');
+  }
+  if (typeof room !== 'string' || !ROOM_PATTERN.test(room)) {
+    throw new TypeError('room is required: 1-64 characters of [A-Za-z0-9_-]');
+  }
   url.searchParams.set('room', room);
   return url;
 }
@@ -167,9 +188,10 @@ function openSignaling(s) {
     if (s !== session) return;
     clearInterval(s.pingTimer);
     const why = `signaling closed (${event.code}${event.reason ? `: ${event.reason}` : ''})`;
+    const code = event.code === 4001 || s.gatewayError === 'room-full' ? 'room-full' : event.code === 4002 ? 'idle' : 'signal-closed';
     // An established P2P link does not need the gateway any more.
     if (s.link?.channel?.readyState === 'open') s.log(`${why}; the direct link stays up`);
-    else endSession(s, PeerState.FAILED, why);
+    else endSession(s, PeerState.FAILED, why, code);
   };
 }
 
@@ -216,6 +238,7 @@ function handleSignal(s, msg) {
       handleRemoteCandidate(s, msg.from, msg.payload);
       break;
     case 'error':
+      s.gatewayError = msg.code;
       s.log(`gateway error ${msg.code}: ${msg.message}`);
       break;
     default:
@@ -239,6 +262,7 @@ function createLink(s, remoteId, role) {
   clearTimeout(s.retryTimer);
   const pc = new RTCPeerConnection({ iceServers: s.iceServers });
   const link = {
+    id: ++linkCounter,
     pc,
     role,
     remoteId,
@@ -399,7 +423,7 @@ function linkLost(s, link, reason) {
   if (!isCurrent(s, link)) return;
   dropLink(s);
   if (s.ws?.readyState !== WebSocket.OPEN) {
-    endSession(s, PeerState.FAILED, `${reason}; signaling is gone, so the link cannot be rebuilt`);
+    endSession(s, PeerState.FAILED, `${reason}; signaling is gone, so the link cannot be rebuilt`, 'signal-closed');
     return;
   }
   setState(PeerState.WAITING, reason);
@@ -423,16 +447,16 @@ function dropLink(s) {
   link.pc.close();
 }
 
-function endSession(s, finalState, reason) {
+function endSession(s, finalState, reason, code) {
   if (s !== session) return;
   session = null;
   clearInterval(s.pingTimer);
   clearTimeout(s.retryTimer);
   dropLink(s);
   if (s.ws && s.ws.readyState <= WebSocket.OPEN) s.ws.close(1000, 'peer closed');
-  s.settle?.reject(new Error(reason));
+  s.settle?.reject(Object.assign(new Error(reason), { code }));
   s.settle = null;
-  setState(finalState, reason);
+  setState(finalState, reason, { code });
 }
 
 // --- helpers ----------------------------------------------------------------
@@ -441,10 +465,10 @@ function isCurrent(s, link) {
   return s === session && s.link === link;
 }
 
-function setState(next, detail) {
+function setState(next, detail, info = {}) {
   if (next === state) return;
   state = next;
-  emit(stateListeners, next, detail);
+  emit(stateListeners, next, detail, { code: info.code ?? null, linkId: session?.link?.id ?? null });
 }
 
 function subscribe(listeners, callback) {

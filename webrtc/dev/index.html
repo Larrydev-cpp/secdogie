@@ -1,4 +1,7 @@
 <!doctype html>
+<!-- A developer test page for web_peer.js: two tabs, typed signaling URL and room, a raw
+     log. It is never deployed with the operator page (symbiont/), which has no address
+     fields at all and attaches only to the room it was paired into. -->
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
@@ -111,7 +114,7 @@
 <script type="module">
   import {
     PeerState, startPeerConnection, closePeerConnection, sendData, onMessage, onStateChange,
-  } from './client/web_peer.js';
+  } from '../client/web_peer.js';
 
   const $ = (id) => document.getElementById(id);
   const params = new URLSearchParams(location.search);
