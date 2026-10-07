@@ -68,6 +68,13 @@ INTENT_CONTRADICTION = "intent-contradiction"
 PRECONDITION_FAILED = "precondition-failed"
 KNOWN_FAILURE = "known-failure"
 
+# Every finding kind the gate can report, in one place: the operator page has a
+# plain-words line for each (symbiont/src/voice), checked against this tuple
+# through fixtures/vectors/link.json.
+FINDING_KINDS = (STALE_TARGET, TARGET_MISMATCH, NO_OP, REPEATED, POLLING, DESTRUCTIVE_CHAIN,
+                 MISSING_VERIFICATION, EXCESSIVE_COST, OUT_OF_CAPABILITY, UNATTENDED_POSTING,
+                 UNAUTHORIZED_ACTION, INTENT_UNPROVEN, INTENT_CONTRADICTION, PRECONDITION_FAILED, KNOWN_FAILURE)
+
 # Kinds that only observe -- they never mutate, so they need no verification and
 # a run of them with nothing else between is the busy-poll signal.
 _READ_KINDS = frozenset({"read", "observe", "get", "inspect", "screenshot", "wait", "poll"})
@@ -519,6 +526,7 @@ def record_gate_decision(journal, action: PlannedAction, decision: GateDecision)
 
 
 __all__ = [
+    "FINDING_KINDS",
     "ALLOW",
     "REJECT",
     "REWRITE",

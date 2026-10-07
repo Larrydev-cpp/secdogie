@@ -260,3 +260,63 @@ def test_the_bridge_needs_an_operator_trust_set():
     s = DialogueSession(NODE, APP.did, wire.sender("app"), trust=Allowlist({APP.did}))
     with pytest.raises(ValueError):
         OperatorBridge(NODE, s, operators=None)
+
+
+# ---- a resident node: the page comes and goes ------------------------------------------------
+
+
+def test_holding_bridge_keeps_waiting_through_a_disconnect_and_resends_on_hello():
+    bridge, node_s, app_s = _pair(hold_on_disconnect=True, challenge_ttl=10.0, probe_ttl=10.0)
+    app = FakeApp(app_s, answer=None, answer_challenges=False)  # the first page just closes
+    results = {}
+    threading.Thread(target=lambda: results.setdefault("token", bridge.authorize(to_planned(DELETE))), daemon=True).start()
+    threading.Thread(target=lambda: results.setdefault("answer", bridge.ask("where?")), daemon=True).start()
+    _until(lambda: len(app.seen) == 2)
+    node_s.on_peer_down()
+    app_s.send(SessionPacket(SessionEvent.BYE), reliable=False)
+    time.sleep(0.2)
+    assert results == {} and bridge.waiting()  # neither a BYE nor peer-down ends them
+    (first,) = [p for p in app.seen if isinstance(p, Gate2ChallengePacket)]
+    # the page comes back and says hello: it is shown the same challenge and question again
+    app.seen.clear()
+    app.answer, app.answer_challenges = "Downloads", True
+    app_s.send(SessionPacket(SessionEvent.HELLO))
+    _until(lambda: len(results) == 2)
+    again = [p for p in app.seen if isinstance(p, Gate2ChallengePacket)]
+    assert again and (again[0].challenge_id, again[0].action_hash, again[0].expires_at) == \
+        (first.challenge_id, first.action_hash, first.expires_at)
+    assert results["token"] is not None and results["answer"] == "Downloads"
+    assert not bridge.waiting()
+
+
+def test_holding_bridge_still_fails_closed_at_expiry():
+    bridge, node_s, app_s = _pair(hold_on_disconnect=True, challenge_ttl=0.3, probe_ttl=0.3)
+    FakeApp(app_s, answer=None, answer_challenges=False)
+    node_s.on_peer_down()
+    assert bridge.authorize(to_planned(DELETE)) is None
+    assert bridge.ask("anyone?") is None
+
+
+def test_a_bridge_with_no_app_yet_waits_and_a_rebind_delivers():
+    bridge = OperatorBridge(NODE, None, operators=Allowlist({OPERATOR.did}), hold_on_disconnect=True,
+                            challenge_ttl=5.0, probe_ttl=5.0)
+    results = {}
+    threading.Thread(target=lambda: results.setdefault("answer", bridge.ask("which folder?")), daemon=True).start()
+    _until(lambda: bridge.waiting())
+    wire = Wire()
+    node_s = DialogueSession(NODE, APP.did, wire.sender("app"), trust=Allowlist({APP.did}), heartbeat_interval=1e9)
+    app_s = DialogueSession(APP, NODE.did, wire.sender("node"), trust=Allowlist({NODE.did}), heartbeat_interval=1e9)
+    wire.ends.update(node=node_s, app=app_s)
+    FakeApp(app_s, answer="Reports")
+    bridge.rebind(node_s)
+    _until(lambda: "answer" in results)
+    assert results["answer"] == "Reports"
+    with pytest.raises(ValueError):
+        OperatorBridge(NODE, None, operators=Allowlist({OPERATOR.did}))
+
+
+def test_hello_reaches_the_owner_first():
+    order = []
+    bridge, _, app_s = _pair(hold_on_disconnect=True, on_hello=lambda: order.append("hello"))
+    app_s.send(SessionPacket(SessionEvent.HELLO))
+    _until(lambda: order == ["hello"])

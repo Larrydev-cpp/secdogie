@@ -19,13 +19,20 @@
 Zero trust throughout: ``apps``, ``operators`` and ``authorized`` are required
 (``None`` refuses to start); ``unrestricted`` (no capability check) is an
 explicit, test-and-development-only switch. One App session at a time: while
-one is alive, another App is not accepted. While no App is reachable the
-Supervisor holds no operator hooks, so a step that needs the operator is
-refused at once (no answer is a no); they come back with the App.
+one is alive, another App is not accepted.
+
+The operator is a page that comes and goes, the node is not: there is one
+``OperatorBridge`` for the node's whole life. A step that needs the operator
+while no App is reachable -- before the first one, or across a closed tab or a
+refresh -- waits for one up to the challenge's or question's own expiry (still
+a no when it passes); when an App says HELLO the node tells it what it is doing
+(``status: idle`` / ``status: running`` / ``status: waiting for operator``,
+naming the goal) and shows it every challenge and question still open.
 
 Control requests from the App are answered with a status line starting
 ``accepted`` or ``refused``. After each goal the node tells the App how it
 ended and offers any quarantined (S2) facts / preferences for confirmation.
+An App on a link (a browser over WebRTC) gets no structural snapshots.
 """
 from __future__ import annotations
 
@@ -53,6 +60,7 @@ from secdogie_transport import (
     RendezvousLink,
     Session,
     UDPChannel,
+    is_link_host,
 )
 
 log = logging.getLogger("secdogie_node")
@@ -82,7 +90,7 @@ class NodeConfig:
 
 
 class _AppLink:
-    def __init__(self, session: DialogueSession, bridge: OperatorBridge, publisher: SnapshotPublisher):
+    def __init__(self, session: DialogueSession, bridge: OperatorBridge, publisher: SnapshotPublisher | None):
         self.session, self.bridge, self.publisher = session, bridge, publisher
         self.offered: set[str] = set()
 
@@ -105,6 +113,12 @@ class Node:
         self._stopping = threading.Event()
         self._worker: threading.Thread | None = None
         self._refused: set[str] = set()
+        self._running: str | None = None  # the goal the worker is running now
+        self.bridge = OperatorBridge(cfg.identity, None, operators=self.operators,
+                                     challenge_ttl=cfg.challenge_ttl, probe_ttl=cfg.probe_ttl,
+                                     on_control=self.on_control, on_hello=self._report_status,
+                                     hold_on_disconnect=True)
+        self.supervisor.set_operator_hooks(self.bridge.hooks())
         self.channel = UDPChannel(*cfg.listen)
         try:
             self.transport = DirectUDPTransport(cfg.identity, self.channel, allowlist=self.apps,
@@ -181,32 +195,38 @@ class Node:
             if cur is not None:
                 self.router.remove(cur.session.peer_did)
                 cur.session.close()
+            self._refused.clear()
             session = DialogueSession(self.identity, did, self.router.sender_for(did), trust=self.apps)
-            publisher = SnapshotPublisher(session.send)
-            bridge = OperatorBridge(self.identity, session, operators=self.operators,
-                                    challenge_ttl=self.cfg.challenge_ttl, probe_ttl=self.cfg.probe_ttl,
-                                    on_control=self.on_control, publisher=publisher)
-            link = self._link = _AppLink(session, bridge, publisher)
-            self.supervisor.set_operator_hooks(bridge.hooks())
+            on_link = is_link_host(self.transport.endpoint_host(did))
+            publisher = None if on_link else SnapshotPublisher(session.send)
+            self.bridge.rebind(session, publisher=publisher)
+            self._link = _AppLink(session, self.bridge, publisher)
+            self.supervisor.set_operator_hooks(self.bridge.hooks())
 
         def down():
-            bridge.on_peer_down()  # every pending challenge and probe fails now
-            with self._lock:
-                if self._link is link:
-                    self.supervisor.set_operator_hooks(None)
-            log.warning("operator App %s is unreachable; steps that need it are refused", did)
+            log.warning("operator App %s is unreachable; steps that need it wait for it until they expire", did)
 
         def up():
-            with self._lock:
-                if self._link is link:
-                    self.supervisor.set_operator_hooks(bridge.hooks())
             log.info("operator App %s is reachable again", did)
 
         session.on_peer_down, session.on_peer_up = down, up
         session.start(0.05)
-        log.info("operator App connected: %s", did)
+        log.info("operator App connected: %s%s", did, " (over a link)" if on_link else "")
         self._offer_memories()
         return session
+
+    def current_status(self):
+        """CURRENT_STATUS: what the node is doing, as a status line naming the
+        goal (never a step's detail)."""
+        running = self._running
+        if running is None:
+            return system_status("status: idle")
+        if self.bridge.waiting():
+            return system_status("status: waiting for operator", about=running)
+        return system_status("status: running", about=running)
+
+    def _report_status(self) -> None:
+        self._send(self.current_status())
 
     def on_control(self, pkt, signer: str) -> str:
         """One operator request (already authenticated as ``signer``, an App on
@@ -280,9 +300,15 @@ class Node:
         if not ready:
             return False
         gid = ready[0]
-        code, summary = self.supervisor.run_goal(gid)
+        self._running = gid
+        self._report_status()
+        try:
+            code, summary = self.supervisor.run_goal(gid)
+        finally:
+            self._running = None
         log.info("goal %s: exit %s -- %s", gid, code, summary)
         self._send(system_status(f"goal {gid} finished: exit {code} -- {summary}"))
+        self._report_status()
         self._offer_memories()
         return True
 

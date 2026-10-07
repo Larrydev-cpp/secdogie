@@ -22,10 +22,22 @@ Three hooks, one session:
 With a ``SnapshotPublisher`` the bridge also hands the loop's element targets
 to it (``on_targets``) and answers the App's RESYNC with a full view.
 
-Fail closed throughout: no answer is a no; a peer reported down fails every
-pending challenge and probe at once; a handler exception reaches the loop's
-own fail-closed confirm path. Thread-safe: hooks block on the loop thread while
-the session thread delivers answers.
+Fail closed throughout: no answer is a no; a handler exception reaches the
+loop's own fail-closed confirm path. Thread-safe: hooks block on the loop
+thread while the session thread delivers answers.
+
+What a lost App means depends on ``hold_on_disconnect``:
+
+  * off (the default): a peer reported down fails every pending challenge and
+    probe at once;
+  * on (the resident node, whose operator page comes and goes): a peer going
+    away -- a closed tab, a refresh -- changes nothing; each pending challenge
+    and probe still ends at its own expiry, and expiry is still a no. When an
+    App says HELLO, or the bridge is ``rebind``-ed to a new session, every
+    challenge and probe still open is sent again -- the same challenge id,
+    action hash and expiry, so the page reviews exactly what was asked. The
+    bridge may then start with no session at all: a step that needs the
+    operator waits for one to arrive, up to its expiry.
 """
 from __future__ import annotations
 
@@ -39,6 +51,7 @@ from secdogie_citadel.authz import action_hash
 
 from .dialogue import ProbeLedger, system_status
 from .protocol import (
+    DialoguePacket,
     DialogueType,
     Envelope,
     Gate2ChallengePacket,
@@ -58,6 +71,7 @@ DEFAULT_PROBE_TTL = 300.0
 @dataclass
 class _Challenge:
     key: str
+    packet: Gate2ChallengePacket | None = None
     response: Gate2ResponsePacket | None = None
     dead: bool = False
 
@@ -67,12 +81,16 @@ class OperatorBridge:
     ``operators`` the trust set (allowlist / TrustPolicy) tokens are verified
     against -- required, so a node with no operators can authorize nothing."""
 
-    def __init__(self, identity, session: DialogueSession, *, operators, challenge_ttl: float = DEFAULT_CHALLENGE_TTL,
+    def __init__(self, identity, session: DialogueSession | None, *, operators,
+                 challenge_ttl: float = DEFAULT_CHALLENGE_TTL,
                  probe_ttl: float = DEFAULT_PROBE_TTL, clock=time.time,
                  on_control: Callable[[object, str], str] | None = None,
-                 on_resync: Callable[[], None] | None = None, publisher=None):
+                 on_resync: Callable[[], None] | None = None, publisher=None,
+                 on_hello: Callable[[], None] | None = None, hold_on_disconnect: bool = False):
         if operators is None:
             raise ValueError("the bridge needs the operator trust set tokens are verified against")
+        if session is None and not hold_on_disconnect:
+            raise ValueError("a bridge without a session must hold its steps until an App arrives")
         self.identity = identity
         self.session = session
         self.operators = operators
@@ -87,8 +105,57 @@ class OperatorBridge:
         self._cond = threading.Condition()
         self._last_authorized: str | None = None  # action hash the operator just signed for
         self._confirmed_key: str | None = None  # one-shot: the step the signature confirms
+        self.on_hello = on_hello
+        self._hold = bool(hold_on_disconnect)
+        self.session: DialogueSession | None = None
+        if session is not None:
+            self._attach(session)
+
+    def _attach(self, session: DialogueSession) -> None:
+        self.session = session
         session.on_envelope = self.on_envelope
         session.on_peer_down = self.on_peer_down
+
+    def rebind(self, session: DialogueSession, *, publisher=None) -> None:
+        """Talk to ``session`` from now on (another App, or the same App on a
+        new session) and send it every challenge and probe still open.
+        ``publisher`` replaces the snapshot publisher (None: this App gets no
+        snapshots)."""
+        with self._cond:
+            self.publisher = publisher
+            self.on_resync = publisher.request_full if publisher is not None else None
+            self._attach(session)
+        self.resend_pending()
+
+    def _send(self, packet) -> None:
+        session = self.session
+        if session is not None:
+            session.send(packet)
+
+    def resend_pending(self) -> int:
+        """Send again every challenge and probe that is still open and not yet
+        expired; returns how many."""
+        now = float(self._clock())
+        with self._cond:
+            challenges = [ch.packet for ch in self._challenges.values()
+                          if ch.packet is not None and ch.response is None and not ch.dead
+                          and ch.packet.expires_at > now]
+        probes = [p for p in self.ledger.pending() if p.expires_at > now]
+        for c in challenges:
+            self._send(c)
+        for p in probes:
+            self._send(DialoguePacket(p.probe_id, DialogueType.SOCRATIC_QUESTION, p.question,
+                                      suggested_options=p.options, gate_finding=p.gate_finding))
+        return len(challenges) + len(probes)
+
+    def waiting(self) -> bool:
+        """Whether a step is waiting on the operator right now."""
+        now = float(self._clock())
+        with self._cond:
+            if any(ch.response is None and not ch.dead and ch.packet is not None and ch.packet.expires_at > now
+                   for ch in self._challenges.values()):
+                return True
+        return any(p.expires_at > now for p in self.ledger.pending())
 
     def hooks(self):
         from secdogie_citadel.supervisor import OperatorHooks
@@ -115,11 +182,11 @@ class OperatorBridge:
             subject_did=self.identity.did,
             expires_at=float(self._clock()) + self._challenge_ttl,
         )
-        ch = _Challenge(key)
+        ch = _Challenge(key, challenge)
         with self._cond:
             self._challenges[challenge.challenge_id] = ch
             self._last_authorized = None
-        self.session.send(challenge)
+        self._send(challenge)
         deadline = time.monotonic() + self._challenge_ttl
         with self._cond:
             while ch.response is None and not ch.dead:
@@ -156,12 +223,12 @@ class OperatorBridge:
 
     def ask(self, question: str, *, options: tuple[str, ...] = ()) -> str | None:
         probe = self.ledger.open(question, options=tuple(options))
-        self.session.send(probe)
+        self._send(probe)
         res = self.ledger.wait(probe.probe_id, timeout=self._probe_ttl)
         if res is None:
-            self.session.send(system_status("no answer in time; the step stays suspended", about=probe.probe_id))
+            self._send(system_status("no answer in time; the step stays suspended", about=probe.probe_id))
             return None
-        self.session.send(system_status("answer adopted", about=probe.probe_id))
+        self._send(system_status("answer adopted", about=probe.probe_id))
         return res.answer
 
     # -- inbound ----------------------------------------------------------------------
@@ -184,6 +251,10 @@ class OperatorBridge:
                 self.on_resync()
             elif pkt.event is SessionEvent.BYE:
                 self.on_peer_down()
+            elif pkt.event is SessionEvent.HELLO and self._hold:
+                if self.on_hello is not None:
+                    self.on_hello()
+                self.resend_pending()
 
     def _control(self, pkt, signer: str) -> None:
         if self.on_control is None:
@@ -193,10 +264,13 @@ class OperatorBridge:
                 reply = str(self.on_control(pkt, signer))
             except Exception as e:  # noqa: BLE001 - the operator gets the refusal, the node keeps running
                 reply = f"refused: {e}"
-        self.session.send(system_status(reply, about=pkt.request_id))
+        self._send(system_status(reply, about=pkt.request_id))
 
     def on_peer_down(self) -> None:
-        """The App is gone: every pending challenge and probe fails now."""
+        """The App is gone: every pending challenge and probe fails now --
+        unless this bridge holds them to their expiry (``hold_on_disconnect``)."""
+        if self._hold:
+            return
         with self._cond:
             for ch in self._challenges.values():
                 ch.dead = True

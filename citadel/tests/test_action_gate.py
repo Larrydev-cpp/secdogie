@@ -238,3 +238,16 @@ def test_record_gate_decision_appends_signed_event():
     ev = ag.record_gate_decision(j, a, d)
     assert ev["kind"] == "action-gate"
     assert j.events[0]["body"]["verdict"] == ag.ALLOW
+
+
+def test_finding_kinds_lists_every_finding_constant():
+    import inspect
+    import re
+
+    import secdogie_citadel.action_gate as ag
+
+    src = inspect.getsource(ag)
+    block = src[src.index("# --- Finding kinds"):src.index("FINDING_KINDS = (")]
+    names = re.findall(r"^([A-Z_]+) = \"", block, re.MULTILINE)
+    assert len(names) == 15
+    assert ag.FINDING_KINDS == tuple(getattr(ag, n) for n in names)

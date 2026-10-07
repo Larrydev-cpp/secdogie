@@ -14,7 +14,11 @@ Every float, and every integer past 2**53, appears only inside a JSON *text*
 string, so reading the vector files with a plain JSON parser never loses the
 int/float distinction the cases are about.
 
-    python fixtures/vectors/generate.py          # rewrite the four files
+The generator imports only identity, citadel, dialogue and the transport's
+pure modules (never ``secdogie_transport.webrtc`` or ``secdogie_node``), so the
+dialogue CI job -- which installs exactly those -- can regenerate everything.
+
+    python fixtures/vectors/generate.py          # rewrite every file
     python fixtures/vectors/generate.py --check  # exit 1 if any file is stale
 
 The seeds below are public test keys. Never use them for anything real.
@@ -336,11 +340,219 @@ def socratic_vectors() -> dict:
 # ---- files ----------------------------------------------------------------------
 
 
+# ---- browser link: frames, mux, session, dialogue/v1, W1, pairing ---------------------
+
+_LINK_AT = "1759740000.25"           # issued_at of every link statement
+_LINK_TS_NS = 1759740000250000000    # dialogue headers
+_PAIR_EXPIRES = 1759740600
+_FRAME_CTR = 1759740000250000001     # a frame counter starts at time.time_ns()
+
+
+def _fp(alg: str, label: str) -> str:
+    n = {"sha-256": 32, "sha-384": 48, "sha-512": 64}[alg]
+    raw = hashlib.sha512(f"secdogie/vectors/cert/{label}".encode()).digest()
+    raw = (raw * 2)[:n]
+    return f"{alg} " + ":".join(f"{b:02X}" for b in raw)
+
+
+def _sdp(kind: str, fps: list[str], *, media: str) -> str:
+    """A data-channel SDP in the shape the named stack writes (fingerprints
+    lower-case in the text, as browsers write them; the parser normalizes)."""
+    lines = ["v=0", "o=- 4611731400430051336 2 IN IP4 127.0.0.1", "s=-", "t=0 0",
+             "a=group:BUNDLE 0", "a=msid-semantic: WMS" if kind == "browser" else "a=ice-lite", media,
+             "c=IN IP4 0.0.0.0", "a=ice-ufrag:abcd", "a=ice-pwd:0123456789abcdef0123456789",
+             *[f"a=fingerprint:{fp.split(' ')[0]} {fp.split(' ')[1].lower()}" for fp in fps],
+             "a=setup:actpass", "a=mid:0", "a=sctp-port:5000", "a=max-message-size:262144"]
+    return "\r\n".join(lines) + "\r\n"
+
+
+def link_vectors() -> dict:
+    from secdogie_dialogue.dialogue import system_status
+    from secdogie_dialogue.protocol import (
+        ControlOp,
+        ControlPacket,
+        DialoguePacket,
+        DialogueType,
+        MemoryCandidatePacket,
+        NodeDelta,
+        NodeOp,
+        SessionEvent,
+        SessionPacket,
+        StateSnapshotPacket,
+    )
+    from secdogie_dialogue.session import CHANNEL, encode_envelope, fragments
+    from secdogie_identity import linkauth as la
+    from secdogie_transport import mux
+    from secdogie_transport.sealed import ReplayWindow
+    from secdogie_transport.udp import decode_frame, encode_frame
+
+    app, app_seed = _identity("app")
+    operator, operator_seed = _identity("operator")
+    node, node_seed = _identity("node")
+    at = float(_LINK_AT)
+
+    # -- mux and session framing
+    mux_cases = [{"channel": c, "payload_hex": p.hex(), "wire_hex": mux.encode(c, p).hex()}
+                 for c, p in ((CHANNEL, b"D\x00"), ("graph/v1", b""), ("a", bytes(range(5))))]
+    data = ("x" * 100 + "中文").encode("utf-8")
+    msg_id = 2**62 - 5  # past 2**53: a JS number cannot hold it
+    session = {
+        "fragment_size": 64, "msg_id": str(msg_id), "reliable": True, "data_hex": data.hex(),
+        "frames_hex": [f.hex() for f in fragments(msg_id, data, reliable=True, size=64)],
+        "unreliable_frame_hex": fragments(7, b"hb", reliable=False)[0].hex(),
+        "ack_hex": (b"A" + msg_id.to_bytes(8, "big")).hex(),
+    }
+
+    # -- dialogue/v1 packets the browser sends and receives
+    def env(sender, recipient, seq, packet, session_id):
+        header = Header(PROTOCOL_VERSION, sender.did, recipient.did, session_id, seq, _LINK_TS_NS + seq)
+        e = seal(sender, header, packet)
+        return {"canonical": _text(e), "wire": encode_envelope(e).decode("ascii")}
+
+    app_out = [
+        ("hello", SessionPacket(SessionEvent.HELLO)),
+        ("add_goal", ControlPacket("r-0001", ControlOp.ADD_GOAL, goal_id="g-0001",
+                                   title="把旧账号注销掉 — close the old account ✅")),
+        ("stop", ControlPacket("r-0002", ControlOp.STOP, goal_id="g-0001")),
+        ("clarification", DialoguePacket("q-reply-1", DialogueType.USER_CLARIFICATION, "Downloads",
+                                         in_reply_to="p-0001")),
+        ("bye", SessionPacket(SessionEvent.BYE)),
+    ]
+    node_out = [
+        ("status_running", system_status("status: running", about="g-0001")),
+        ("status_waiting", system_status("status: waiting for operator", about="g-0001")),
+        ("status_idle", system_status("status: idle")),
+        ("accepted", DialoguePacket("st-0002", DialogueType.SYSTEM_STATUS, "accepted: goal g-0001 queued",
+                                    in_reply_to="r-0001")),
+        ("question", DialoguePacket("p-0001", DialogueType.SOCRATIC_QUESTION, "Which folder should old files go to?",
+                                    suggested_options=("Downloads", "Desktop"), gate_finding="intent-unproven")),
+        ("memory_candidate", MemoryCandidatePacket("ab" * 32, "fact", "global", "report-folder",
+                                                   "reports go to ~/Reports", "remember")),
+        ("snapshot", StateSnapshotPacket(42, 7, 1, (NodeDelta(NodeOp.ADD, 0, role="AXWindow", name="Mail"),),
+                                         full=True)),
+    ]
+    envelopes = []
+    for i, (name, pkt) in enumerate(app_out, 1):
+        envelopes.append({"name": name, "from": "app", "seq": i, "session_id": "s-app-0001",
+                          **env(app, node, i, pkt, "s-app-0001")})
+    for i, (name, pkt) in enumerate(node_out, 1):
+        if name.startswith("status") or name == "accepted":
+            pkt = DialoguePacket(f"st-{i:04d}", pkt.dialogue_type, pkt.content, in_reply_to=pkt.in_reply_to)
+        envelopes.append({"name": name, "from": "node", "seq": i, "session_id": "s-node-0001",
+                          **env(node, app, i, pkt, "s-node-0001")})
+
+    # -- direct/v1 frames (one per data-channel message)
+    message = mux.encode(CHANNEL, fragments(9, b'{"x":1}', reliable=True)[0])
+    frames = []
+    for name, sender, recipient in (("app_to_node", app, node), ("node_to_app", node, app)):
+        raw = encode_frame(sender, recipient.did, message, _FRAME_CTR)
+        obj = json.loads(raw)
+        frames.append({
+            "name": name, "ctr": str(_FRAME_CTR), "message_hex": message.hex(),
+            "signed_body": _text({k: v for k, v in obj.items() if k not in ("signer", "sig")}),
+            "sig": obj["sig"], "wire": raw.decode("ascii"),
+        })
+        assert decode_frame(raw, _trust(sender), recipient.did) is not None
+    window = ReplayWindow(8)
+    steps = [{"ctr": c, "accept": window.accept(c)} for c in (100, 100, 99, 105, 98, 97, 92, 104, 113, 105, 106)]
+
+    # -- W1 and pairing, for each SDP shape a browser and aiortc produce
+    browser_fps = [_fp("sha-256", "browser")]
+    node_fps = [_fp("sha-256", "node"), _fp("sha-384", "node"), _fp("sha-512", "node")]
+    dc = "m=application 9 UDP/DTLS/SCTP webrtc-datachannel"
+    sdp = {
+        "browser_local": _sdp("browser", browser_fps, media=dc),
+        "aiortc_local": _sdp("aiortc", node_fps, media="m=application 9 DTLS/SCTP 5000"),
+        "aiortc_as_browser_keeps_sha256": _sdp("browser", node_fps[:1], media=dc),
+        "aiortc_as_browser_keeps_sha512": _sdp("browser", node_fps[2:], media=dc),
+        "with_video": _sdp("browser", browser_fps, media=dc) + "m=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+    }
+    parsed = {k: list(la.fingerprints_from_sdp(v)) for k, v in sdp.items()}
+    room = la.derive_room(node)
+    shapes = []
+    for shape in ("aiortc_as_browser_keeps_sha256", "aiortc_as_browser_keeps_sha512"):
+        page_remote = parsed[shape]
+        node_b = la.create_link_binding(node, room=room, local=node_fps, remote=browser_fps, issued_at=at)
+        page_b = la.create_link_binding(app, room=room, local=browser_fps, remote=page_remote, issued_at=at)
+        assert la.verify_link_binding(node_b, trust=_trust(node), room=room, observed_local=browser_fps,
+                                      observed_remote=page_remote, now=at).ok
+        assert la.verify_link_binding(page_b, trust=_trust(app), room=room, observed_local=node_fps,
+                                      observed_remote=browser_fps, now=at).ok
+        shapes.append({"name": shape, "page_local": browser_fps, "page_remote": page_remote,
+                       "node_local": node_fps, "node_remote": browser_fps,
+                       "node_binding": _text(node_b), "page_binding": _text(page_b)})
+    mitm = [_fp("sha-256", "mitm")]
+    w1_rejects = [
+        {"name": "relay certificate", "page_local": browser_fps, "page_remote": mitm,
+         "reason": "the peer's certificate is not the one it signed for"},
+        {"name": "injected beside the real one", "page_local": browser_fps, "page_remote": node_fps[:1] + mitm,
+         "reason": "the peer's certificate is not the one it signed for"},
+        {"name": "the node saw someone else", "page_local": mitm, "page_remote": node_fps[:1],
+         "reason": "the peer saw a certificate that is not ours"},
+    ]
+
+    secret = _seed("pairing-secret")
+    pid = la.pairing_id(secret)
+    page_remote = parsed["aiortc_as_browser_keeps_sha512"]
+    hello = la.create_pair_hello(app, secret=secret, node_did=node.did, local=browser_fps, remote=page_remote,
+                                 operator_did=operator.did, issued_at=at)
+    proof = la.create_operator_proof(operator, app_did=app.did, node_did=node.did, pairing=pid, issued_at=at + 5)
+    confirm = la.create_pair_confirm(app, secret=secret, node_did=node.did, hello=hello, operator_proof=proof,
+                                     issued_at=at + 5)
+    paired = la.create_paired(node, app_did=app.did, operator_did=operator.did, room=room, pairing=pid,
+                              local=node_fps, remote=browser_fps, issued_at=at + 6)
+    refusals = {r: _text(la.create_refusal(node, reason=r, local=node_fps, remote=browser_fps, pairing=pid,
+                                           issued_at=at + 6))
+                for r in sorted(la.REFUSAL_REASONS)}
+    pairing = {
+        "secret_b64url": la.b64url(secret),
+        "pairing_id": pid,
+        "pairing_room": la.pairing_room(secret),
+        "expires_at": _PAIR_EXPIRES,
+        "fragment": la.pairing_fragment(node_did=node.did, secret=secret, expires_at=_PAIR_EXPIRES),
+        "page_local": browser_fps, "page_remote": page_remote, "node_local": node_fps, "node_remote": browser_fps,
+        "hello_core_mac_input": _text({k: v for k, v in hello.items() if k not in ("mac", "signer", "sig")}),
+        "hello": _text(hello),
+        "check_code": la.check_code(hello),
+        "hello_hash": la.hello_hash(hello),
+        "operator_proof": _text(proof),
+        "confirm": _text(confirm),
+        "paired": _text(paired),
+        "refused": refusals,
+    }
+
+    from secdogie_citadel.action_gate import FINDING_KINDS
+
+    return {
+        "finding_kinds": list(FINDING_KINDS),
+        "app": {"seed_hex": app_seed, "did": app.did},
+        "operator": {"seed_hex": operator_seed, "did": operator.did},
+        "node": {"seed_hex": node_seed, "did": node.did},
+        "issued_at": _LINK_AT,
+        "room": {"epoch": 0, "room": room, "epoch1": la.derive_room(node, 1)},
+        "mux": {"cases": mux_cases, "reject_hex": ["", "05616263", "0261e9", "0120"]},
+        "session": session,
+        "envelopes": envelopes,
+        "frames": frames,
+        "replay_window": {"size": 8, "steps": steps},
+        "sdp": {"texts": sdp, "fingerprints": {k: v for k, v in parsed.items()}},
+        "w1": {"room": room, "shapes": shapes, "rejects": w1_rejects},
+        "pairing": pairing,
+    }
+
+
+def _trust(*ids):
+    from secdogie_identity import Allowlist
+
+    return Allowlist({i.did for i in ids})
+
+
 def build_all() -> dict[str, str]:
     files = {
         "canonical.json": canonical_vectors(),
         "gate2.json": gate2_vectors(),
         "graph_delta.json": graph_delta_vectors(),
+        "link.json": link_vectors(),
         "socratic.json": socratic_vectors(),
     }
     return {name: json.dumps(obj, indent=2, ensure_ascii=False) + "\n" for name, obj in files.items()}

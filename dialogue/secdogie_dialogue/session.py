@@ -105,6 +105,14 @@ class _Reassembly:
     size: int = 0
 
 
+def encode_envelope(env: dict) -> bytes:
+    """A sealed envelope's bytes inside the session's D fragments: compact JSON,
+    insertion order, ASCII-escaped (``json.dumps`` defaults otherwise). The
+    signature covers the canonical form, so a receiver re-encodes; these are
+    only the bytes on the wire."""
+    return json.dumps(env, separators=(",", ":")).encode("utf-8")
+
+
 class DialogueSession:
     """One side of one App <-> node session. ``identity`` signs our envelopes;
     ``peer_did`` is the only sender we deliver from; ``trust`` (allowlist /
@@ -154,7 +162,7 @@ class DialogueSession:
         """Seal ``packet`` for the peer and send it; returns its message id.
         Reliable packets are retransmitted until acknowledged or given up on."""
         reliable = default_reliable(packet) if reliable is None else bool(reliable)
-        data = json.dumps(self._sender.seal(packet), separators=(",", ":")).encode("utf-8")
+        data = encode_envelope(self._sender.seal(packet))
         if len(data) > self._max_message:
             raise ValueError("packet exceeds the session's message size limit")
         with self._lock:
@@ -370,6 +378,7 @@ class SessionRouter:
 
 __all__ = [
     "CHANNEL",
+    "encode_envelope",
     "DialogueSession",
     "SessionRouter",
     "fragments",

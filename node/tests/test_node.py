@@ -1,7 +1,11 @@
 """The node's own logic, without a full run: zero-trust construction, control
-requests, one App at a time, operator hooks that follow the App's liveness,
-and memory offers."""
+requests, one App at a time, operator hooks that outlive the App (a step waits
+for it until its expiry), the status an App gets on HELLO, and memory offers."""
 from __future__ import annotations
+
+import threading
+import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -9,7 +13,14 @@ pytest.importorskip("nacl")
 
 from secdogie_citadel.consolidate import create_confirmation  # noqa: E402
 from secdogie_citadel.lessons import MemoryClass  # noqa: E402
-from secdogie_dialogue.protocol import ControlOp, ControlPacket, MemoryCandidatePacket  # noqa: E402
+from secdogie_dialogue.protocol import (  # noqa: E402
+    ControlOp,
+    ControlPacket,
+    MemoryCandidatePacket,
+    PacketKind,
+    SessionEvent,
+    SessionPacket,
+)
 from secdogie_identity import Allowlist, Identity  # noqa: E402
 from secdogie_node import Node, NodeConfig  # noqa: E402
 
@@ -93,19 +104,49 @@ def test_one_app_at_a_time_and_only_apps_on_the_list(node):
     assert second is not None and node._link.session is second
 
 
-def test_operator_hooks_follow_the_apps_liveness(node):
-    session = node._accept(APP.did)
-    assert node.supervisor._hooks.ask is not None and node.supervisor._hooks.authorize is not None
-    session.on_peer_down()
-    assert node.supervisor._hooks.ask is None and node.supervisor._hooks.authorize is None
-    assert node.supervisor._confirm("g", "delete?", True) is False  # no App: a no, at once
-    session.on_peer_up()
-    assert node.supervisor._hooks.ask is not None
+def test_operator_hooks_outlive_the_app():
+    n = make(challenge_ttl=0.3, probe_ttl=0.3)
+    try:
+        session = n._accept(APP.did)
+        assert n.supervisor._hooks.ask is not None and n.supervisor._hooks.authorize is not None
+        session.on_peer_down()  # a closed tab: the hooks stay; a step waits for the App until it expires
+        assert n.supervisor._hooks.ask is not None
+        assert n.supervisor._confirm("g", "delete?", True) is False  # nobody answered in time: a no
+    finally:
+        n.stop()
 
 
-def test_no_app_means_no_operator(node):
-    assert node.supervisor._hooks.ask is None
-    assert node.supervisor._confirm("g", "delete?", True) is False
+def test_no_app_yet_means_steps_wait_then_fail_closed():
+    n = make(probe_ttl=0.3)
+    try:
+        assert n.supervisor._hooks.ask is not None
+        assert n.supervisor._confirm("g", "delete?", True) is False
+    finally:
+        n.stop()
+
+
+def test_hello_gets_the_current_status_and_whatever_is_still_open():
+    n = make(probe_ttl=5.0)
+    try:
+        session = n._accept(APP.did)
+        sent = []
+        session.send = lambda pkt, **kw: sent.append(pkt)
+        assert n.current_status().content == "status: idle"
+        n._running = "g7"
+        assert (n.current_status().content, n.current_status().in_reply_to) == ("status: running", "g7")
+        threading.Thread(target=lambda: n.bridge.ask("which folder?"), daemon=True).start()
+        deadline = time.monotonic() + 2
+        while not n.bridge.waiting():
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        sent.clear()
+        n.bridge.on_envelope(SimpleNamespace(kind=PacketKind.SESSION, packet=SessionPacket(SessionEvent.HELLO),
+                                             signer=APP.did))
+        assert sent[0].content == "status: waiting for operator" and sent[0].in_reply_to == "g7"
+        assert any(getattr(p, "content", "") == "which folder?" for p in sent[1:])
+    finally:
+        n._running = None
+        n.stop()
 
 
 def test_facts_and_preferences_are_offered_once_cautions_never(node):
