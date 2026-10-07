@@ -9,6 +9,7 @@ the same interface over relays that any allowlisted node can host (RelayService)
 """
 from __future__ import annotations
 
+from .composite import WEBRTC_HOST, CompositeChannel, LinkChannel, is_link_host
 from .dht import RoutingTable, find_node, find_peer, node_id, xor_distance
 from .endpoint import Endpoint, EndpointSet
 from .failover import FailoverTransport
@@ -36,6 +37,10 @@ __all__ = [
     "DirectUDPTransport",
     "ChannelMux",
     "UDPChannel",
+    "CompositeChannel",
+    "LinkChannel",
+    "WEBRTC_HOST",
+    "is_link_host",
     "ReplayWindow",
     "load_transport_key",
     "RendezvousServer",

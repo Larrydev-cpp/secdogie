@@ -71,6 +71,9 @@ def _encode_frame(identity: Identity, to_did: str, message: bytes, ctr: int) -> 
     return json.dumps(sign_payload(identity, payload)).encode("utf-8")
 
 
+encode_frame = _encode_frame  # public names for the cross-language vectors
+
+
 def _parse(raw: bytes) -> dict | None:
     try:
         obj = json.loads(raw)
@@ -93,6 +96,9 @@ def _decode_frame(raw: bytes, allowlist, self_did: str) -> tuple[str, int, bytes
         return signer, ctr, base64.b64decode(obj["data"], validate=True)
     except (KeyError, ValueError, TypeError):
         return None
+
+
+decode_frame = _decode_frame
 
 
 class UDPChannel:
@@ -144,8 +150,14 @@ class DirectUDPTransport(Transport):
     `migrate`, or -- the roaming path -- an inbound datagram's source address."""
 
     def __init__(self, identity: Identity, channel: UDPChannel, *, allowlist=None,
-                 transport_key=None):
+                 transport_key=None, bound_link_hosts: frozenset[str] = frozenset()):
         self.identity = identity
+        # Pseudo-address links (composite.py) whose peer is already bound to its
+        # DID over an encrypted link (a WebRTC data channel: DTLS + the W1
+        # statement). With a transport key, frames on these -- and only these --
+        # are v1: signed and replay-checked, carried inside the link's own
+        # encryption. Everywhere else an encrypting node stays sealed-only.
+        self._bound_link_hosts = frozenset(bound_link_hosts)
         self.channel = channel
         self._allowlist = require_trust(allowlist, "DirectUDPTransport")
         self._inbound: DeliverFn | None = None
@@ -199,6 +211,11 @@ class DirectUDPTransport(Transport):
     def set_peer_endpoint(self, did: str, host: str, port: int) -> None:
         self._endpoints[did] = (host, port)
 
+    def endpoint_host(self, did: str) -> str | None:
+        """The host ``did`` was last reached at (an ``@`` name for a link), or None."""
+        ep = self._endpoints.get(did)
+        return None if ep is None else ep[0]
+
     def on_frame(self, frame_type: str, handler: FrameHandler | None) -> None:
         """Hand inbound envelopes whose `t` is `frame_type` to `handler(obj,
         addr)` instead of the direct-message path; `None` removes the handler.
@@ -211,13 +228,14 @@ class DirectUDPTransport(Transport):
         else:
             self._handlers[frame_type] = handler
 
-    def build_frame(self, to_did: str, message: bytes) -> bytes | None:
+    def build_frame(self, to_did: str, message: bytes, *, link: bool = False) -> bytes | None:
         """The end-to-end frame `route` sends to `to_did`: DID-signed and carrying
         the next counter, and sealed to the peer's bound key when encryption is
         on. None when encryption is on and the peer has no verified key -- never
-        a plaintext fallback."""
+        a plaintext fallback. ``link`` (route's own use) builds a v1 frame for a
+        bound link, whose encryption is the link's."""
         box = None
-        if self.encrypted:
+        if self.encrypted and not link:
             box = self._boxes.get(to_did)
             if box is None:
                 return None
@@ -232,7 +250,7 @@ class DirectUDPTransport(Transport):
         ep = self._endpoints.get(to_did)
         if ep is None:
             return False  # nowhere to send yet (need an endpoint or an inbound packet first)
-        frame = self.build_frame(to_did, message)
+        frame = self.build_frame(to_did, message, link=ep[0] in self._bound_link_hosts)
         if frame is None:
             return False  # no verified key for this peer: never fall back to plaintext
         self.channel.send(ep[0], ep[1], frame)
@@ -258,12 +276,12 @@ class DirectUDPTransport(Transport):
         opened = self._open(frame, expect=sender)
         return None if opened is None else (opened[0], opened[1])
 
-    def _open(self, raw: bytes, *, expect: str | None = None) -> tuple[str, bytes, bool] | None:
+    def _open(self, raw: bytes, *, expect: str | None = None, link: bool = False) -> tuple[str, bytes, bool] | None:
         """(signer, message, newest) for an authentic, fresh frame (signed by
         `expect`, when given), else None. `newest` is whether the frame raised
         the sender's highest counter -- the only kind of frame allowed to move
-        the sender's endpoint."""
-        if not self.encrypted:
+        the sender's endpoint. ``link``: it came over a bound link (v1 there)."""
+        if not self.encrypted or link:
             # spoofed / unsigned / unauthorized / not for us / no counter -> None
             opened = _decode_frame(raw, self._allowlist, self.identity.did)
         else:
@@ -289,7 +307,7 @@ class DirectUDPTransport(Transport):
             if handler is not None:
                 handler(obj, addr)
                 return
-        opened = self._open(raw)
+        opened = self._open(raw, link=bool(addr) and addr[0] in self._bound_link_hosts)
         if opened is None:
             return
         signer, data, newest = opened

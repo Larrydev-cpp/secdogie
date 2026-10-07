@@ -25,6 +25,7 @@ import threading
 import time
 from collections.abc import Iterable
 
+from .composite import is_link_host
 from .membership import ROLE_RELAY, MembershipView, verify_record
 from .relay import RelayClient
 from .session import Session
@@ -86,7 +87,9 @@ class FailoverTransport(Transport):
 
     def route(self, from_did: str, to_did: str, message: bytes) -> bool:
         sent = self.direct.route(from_did, to_did, message)
-        if self.direct_is_fresh(to_did):
+        if self.direct_is_fresh(to_did) or is_link_host(self.direct.endpoint_host(to_did)):
+            # A peer on a link (a browser over WebRTC) is never also sent through
+            # a relay: the relay path would carry it outside the link's encryption.
             return sent
         return self._via_relay(to_did, message) or sent
 
