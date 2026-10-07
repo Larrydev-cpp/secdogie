@@ -12,6 +12,11 @@ license = { text = "MIT" }
 # Peer identity comes from a verified DID<->transport binding.
 dependencies = ["secdogie-identity"]
 
+[project.optional-dependencies]
+# The WebRTC data-channel link (webrtc.py): the node's end of the browser link.
+# Data only -- the link refuses any SDP with audio or video and adds no track.
+webrtc = ["aiortc>=1.10,<2", "websockets>=14,<18"]
+
 [project.scripts]
 secdogie-relay = "secdogie_transport.relay_node:main"
 

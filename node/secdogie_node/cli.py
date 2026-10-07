@@ -5,13 +5,27 @@
         [--candidates memory.db] [--listen 0.0.0.0:7950] \\
         [--masters masters.conf [--revocations revocations.jsonl]] \\
         [--transport-key node.tkey --app-binding app.binding.json ...] \\
-        [--relay-record relay.json ...] [--rendezvous-record rendezvous.json ...]
+        [--relay-record relay.json ...] [--rendezvous-record rendezvous.json ...] \\
+        [--webrtc-signal wss://<gateway>/ws [--webrtc-origin https://<ui>] [--webrtc-ice stun:... ...]]
+
+    secdogie-node pair --identity node.key --apps apps.allow --operators operators.allow \\
+        --webrtc-signal wss://<gateway>/ws --ui https://<ui>/ [--ttl 600]
 
     secdogie-node status --journal node.db --authorized nodes.allow
 
-``run`` is a foreground process the owner starts and stops: it prints one JSON
-line when it is ready (its DID and address), logs to stderr, and exits 0 on
-SIGTERM / SIGINT. Nothing installs itself or keeps running in the background.
+``run`` is a foreground process the owner starts and stops (or runs from a
+service unit the owner writes -- see the README): it prints one JSON line when
+it is ready (its DID and address), logs to stderr, and exits 0 on SIGTERM /
+SIGINT. Nothing installs itself or keeps running in the background. With
+``--webrtc-signal`` it also keeps a room on the signaling gateway, so the
+operator page reaches it over a WebRTC data channel; it re-reads ``--apps`` and
+``--operators`` when they change, so a browser that ``pair`` just enrolled is
+heard without a restart.
+
+``pair`` lets one browser in: it writes a one-time link to this terminal (never
+to stdout or a log), shows a check code, and enrolls the browser only when you
+answer "y" here *and* the page is tapped. It needs a terminal and exits when
+the pairing is done, refused or expired.
 
 Zero trust: ``--apps`` (the operator Apps' session keys), ``--operators``
 (the keys whose Gate 2 signatures authorize destructive steps) and
@@ -25,9 +39,11 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import signal
 import sys
 import threading
+import time
 from pathlib import Path
 
 from secdogie_identity import (
@@ -77,13 +93,46 @@ def build_parser() -> argparse.ArgumentParser:
                         "(repeatable): this node registers there, so an App can find it by DID")
     r.add_argument("--insecure-dev", action="store_true",
                    help="INSECURE, throwaway local tests only: without --issuers, turn the capability check off")
+    _webrtc_flags(r, required=False)
     r.set_defaults(fn=_run)
+
+    pr = sub.add_parser("pair", help="let one browser in, confirmed on this terminal (needs a terminal)")
+    pr.add_argument("--identity", required=True, metavar="KEYFILE", help="this node's DID signing key")
+    pr.add_argument("--apps", required=True, metavar="ALLOWLIST", help="where the browser's App key is added")
+    pr.add_argument("--operators", required=True, metavar="ALLOWLIST",
+                    help="where its operator key is added, if you allow it")
+    _webrtc_flags(pr, required=True)
+    pr.add_argument("--ui", required=True, metavar="URL", help="where the operator page is served")
+    pr.add_argument("--ttl", type=int, default=600, metavar="SECONDS", help="how long the link works (max 3600)")
+    pr.set_defaults(fn=_pair)
 
     s = sub.add_parser("status", help="print the goals and memory recorded in a node's journal")
     s.add_argument("--journal", required=True, metavar="FILE")
     s.add_argument("--authorized", required=True, metavar="ALLOWLIST")
     s.set_defaults(fn=_status)
     return p
+
+
+def _webrtc_flags(p, *, required: bool) -> None:
+    p.add_argument("--webrtc-signal", required=required, metavar="URL",
+                   help="the signaling gateway (wss://.../ws; ws:// only to localhost): the browser link")
+    p.add_argument("--webrtc-origin", metavar="ORIGIN",
+                   help="the Origin to present to the gateway (its ALLOWED_ORIGINS), e.g. the page's origin")
+    p.add_argument("--webrtc-ice", action="append", default=[], metavar="URL",
+                   help="an ICE server for this node's side (repeatable; default: Cloudflare's STUN)")
+    p.add_argument("--webrtc-room-epoch", type=int, default=0, metavar="N",
+                   help="bump to move to a new room (every paired browser then pairs again)")
+
+
+def _webrtc_config(args, identity, room: str | None = None, **kw):
+    try:
+        from secdogie_transport.webrtc import DEFAULT_ICE_SERVERS, WebRTCConfig
+    except ImportError as e:
+        raise ValueError("the browser link needs the [webrtc] extra: pip install 'secdogie-node[webrtc]'") from e
+    from secdogie_identity.linkauth import derive_room
+
+    return WebRTCConfig(args.webrtc_signal, room or derive_room(identity, args.webrtc_room_epoch),
+                        origin=args.webrtc_origin, ice_servers=tuple(args.webrtc_ice) or DEFAULT_ICE_SERVERS, **kw)
 
 
 def _trust(args, path):
@@ -108,8 +157,11 @@ def _run(args, parser) -> int:
         bindings = [json.loads(Path(b).read_text(encoding="utf-8")) for b in args.app_binding]
         relays = [json.loads(Path(r).read_text(encoding="utf-8")) for r in args.relay_record]
         rendezvous = [json.loads(Path(r).read_text(encoding="utf-8")) for r in args.rendezvous_record]
+        webrtc = _webrtc_config(args, identity) if args.webrtc_signal else None
     except (OSError, ValueError) as e:
         parser.error(str(e))
+    if not args.webrtc_signal and (args.webrtc_origin or args.webrtc_ice or args.webrtc_room_epoch):
+        parser.error("--webrtc-origin / --webrtc-ice / --webrtc-room-epoch need --webrtc-signal")
 
     self_policy = None
     if args.masters:
@@ -137,9 +189,10 @@ def _run(args, parser) -> int:
                                issuers=issuers, unrestricted=unrestricted, journal_path=args.journal,
                                candidates_path=candidates, listen=args.listen, transport_key=tkey,
                                app_bindings=bindings, relay_records=relays,
-                               rendezvous_records=rendezvous))
+                               rendezvous_records=rendezvous, webrtc=webrtc))
     except (OSError, ValueError) as e:
         parser.error(str(e))
+    _watch_allowlists(node, {"apps": (args.apps, apps), "operators": (args.operators, operators)})
     if self_policy is not None:
         self_policy.on_change(lambda newly: halt_on_self_revocation(newly, identity.did, [stop.set]))
         if args.revocations:
@@ -149,7 +202,10 @@ def _run(args, parser) -> int:
             start_refresher(policy)
     node.start()
     host, port = node.address
-    sys.stdout.write(json.dumps({"event": "ready", "did": identity.did, "listen": f"{host}:{port}"}) + "\n")
+    ready = {"event": "ready", "did": identity.did, "listen": f"{host}:{port}"}
+    if webrtc is not None:
+        ready["webrtc"] = True  # the room itself is never printed: it is how the page finds this node
+    sys.stdout.write(json.dumps(ready) + "\n")
     sys.stdout.flush()
     try:
         while not stop.wait(0.5):
@@ -157,6 +213,80 @@ def _run(args, parser) -> int:
     finally:
         node.stop()
     log.info("stopped")
+    return 0
+
+
+def _watch_allowlists(node, lists) -> None:
+    """Follow --apps / --operators on disk: an App that ``pair`` (another
+    process) enrolled is heard without a restart, and every change is recorded
+    in the node's journal."""
+    from secdogie_identity import AllowlistWatcher
+
+    for name, (path, target) in lists.items():
+        def changed(added, removed, _name=name):
+            log.warning("%s changed on disk: added %s, removed %s", _name, sorted(added) or "none",
+                        sorted(removed) or "none")
+            try:
+                node.journal.append("enrollment", {"op": "allowlist-reload", "list": _name,
+                                                   "added": sorted(added), "removed": sorted(removed)})
+            except Exception:  # noqa: BLE001 - the change already applied; a journal hiccup must not undo it
+                log.exception("could not journal the %s change", _name)
+
+        AllowlistWatcher(path, target, on_change=changed).start()
+
+
+def _pair(args, parser) -> int:
+    logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stderr)
+    from secdogie_identity.linkauth import derive_room
+
+    from .pairing import MAX_TTL, PairingOffer, PairingPolicy, Terminal, file_enroller
+
+    if not 0 < args.ttl <= MAX_TTL:
+        parser.error(f"--ttl must be between 1 and {MAX_TTL} seconds")
+    for path in (args.apps, args.operators):
+        target = path if os.path.exists(path) else (os.path.dirname(os.path.abspath(path)) or ".")
+        if not os.access(target, os.W_OK):
+            parser.error(f"{path} is not writable: pairing appends the browser's keys to it")
+    try:
+        tty = Terminal()
+    except OSError:
+        parser.error("pairing needs a terminal: run `secdogie-node pair` in a terminal on the node's machine "
+                     "(the link is a key, so it is never written to stdout or a log)")
+    try:
+        identity = Identity.load(args.identity)
+        offer = PairingOffer(ttl=float(args.ttl))
+        enroll = file_enroller(args.apps, args.operators, pairing_id=offer.pairing_id)
+        from secdogie_transport.webrtc import WebRTCChannel
+
+        policy = PairingPolicy(identity, offer, standing_room=derive_room(identity, args.webrtc_room_epoch),
+                               ask=tty.ask, enroll=enroll, say=tty.say)
+        channel = WebRTCChannel(_webrtc_config(args, identity, room=offer.room, bind_timeout=float(args.ttl)), policy)
+    except (OSError, ValueError, ImportError) as e:
+        tty.close()
+        parser.error(str(e))
+    channel.start(lambda data, link_id: None)
+    channel.open()
+    minutes = max(1, args.ttl // 60)
+    tty.say(f"在要配对的浏览器里打开这个链接（{minutes} 分钟内有效，只能用一次，别发给别人）：\n"
+            f"Open this link in the browser to pair ({minutes} min, single use, keep it to yourself):\n\n"
+            f"  {offer.link(args.ui, identity.did)}\n")
+    stop = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    signal.signal(signal.SIGINT, lambda *_: stop.set())
+    try:
+        deadline = offer.expires_at
+        while not policy.done.wait(0.5) and not stop.is_set() and time.time() < deadline:
+            pass
+        time.sleep(1.2)  # let the receipt go out before the link closes
+    finally:
+        channel.close()
+    if policy.result is None:
+        tty.say("没有配对。 Not paired." + (f" ({policy.refused})" if policy.refused else " (expired)"))
+        tty.close()
+        return 1
+    tty.close()
+    sys.stdout.write(json.dumps({"event": "paired", "app": policy.result.app_did,
+                                 "operator": policy.result.operator_did}) + "\n")
     return 0
 
 

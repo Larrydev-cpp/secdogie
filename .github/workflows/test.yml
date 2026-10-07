@@ -28,6 +28,7 @@ jobs:
 
   # --- Python components: one job per package, same shape for each ----------
   python-tests:
+    timeout-minutes: 20  # a stuck ICE negotiation must not hold a runner for hours
     strategy:
       fail-fast: false
       matrix:
@@ -40,6 +41,7 @@ jobs:
             needs_agent: true      # so the real-loop M3 wiring tests run (not skip)
           - dir: transport  # P2P-ready peer/session/endpoint model
             needs_identity: true
+            extras: "[webrtc]"     # the browser link (aiortc) runs, not skips
           - dir: fleet      # protocol/coordinator are pure; a node needs the agent it drives
             needs_agent: true
             needs_identity: true   # so the DID-signed secure-transport tests run (not skip)
@@ -61,6 +63,7 @@ jobs:
             needs_transport: true
             needs_agent: true      # the end-to-end test drives the real agent loop
             needs_dialogue: true
+            extras: "[webrtc]"     # pairing and the browser link end to end
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -96,6 +99,10 @@ jobs:
             pip install -e "../dialogue[tui]"
           fi
           pip install -e ".${{ matrix.extras }}" pytest
+
+      - name: Check the browser-link extra is really installed
+        if: matrix.extras == '[webrtc]'
+        run: python -c 'import aiortc, websockets; print("aiortc", aiortc.__version__, "websockets", websockets.__version__)'
 
       - name: Test
         working-directory: ${{ matrix.dir }}

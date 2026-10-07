@@ -52,7 +52,9 @@ from secdogie_dialogue.publisher import SnapshotPublisher
 from secdogie_dialogue.session import DialogueSession, SessionRouter
 from secdogie_identity import require_trust
 from secdogie_transport import (
+    WEBRTC_HOST,
     ChannelMux,
+    CompositeChannel,
     DirectUDPTransport,
     Endpoint,
     FailoverTransport,
@@ -84,6 +86,7 @@ class NodeConfig:
     relay_records: list = field(default_factory=list)  # relays' self-signed records: the fallback path
     rendezvous_records: list = field(default_factory=list)  # where this node registers, so Apps find it by DID
     run_task: Callable = agent_run_task
+    webrtc: object = None  # a secdogie_transport.webrtc.WebRTCConfig: the browser link (needs the [webrtc] extra)
     challenge_ttl: float = 120.0
     probe_ttl: float = 300.0
     idle_poll: float = 1.0
@@ -119,10 +122,19 @@ class Node:
                                      on_control=self.on_control, on_hello=self._report_status,
                                      hold_on_disconnect=True)
         self.supervisor.set_operator_hooks(self.bridge.hooks())
+        self.webrtc = None
         self.channel = UDPChannel(*cfg.listen)
         try:
+            if cfg.webrtc is not None:
+                from secdogie_transport.webrtc import BindingPolicy, WebRTCChannel
+
+                # The browser link: W1 against --apps, a signed refusal for a stranger or while busy.
+                self.webrtc = WebRTCChannel(cfg.webrtc, BindingPolicy(cfg.identity, self.apps, speak_first=True,
+                                                                      admit=self._admit_link))
+                self.channel = CompositeChannel(self.channel, {WEBRTC_HOST: self.webrtc})
             self.transport = DirectUDPTransport(cfg.identity, self.channel, allowlist=self.apps,
-                                                transport_key=cfg.transport_key)
+                                                transport_key=cfg.transport_key,
+                                                bound_link_hosts=frozenset({WEBRTC_HOST}) if self.webrtc else frozenset())
             for binding in cfg.app_bindings:
                 if not self.transport.add_peer_binding(binding):
                     raise ValueError(f"an App binding did not verify: {binding.get('did', '?')}")
@@ -156,6 +168,8 @@ class Node:
             self.link.start()
         if self.rendezvous is not None:
             self.rendezvous.start(self._own_endpoints)
+        if self.webrtc is not None:
+            self.webrtc.open()
 
     def _own_endpoints(self) -> list[Endpoint]:
         # What this node can say about itself; a rendezvous adds the address it
@@ -214,6 +228,15 @@ class Node:
         log.info("operator App connected: %s%s", did, " (over a link)" if on_link else "")
         self._offer_memories()
         return session
+
+    def _admit_link(self, did: str) -> str | None:
+        """W1 passed for ``did`` on the browser link: refuse (signed) while
+        another App is connected."""
+        with self._lock:
+            cur = self._link
+            if cur is not None and cur.session.peer_did != did and cur.session.alive:
+                return "busy"
+        return None
 
     def current_status(self):
         """CURRENT_STATUS: what the node is doing, as a status line naming the

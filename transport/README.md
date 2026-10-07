@@ -120,3 +120,27 @@ ExecStart=/opt/secdogie/bin/secdogie-relay --identity /etc/secdogie/relay.key \
           --public-host relay.example.net
 Restart=on-failure
 ```
+
+## Links: a WebRTC data channel under the same transport
+
+`CompositeChannel` puts the UDP socket and named links under one unchanged
+`DirectUDPTransport`. A link's datagrams arrive from a pseudo address
+`("@webrtc", link_id)`, so every frame still passes the DID signature, the
+allowlist and the replay window, and a peer that reconnects on a new link moves
+there on its newest frame. An `@` host is never sent to over UDP, and
+`FailoverTransport` never also sends a link peer through a relay.
+`bound_link_hosts` lets a node that seals its UDP frames use plain signed (v1)
+frames on a link that is already encrypted (DTLS) and bound to the peer's DID,
+and nowhere else.
+
+`webrtc.py` (the `[webrtc]` extra: aiortc + websockets) is that link: it keeps
+a room on the signaling gateway (`webrtc/signaling/worker.js`), mirrors
+`web_peer.js`'s roles (the second joiner offers; only the offerer re-offers),
+refuses any SDP that is not a data channel only, buffers ICE candidates until
+the remote description is set, and rejoins the gateway forever with jittered
+backoff. Nothing reaches the transport until a `LinkPolicy` binds the link to a
+DID: `BindingPolicy` is W1 (`secdogie_identity.linkauth`) both ways -- the node
+states first and answers a stranger with a signed `not-enrolled` (or `busy`);
+the other side says nothing until the node's statement verifies.
+`webrtc_testing.FakeSignalingServer` is the gateway in-process, with a hook a
+man-in-the-middle test uses (`tests/test_webrtc_link.py`).
