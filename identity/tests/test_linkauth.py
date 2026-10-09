@@ -270,3 +270,68 @@ def test_paired_and_refused_receipts(ids):
                                  observed_remote=NODE_AS_BROWSER_SEES_IT, now=NOW).ok
     with pytest.raises(ValueError):
         la.create_refusal(node, reason="go away", local=NODE, remote=BROWSER)
+
+
+# ---- the v2 handshake ------------------------------------------------------------------------
+
+
+def _w1_pair(ids):
+    node, app, _ = ids
+    nb = la.create_link_binding(node, room="room-1", local=NODE, remote=BROWSER, issued_at=NOW)
+    pb = la.create_link_binding(app, room="room-1", local=BROWSER, remote=NODE_AS_BROWSER_SEES_IT, issued_at=NOW)
+    return nb, pb
+
+
+NOW_MS = int(NOW * 1000)
+CPK, SPK = bytes(range(32)), bytes(range(32, 64))
+
+
+def test_link_digest_is_ordered_and_over_both_statements(ids):
+    nb, pb = _w1_pair(ids)
+    d = la.link_digest(nb, pb)
+    assert len(d) == 64 and d != la.link_digest(pb, nb)
+    other = la.create_link_binding(ids[1], room="room-1", local=BROWSER, remote=NODE, issued_at=NOW + 1)
+    assert la.link_digest(nb, other) != d
+    with pytest.raises(ValueError):
+        la.link_digest(nb, {"type": "something else"})
+
+
+def test_handshake_both_ways(ids):
+    node, app, _ = ids
+    link = la.link_digest(*_w1_pair(ids))
+    init = la.create_handshake_init(app, client_pubkey=CPK, link=link, lang="zh", timestamp_ms=NOW_MS)
+    r = la.verify_handshake_init(init, app_did=app.did, link=link, now_ms=NOW_MS + 5000)
+    assert r.ok and r.pubkey == CPK and r.lang == "zh" and r.did == app.did
+    acc = la.create_handshake_accept(node, server_pubkey=SPK, client_pubkey=CPK, link=link, timestamp_ms=NOW_MS)
+    r = la.verify_handshake_accept(acc, node_did=node.did, client_pubkey=CPK, link=link, now_ms=NOW_MS)
+    assert r.ok and r.pubkey == SPK and r.did == node.did
+
+
+def test_handshake_refusals(ids):
+    node, app, op = ids
+    link = la.link_digest(*_w1_pair(ids))
+    init = la.create_handshake_init(app, client_pubkey=CPK, link=link, lang="en", timestamp_ms=NOW_MS)
+
+    def why(obj, **kw):
+        args = {"app_did": app.did, "link": link, "now_ms": NOW_MS, **kw}
+        return la.verify_handshake_init(obj, **args).reason
+
+    assert why(init, app_did=op.did) == "signer not trusted"             # not the App W1 bound
+    assert why(init, link="0" * 64) == "for another link"
+    assert why(init, now_ms=NOW_MS + 120_001) == "stale or future statement"
+    assert why({**init, "lang": "fr"}) == "invalid or missing signature"  # every field is signed
+    assert why({**init, "extra": 1}) == "unexpected fields"
+    assert why({**init, "type": "HANDSHAKE_ACCEPT"}) == "wrong or missing type"
+    resigned = sign_payload(app, {k: v for k, v in init.items() if k not in ("signer", "sig")} | {"v": "v1"})
+    assert why(resigned) == "unknown version"
+    bad_lang = sign_payload(app, {k: v for k, v in init.items() if k not in ("signer", "sig")} | {"lang": "fr"})
+    assert why(bad_lang) == "malformed statement"
+    acc = la.create_handshake_accept(node, server_pubkey=SPK, client_pubkey=CPK, link=link, timestamp_ms=NOW_MS)
+    r = la.verify_handshake_accept(acc, node_did=node.did, client_pubkey=SPK, link=link, now_ms=NOW_MS)
+    assert r.reason == "answers another handshake"
+    r = la.verify_handshake_accept(acc, node_did=app.did, client_pubkey=CPK, link=link, now_ms=NOW_MS)
+    assert r.reason == "signer not trusted"
+    with pytest.raises(ValueError):
+        la.create_handshake_init(app, client_pubkey=b"short", link=link, lang="zh")
+    with pytest.raises(ValueError):
+        la.create_handshake_init(app, client_pubkey=CPK, link="xyz", lang="zh")

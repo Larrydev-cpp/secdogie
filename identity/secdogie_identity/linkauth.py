@@ -48,6 +48,7 @@ import re
 import time
 from dataclasses import dataclass
 
+from .allowlist import Allowlist
 from .keys import Identity, PublicIdentity
 from .signing import canonical, sign_payload, verify_payload
 
@@ -57,6 +58,15 @@ PAIR_CONFIRM_TYPE = "secdogie/webrtc-pair-confirm/v1"
 PAIR_OPERATOR_TYPE = "secdogie/webrtc-pair-operator/v1"
 PAIRED_TYPE = "secdogie/webrtc-paired/v1"
 REFUSED_TYPE = "secdogie/webrtc-refused/v1"
+
+# The browser link after W1 (secdogie/symbiont-link/v2): a signed crypto_kx
+# handshake. The type names are the operator page's own vocabulary; ``v`` keeps
+# them apart from anything else that is ever signed.
+SYMBIONT_LINK_V2 = "secdogie/symbiont-link/v2"
+HANDSHAKE_INIT_TYPE = "HANDSHAKE_INIT"
+HANDSHAKE_ACCEPT_TYPE = "HANDSHAKE_ACCEPT"
+HANDSHAKE_LANGS = frozenset({"zh", "en"})
+HANDSHAKE_SKEW_MS = 120_000
 
 MAX_SKEW = 120.0  # seconds a statement's issued_at may differ from the verifier's clock
 SECRET_BYTES = 32
@@ -288,6 +298,15 @@ class RefusalResult:
     ok: bool
     reason: str | None = None
     refusal: str | None = None
+
+
+@dataclass(frozen=True)
+class HandshakeResult:
+    ok: bool
+    reason: str | None = None
+    did: str | None = None
+    pubkey: bytes | None = None   # the peer's 32-byte crypto_kx public key
+    lang: str | None = None       # HANDSHAKE_INIT only
 
 
 def _signed(obj, type_, trust) -> tuple[str | None, str | None, str | None]:
@@ -579,7 +598,120 @@ def verify_refusal(obj, *, node_did: str, observed_local, observed_remote, now: 
     return RefusalResult(True, None, refusal=obj["reason"])
 
 
+# ---- the v2 handshake (after W1) ----------------------------------------------------------
+
+_INIT_FIELDS = frozenset({"type", "v", "did", "client_pubkey", "timestamp", "lang", "link", "signer", "sig"})
+_ACCEPT_FIELDS = frozenset({"type", "v", "did", "server_pubkey", "client_pubkey", "timestamp", "link", "signer", "sig"})
+_HEX32 = re.compile(r"^[0-9a-f]{64}$")
+
+
+def link_digest(node_binding: dict, page_binding: dict) -> str:
+    """Pins a handshake to one link: sha256 over both W1 statements, exactly as
+    signed and sent, the node's first. Both ends hold both."""
+    for b in (node_binding, page_binding):
+        if not isinstance(b, dict) or b.get("type") != LINK_BINDING_TYPE:
+            raise ValueError("a link digest is over two W1 statements")
+    return hashlib.sha256(b"secdogie/symbiont-link/v2/link\n" + canonical(node_binding) + b"\n"
+                          + canonical(page_binding)).hexdigest()
+
+
+def _now_ms(now_ms, clock) -> int:
+    return int(now_ms) if now_ms is not None else int(clock() * 1000)
+
+
+def _pubkey_hex(pk) -> str:
+    if not isinstance(pk, (bytes, bytearray)) or len(pk) != 32:
+        raise ValueError("a crypto_kx public key is 32 bytes")
+    return bytes(pk).hex()
+
+
+def _check_hs(obj, fields: frozenset, type_: str, trust_did: str, link: str, now_ms: int):
+    """Shape, signer, version, link and freshness shared by both statements;
+    (signer, None) or (None, reason)."""
+    if not isinstance(obj, dict) or obj.get("type") != type_:
+        return None, "wrong or missing type"
+    if set(obj) != fields:
+        return None, "unexpected fields"
+    signer, why, _ = _signed(obj, type_, Allowlist({trust_did}))
+    if signer is None:
+        return None, why
+    if obj.get("v") != SYMBIONT_LINK_V2:
+        return None, "unknown version"
+    if obj.get("link") != link:
+        return None, "for another link"
+    ts = obj.get("timestamp")
+    if isinstance(ts, bool) or not isinstance(ts, int):
+        return None, "malformed statement"
+    if abs(now_ms - ts) > HANDSHAKE_SKEW_MS:
+        return None, "stale or future statement"
+    return signer, None
+
+
+def create_handshake_init(app: Identity, *, client_pubkey: bytes, link: str, lang: str,
+                          timestamp_ms: int | None = None, clock=time.time) -> dict:
+    """The page's HANDSHAKE_INIT: its fresh crypto_kx public key, for this link."""
+    if lang not in HANDSHAKE_LANGS:
+        raise ValueError("lang is zh or en")
+    if not _HEX32.match(link or ""):
+        raise ValueError("a link digest is 64 lower-case hex")
+    return sign_payload(app, {
+        "type": HANDSHAKE_INIT_TYPE,
+        "v": SYMBIONT_LINK_V2,
+        "did": app.did,
+        "client_pubkey": _pubkey_hex(client_pubkey),
+        "timestamp": _now_ms(timestamp_ms, clock),
+        "lang": lang,
+        "link": link,
+    })
+
+
+def verify_handshake_init(obj, *, app_did: str, link: str, now_ms: int | None = None,
+                          clock=time.time) -> HandshakeResult:
+    """The node's check: signed by the App that W1 bound to this link
+    (``app_did``), for this link, fresh, well-formed."""
+    signer, why = _check_hs(obj, _INIT_FIELDS, HANDSHAKE_INIT_TYPE, app_did, link, _now_ms(now_ms, clock))
+    if signer is None:
+        return HandshakeResult(False, why)
+    if not _HEX32.match(obj.get("client_pubkey") or "") or obj.get("lang") not in HANDSHAKE_LANGS:
+        return HandshakeResult(False, "malformed statement")
+    return HandshakeResult(True, None, did=signer, pubkey=bytes.fromhex(obj["client_pubkey"]), lang=obj["lang"])
+
+
+def create_handshake_accept(node: Identity, *, server_pubkey: bytes, client_pubkey: bytes, link: str,
+                            timestamp_ms: int | None = None, clock=time.time) -> dict:
+    """The node's HANDSHAKE_ACCEPT: its fresh crypto_kx public key, echoing the
+    page's, for this link."""
+    if not _HEX32.match(link or ""):
+        raise ValueError("a link digest is 64 lower-case hex")
+    return sign_payload(node, {
+        "type": HANDSHAKE_ACCEPT_TYPE,
+        "v": SYMBIONT_LINK_V2,
+        "did": node.did,
+        "server_pubkey": _pubkey_hex(server_pubkey),
+        "client_pubkey": _pubkey_hex(client_pubkey),
+        "timestamp": _now_ms(timestamp_ms, clock),
+        "link": link,
+    })
+
+
+def verify_handshake_accept(obj, *, node_did: str, client_pubkey: bytes, link: str, now_ms: int | None = None,
+                            clock=time.time) -> HandshakeResult:
+    """The page's check: signed by the paired node, for this link, answering
+    this very INIT."""
+    signer, why = _check_hs(obj, _ACCEPT_FIELDS, HANDSHAKE_ACCEPT_TYPE, node_did, link, _now_ms(now_ms, clock))
+    if signer is None:
+        return HandshakeResult(False, why)
+    if obj.get("client_pubkey") != _pubkey_hex(client_pubkey):
+        return HandshakeResult(False, "answers another handshake")
+    if not _HEX32.match(obj.get("server_pubkey") or ""):
+        return HandshakeResult(False, "malformed statement")
+    return HandshakeResult(True, None, did=signer, pubkey=bytes.fromhex(obj["server_pubkey"]))
+
+
 __all__ = [
+    "SYMBIONT_LINK_V2", "HANDSHAKE_INIT_TYPE", "HANDSHAKE_ACCEPT_TYPE", "HANDSHAKE_LANGS", "HANDSHAKE_SKEW_MS",
+    "HandshakeResult", "link_digest", "create_handshake_init", "verify_handshake_init",
+    "create_handshake_accept", "verify_handshake_accept",
     "LINK_BINDING_TYPE", "PAIR_HELLO_TYPE", "PAIR_CONFIRM_TYPE", "PAIR_OPERATOR_TYPE", "PAIRED_TYPE",
     "REFUSED_TYPE", "REFUSAL_REASONS", "MAX_SKEW", "SECRET_BYTES", "STRONG_ALGORITHMS", "ROOM_PATTERN",
     "LinkResult", "HelloResult", "ConfirmResult", "PairedResult", "RefusalResult", "PairingInvite",

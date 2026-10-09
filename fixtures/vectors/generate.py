@@ -16,7 +16,8 @@ int/float distinction the cases are about.
 
 The generator imports only identity, citadel, dialogue and the transport's
 pure modules (never ``secdogie_transport.webrtc`` or ``secdogie_node``), so the
-dialogue CI job -- which installs exactly those -- can regenerate everything.
+dialogue CI job -- which installs exactly those, with the transport's
+``[linkcipher]`` extra for AES-GCM -- can regenerate everything.
 
     python fixtures/vectors/generate.py          # rewrite every file
     python fixtures/vectors/generate.py --check  # exit 1 if any file is stale
@@ -337,6 +338,261 @@ def socratic_vectors() -> dict:
     return {"cases": cases}
 
 
+# ---- browser link v2: crypto_kx, records, handshake, packets -------------------------
+
+_V2_AT_MS = 1759740000250  # the handshake's timestamp
+
+
+def _blake2b_cases() -> list[dict]:
+    lengths = [0, 1, 63, 64, 95, 96, 97, 127, 128, 129, 255, 256, 257]
+    out = []
+    for n in lengths:
+        data = (hashlib.sha512(f"secdogie/vectors/blake2b/{n}".encode()).digest() * 5)[:n]
+        out.append({"input_hex": data.hex(), "digest_hex": hashlib.blake2b(data, digest_size=64).hexdigest()})
+    for i in range(3):  # the crypto_kx shape: q || client_pk || server_pk
+        data = (hashlib.sha512(f"secdogie/vectors/blake2b/kx/{i}".encode()).digest() * 2)[:96]
+        out.append({"input_hex": data.hex(), "digest_hex": hashlib.blake2b(data, digest_size=64).hexdigest()})
+    return out
+
+
+def symbiont_link_vectors() -> dict:
+    import nacl.bindings as nb
+    from secdogie_dialogue import symbiont_packets as sp
+    from secdogie_identity import linkauth as la
+    from secdogie_transport.linkcipher import MAX_PLAINTEXT, MAX_RECORD, KxKeypair, RecordCipher, SessionKeys
+
+    app, app_seed = _identity("app")
+    node, node_seed = _identity("node")
+    other, _ = _identity("operator")
+    at = float(_LINK_AT)
+
+    # -- crypto_kx from fixed seeds (public test keys)
+    cpk, csk = nb.crypto_kx_seed_keypair(_seed("kx/client"))
+    spk, ssk = nb.crypto_kx_seed_keypair(_seed("kx/server"))
+    crx, ctx = nb.crypto_kx_client_session_keys(cpk, csk, spk)
+    kx = {"client_secret_hex": csk.hex(), "client_public_hex": cpk.hex(), "server_secret_hex": ssk.hex(),
+          "server_public_hex": spk.hex(), "client_rx_hex": crx.hex(), "client_tx_hex": ctx.hex(),
+          # peer keys libsodium refuses: the shared secret would be all zero
+          "refused_peer_public_hex": ["00" * 32, "01" + "00" * 31]}
+
+    # -- the handshake, after W1 on a browser <-> aiortc link
+    browser_fps = [_fp("sha-256", "browser")]
+    node_fps = [_fp("sha-256", "node"), _fp("sha-384", "node"), _fp("sha-512", "node")]
+    room = "vectors-room-1"
+    node_binding = la.create_link_binding(node, room=room, local=node_fps, remote=browser_fps, issued_at=at)
+    page_binding = la.create_link_binding(app, room=room, local=browser_fps, remote=node_fps[:1], issued_at=at)
+    link = la.link_digest(node_binding, page_binding)
+    init = la.create_handshake_init(app, client_pubkey=cpk, link=link, lang="zh", timestamp_ms=_V2_AT_MS)
+    accept = la.create_handshake_accept(node, server_pubkey=spk, client_pubkey=cpk, link=link,
+                                        timestamp_ms=_V2_AT_MS)
+
+    def resign(who, obj, **changes):
+        body = {k: v for k, v in obj.items() if k not in ("signer", "sig")}
+        return sign_payload(who, {**body, **changes})
+
+    init_rejects = [
+        ("signed by another key", resign(other, init, did=other.did)),
+        ("another link", resign(app, init, link="0" * 64)),
+        ("stale", resign(app, init, timestamp=_V2_AT_MS - 120_001)),
+        ("future", resign(app, init, timestamp=_V2_AT_MS + 120_001)),
+        ("a changed field", {**init, "lang": "en"}),
+        ("an extra field", {**init, "extra": 1}),
+        ("another version", resign(app, init, v="secdogie/symbiont-link/v1")),
+        ("an unknown language", resign(app, init, lang="fr")),
+        ("an upper-case key", resign(app, init, client_pubkey=cpk.hex().upper())),
+        ("a float timestamp", resign(app, init, timestamp=float(_V2_AT_MS))),
+        ("an accept", accept),
+    ]
+    accept_rejects = [
+        ("signed by the app", resign(app, accept, did=app.did)),
+        ("answers another init", resign(node, accept, client_pubkey=spk.hex())),
+        ("another link", resign(node, accept, link="f" * 64)),
+        ("stale", resign(node, accept, timestamp=_V2_AT_MS + 120_001)),
+        ("a missing field", {k: v for k, v in accept.items() if k != "server_pubkey"}),
+    ]
+
+    def reason_init(obj):
+        return la.verify_handshake_init(obj, app_did=app.did, link=link, now_ms=_V2_AT_MS).reason
+
+    def reason_accept(obj):
+        return la.verify_handshake_accept(obj, node_did=node.did, client_pubkey=cpk, link=link,
+                                          now_ms=_V2_AT_MS).reason
+
+    assert la.verify_handshake_init(init, app_did=app.did, link=link, now_ms=_V2_AT_MS).ok
+    assert la.verify_handshake_accept(accept, node_did=node.did, client_pubkey=cpk, link=link,
+                                      now_ms=_V2_AT_MS).ok
+    handshake = {
+        "node": {"did": node.did, "seed_hex": node_seed}, "app": {"did": app.did, "seed_hex": app_seed},
+        "node_binding": _text(node_binding), "page_binding": _text(page_binding), "link": link,
+        "now_ms": _V2_AT_MS, "init": _text(init), "accept": _text(accept),
+        "init_rejects": [{"name": n, "text": _text(o), "reason": reason_init(o)} for n, o in init_rejects],
+        "accept_rejects": [{"name": n, "text": _text(o), "reason": reason_accept(o)} for n, o in accept_rejects],
+    }
+    assert all(r["reason"] for r in handshake["init_rejects"] + handshake["accept_rejects"])
+
+    # -- records under those keys, on that link
+    def ciphers():
+        page = RecordCipher(SessionKeys.derive("client", KxKeypair.from_secret(csk), spk), link=link)
+        nodec = RecordCipher(SessionKeys.derive("server", KxKeypair.from_secret(ssk), cpk), link=link)
+        return page, nodec
+
+    page_c, node_c = ciphers()
+    to_node = [b"", "把旧账号注销掉".encode(), b"x" * 1000]
+    to_page = [b"{}", bytes(range(256))]
+    page_records = [page_c.seal(m) for m in to_node]
+    node_records = [node_c.seal(m) for m in to_page]
+    big = page_c.seal(b"y" * MAX_PLAINTEXT)
+    assert len(big) == MAX_RECORD
+    r0 = page_records[0]
+    rejects = [
+        ("a replay", [page_records[0], page_records[0]]),
+        ("a gap", [page_records[1]]),
+        ("a flipped tag bit", [r0[:-1] + bytes([r0[-1] ^ 1])]),
+        ("a flipped header bit", [r0[:8] + bytes([r0[8] ^ 1]) + r0[9:]]),
+        ("not a record", [b"T" + r0[1:]]),
+        ("too short", [r0[:24]]),
+        ("a record from the other direction", [node_records[0]]),
+    ]
+    for name, seq in rejects:
+        _, rx = ciphers()
+        for i, rec in enumerate(seq):
+            try:
+                rx.open(rec)
+            except Exception:
+                assert i == len(seq) - 1, name
+                break
+        else:
+            raise AssertionError(f"record reject case accepted: {name}")
+    records = {
+        "max_plaintext": MAX_PLAINTEXT, "max_record": MAX_RECORD,
+        "page_to_node": [{"plaintext_hex": m.hex(), "record_hex": r.hex()} for m, r in zip(to_node, page_records, strict=True)],
+        "node_to_page": [{"plaintext_hex": m.hex(), "record_hex": r.hex()} for m, r in zip(to_page, node_records, strict=True)],
+        "largest": {"seq": len(to_node), "record_sha256": _sha(big)},
+        "rejects": [{"name": n, "records_hex": [r.hex() for r in seq]} for n, seq in rejects],
+    }
+
+    # -- packets
+    token = create_authorization(_identity("operator")[0], TargetAction("key", text="delete", high_risk=True),
+                                 node.did, valid_from=at, expires_at=at + 120)
+    action = {"kind": "key", "target_id": "", "target_role": "", "target_name": "", "text": "delete",
+              "high_risk": True}
+    good = [
+        ("add goal", {"type": "ADD_GOAL", "goal_id": "g-0123456789ab", "intent": "把旧账号注销掉 — close it ✅"}),
+        ("add goal at the limit", {"type": "ADD_GOAL", "goal_id": "g-1", "intent": "😀" * 2000}),
+        ("a chip", {"type": "GATE_1_REPLY", "probe_id": "0a1b2c3d4e5f6a7b", "candidate_id": "approve"}),
+        ("typed answer", {"type": "GATE_1_REPLY", "probe_id": "p-1", "text": "Downloads\n下载"}),
+        ("approve", {"type": "GATE_2_REPLY", "challenge_id": "c-1", "decision": "approve", "authorization": token}),
+        ("cancel", {"type": "GATE_2_REPLY", "challenge_id": "c-1", "decision": "cancel"}),
+        ("stop", {"type": "STOP", "goal_id": "g-1"}),
+        ("idle", {"type": "CURRENT_STATUS", "status": "idle", "goal_id": ""}),
+        ("waiting", {"type": "CURRENT_STATUS", "status": "waiting", "goal_id": "g-1"}),
+        ("goal done", {"type": "GOAL_UPDATE", "goal_id": "g-1", "state": "done"}),
+        ("step probe", {"type": "GATE_1_PROBE", "probe_id": "p-1", "prompt": "", "about": "step",
+                        "candidates": [{"id": "approve", "label": "Approve"}, {"id": "deny", "label": "Deny"}],
+                        "step": {"kind": "hotkey", "keys": ["ctrl", "s"]}, "goal_id": "g-1",
+                        "expires_at": at + 300}),
+        ("question probe at the limits",
+         {"type": "GATE_1_PROBE", "probe_id": "p-2", "prompt": "问" * 500, "about": "question",
+          "candidates": [{"id": f"c{i}", "label": "选" * 80} for i in range(8)], "expires_at": 1759740300}),
+        ("challenge", {"type": "GATE_2_CHALLENGE", "challenge_id": "c-1",
+                       "emotional_memory": "这是你今天 10:42 交代的事：『把旧账号注销掉』", "target_summary": "key",
+                       "action_type": sp.DESTRUCTIVE_UNBIND, "action": action, "action_hash": action_hash(
+                           TargetAction("key", text="delete", high_risk=True)),
+                       "subject": node.did, "expires_at": at + 120, "goal_id": "g-1"}),
+        ("challenge with a 160-code-point memory",
+         {"type": "GATE_2_CHALLENGE", "challenge_id": "c-2", "emotional_memory": "🙂" * 160, "target_summary": "",
+          "action_type": "SOMETHING_NEW", "action": action, "action_hash": "0" * 64, "subject": node.did,
+          "expires_at": at}),
+        ("closed", {"type": "GATE_CLOSED", "kind": "probe", "id": "p-1", "reason": "answered"}),
+    ]
+    probe = good[10][1]
+    challenge = good[12][1]
+    bad = [
+        ("unknown type", {"type": "HELLO"}),
+        ("missing field", {"type": "ADD_GOAL", "goal_id": "g-1"}),
+        ("extra field", {"type": "STOP", "goal_id": "g-1", "why": "x"}),
+        ("empty intent", {"type": "ADD_GOAL", "goal_id": "g-1", "intent": ""}),
+        ("intent too long", {"type": "ADD_GOAL", "goal_id": "g-1", "intent": "😀" * 2001}),
+        ("upper-case id", {"type": "STOP", "goal_id": "G-1"}),
+        ("id too long", {"type": "STOP", "goal_id": "g" * 41}),
+        ("both answers", {"type": "GATE_1_REPLY", "probe_id": "p-1", "candidate_id": "c0", "text": "x"}),
+        ("no answer", {"type": "GATE_1_REPLY", "probe_id": "p-1"}),
+        ("approve without a token", {"type": "GATE_2_REPLY", "challenge_id": "c-1", "decision": "approve"}),
+        ("cancel with a token", {"type": "GATE_2_REPLY", "challenge_id": "c-1", "decision": "cancel",
+                                 "authorization": token}),
+        ("a token with an extra field", {"type": "GATE_2_REPLY", "challenge_id": "c-1", "decision": "approve",
+                                         "authorization": {**token, "x": 1}}),
+        ("a token of another type", {"type": "GATE_2_REPLY", "challenge_id": "c-1", "decision": "approve",
+                                     "authorization": {**token, "type": "secdogie/other/v1"}}),
+        ("a boolean time", {"type": "GATE_2_REPLY", "challenge_id": "c-1", "decision": "approve",
+                            "authorization": {**token, "expires_at": True}}),
+        ("running without a goal", {"type": "CURRENT_STATUS", "status": "running", "goal_id": ""}),
+        ("unknown state", {"type": "GOAL_UPDATE", "goal_id": "g-1", "state": "exploded"}),
+        ("a confirmation without approve and deny", {**probe, "candidates": [{"id": "c0", "label": "OK"}]}),
+        ("a step on a question", {**good[11][1], "step": {"kind": "key"}}),
+        ("a repeated candidate", {**good[11][1], "candidates": [{"id": "c0", "label": "a"},
+                                                               {"id": "c0", "label": "b"}]}),
+        ("nine candidates", {**good[11][1], "candidates": [{"id": f"c{i}", "label": "x"} for i in range(9)]}),
+        ("a label too long", {**good[11][1], "candidates": [{"id": "c0", "label": "选" * 81}]}),
+        ("a label with a newline", {**good[11][1], "candidates": [{"id": "c0", "label": "a\nb"}]}),
+        ("a prompt too long", {**good[11][1], "prompt": "问" * 501}),
+        ("an upper-case step kind", {**probe, "step": {"kind": "Key"}}),
+        ("an unknown about", {**probe, "about": "whatever"}),
+        ("a memory too long", {**challenge, "emotional_memory": "🙂" * 161}),
+        ("a memory on two lines", {**challenge, "emotional_memory": "a\nb"}),
+        ("a memory with a tab", {**challenge, "emotional_memory": "a\tb"}),
+        ("a lower-case action type", {**challenge, "action_type": "destructive"}),
+        ("a string high_risk", {**challenge, "action": {**action, "high_risk": "yes"}}),
+        ("an action without a role", {**challenge, "action": {k: v for k, v in action.items()
+                                                             if k != "target_role"}}),
+        ("an upper-case hash", {**challenge, "action_hash": "A" * 64}),
+        ("a float as a string", {**challenge, "expires_at": "1759740120.25"}),
+        ("unknown close reason", {"type": "GATE_CLOSED", "kind": "probe", "id": "p-1", "reason": "withdrawn"}),
+    ]
+    bad_out = []
+    for name, pkt in bad:
+        try:
+            sp.validate(pkt)
+        except sp.PacketError as e:
+            bad_out.append({"name": name, "text": _text(pkt), "path": e.path, "rule": e.rule})
+        else:
+            raise AssertionError(f"packet reject case accepted: {name}")
+    for _, pkt in good:
+        sp.decode(canonical(pkt))
+    not_canonical = [
+        ("whitespace", " " + _text(good[6][1])),
+        ("unsorted keys", '{"type":"STOP","goal_id":"g-1"}'),
+        ("duplicate key", '{"goal_id":"g-1","goal_id":"g-2","type":"STOP"}'),
+        ("NaN", '{"expires_at":NaN,"id":"p-1","kind":"probe","reason":"answered","type":"GATE_CLOSED"}'),
+        ("an escaped character that canonical writes raw",
+         '{"goal_id":"g-1","intent":"\\u00e9","type":"ADD_GOAL"}'),
+        ("a lone surrogate", '{"goal_id":"g-1","intent":"\\ud800","type":"ADD_GOAL"}'),
+    ]
+    for name, text in not_canonical:
+        try:
+            sp.decode(text.encode("utf-8"))
+        except sp.PacketError:
+            continue
+        raise AssertionError(f"non-canonical packet accepted: {name}")
+    packets = {
+        "limits": dict(sp.LIMITS),
+        "max_packet_bytes": sp.MAX_PACKET_BYTES,
+        "good": [{"name": n, "text": _text(p)} for n, p in good],
+        "bad": bad_out,
+        "not_canonical": [{"name": n, "text": t} for n, t in not_canonical],
+    }
+    return {
+        "spec": "secdogie/symbiont-link/v2: W1, then a signed crypto_kx handshake, then AES-256-GCM records "
+                "of canonical JSON packets. See transport/secdogie_transport/linkcipher.py, "
+                "identity/secdogie_identity/linkauth.py and dialogue/secdogie_dialogue/symbiont_packets.py.",
+        "blake2b_512": _blake2b_cases(),
+        "kx": kx,
+        "handshake": handshake,
+        "records": records,
+        "packets": packets,
+    }
+
+
 # ---- files ----------------------------------------------------------------------
 
 
@@ -554,6 +810,7 @@ def build_all() -> dict[str, str]:
         "graph_delta.json": graph_delta_vectors(),
         "link.json": link_vectors(),
         "socratic.json": socratic_vectors(),
+        "symbiont_link.json": symbiont_link_vectors(),
     }
     return {name: json.dumps(obj, indent=2, ensure_ascii=False) + "\n" for name, obj in files.items()}
 

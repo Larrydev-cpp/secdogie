@@ -19,7 +19,7 @@
  * node's signed receipt or refusal.
  */
 
-import { type CanonObject, PyFloat, canonicalBytes, isCanonObject, pyFloat, toHex } from '../core/canon.ts';
+import { type CanonObject, PyFloat, canonicalBytes, fromHex, isCanonObject, pyFloat, toHex } from '../core/canon.ts';
 import { isDidKey } from '../core/did.ts';
 import type { Signer } from '../core/ed25519.ts';
 import { TrustSet, signPayload, verifyPayload } from '../core/envelope.ts';
@@ -376,4 +376,116 @@ export async function verifyRefusal(
 /** A trust set of exactly one DID (the node a page expects). */
 export function only(did: string): TrustSet {
   return new TrustSet([did]);
+}
+
+// ---- the v2 handshake (after W1) ----------------------------------------------------------------
+
+export const SYMBIONT_LINK_V2 = 'secdogie/symbiont-link/v2';
+export const HANDSHAKE_INIT_TYPE = 'HANDSHAKE_INIT';
+export const HANDSHAKE_ACCEPT_TYPE = 'HANDSHAKE_ACCEPT';
+export const HANDSHAKE_SKEW_MS = 120_000;
+export type Lang = 'zh' | 'en';
+
+const INIT_FIELDS = ['client_pubkey', 'did', 'lang', 'link', 'sig', 'signer', 'timestamp', 'type', 'v'];
+const ACCEPT_FIELDS = ['client_pubkey', 'did', 'link', 'server_pubkey', 'sig', 'signer', 'timestamp', 'type', 'v'];
+const HEX32 = /^[0-9a-f]{64}$/;
+
+export interface HandshakeResult {
+  readonly ok: boolean;
+  readonly reason: string | null;
+  readonly did: string | null;
+  /** The peer's 32-byte crypto_kx public key. */
+  readonly pubkey: Uint8Array<ArrayBuffer> | null;
+  readonly lang: Lang | null;
+}
+
+const hsFail = (reason: string): HandshakeResult => ({ ok: false, reason, did: null, pubkey: null, lang: null });
+
+/** sha256 over both W1 statements, exactly as signed and sent -- the node's first. */
+export async function linkDigest(nodeBinding: CanonObject, pageBinding: CanonObject): Promise<string> {
+  if (nodeBinding['type'] !== LINK_BINDING_TYPE || pageBinding['type'] !== LINK_BINDING_TYPE) {
+    throw new Error('a link digest is over two W1 statements');
+  }
+  return toHex(await sha256(utf8('secdogie/symbiont-link/v2/link\n'), canonicalBytes(nodeBinding), utf8('\n'), canonicalBytes(pageBinding)));
+}
+
+function pubHex(pk: Uint8Array): string {
+  if (pk.length !== 32) throw new Error('a crypto_kx public key is 32 bytes');
+  return toHex(pk);
+}
+
+async function checkHs(obj: unknown, fieldsWanted: readonly string[], type: string, trustDid: string, link: string, nowMs: number): Promise<{ signer: string } | { signer: null; reason: string }> {
+  if (!isCanonObject(obj) || obj['type'] !== type) return { signer: null, reason: 'wrong or missing type' };
+  if (Object.keys(obj).sort().join(',') !== fieldsWanted.join(',')) return { signer: null, reason: 'unexpected fields' };
+  const s = await signed(obj, type, only(trustDid));
+  if (s.signer === null) return { signer: null, reason: s.reason };
+  if (obj['v'] !== SYMBIONT_LINK_V2) return { signer: null, reason: 'unknown version' };
+  if (obj['link'] !== link) return { signer: null, reason: 'for another link' };
+  const ts = obj['timestamp'];
+  let t: number;
+  if (typeof ts === 'number' && Number.isSafeInteger(ts)) t = ts;
+  else if (typeof ts === 'bigint') t = Number(ts);
+  else return { signer: null, reason: 'malformed statement' };
+  if (Math.abs(nowMs - t) > HANDSHAKE_SKEW_MS) return { signer: null, reason: 'stale or future statement' };
+  return { signer: s.signer };
+}
+
+/** The page's HANDSHAKE_INIT: its fresh crypto_kx public key, for this link. */
+export async function createHandshakeInit(
+  app: Signer,
+  o: { clientPublic: Uint8Array; link: string; lang: Lang; timestampMs: number },
+): Promise<CanonObject> {
+  if (!HEX32.test(o.link)) throw new Error('a link digest is 64 lower-case hex');
+  if (o.lang !== 'zh' && o.lang !== 'en') throw new Error('lang is zh or en');
+  return signPayload(app, {
+    type: HANDSHAKE_INIT_TYPE,
+    v: SYMBIONT_LINK_V2,
+    did: app.did,
+    client_pubkey: pubHex(o.clientPublic),
+    timestamp: Math.trunc(o.timestampMs),
+    lang: o.lang,
+    link: o.link,
+  });
+}
+
+/** The node's check of an INIT (the page never needs it; tests and parity do). */
+export async function verifyHandshakeInit(obj: unknown, o: { appDid: string; link: string; nowMs: number }): Promise<HandshakeResult> {
+  const s = await checkHs(obj, INIT_FIELDS, HANDSHAKE_INIT_TYPE, o.appDid, o.link, o.nowMs);
+  if (s.signer === null) return hsFail(s.reason);
+  const b = obj as CanonObject;
+  const pk = b['client_pubkey'];
+  const lang = b['lang'];
+  if (typeof pk !== 'string' || !HEX32.test(pk) || (lang !== 'zh' && lang !== 'en')) return hsFail('malformed statement');
+  return { ok: true, reason: null, did: s.signer, pubkey: fromHex(pk), lang };
+}
+
+/** The node's HANDSHAKE_ACCEPT (built here only by tests' scripted node). */
+export async function createHandshakeAccept(
+  node: Signer,
+  o: { serverPublic: Uint8Array; clientPublic: Uint8Array; link: string; timestampMs: number },
+): Promise<CanonObject> {
+  if (!HEX32.test(o.link)) throw new Error('a link digest is 64 lower-case hex');
+  return signPayload(node, {
+    type: HANDSHAKE_ACCEPT_TYPE,
+    v: SYMBIONT_LINK_V2,
+    did: node.did,
+    server_pubkey: pubHex(o.serverPublic),
+    client_pubkey: pubHex(o.clientPublic),
+    timestamp: Math.trunc(o.timestampMs),
+    link: o.link,
+  });
+}
+
+/** The page's check: signed by the paired node, for this link, answering this INIT. */
+export async function verifyHandshakeAccept(
+  obj: unknown,
+  o: { nodeDid: string; clientPublic: Uint8Array; link: string; nowMs: number },
+): Promise<HandshakeResult> {
+  const s = await checkHs(obj, ACCEPT_FIELDS, HANDSHAKE_ACCEPT_TYPE, o.nodeDid, o.link, o.nowMs);
+  if (s.signer === null) return hsFail(s.reason);
+  const b = obj as CanonObject;
+  if (b['client_pubkey'] !== pubHex(o.clientPublic)) return hsFail('answers another handshake');
+  const pk = b['server_pubkey'];
+  if (typeof pk !== 'string' || !HEX32.test(pk)) return hsFail('malformed statement');
+  return { ok: true, reason: null, did: s.signer, pubkey: fromHex(pk), lang: null };
 }

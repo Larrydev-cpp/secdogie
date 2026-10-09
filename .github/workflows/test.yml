@@ -87,7 +87,7 @@ jobs:
             pip install -e ../citadel
           fi
           if [ "${{ matrix.needs_transport }}" = "true" ]; then
-            pip install -e ../transport
+            pip install -e "../transport[linkcipher]"
           fi
           if [ "${{ matrix.needs_fleet }}" = "true" ]; then
             pip install -e ../fleet
