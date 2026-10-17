@@ -340,6 +340,81 @@ mod exports {
     }
 }
 
+// A native C ABI over the same JSON surface, for callers that link the
+// `cdylib` directly (the Python node's read-only web perception, via ctypes).
+// The wasm boundary above packs (ptr<<32)|len into linear memory; here a call
+// returns a NUL-terminated canonical-JSON C string the caller frees with
+// `sd_string_free`. Canonical JSON never contains an interior NUL byte, and an
+// error is still a `{"ok":false,...}` value, never a trap.
+#[cfg(not(target_arch = "wasm32"))]
+mod native_exports {
+    use std::ffi::{CStr, CString};
+    use std::os::raw::c_char;
+
+    use super::{Value, canonical, fail, route_scan};
+    use crate::canon;
+
+    fn c_in<'a>(ptr: *const c_char) -> Result<&'a str, Value> {
+        if ptr.is_null() {
+            return Err(fail("null argument"));
+        }
+        // SAFETY: the caller passes a NUL-terminated string kept alive for the call.
+        unsafe { CStr::from_ptr(ptr) }
+            .to_str()
+            .map_err(|_| fail("argument is not UTF-8"))
+    }
+
+    fn out(v: Value) -> *mut c_char {
+        let s = canon::to_string(&v);
+        CString::new(s)
+            .unwrap_or_else(|_| CString::new(r#"{"ok":false,"error":"nul in response"}"#).unwrap())
+            .into_raw()
+    }
+
+    /// Scan one already-fetched page body for candidate states. `cfg` is the
+    /// canonical-JSON ScanConfig; `body` is the raw page bytes.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn sd_route_scan_c(
+        cfg: *const c_char,
+        body_ptr: *const u8,
+        body_len: usize,
+    ) -> *mut c_char {
+        let cfg = match c_in(cfg) {
+            Ok(s) => s,
+            Err(e) => return out(e),
+        };
+        let body: &[u8] = if body_len == 0 || body_ptr.is_null() {
+            &[]
+        } else {
+            // SAFETY: the caller wrote `body_len` bytes at `body_ptr`, alive for the call.
+            unsafe { std::slice::from_raw_parts(body_ptr, body_len) }
+        };
+        out(route_scan(cfg, body))
+    }
+
+    /// Canonicalise JSON text (used to check Python/Rust byte parity).
+    #[unsafe(no_mangle)]
+    pub extern "C" fn sd_canonical_c(text: *const c_char) -> *mut c_char {
+        match c_in(text) {
+            Ok(s) => out(canonical(s)),
+            Err(e) => out(e),
+        }
+    }
+
+    /// Free a C string returned by one of the `*_c` functions.
+    ///
+    /// # Safety
+    /// `ptr` must be a pointer returned by a `*_c` function in this module,
+    /// freed exactly once.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn sd_string_free(ptr: *mut c_char) {
+        if !ptr.is_null() {
+            // SAFETY: per the contract above, `ptr` came from `CString::into_raw`.
+            drop(unsafe { CString::from_raw(ptr) });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

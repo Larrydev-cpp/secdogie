@@ -167,6 +167,21 @@ jobs:
           cargo clippy --target wasm32-unknown-unknown --locked -- -D warnings
           cargo test --locked
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      # The node's read-only web perception runs the SAME route adapter the
+      # browser runs in wasm, through a native cdylib. Build it, then run the
+      # ctypes binding's parity tests and the adapter-backed web perception.
+      - name: graph/python -- native binding + web perception
+        run: |
+          cargo build --release --locked --manifest-path graph/Cargo.toml
+          python -m pip install --upgrade pip
+          pip install -e graph/python -e agent pytest
+          pytest graph/python/tests agent/tests/test_browse.py -q
+
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
