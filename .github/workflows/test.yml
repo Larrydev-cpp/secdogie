@@ -36,6 +36,8 @@ jobs:
           - dir: agent
             extras: "[reflex]"  # so the reflex layer's numpy-backed tests run
           - dir: identity   # DID signing (@Larryx); pynacl comes as a hard dep
+          - dir: swarm      # distributed public-compute dispatch: scheduler, consensus, churn (worker crawl tests skip here -- they need the native route adapter, exercised in runtime-tests)
+            needs_identity: true
           - dir: citadel    # signed event journal + DAG goal tree
             needs_identity: true
             needs_agent: true      # so the real-loop M3 wiring tests run (not skip)
@@ -175,12 +177,12 @@ jobs:
       # The node's read-only web perception runs the SAME route adapter the
       # browser runs in wasm, through a native cdylib. Build it, then run the
       # ctypes binding's parity tests and the adapter-backed web perception.
-      - name: graph/python -- native binding + web perception
+      - name: graph/python -- native binding + web perception + swarm worker
         run: |
           cargo build --release --locked --manifest-path graph/Cargo.toml
           python -m pip install --upgrade pip
-          pip install -e graph/python -e agent pytest
-          pytest graph/python/tests agent/tests/test_browse.py -q
+          pip install -e identity -e graph/python -e agent -e "swarm[worker]" pytest
+          pytest graph/python/tests agent/tests/test_browse.py swarm/tests -q
 
       - uses: actions/setup-node@v4
         with:

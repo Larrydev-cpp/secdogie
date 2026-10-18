@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secdogie-swarm"
+version = "0.1.0"
+description = "Core-side distributed public-compute dispatch: task schema, node registry, churn-tolerant scheduling, signed-result consensus"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = ["secdogie-identity"]
+
+[project.optional-dependencies]
+# The reference node executor (worker.run_crawl) reuses the agent's read-only
+# web perception; the swarm core itself does not need it.
+worker = ["secdogie-agent"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["secdogie_swarm*"]
