@@ -34,7 +34,7 @@ _REQUIRED: dict[str, tuple[str, ...]] = {
     DISPATCH: ("task",),  # resume_from is optional
     RESULT: ("result",),
     HEARTBEAT: ("node_did",),
-    PROBE: ("nonce", "sent_at"),
+    PROBE: ("nonce", "sent_at_ms"),
     PONG: ("node_did", "nonce"),
     CHECKPOINT: ("task_id", "node_did", "checkpoint"),
     CANCEL: ("task_id", "reason"),
@@ -64,8 +64,8 @@ def heartbeat(node_did: str) -> dict[str, Any]:
     return _msg(HEARTBEAT, node_did=node_did)
 
 
-def probe(nonce: str, sent_at: float) -> dict[str, Any]:
-    return _msg(PROBE, nonce=nonce, sent_at=sent_at)
+def probe(nonce: str, sent_at_ms: int) -> dict[str, Any]:
+    return _msg(PROBE, nonce=nonce, sent_at_ms=sent_at_ms)
 
 
 def pong(node_did: str, nonce: str) -> dict[str, Any]:

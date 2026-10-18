@@ -20,7 +20,7 @@ def run_crawl(
     signed_task: dict[str, Any],
     identity: Identity,
     *,
-    now: float,
+    now_ms: int,
     opener: Any | None = None,
     core_allow: Allowlist | None = None,
 ) -> dict[str, Any]:
@@ -77,5 +77,5 @@ def run_crawl(
         ),
         "candidates": candidates,
     }
-    result = build_result(task_id=task["task_id"], node_did=identity.did, output=output, produced_at=now)
+    result = build_result(task_id=task["task_id"], node_did=identity.did, output=output, produced_at_ms=now_ms)
     return sign_payload(identity, result)

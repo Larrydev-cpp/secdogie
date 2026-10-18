@@ -21,7 +21,7 @@ def a_crawl(**over):
         task_id="t-1",
         url="https://docs.example.com/",
         allowed_origins=["https://docs.example.com"],
-        issued_at=1000.0,
+        issued_at_ms=1000,
         deadline_ms=10000,
         redundancy=3,
         epoch=1,

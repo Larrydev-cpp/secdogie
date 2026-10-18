@@ -89,13 +89,15 @@ def build_crawl(
     task_id: str,
     url: str,
     allowed_origins: list[str],
-    issued_at: float,
+    issued_at_ms: int,
     deadline_ms: int,
     redundancy: int,
     epoch: int,
 ) -> dict[str, Any]:
     """A crawl task: fetch one public URL within the allowlist and report the
-    candidate states it names. Only public fields; `assert_public` enforces it."""
+    candidate states it names. Only public fields; `assert_public` enforces it.
+    All timestamps are integer milliseconds -- no float ever crosses the wire,
+    so the canonical bytes are identical in Python, TS and Workers."""
     if redundancy < 1:
         raise TaskError("redundancy must be >= 1")
     task = {
@@ -103,7 +105,7 @@ def build_crawl(
         "task_id": task_id,
         "kind": "crawl",
         "spec": {"url": url, "allowed_origins": list(allowed_origins)},
-        "issued_at": issued_at,
+        "issued_at_ms": issued_at_ms,
         "deadline_ms": deadline_ms,
         "redundancy": redundancy,
         "epoch": epoch,
@@ -113,8 +115,15 @@ def build_crawl(
     return task
 
 
+def _int(task: dict[str, Any], field: str) -> None:
+    v = task.get(field)
+    # bool is an int subclass; a float on the wire is exactly what we forbid.
+    if not isinstance(v, int) or isinstance(v, bool):
+        raise TaskError(f"{field} must be an integer (milliseconds / count), not a float")
+
+
 def validate_task(task: dict[str, Any]) -> None:
-    """Structural check: known kind, exact spec field set, sane bounds."""
+    """Structural check: known kind, exact spec field set, integer timestamps."""
     if not isinstance(task, dict):
         raise TaskError("task must be an object")
     if task.get("protocol") != PROTOCOL:
@@ -122,11 +131,13 @@ def validate_task(task: dict[str, Any]) -> None:
     kind = task.get("kind")
     if kind not in TASK_KINDS:
         raise TaskError(f"unknown task kind {kind!r}")
-    for field in ("task_id", "issued_at", "deadline_ms", "redundancy", "epoch"):
+    for field in ("task_id", "issued_at_ms", "deadline_ms", "redundancy", "epoch"):
         if field not in task:
             raise TaskError(f"missing {field}")
     if not isinstance(task.get("task_id"), str) or not task["task_id"]:
         raise TaskError("task_id must be a non-empty string")
+    for field in ("issued_at_ms", "deadline_ms", "redundancy", "epoch"):
+        _int(task, field)
     spec = task.get("spec")
     if not isinstance(spec, dict) or frozenset(spec) != SPEC_FIELDS[kind]:
         raise TaskError(f"spec for {kind} must be exactly {sorted(SPEC_FIELDS[kind])}")
@@ -146,15 +157,16 @@ def build_result(
     task_id: str,
     node_did: str,
     output: dict[str, Any],
-    produced_at: float,
+    produced_at_ms: int,
 ) -> dict[str, Any]:
-    """A node's result for a task (unsigned; the node signs with `sign_payload`)."""
+    """A node's result for a task (unsigned; the node signs with `sign_payload`).
+    `produced_at_ms` is integer milliseconds -- no float on the wire."""
     return {
         "protocol": PROTOCOL,
         "task_id": task_id,
         "node_did": node_did,
         "output": output,
-        "produced_at": produced_at,
+        "produced_at_ms": produced_at_ms,
     }
 
 

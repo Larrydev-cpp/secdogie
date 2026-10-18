@@ -145,7 +145,7 @@ class SwarmCoordinator:
                 "digest": digest,
                 "output": job.first_output[digest],
                 "nodes": sorted(agree),
-                "decided_at": now,
+                "decided_at_ms": int(round(now * 1000)),
             },
         )
         if self._on_decided:
@@ -185,9 +185,11 @@ class SwarmCoordinator:
 
     # -- liveness probes ----------------------------------------------------
     def issue_probe(self, node_did: str, nonce: str, now: float) -> dict[str, Any]:
-        """A PROBE to send to a node; the matching PONG fed back measures RTT."""
+        """A PROBE to send to a node; the matching PONG fed back measures RTT.
+        RTT is measured against the internally-recorded float clock; the wire
+        `sent_at_ms` is an integer echo token."""
         self._probes[nonce] = (node_did, now)
-        return wire.probe(nonce, now)
+        return wire.probe(nonce, int(round(now * 1000)))
 
     # -- node -> core messages ---------------------------------------------
     def feed(self, raw: bytes | str, now: float) -> None:

@@ -47,7 +47,7 @@ def test_a_decided_crawl_lands_in_the_dag() -> None:
         task_id="t-1",
         url="https://docs.example.com/",
         allowed_origins=["https://docs.example.com"],
-        issued_at=0.0,
+        issued_at_ms=0,
         deadline_ms=10000,
         redundancy=1,
         epoch=1,
@@ -58,7 +58,7 @@ def test_a_decided_crawl_lands_in_the_dag() -> None:
     def opener(url, headers, timeout_s):
         return FakeResp(200, {"content-type": "text/html"}, html)
 
-    result = run_crawl(signed, node, now=1.0, opener=opener, core_allow=Allowlist({core.did}))
+    result = run_crawl(signed, node, now_ms=1, opener=opener, core_allow=Allowlist({core.did}))
 
     store = DagStore([core.did])
     anchor = DagAnchor(core, store)

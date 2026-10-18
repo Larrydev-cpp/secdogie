@@ -12,7 +12,7 @@ def test_each_message_round_trips() -> None:
         wire.dispatch({"task_id": "t"}, resume_from={"pages_done": 2}),
         wire.result({"task_id": "t", "node_did": "did:key:z", "output": {}}),
         wire.heartbeat("did:key:z"),
-        wire.probe("n1", 10.0),
+        wire.probe("n1", 10),
         wire.pong("did:key:z", "n1"),
         wire.checkpoint("t", "did:key:z", {"pages_done": 3}),
         wire.cancel("t", "migrated"),
@@ -30,6 +30,6 @@ def test_decode_rejects_bad_messages() -> None:
     with pytest.raises(wire.WireError):
         wire.decode('{"v":"secdogie/swarm-wire/v1","type":"HEARTBEAT"}')  # missing node_did
     with pytest.raises(wire.WireError):
-        wire.decode('{"v":"secdogie/swarm-wire/v1","type":"PROBE","nonce":"n","sent_at":NaN}')  # NaN
+        wire.decode('{"v":"secdogie/swarm-wire/v1","type":"PROBE","nonce":"n","sent_at_ms":NaN}')  # NaN
     with pytest.raises(wire.WireError):
         wire.decode('{"v":"secdogie/swarm-wire/v1","v":"x","type":"HEARTBEAT","node_did":"d"}')  # dup key

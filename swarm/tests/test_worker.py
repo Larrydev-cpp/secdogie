@@ -55,7 +55,7 @@ def test_run_crawl_signs_a_result_the_core_accepts() -> None:
         task_id="t-1",
         url="https://docs.example.com/",
         allowed_origins=["https://docs.example.com"],
-        issued_at=0.0,
+        issued_at_ms=0,
         deadline_ms=10000,
         redundancy=3,
         epoch=1,
@@ -64,7 +64,7 @@ def test_run_crawl_signs_a_result_the_core_accepts() -> None:
     html = b'<a href="/account/delete">x</a><a href="https://evil.test/y">y</a>'
     opener = fake_opener({"https://docs.example.com/": FakeResp(200, {"content-type": "text/html"}, html)})
 
-    result = run_crawl(signed, node, now=1.0, opener=opener, core_allow=Allowlist({core.did}))
+    result = run_crawl(signed, node, now_ms=1, opener=opener, core_allow=Allowlist({core.did}))
 
     out = result["output"]
     assert out["document"]["origin"] == "https://docs.example.com"
@@ -85,11 +85,11 @@ def test_worker_refuses_a_task_not_from_a_trusted_core() -> None:
         task_id="t-2",
         url="https://docs.example.com/",
         allowed_origins=["https://docs.example.com"],
-        issued_at=0.0,
+        issued_at_ms=0,
         deadline_ms=10000,
         redundancy=1,
         epoch=1,
     )
     signed = sign_task(core, task)
     with pytest.raises(ValueError):
-        run_crawl(signed, node, now=1.0, core_allow=Allowlist({stranger.did}))
+        run_crawl(signed, node, now_ms=1, core_allow=Allowlist({stranger.did}))

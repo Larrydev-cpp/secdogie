@@ -53,7 +53,7 @@ class Swarm:
             task_id="t-1",
             url="https://docs.example.com/",
             allowed_origins=["https://docs.example.com"],
-            issued_at=now,
+            issued_at_ms=int(now),
             deadline_ms=10000,
             redundancy=redundancy,
             epoch=1,
@@ -62,7 +62,7 @@ class Swarm:
 
     def _signed_result(self, did: str, task_id: str, output: dict, now: float) -> dict:
         ident = self._ident[did]
-        return sign_payload(ident, build_result(task_id=task_id, node_did=did, output=output, produced_at=now))
+        return sign_payload(ident, build_result(task_id=task_id, node_did=did, output=output, produced_at_ms=int(now)))
 
     def respond(self, did: str, task_id: str, output: dict, now: float) -> None:
         self.coord.on_result(self._signed_result(did, task_id, output, now), now)
@@ -174,7 +174,7 @@ def test_submit_refuses_a_task_someone_slipped_a_secret_into() -> None:
         task_id="t-x",
         url="https://docs.example.com/",
         allowed_origins=["https://docs.example.com"],
-        issued_at=0.0,
+        issued_at_ms=0,
         deadline_ms=10000,
         redundancy=3,
         epoch=1,

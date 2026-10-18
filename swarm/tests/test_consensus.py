@@ -7,7 +7,7 @@ from secdogie_swarm import Tally, build_result, output_digest, quorum_for, verif
 
 
 def signed_result(identity: Identity, task_id: str, output: dict, now: float = 0.0) -> dict:
-    return sign_payload(identity, build_result(task_id=task_id, node_did=identity.did, output=output, produced_at=now))
+    return sign_payload(identity, build_result(task_id=task_id, node_did=identity.did, output=output, produced_at_ms=int(now)))
 
 
 def test_verify_accepts_an_assigned_enrolled_signed_result() -> None:
@@ -49,7 +49,7 @@ def test_verify_rejects_a_node_signing_as_another_node() -> None:
     # signs a payload naming node B. The signature is fine, the identity is not.
     a, b = Identity.generate(), Identity.generate()
     allow = Allowlist({a.did, b.did})
-    forged = sign_payload(a, build_result(task_id="t-1", node_did=b.did, output={"content_hash": "x"}, produced_at=0.0))
+    forged = sign_payload(a, build_result(task_id="t-1", node_did=b.did, output={"content_hash": "x"}, produced_at_ms=0))
     ok, reason, *_ = verify_result(forged, task_id="t-1", assigned={a.did, b.did}, allowlist=allow)
     assert not ok and "node_did" in reason
 
