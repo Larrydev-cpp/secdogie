@@ -66,8 +66,11 @@ def test_run_crawl_signs_a_result_the_core_accepts() -> None:
 
     result = run_crawl(signed, node, now=1.0, opener=opener, core_allow=Allowlist({core.did}))
 
-    assert result["output"]["candidate_keys"]  # the one on-origin link
-    assert all("evil.test" not in k for k in result["output"]["candidate_keys"])
+    out = result["output"]
+    assert out["document"]["origin"] == "https://docs.example.com"
+    cands = out["candidates"]
+    assert len(cands) == 1 and cands[0]["route"] == "/account/delete"  # the on-origin link only
+    assert all(c["origin"] == "https://docs.example.com" for c in cands)
     ok, reason, signer, _digest = verify_result(
         result, task_id="t-1", assigned={node.did}, allowlist=Allowlist({node.did})
     )

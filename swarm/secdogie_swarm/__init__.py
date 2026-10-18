@@ -18,6 +18,7 @@ Inference is NOT here and never runs on a node: the API key stays in the core.
 
 from __future__ import annotations
 
+from .anchor import DagAnchor
 from .consensus import Tally, quorum_for, verify_result
 from .coordinator import DECIDED, FAILED, PENDING, SwarmCoordinator
 from .registry import DEAD, HEALTHY, SUSPECT, HealthPolicy, NodeRegistry
@@ -55,4 +56,5 @@ __all__ = [
     "PENDING",
     "DECIDED",
     "FAILED",
+    "DagAnchor",
 ]

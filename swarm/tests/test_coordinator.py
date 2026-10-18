@@ -18,6 +18,7 @@ from secdogie_swarm import (
     build_crawl,
     build_result,
     output_digest,
+    wire,
 )
 
 HONEST = {"kind": "page", "content_hash": "abc", "candidate_keys": ["/x"]}
@@ -59,13 +60,21 @@ class Swarm:
         )
         return self.coord.submit(task, now)
 
-    def respond(self, did: str, task_id: str, output: dict, now: float) -> None:
+    def _signed_result(self, did: str, task_id: str, output: dict, now: float) -> dict:
         ident = self._ident[did]
-        res = sign_payload(ident, build_result(task_id=task_id, node_did=did, output=output, produced_at=now))
-        self.coord.on_result(res, now)
+        return sign_payload(ident, build_result(task_id=task_id, node_did=did, output=output, produced_at=now))
+
+    def respond(self, did: str, task_id: str, output: dict, now: float) -> None:
+        self.coord.on_result(self._signed_result(did, task_id, output, now), now)
+
+    def respond_over_wire(self, did: str, task_id: str, output: dict, now: float) -> None:
+        self.coord.feed(wire.encode(wire.result(self._signed_result(did, task_id, output, now))), now)
 
     def assigned_nodes(self) -> list[str]:
         return [did for did, _ in self.dispatched]
+
+    def last_dispatch_to(self, did: str) -> dict:
+        return [msg for d, msg in self.dispatched if d == did][-1]
 
 
 def test_quorum_on_honest_nodes_yields_a_signed_record() -> None:
@@ -125,11 +134,38 @@ def test_no_quorum_fails_honestly() -> None:
     assert s.failed and s.failed[0][0] == tid
 
 
-def test_dispatched_task_carries_no_secret() -> None:
+def test_dispatched_message_carries_no_secret() -> None:
     s = Swarm(3)
     s.submit()
-    for _did, task in s.dispatched:
-        assert_public(task)  # every dispatched task is public work only
+    for _did, msg in s.dispatched:
+        assert msg["type"] == wire.DISPATCH
+        assert_public(msg)  # the whole DISPATCH (task + any resume_from) is public
+        assert_public(msg["task"])
+
+
+def test_migration_hands_the_latest_checkpoint_to_the_replacement() -> None:
+    s = Swarm(4, assign_timeout_s=5.0)  # 3 assigned + 1 spare
+    tid = s.submit()
+    picks = s.assigned_nodes()
+    spare = next(d for d in s.nodes if d not in picks)
+    # an assigned node reports partial public progress over the wire, then goes quiet.
+    ckpt = {"pages_done": ["/a", "/b"]}
+    s.coord.feed(wire.encode(wire.checkpoint(tid, picks[0], ckpt)), now=1.0)
+    s.coord.tick(now=10.0)  # picks time out -> migrate to the spare
+    assert spare in s.assigned_nodes()
+    assert s.last_dispatch_to(spare)["resume_from"] == ckpt  # resumed, not restarted
+
+
+def test_feed_routes_result_and_heartbeat_over_the_wire() -> None:
+    s = Swarm(3)
+    tid = s.submit()
+    picks = s.assigned_nodes()
+    s.respond_over_wire(picks[0], tid, HONEST, now=1.0)
+    s.respond_over_wire(picks[1], tid, HONEST, now=1.0)
+    assert s.coord.state_of(tid) == DECIDED
+    # an unsolicited heartbeat keeps a node live
+    s.coord.feed(wire.encode(wire.heartbeat(picks[2])), now=2.0)
+    assert s.registry.get(picks[2]).last_seen == 2.0
 
 
 def test_submit_refuses_a_task_someone_slipped_a_secret_into() -> None:

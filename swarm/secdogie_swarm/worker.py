@@ -45,14 +45,37 @@ def run_crawl(
     sight = scan_page(policy, spec["url"], **({} if opener is None else {"opener": opener}))
     o = sight.outcome
     doc = sight.scan["document"] if sight.scan else None
+    # Public topology only -- enough for the core to anchor it into the DAG.
+    # `offset` (a byte position) is dropped so honest nodes agree on the topology,
+    # not on where in the bytes a tag happened to sit.
+    candidates = sorted(
+        (
+            {
+                "origin": c["origin"],
+                "route": c["route"],
+                "query_keys": list(c["query_keys"]),
+                "key": c["key"],
+                "via": c["via"],
+                "method": c["method"],
+                "fields": list(c["fields"]),
+            }
+            for c in sight.candidates
+        ),
+        key=lambda c: c["key"],
+    )
     output = {
         "kind": o.kind,
         "url": o.url,
         "status": o.status,
         "content_hash": o.content_hash,
-        "document_key": (doc["key"] if doc else None),
-        "candidate_keys": sorted(c["key"] for c in sight.candidates),
+        "byte_len": o.byte_len,
         "truncated": o.truncated,
+        "document": (
+            {"origin": doc["origin"], "route": doc["route"], "query_keys": list(doc["query_keys"]), "key": doc["key"]}
+            if doc
+            else None
+        ),
+        "candidates": candidates,
     }
     result = build_result(task_id=task["task_id"], node_did=identity.did, output=output, produced_at=now)
     return sign_payload(identity, result)

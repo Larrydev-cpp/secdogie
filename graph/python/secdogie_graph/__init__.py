@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 __all__ = [
+    "DagStore",
     "RouteAdapterError",
     "RouteAdapterUnavailable",
     "canonical",
@@ -88,6 +89,12 @@ class _Lib:
         lib.sd_route_scan_c.restype = ctypes.c_void_p
         lib.sd_canonical_c.argtypes = [ctypes.c_char_p]
         lib.sd_canonical_c.restype = ctypes.c_void_p
+        lib.sd_graph_new_c.argtypes = [ctypes.c_char_p]
+        lib.sd_graph_new_c.restype = ctypes.c_void_p
+        lib.sd_graph_call_c.argtypes = [ctypes.c_uint32, ctypes.c_char_p]
+        lib.sd_graph_call_c.restype = ctypes.c_void_p
+        lib.sd_graph_drop_c.argtypes = [ctypes.c_uint32]
+        lib.sd_graph_drop_c.restype = None
         lib.sd_string_free.argtypes = [ctypes.c_void_p]
         lib.sd_string_free.restype = None
         self.lib = lib
@@ -148,3 +155,63 @@ def canonical(text: str) -> str:
     lib = _Lib.get()
     ptr = lib.lib.sd_canonical_c(text.encode("utf-8"))
     return _unwrap(lib._take(ptr))["canonical"]
+
+
+class DagStore:
+    """The content-addressed, append-only topology DAG, backed by the native
+    crate. Zero-trust: ``trusted_authors`` must be non-empty. Deltas are signed
+    envelopes (same format as ``secdogie_identity.sign_payload``); only ops that
+    *add* exist, so the store converges regardless of delivery order."""
+
+    def __init__(
+        self,
+        trusted_authors: list[str],
+        *,
+        max_nodes: int | None = None,
+        max_orphans: int | None = None,
+    ) -> None:
+        cfg: dict[str, Any] = {"trusted_authors": list(trusted_authors)}
+        if max_nodes is not None:
+            cfg["max_nodes"] = max_nodes
+        if max_orphans is not None:
+            cfg["max_orphans"] = max_orphans
+        self._lib = _Lib.get()
+        res = _unwrap(self._lib._take(self._lib.lib.sd_graph_new_c(json.dumps(cfg).encode("utf-8"))))
+        self._handle = int(res["handle"])
+        self._open = True
+
+    def _call(self, req: dict[str, Any]) -> dict[str, Any]:
+        if not self._open:
+            raise RouteAdapterError("DagStore is closed")
+        ptr = self._lib.lib.sd_graph_call_c(self._handle, json.dumps(req).encode("utf-8"))
+        return _unwrap(self._lib._take(ptr))
+
+    def ingest(self, wire: str) -> dict[str, Any]:
+        """Ingest one signed delta (canonical JSON text). Returns the outcome
+        (``inserted`` / ``duplicate`` / ``pending``)."""
+        return self._call({"op": "ingest", "wire": wire})["result"]
+
+    def heads(self) -> dict[str, Any]:
+        r = self._call({"op": "heads"})
+        return {"heads": r["heads"], "count": int(r["count"]), "next_lamport": int(r["next_lamport"])}
+
+    def view(self) -> dict[str, Any]:
+        """The materialized topology (states, references, observations)."""
+        return self._call({"op": "view"})["view"]
+
+    def close(self) -> None:
+        if getattr(self, "_open", False):
+            self._lib.lib.sd_graph_drop_c(self._handle)
+            self._open = False
+
+    def __enter__(self) -> DagStore:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+    def __del__(self) -> None:  # best-effort; handles are freed on close/GC
+        try:
+            self.close()
+        except Exception:  # noqa: BLE001
+            pass

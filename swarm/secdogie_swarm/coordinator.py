@@ -2,11 +2,14 @@
 node that is failing or going quiet *before* the deadline, collect signed
 results, and decide by quorum.
 
-It owns no clock and no sockets. `dispatch(node_did, signed_task)` is a callback
-the caller wires to its transport (the test harness calls node stubs directly).
-`tick(now)` drives timeouts and predictive migration. A decided task yields a
-**core-signed consensus record** -- the thing the core anchors into the graph
-DAG -- carrying the agreed output and the nodes that agreed.
+It owns no clock and no sockets. `dispatch(node_did, message)` is a callback the
+caller wires to its transport (the test harness calls node stubs directly); the
+message is a `wire.DISPATCH` carrying the signed task and, on a migration, the
+latest public checkpoint to resume from. `feed(raw, now)` takes a node->core
+wire message (RESULT / HEARTBEAT / PONG / CHECKPOINT) and routes it. `tick(now)`
+drives timeouts and predictive migration. A decided task yields a **core-signed
+consensus record** -- the thing the core anchors into the graph DAG -- carrying
+the agreed output and the nodes that agreed.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from typing import Any
 
 from secdogie_identity import Allowlist, Identity, sign_payload
 
+from . import wire
 from .consensus import Tally, quorum_for, verify_result
 from .registry import NodeRegistry
 from .tasks import PROTOCOL, assert_public, sign_task, validate_task
@@ -40,6 +44,7 @@ class _Job:
     first_output: dict[str, dict[str, Any]] = field(default_factory=dict)  # digest -> output
     migrations: int = 0
     state: str = PENDING
+    checkpoint: dict[str, Any] | None = None  # latest public partial progress
 
 
 class SwarmCoordinator:
@@ -63,6 +68,7 @@ class SwarmCoordinator:
         self._on_failed = on_failed
         self._enrolled: set[str] = set()
         self._jobs: dict[str, _Job] = {}
+        self._probes: dict[str, tuple[str, float]] = {}  # nonce -> (node_did, sent_at)
 
     # -- node enrollment / liveness ----------------------------------------
     def enroll(self, node_did: str, now: float) -> None:
@@ -87,12 +93,15 @@ class SwarmCoordinator:
         self._check_feasible(job, now)
         return task["task_id"]
 
+    def _send(self, job: _Job, node: str, now: float) -> None:
+        job.assigned[node] = now + self.assign_timeout_s
+        job.ever.add(node)
+        self._dispatch(node, wire.dispatch(job.signed_task, resume_from=job.checkpoint))
+
     def _assign(self, job: _Job, count: int, now: float) -> int:
         picks = self.registry.pick(count, exclude=job.ever)
         for did in picks:
-            job.assigned[did] = now + self.assign_timeout_s
-            job.ever.add(did)
-            self._dispatch(did, job.signed_task)
+            self._send(job, did, now)
         return len(picks)
 
     # -- results ------------------------------------------------------------
@@ -160,12 +169,42 @@ class SwarmCoordinator:
                     if job.migrations < self.max_migrations:
                         repl = self.registry.pick(1, exclude=job.ever)
                         if repl:
-                            node = repl[0]
-                            job.assigned[node] = now + self.assign_timeout_s
-                            job.ever.add(node)
                             job.migrations += 1
-                            self._dispatch(node, job.signed_task)
+                            self._send(job, repl[0], now)  # resumes from the latest checkpoint
             self._check_feasible(job, now)
+
+    # -- checkpoints --------------------------------------------------------
+    def on_checkpoint(self, task_id: str, node_did: str, blob: dict[str, Any], now: float) -> None:
+        """Record public partial progress from an assigned node, so a migration
+        hands it to the replacement instead of restarting from scratch."""
+        job = self._jobs.get(task_id)
+        if job is None or job.state != PENDING or node_did not in job.ever:
+            return
+        assert_public({"checkpoint": blob})  # a checkpoint is public, like the task
+        job.checkpoint = blob
+
+    # -- liveness probes ----------------------------------------------------
+    def issue_probe(self, node_did: str, nonce: str, now: float) -> dict[str, Any]:
+        """A PROBE to send to a node; the matching PONG fed back measures RTT."""
+        self._probes[nonce] = (node_did, now)
+        return wire.probe(nonce, now)
+
+    # -- node -> core messages ---------------------------------------------
+    def feed(self, raw: bytes | str, now: float) -> None:
+        """Route one node->core wire message."""
+        msg = wire.decode(raw)
+        kind = msg["type"]
+        if kind == wire.RESULT:
+            self.on_result(msg["result"], now)
+        elif kind == wire.HEARTBEAT:
+            if msg["node_did"] in self._enrolled:
+                self.registry.heartbeat(msg["node_did"], now)
+        elif kind == wire.PONG:
+            sent = self._probes.pop(msg["nonce"], None)
+            if sent is not None and sent[0] == msg["node_did"] and msg["node_did"] in self._enrolled:
+                self.registry.heartbeat(msg["node_did"], now, latency_s=max(0.0, now - sent[1]))
+        elif kind == wire.CHECKPOINT:
+            self.on_checkpoint(msg["task_id"], msg["node_did"], msg["checkpoint"], now)
 
     def _check_feasible(self, job: _Job, now: float) -> None:
         """Fail a job that can no longer reach quorum (no outstanding slots and

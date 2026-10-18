@@ -351,7 +351,7 @@ mod native_exports {
     use std::ffi::{CStr, CString};
     use std::os::raw::c_char;
 
-    use super::{Value, canonical, fail, route_scan};
+    use super::{Value, canonical, fail, graph_call, graph_drop, graph_new, route_scan};
     use crate::canon;
 
     fn c_in<'a>(ptr: *const c_char) -> Result<&'a str, Value> {
@@ -399,6 +399,32 @@ mod native_exports {
             Ok(s) => out(canonical(s)),
             Err(e) => out(e),
         }
+    }
+
+    /// Create a DAG store. `cfg` is `{"trusted_authors":[did,...], ...}`; the
+    /// result carries `{"ok":true,"handle":<u32>}`.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn sd_graph_new_c(cfg: *const c_char) -> *mut c_char {
+        match c_in(cfg) {
+            Ok(s) => out(graph_new(s)),
+            Err(e) => out(e),
+        }
+    }
+
+    /// Call a DAG store by handle. `req` is `{"op":"ingest","wire":...}`,
+    /// `{"op":"heads"}`, `{"op":"view"}`, etc. (see the module docs).
+    #[unsafe(no_mangle)]
+    pub extern "C" fn sd_graph_call_c(handle: u32, req: *const c_char) -> *mut c_char {
+        match c_in(req) {
+            Ok(s) => out(graph_call(handle, s)),
+            Err(e) => out(e),
+        }
+    }
+
+    /// Drop a DAG store and free its handle.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn sd_graph_drop_c(handle: u32) {
+        graph_drop(handle);
     }
 
     /// Free a C string returned by one of the `*_c` functions.
