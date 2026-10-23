@@ -33,6 +33,7 @@ from .tasks import (
     sign_task,
     validate_task,
 )
+from .topology import LineTopology
 
 __all__ = [
     "PROTOCOL",
@@ -57,4 +58,5 @@ __all__ = [
     "DECIDED",
     "FAILED",
     "DagAnchor",
+    "LineTopology",
 ]
