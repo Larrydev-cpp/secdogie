@@ -10,7 +10,7 @@ here changes external state; actions that would are suspended at Gate 2.
 
 from __future__ import annotations
 
-from .fetcher import FetchOutcome, bounded_fetch
+from .fetcher import FetchOutcome, bounded_fetch, https_opener
 from .perception import PageSight, scan_page
 from .policy import (
     DEFAULT_MAX_BODY_BYTES,
@@ -34,6 +34,7 @@ __all__ = [
     "PolicyError",
     "bounded_fetch",
     "canonical_origin",
+    "https_opener",
     "make_policy",
     "scan_page",
 ]

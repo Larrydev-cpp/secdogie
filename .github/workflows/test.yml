@@ -181,7 +181,7 @@ jobs:
         run: |
           cargo build --release --locked --manifest-path graph/Cargo.toml
           python -m pip install --upgrade pip
-          pip install -e identity -e graph/python -e agent -e "swarm[worker]" pytest
+          pip install -e identity -e graph/python -e agent -e "swarm[worker]" cryptography pytest
           pytest graph/python/tests agent/tests/test_browse.py swarm/tests -q
 
       - uses: actions/setup-node@v4

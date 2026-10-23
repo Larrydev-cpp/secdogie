@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import http.client
+import ssl
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
@@ -76,14 +77,26 @@ class _ClientResponse:
         return (b"".join(chunks), truncated)
 
 
-def _https_opener(url: str, headers: dict[str, str], timeout_s: float) -> RawResponse:
-    parts = urlsplit(url)
-    conn = http.client.HTTPSConnection(parts.hostname or "", parts.port or 443, timeout=timeout_s)
-    target = parts.path or "/"
-    if parts.query:
-        target += "?" + parts.query
-    conn.request("GET", target, headers=headers)
-    return _ClientResponse(conn, conn.getresponse())
+def https_opener(context: ssl.SSLContext | None = None) -> Opener:
+    """A default opener, optionally with a custom TLS context (e.g. to trust a
+    local test CA). The context only changes certificate trust; nothing else
+    about the bounded, credential-free request changes."""
+
+    def opener(url: str, headers: dict[str, str], timeout_s: float) -> RawResponse:
+        parts = urlsplit(url)
+        conn = http.client.HTTPSConnection(
+            parts.hostname or "", parts.port or 443, timeout=timeout_s, context=context
+        )
+        target = parts.path or "/"
+        if parts.query:
+            target += "?" + parts.query
+        conn.request("GET", target, headers=headers)
+        return _ClientResponse(conn, conn.getresponse())
+
+    return opener
+
+
+_https_opener = https_opener()
 
 
 def bounded_fetch(policy: FetchPolicy, raw: str, *, opener: Opener = _https_opener) -> FetchOutcome:
