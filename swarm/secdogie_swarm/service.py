@@ -56,13 +56,16 @@ class SwarmCore:
         health_policy: HealthPolicy | None = None,
         assign_timeout_s: float = 8.0,
         max_migrations: int = 3,
+        edge_depth: int = 2,
     ) -> None:
         self.core = identity
         self.server = server
         server.on_message = self._on_message
         server.on_disconnect = self._on_disconnect
         self.registry = NodeRegistry(health_policy)
-        self.topology = LineTopology(self.registry)
+        # Warm redundant edges (depth 2) so a failing edge is replaced with no
+        # gap; auto-reduced on a short line to keep the user's inner buffer.
+        self.topology = LineTopology(self.registry, edge_depth=edge_depth)
         self._anchor = DagAnchor(identity, dag_store) if dag_store is not None else None
         self.coordinator = SwarmCoordinator(
             identity,

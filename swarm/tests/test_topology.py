@@ -6,9 +6,9 @@ from __future__ import annotations
 from secdogie_swarm import LineTopology, NodeRegistry
 
 
-def line(n: int) -> tuple[LineTopology, NodeRegistry, list[str]]:
+def line(n: int, *, edge_depth: int = 1) -> tuple[LineTopology, NodeRegistry, list[str]]:
     reg = NodeRegistry()
-    topo = LineTopology(reg)
+    topo = LineTopology(reg, edge_depth=edge_depth)
     nodes = [f"did:key:n{i}" for i in range(n)]
     for d in nodes:
         reg.heartbeat(d, now=0.0, latency_s=0.1)
@@ -61,3 +61,48 @@ def test_removing_a_node_reshapes_the_line() -> None:
     topo.remove(n[2])
     assert topo.inner() == [n[1], n[3]]
     assert topo.edges() == [n[0], n[4]]
+
+
+def test_warm_edges_hold_a_standby_per_side() -> None:
+    # depth 2 on a long line: the core keeps two live edges per side, so the
+    # outer edge and a hot standby are both already attached.
+    topo, _reg, n = line(6, edge_depth=2)
+    assert topo.edges() == [n[0], n[1], n[4], n[5]]
+    assert topo.standbys() == [n[1], n[4]]  # the inner of each warm pair
+    assert topo.inner() == [n[2], n[3]]
+    assert topo.user_entry() in (n[2], n[3])
+    assert topo.user_is_isolated_from_core()
+
+
+def test_warm_failover_is_gap_free() -> None:
+    # with a hot standby already attached, killing the outer edge leaves the
+    # standby as the edge immediately -- no moment with a bare end.
+    topo, reg, n = line(6, edge_depth=2)
+    assert n[1] in topo.edges()  # standby is live before the failure
+    for i in range(3):
+        reg.record(n[0], ok=False, now=1.0 + i)
+    assert reg.status(n[0]) == "dead"
+    # n1 was already connected, so the core never lost its left edge
+    assert topo.edges() == [n[1], n[2], n[4], n[5]]
+    assert n[1] in topo.edges()
+
+
+def test_edge_depth_never_eats_the_inner_buffer() -> None:
+    # a short line cannot afford two edges per side without stranding the user,
+    # so depth auto-reduces: the inner buffer is kept.
+    topo, _reg, n = line(4, edge_depth=2)
+    assert topo.edges() == [n[0], n[3]]  # reduced to depth 1
+    assert topo.inner() == [n[1], n[2]]
+    assert topo.user_entry() is not None
+    assert topo.user_is_isolated_from_core()
+
+
+def test_suspect_edge_is_dropped_before_it_dies() -> None:
+    # a slow (SUSPECT) end is already excluded from healthy, so the edge has
+    # moved inward predictively -- not only after a hard timeout.
+    topo, reg, n = line(5)
+    for _ in range(3):  # drive the latency EWMA over the suspect bar
+        reg.heartbeat(n[0], now=0.0, latency_s=10.0)
+    assert reg.status(n[0]) == "suspect"
+    assert topo.edges() == [n[1], n[4]]
+    assert n[0] not in topo.inner()
