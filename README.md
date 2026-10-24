@@ -1,146 +1,203 @@
 # secdogie · 云端生命体
 
-一个**去中心、经 DID 认证、受监督**的自主体（「云端生命体」），运行在**你自有 /
-已授权**的节点上：没有中心服务器，靠 P2P 存续；从**公开或已授权**的资源学习；用
-**两层苏格拉底门**审视每一步意图；最终**只在经认证的本地设备、在能力授权 + 人在环
-（HITL）下**采取现实动作。
+一个**重型、分布式、经 DID 认证、受监督**的个人自动化体。常驻大脑跑在**你掌控的
+Cloudflare Workers 核心**里；重活（公开抓取、AX 压缩、并行网页探索）分发给**全球自愿
+贡献的闲置浏览器节点**并行跑；推理/规划由核心用 **API key** 发起（key 只在核心）。
+**本机离线也不中断**——核心继续浏览、思考、规划。每一步意图过**两层苏格拉底门**
+（fail-closed、无开关可关），任何会改外部状态的动作都要你亲自确认。
 
-**感知以结构为主。** 目标是通过无障碍树（AX/UIA）+ 只读结构化 DIB 引用 + 已授权
-网页会话的 AX/文本来「看」，而不是屏幕像素。**现状（如实）**：macOS 上实时回路把 AX
-树渲染成结构图交给模型；Windows / Linux 上实时回路**仍在截屏**。改为结构化优先、
-截图只在机主显式开启时使用，见 [`ROADMAP.md`](ROADMAP.md) 的 Track D。
-
-> 完整架构见 [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md)；总路线图见 [`ROADMAP.md`](ROADMAP.md)；
-> 深度源码审计与规范对齐见 [`docs/AUDIT-P2P-ALIGNMENT.zh.md`](docs/AUDIT-P2P-ALIGNMENT.zh.md)。
+> 本机设备是**可选插件**：在场时可在门后执行被挂起的动作，不在场核心不报错、照常
+> 浏览与思考。macOS 感知走**无障碍 API（AXUIElement）、系统授权、只读元数据**——
+> 不是读进程内存。
 
 ---
 
-## 四大支柱
+## 架构一图（按手绘图）
 
-1. **分散式网络** —— DID（Ed25519 `did:key`）身份 + 会话/端点抽象 + 真 P2P UDP 传输，
-   经受认证的 rendezvous 发现彼此、直连升级 / relay 兜底、成员 gossip 反熵。hub 只作
-   bootstrap/relay，挂了整体仍在。
-2. **P2P 分布式获取信息与学习** —— 签名、哈希链、append-only 事件日志 + 其上的
-   `StateStore`；日志/状态经**双重认证**在 mesh 上反熵收敛：一个节点写入的、经签名的
-   「学到的证据」扩散到其余授权节点。
+**错的拓扑**（核心和用户都连所有节点，用户能打到核心、能碰 API key）——不这么做：
+
+```
+        ✗  核心 ──┬──┬──┬──┬── 节点          用户 ──┬──┬──┬── 节点
+                  全连                              全连   →  用户离核心一跳，凭据暴露面全开
+```
+
+**对的拓扑**（隔离层：核心只连 edge，用户只连内层，向内切换）：
+
+```
+                   ┌──────────────────────────────────┐
+                   │  调度核心  Cloudflare Workers       │   ← API key 只在这里
+                   │  推理 / 规划 / 凭据保管 / 门内认证    │   ← 推理在这里，节点上没有模型
+                   └───────┬───────────────────┬────────┘
+            只连 edge ↘     │                   │     ↙ 只连 edge（两端）
+                    ┌───────▼──────┐     ┌──────▼───────┐
+                    │  edge n0     │     │  edge n4     │   edge 挂了就向内顶替
+                    ├──────────────┤     ├──────────────┤
+         warm 热备 → │  n1          │     │  n3          │ ← warm 热备（已连，零间隙切换）
+                    ├──────────────┤     ├──────────────┤
+                    │       n2  ── 内层 inner ──         │   用户只连内层
+                    └───────────────▲──────────────────┘
+                                    │
+                                 用户 user   ← 永不连 edge、离核心至少两跳、碰不到 API key
+```
+
+* **核心只连 edge**：每端最外侧的健康节点是 edge；它为每端保留最多 `edge_depth` 个
+  **热备 edge**（已经连着），所以一个 edge 掉线不会留下空档——下一个顶上时已经在线。
+* **用户只连内层、永不连 edge**：用户离核心至少两跳，打不到核心、碰不到 API key。
+* **向内、预测性切换**：节点健康是 EWMA（健康 → 可疑 → 死亡），**可疑**节点已被排除出
+  edge 候选，所以切换发生在硬失败**之前**，而不是等超时。`edge_depth` 在短线上自动降
+  到 1，保证用户永远有内层缓冲——冗余不吃掉隔离缓冲。
+* **不变量**：没有任何健康节点同时是「用户可达的内层」和「核心可达的 edge」
+  （`user_is_isolated_from_core`）。
+* **间歇/可切断**：连接随时可断、节点可换——就是下面的 churn 容错。
+
+## 一次公开任务的生命周期（按手绘图的流程）
+
+```
+核心（API key 推理/规划，决定要抓什么）
+  │ 1. 把一个「公开、无凭据」任务分给 N 个节点（冗余 N 份）
+  ▼
+节点 ①②③…（浏览器 / WASM，只做公开活）
+  │ 2. 有界抓取（HTTPS-only、精确允许名单、不带凭据）+ 路由扫描 → 候选状态
+  │ 3. 每个节点用自己的 Ed25519 密钥签名结果
+  ▼
+核心
+  4. 验签：必须是被指派的节点签的，协议/任务号对得上
+  5. N-of-M 共识：多数一致才采信；离群结果丢弃并给该节点降权（拜占庭容忍）
+  6. 把达成共识的拓扑锚进签名 DAG（append-only、内容寻址）
+```
+
+**推理用 API key（核心的决定），如实调和**：推理走 LLM API，API key 是凭据 ⇒ **只存
+核心、推理由核心发起，节点上不跑模型**。节点只做公开的抓取 / AX 压缩 / 并行探索，把
+压缩后的拓扑喂回核心。**API key、登录凭据、私有会话上下文——三者都永不下发节点。**
+
+---
+
+## 硬边界（守住，不来回）
+
+1. 志愿节点只收**公开 / 无凭据**任务 + 公开页面；任务对象里**永不含**凭据字段或私有
+   会话上下文（`assert_public` 递归拒绝任何「秘密形状」的键，一个硬测试枚举证明之）。
+2. 节点不可信：结果**必须签名**，核心**冗余 N-of-M 共识 + 复验**，离群结果丢弃并降权。
+3. churn 容错是**可靠性工程**（志愿算力频繁掉线）——健康探测、预测性迁移、任务检查点
+   + 重分配。不是对抗封禁 / 逃避防御的东西。
+4. 核心受损时 **fail-safe**：控制面不可用就让节点安全停机，绝不暴露凭据。
+5. 任何改外部状态的动作：Gate 2 **fail-closed**，任何入口人工确认（无开关可关）。
+
+完整严禁清单见下方「安全边界」与 [`SECURITY.md`](SECURITY.md)。
+
+---
+
+## 层与模块（分布式版）
+
+| 层 | 位置 | 做什么 |
+|---|---|---|
+| 调度核心 | Cloudflare Workers（`symbiont/src/swarm/` TS 核心 + `swarm/` Python 同构实现） | 任务队列与调度、节点注册 / 健康、冗余共识 + 结果复验、DAG 锚定、**API key 推理 / 规划**、凭据保管 + 门内认证浏览 |
+| 算力网 | 志愿浏览器节点（`symbiont/src/swarm/node.ts` + `swarm` 的 `worker.py`） | 公开有界抓取（复用 sandbox）、AX 压缩（复用 `graph` route）、并行探索、签名结果；**不跑模型、不碰 API key** |
+| churn 协议 | 核心 ↔ 节点（`swarm/secdogie_swarm/` 的 wire / registry / coordinator / topology） | 健康探测、预测性迁移、检查点 + 重分配、结果签名 + 冗余共识、隔离拓扑与向内切换 |
+| 链路 | `webrtc/` 信令 + `transport/webrtc.py` + `symbiont/`（操作员页） | 浏览器 ↔ 核心的 WebRTC v2 认证链路（W1 指纹绑定 + 签名信封），生产节点通道的本地替身是真 TCP localnet |
+| 本地插件（可选） | 用户设备 | AX 感知（macOS 授权只读）+ 执行；不在场核心不报错，改状态挂 Gate 2 |
+| UI | 暗夜玻璃页面 / 应用 | 连核心看群体状态、答两道门 |
+
+两核**逐字节同构**：Python 核心（`swarm/`）和 Workers/TS 核心（`symbiont/src/swarm/`）
+用同一套规范 JSON（整数毫秒、无浮点）和同一套 Ed25519 签名信封；金向量
+（`swarm/fixtures/swarm_vectors.json`）+ 一个 TS 节点逐字节复现 Python 结果签名的测试
+共同钉住这个契约。
+
+---
+
+## 现状（诚实盘点）
+
+本容器**没有** Cloudflare 账号、也没有真实 WebGPU 浏览器节点，所以分布式这一层以
+**协议 + 核心逻辑 + 仿真 + 金向量 + headless 测试**落地（与仓库现有做法一致）。已建成
+并推送：
+
+| 能力 | 在哪 | 状态 |
+|---|---|---|
+| 调度核心（Python）| `swarm/secdogie_swarm/`（coordinator / consensus / registry / topology / anchor / service / wire / worker / localnet） | ✅ 真跑：core + 4 节点经真 TCP 抓真实本地页、共识、锚进 DAG、掉一个节点再决一次 |
+| 调度核心（Workers/TS）| `symbiont/src/swarm/`（coordinator / consensus / registry / topology / tasks / wire / node） | ✅ 与 Python 同构，同 4 个 churn 场景测试绿 |
+| churn 容错 | `registry.py`（EWMA 健康）+ `coordinator.py`（预测性迁移 + 检查点）+ `topology.py`（隔离拓扑 + 热备向内切换） | ✅ 拜占庭 / 沉默 / 中途死亡 / 无法达成共识四种不稳定性都有测试 |
+| 跨语言契约 | `swarm/fixtures/swarm_vectors.json` + `symbiont/tests/swarm_*.test.ts` | ✅ 逐字节一致，含签名复现 |
+| 公开抓取原语 | `agent/secdogie_agent/browse/`（Python）+ `symbiont/src/sandbox/`（TS）+ `graph/`（Rust → C ABI + wasm 路由扫描） | ✅ HTTPS-only、精确允许名单、不带凭据、从不返回正文 |
+| 操作员链路 | `webrtc/` + `transport/webrtc.py` + `symbiont/`（单栏毛玻璃页，WebRTC v2） | ✅ |
+| 基础栈 | `identity/` DID、`citadel/` 签名日志 + 两道门 + 阶段式记忆、`node/` 常驻节点、`dialogue/` 操作员 App | ✅ |
+
+**需要你接**（本容器做不了）：真实 Cloudflare Workers 部署（Durable Object WebSocket
+胶水 + wrangler）、真实浏览器节点与 WebGPU、自建 coturn NAT 穿透、Tauri 桌面外壳。
+
+分阶段路线见 [`ROADMAP.md`](ROADMAP.md)；swarm 子系统细节见 [`swarm/README.md`](swarm/README.md)。
+
+---
+
+## 四大支柱（基础层，分布式之上仍然成立）
+
+1. **分散式网络** —— DID（Ed25519 `did:key`）身份 + 会话 / 端点抽象 + 真 P2P 传输，经认证
+   的 rendezvous 发现、直连升级 / relay 兜底、成员 gossip 反熵。hub 只作 bootstrap/relay。
+2. **P2P 分布式获取信息与学习** —— 签名、哈希链、append-only 事件日志 + `StateStore`；日志 /
+   状态经双重认证在 mesh 上反熵收敛。
 3. **苏格拉底哲学系统** —— 两层门：**指令级**（意图审视）+ **动作计划级**
    （`GateDecision`：allow / reject / rewrite / request_reobserve）。门**只判定不执行**。
-4. **受认证本地设备实战** —— 结构化观测融合（AX + DIB 按引用）、不透明目标 + 代际
-   修 TOCTOU；动作仍过安全边界 + 能力授权 + 人在环。
+4. **受认证本地设备实战** —— 结构化观测融合（AX + DIB 按引用）、不透明目标 + 代际修
+   TOCTOU；动作仍过安全边界 + 能力授权 + 人在环。
 
----
-
-## 感知以结构为主（设计与现状）
-
-目标形态：截屏 / 屏幕像素抓取不是本项目的感知方式。`agent/observation.py`
-只融合两种**结构化**的「感官」，并且**从不静默用一种覆盖另一种**——分歧被记成
-`ObservationConflict`、拉低融合置信度、上交给动作门要求重观测：
-
-| 感官 | 是什么 | 角色 |
-| --- | --- | --- |
-| `ax` | 无障碍树（macOS AX / Windows UIA）：role / name / automation_id | **主**：目标与门推理所依赖的语义身份 |
-| `dib` | native `atlas` 从进程内存**只读重建**的位图，**按引用**携带（身份/哈希，绝不带像素） | **验证**：证明「AX 说的位置」确实画了对的形状。这是结构化内存读，**不是**屏幕截图 |
-
-融合层（`observation.py`）里没有 `pixel` / 屏幕捕获这一路。大视觉数据永远
-**按内容哈希引用**，不进 Python 堆、不进事件日志。
-
-**现状**：`observation.py` 的融合与 `target.py` 的代际（TOCTOU）检查目前只在测试中
-使用，尚未接入实时回路（Track D1）；实时回路在 macOS 上用 AX 结构图，在 Windows /
-Linux 上仍截屏（Track D2 改为结构化优先、截图显式开启）。
-
----
-
-## 一条端到端的认证链路
+一条端到端的认证链路：
 
 ```
 DID 身份  →  认证会话  →  签名状态  →  苏格拉底门  →  (能力 + HITL) 现实动作
 identity/    transport/    citadel/     citadel/       agent/ + 安全边界
 ```
 
-**没有认证身份就没有会话；没有会话就没有复制；没有过门的计划就没有执行；没有能力
-授权 + 人在环就没有现实动作。** 每一步都可验证、全部 headless / loopback 可测。
-完整时序图见 [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md)。
-
----
-
-## 现状（诚实盘点）
-
-以真实代码为准，已建成并推送：
-
-| 层 | 包 / 模块 | 状态 |
-| --- | --- | --- |
-| 身份 | `identity/`（DID、规范化签名、Allowlist）+ `binding.py`（DID↔传输密钥） | ✅ |
-| 网络 | `transport/`（peer/session/endpoint、`udp.py` 真 P2P、`rendezvous.py`、`upgrade.py`、`membership.py`、`relay.py` 任一白名单节点兼任 relay） | ✅ |
-| 状态 | `citadel/`（`journal.py` 签名日志、`state.py` StateStore、`sync.py` 反熵、`replication.py` 传输上收敛） | ✅ |
-| 心智 | `citadel/socratic.py`（指令门）+ `action_gate.py`（计划门：意图契约、已知失败、能力）+ `authz.py`（Gate 2 操作员签名）+ `supervisor.py`（受监督节点）；两道门已接入实时 agent 回路 | ✅ |
-| 记忆 | `citadel/episodes.py` / `lessons.py` / `consolidate.py`：阶段式记忆 S1 情节 → S2 隔离区 → S3 巩固；事实须操作员签名确认，只让门更严 | ✅ |
-| 对话 | `dialogue/`（`secdogie-dialogue`）：操作员的 Dialogue App——追问与回答、结构化视界（无像素）、Gate 2 签名台、记忆确认；丢包 / 乱序下的会话层 | ✅ |
-| 节点 | `node/`（`secdogie-node`）：常驻节点，组装传输、对话、签名日志与受监督回路；真实 UDP 端到端测试 | ✅ |
-| 感知/动作 | `agent/observation.py`（AX + DIB 按引用融合）+ `target.py`（TOCTOU）+ AX/safety；`native/atlas`（只读、DIB 重建） | 🔨 构件已建成，observation/target 尚未接入实时回路 |
-| 设备/会话 | `desktop/`（聊天式原生窗口 + `websession.py` 复用**已授权**浏览器会话，只读导航 + 读结构） | ✅ |
-| 承载/运维 | `tunnel/`（C 加密隧道，机密性）、`fleet/`、`console/` | ✅ |
-| 浏览器 P2P | `webrtc/`（WebRTC 数据通道客户端 + Cloudflare Worker 信令网关）+ 节点侧 aiortc 对端（`transport/webrtc.py`）；W1：两端用 DID 签名各自看到的 DTLS 指纹，网关在中间就过不去 | ✅ |
-| 操作员页面 | `symbiont/`（TS）：单栏对话页，打开即经 WebRTC 挂到常驻节点；Gate 1 温和问句卡、Gate 2 毛玻璃确认卡（只有取消 / 批准）；中文为主、自动切英文；机械细节只进 DevTools。首次用 `secdogie-node pair` 两边确认配对。`graph/`（Rust-WASM 状态图）作为库保留；与 Python 逐字节兼容，见 `fixtures/vectors/` | ✅ |
-
-**第二阶段（可运行闭环）已完成**：k-of-n 撤销、零信任默认（见 [`docs/ZERO-TRUST-MIGRATION.md`](docs/ZERO-TRUST-MIGRATION.md)）、
-两道门与阶段式记忆接入实时回路、Dialogue App、`secdogie-node` 与端到端测试。
-
-**第三阶段待做**（按 [`ROADMAP.md`](ROADMAP.md)）：
-- 网格运行时：rendezvous 上 UDP（T3）、线上 gossip（T4）、撤销经日志的持久传播（T6）；
-- 设备类别与无头隔离（T7）；fleet / console / desktop 的审批通路；
-- C + libsodium 隧道加固（T9）：v2 握手（Noise IK）、rekey、端到端中继、本地控制 socket；
-- 多节点纵切演示、安全复审、实机验证；
-- 感知入环与结构化优先（机主推进）。
+完整时序图与组件对照见 [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md)。
 
 ---
 
 ## 安全边界（严禁清单 — 逐字保留）
 
-**严禁**引入：进程内存写、远程线程注入、内核 HID、EDR/反检测、隐蔽持久化、提权、
-绕过用户授权或 macOS Accessibility / Screen Recording 权限、把 HITL 改成默认自动批准、
-隐蔽嵌入第三方服务、流量混淆、打洞式反检测。
+**严禁**引入：进程内存写、远程线程注入、内核 HID、EDR/反检测、隐蔽持久化、提权、绕过
+用户授权或 macOS Accessibility / Screen Recording 权限、把 HITL 改成默认自动批准、隐蔽
+嵌入第三方服务、流量混淆、打洞式反检测。
 
-**保持**：memory = 只读、execution = 受监督、high-risk = fail-closed 且在任何模式、
-任何入口都必须人工确认（没有开关可以关闭）、physical action = 显式 capability。能力模型**永不**包含 `process.memory.write` /
-内核 HID / 反检测 / 提权。
+**保持**：memory = 只读、execution = 受监督、high-risk = fail-closed 且在任何模式、任何
+入口都必须人工确认（没有开关可以关闭）、physical action = 显式 capability。能力模型
+**永不**包含 `process.memory.write` / 内核 HID / 反检测 / 提权。
 
-`websession.py` 只**复用你自己在别处正规登录后保存的已授权会话**去只读导航 + 读页面
-结构——**不输入凭据、不创建/窃取会话、不绕过认证/验证码/反爬**；站点若拒绝自动化，
-尊重之。每个切片提交前都会 grep 回归确认无上述原语。完整信任模型见 [`SECURITY.md`](SECURITY.md)。
+`websession.py` 只**复用你自己在别处正规登录后保存的已授权会话**去只读导航 + 读结构——
+**不输入凭据、不创建 / 窃取会话、不绕过认证 / 验证码 / 反爬**。每个切片提交前都 grep
+回归确认无上述原语。完整信任模型见 [`SECURITY.md`](SECURITY.md)。
 
 ---
 
 ## 快速开始（headless 可测）
 
-每个包纯逻辑 / loopback 可测，无需桌面、无需屏幕：
+分布式核心（swarm）——纯逻辑 + 仿真 + 真 TCP localnet，无需 Cloudflare、无需浏览器：
+
+```sh
+# 构建 graph 原生库（路由扫描的 C ABI），再装 Python 包
+cargo build --release --manifest-path graph/Cargo.toml
+pip install -e identity -e graph/python -e agent -e "swarm[worker]" cryptography pytest
+
+python -m pytest swarm/tests -q                 # 调度 / 共识 / churn / 拓扑 / 金向量 / 端到端
+python -m secdogie_swarm.demo                    # core + 4 节点抓真实本地页、共识、锚 DAG、掉节点再决
+
+cd symbiont && npm ci && npm run typecheck && npm test   # Workers/TS 核心 + 同构测试
+```
+
+基础栈（身份 / 传输 / citadel / 感知）：
 
 ```sh
 pip install ruff
-ruff check .                                   # 根 lint（ruff.toml）
-
-python -m pytest identity/tests  -q            # DID、签名、绑定
-python -m pytest transport/tests -q            # 会话、UDP、rendezvous、升级、成员
-python -m pytest citadel/tests   -q            # 日志、状态、反熵、复制、门、监督
-cd agent && python -m pytest tests/test_observation.py tests/test_target.py -q   # 结构化感知、目标
+ruff check .
+python -m pytest identity/tests transport/tests citadel/tests -q
+cd agent && python -m pytest tests/test_observation.py tests/test_target.py -q
 ```
 
 CI（[`.github/workflows/test.yml`](.github/workflows/test.yml)）对每个包跑 headless
-`pytest`、C 隧道跑 `ctest`、并对全部 Python 跑一遍 `ruff`。
-
----
-
-## 关于旧的截屏工具（已移除）
-
-本仓库更早的、基于视觉 LLM + 屏幕截图的独立工具（`android/`、`ios/`、`scene3d/`、多窗口
-`open/`、以及游戏栈 `aim/`/`commander/`/`handoff/`/`gta/`）**已从主线删除**——项目的感知是
-结构化的，不需要屏幕截图。它们仍留在 git 历史中可供查阅。`agent/` 作为共享引擎保留（云端
-生命体的结构化感知栈就住在里面）。
+`pytest`、构建 graph cdylib 跑 swarm / 浏览 parity、C 隧道跑 `ctest`、全 Python 跑 `ruff`。
 
 ---
 
 ## 深入阅读
 
+- [`swarm/README.md`](swarm/README.md) —— 分布式调度核心、churn 协议、隔离拓扑、共识、测试。
 - [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md) —— 四大支柱、端到端认证链路、组件表、安全边界、路线图。
 - [`ROADMAP.md`](ROADMAP.md) —— 总实现目标与里程碑。
+- [`SECURITY.md`](SECURITY.md) —— 信任模型、分布式节点边界、漏洞上报。
 - [`docs/AUDIT-P2P-ALIGNMENT.zh.md`](docs/AUDIT-P2P-ALIGNMENT.zh.md) —— 深度源码审计与冲突记录。
-- [`SECURITY.md`](SECURITY.md) —— 信任模型与漏洞上报。

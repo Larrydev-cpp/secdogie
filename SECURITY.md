@@ -103,6 +103,41 @@ trusted host/operator boundary:
 If multiple, mutually-distrusting people can reach the same running agent or
 the same host, that is outside the model — isolate by OS user / host instead.
 
+## Distributed Swarm Nodes Are Untrusted
+
+When the core (`swarm/`) distributes public work to volunteer browser nodes,
+**every node is untrusted**, and the trust model is the opposite of the local
+agent above — the node is the adversary, not the operator. The guarantees are
+enforced in code, not assumed:
+
+- **Nodes receive public work only.** A task object carries a public-only
+  payload (a URL + an exact origin allowlist). `assert_public` (`swarm/tasks.py`)
+  walks the task recursively and refuses any secret-shaped key
+  (`key`/`token`/`secret`/`cookie`/`auth`/`password`/`credential`/`session`/
+  `bearer`/`private`/`api_key`), nested too, outside the signature envelope. A
+  hard test enumerates the schema to prove it. **The API key, login credentials,
+  and private session context never leave the core to a node.**
+- **Inference runs centrally.** Nodes never run a model and never hold the API
+  key; they do bounded public fetch + route/AX compression and return a
+  *topology*, never page body text (`swarm/worker.py` drops the body and the
+  byte-offset so honest nodes agree on the same bytes).
+- **Results must be signed and agreed.** A result counts only when it is
+  Ed25519-signed by the node it was assigned to *and* a quorum of nodes agree on
+  the same canonical digest (`swarm/consensus.py`). An outlier (a lying or
+  faulty node) is dropped and penalized; it never enters the DAG. A Byzantine
+  node cannot make the core accept a wrong result, and a lack of quorum fails
+  honestly rather than hanging (`tests/test_chaos.py`).
+- **The user cannot reach the core.** The isolation topology (`swarm/topology.py`)
+  keeps the user at least two hops from the core: the core attaches only to edge
+  nodes, the user only to inner nodes, and no healthy node is ever both. So the
+  user can never touch the API key or attack the central server directly.
+- **Core-compromise is fail-safe.** If the control plane is unavailable, nodes
+  safely stop; credentials are never exposed as a degradation path.
+
+Churn tolerance (health probing, predictive migration, checkpoint + reassign)
+is **reliability engineering** for flaky volunteers — it is not, and must not
+become, anything that evades blocking or defeats a site's defenses.
+
 ## The Tunnel Is Not Audited
 
 `tunnel/` is a from-scratch encrypted-UDP implementation (X25519 + a Noise-style
@@ -174,6 +209,16 @@ Concrete boundary-crossing bugs, especially:
   referrer, follows a redirect, or exceeds its body / time bound; or a state
   graph delta accepted by `graph/` that is unsigned, signed by an untrusted
   author, or removes state.
+- **The swarm boundary** — a task dispatched to a node (`swarm/`) that carries a
+  credential, API key, or private session context (any secret-shaped key that
+  `assert_public` should have refused); a node result accepted into the DAG
+  without a valid signature from the assigned node or without quorum agreement;
+  a Byzantine or outlier result that the core treats as decided; a node made to
+  run inference or handed the API key; or a topology state in which a healthy
+  node is both a user-reachable inner node and a core-reachable edge (the user
+  reaching the core). A Python ↔ TS disagreement on a task / result / wire
+  message's canonical bytes that lets one signature cover two different payloads
+  is in scope here as it is for the link.
 
 ## Out of Scope
 
