@@ -10,6 +10,14 @@ TOKEN = {"type": sp.AUTHORIZATION_TYPE, "action_hash": "a" * 64, "subject": "did
          "valid_from": 1760000000.5, "expires_at": 1760000120.0, "signer": "did:key:z6Mkop", "sig": "c2ln"}
 ACTION = {"kind": "key", "target_id": "", "target_role": "", "target_name": "", "text": "delete",
           "high_risk": True}
+REFLECTION = {
+    "recall": [{"kind": "said", "quote": "用这个号给阿杰发生日祝福", "at_ms": 1500000000000},
+               {"kind": "did", "count": 2, "last_at_ms": 1700003600000},
+               {"kind": "saw", "fact": "items", "value": 312, "at_ms": 1759740000000}],
+    "why_now": {"quote": "帮我把那个旧账号注销掉", "at_ms": 1759739990000},
+    "questions": ["motive", "keep", "later"],
+    "paths": ["export", "deactivate", "snooze"],
+}
 
 GOOD = [
     {"type": "ADD_GOAL", "goal_id": "g-0123456789ab", "intent": "把旧账号注销掉"},
@@ -26,10 +34,11 @@ GOOD = [
      "step": {"kind": "hotkey", "keys": ["ctrl", "s"]}, "goal_id": "g-1"},
     {"type": "GATE_1_PROBE", "probe_id": "p2", "prompt": "Which folder?", "about": "question",
      "expires_at": 1760000300, "candidates": []},
-    {"type": "GATE_2_CHALLENGE", "challenge_id": "c1", "emotional_memory": "这是你今天 10:42 交代的事：『把旧账号注销掉』",
+    {"type": "GATE_2_CHALLENGE", "challenge_id": "c1", "emotional_memory": "它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』",
      "target_summary": "key", "action_type": "DESTRUCTIVE_UNBIND", "action": ACTION, "action_hash": "b" * 64,
-     "subject": "did:key:z6Mknode", "expires_at": 1760000120.0, "goal_id": "g-1"},
+     "subject": "did:key:z6Mknode", "expires_at": 1760000120.0, "goal_id": "g-1", "reflection": REFLECTION},
     {"type": "GATE_CLOSED", "kind": "challenge", "id": "c1", "reason": "expired"},
+    {"type": "GATE_2_REPLY", "challenge_id": "c1", "decision": "alternative", "path": "snooze"},
 ]
 
 
@@ -97,6 +106,60 @@ def test_challenge_rules():
     _bad({**ch, "action_type": "destructive"}, "action_type")
     _bad({**ch, "action_hash": "B" * 64}, "action_hash")
     assert sp.validate({**ch, "action_type": "SOMETHING_ELSE"})  # rendered, but only 再想想 is offered
+
+
+def _refl(**changes):
+    return {**GOOD[11], "reflection": {**REFLECTION, **changes}}
+
+
+def test_no_challenge_skips_the_asking():
+    _bad({k: v for k, v in GOOD[11].items() if k != "reflection"}, "reflection", "missing")
+    _bad(_refl(questions=["keep", "motive", "later"]), "reflection.questions",
+         "opens with the motive and closes with later")
+    _bad(_refl(questions=["motive", "keep"]), "reflection.questions", "opens with the motive and closes with later")
+    _bad(_refl(questions=["motive"]), "reflection.questions", "not a short list")
+    _bad(_refl(questions=["motive", "motive", "later"]), "reflection.questions", "repeated")
+    _bad(_refl(paths=["export", "deactivate"]), "reflection.paths", "always offers not deciding today")
+    _bad(_refl(paths=["snooze", "approve"]), "reflection.paths[1]", "not an allowed value")
+    _bad(_refl(arm_after_ms=0), "reflection.arm_after_ms", "unexpected field")  # nothing in it can arm anything
+
+
+def test_memories_are_typed_bounded_and_quote_only_trusted_words():
+    _bad(_refl(recall=REFLECTION["recall"] * 3), "reflection.recall", "not a short list")
+    _bad(_refl(recall=[{"kind": "said", "quote": "🙂" * 121, "at_ms": 1}]), "reflection.recall[0].quote")
+    assert sp.validate(_refl(recall=[{"kind": "said", "quote": "🙂" * 120, "at_ms": 1}]))
+    _bad(_refl(recall=[{"kind": "confirmed", "quote": "a\nb"}]), "reflection.recall[0].quote", "control characters")
+    _bad(_refl(recall=[{"kind": "said", "quote": "x", "at_ms": 1.5}]), "reflection.recall[0].at_ms")
+    _bad(_refl(recall=[{"kind": "said", "quote": "x", "at_ms": True}]), "reflection.recall[0].at_ms")
+    _bad(_refl(recall=[{"kind": "said", "quote": "x", "at_ms": 2**53}]), "reflection.recall[0].at_ms")
+    _bad(_refl(recall=[{"kind": "did", "count": 0, "last_at_ms": 1}]), "reflection.recall[0].count")
+    _bad(_refl(recall=[{"kind": "saw", "fact": "bio", "value": 1, "at_ms": 1}]), "reflection.recall[0].fact")
+    _bad(_refl(recall=[{"kind": "saw", "fact": "items", "value": 1, "at_ms": 1, "label": "approve"}]),
+         "reflection.recall[0].label", "unexpected field")
+    _bad(_refl(recall=[{"kind": "model_says", "quote": "it is safe"}]), "reflection.recall[0].kind")
+    _bad(_refl(why_now={"quote": "x", "at_ms": 1, "urgent": True}), "reflection.why_now.urgent")
+
+
+def test_a_gentler_path_is_one_of_the_closed_set_and_never_carries_a_token():
+    alt = GOOD[13]
+    _bad({**alt, "path": "delete-later"}, "path", "not an allowed value")
+    _bad({**alt, "authorization": TOKEN}, "authorization", "unexpected field")
+    _bad({k: v for k, v in alt.items() if k != "path"}, "path", "missing")
+
+
+def test_what_the_builder_makes_is_what_the_wire_accepts():
+    refl = pytest.importorskip("secdogie_citadel.reflection")
+    assert (refl.QUESTIONS, refl.PATHS, refl.SAW_FACTS) == (sp.QUESTIONS, sp.PATHS, sp.SAW_FACTS)
+    assert refl.MAX_QUOTE == sp.LIMITS["reflection.quote"] and refl.MAX_RECALL == sp.LIMITS["reflection.recall"]
+    assert refl.HEADLINE_MAX == sp.LIMITS["emotional_memory"]
+    now = 1_760_000_000_000
+    for lang in ("zh", "en"):
+        for src, saw in ((refl.gather([], terms=[]), ()),
+                         (refl.Sources((refl.Said("g", "旧号\n" + "记" * 300, 1),) * 3, refl.Said("w", "删", 2),
+                                       ("相册",) * 2, 9, 3),
+                          [refl.Observed(f, 2**53 - 1 if f != "joined_at" else 1, 5) for f in refl.SAW_FACTS])):
+            r = refl.build_reflection(src, action_type="DESTRUCTIVE_UNBIND", now_ms=now, lang=lang, observed=saw)
+            sp.validate({**GOOD[11], "emotional_memory": r.headline, "reflection": r.to_packet()})
 
 
 def test_decode_refuses_non_canonical_duplicate_keys_and_nan():

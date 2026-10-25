@@ -47,7 +47,21 @@ export const LIMITS = {
   'step.path': 1000,
   did: 200,
   sig: 200,
+  'reflection.recall': 6,
+  'reflection.quote': 120,
+  'reflection.count': 1_000_000,
 } as const;
+
+// Gate 2's reflection (citadel/reflection.py builds it; the page words it).
+// Closed sets: the node picks, the page says. Questions open with the motive and
+// close with "later"; paths always let the operator not decide today. A
+// challenge without a reflection is refused -- it would skip the asking.
+export const QUESTIONS = ['motive', 'recent', 'keep', 'later'] as const;
+export const PATHS = ['export', 'deactivate', 'snooze'] as const;
+export const SAW_FACTS = ['joined_at', 'last_active_at', 'items', 'followers'] as const;
+export type Question = (typeof QUESTIONS)[number];
+export type GentlerPath = (typeof PATHS)[number];
+export type SawFact = (typeof SAW_FACTS)[number];
 
 export const ID = /^[a-z0-9-]{1,40}$/;
 const HEX64 = /^[0-9a-f]{64}$/;
@@ -91,6 +105,18 @@ export interface Action {
 }
 export type About = 'step' | 'plan' | 'continue' | 'question' | 'other';
 
+export type Recall =
+  | { readonly kind: 'said'; readonly quote: string; readonly at_ms: number }
+  | { readonly kind: 'confirmed'; readonly quote: string }
+  | { readonly kind: 'did'; readonly count: number; readonly last_at_ms: number }
+  | { readonly kind: 'saw'; readonly fact: SawFact; readonly value: number; readonly at_ms: number };
+export interface Reflection {
+  readonly recall: readonly Recall[];
+  readonly why_now?: { readonly quote: string; readonly at_ms: number };
+  readonly questions: readonly Question[];
+  readonly paths: readonly GentlerPath[];
+}
+
 export interface Gate1Probe {
   readonly type: 'GATE_1_PROBE';
   readonly probe_id: string;
@@ -112,6 +138,7 @@ export interface Gate2Challenge {
   readonly subject: string;
   readonly expires_at: number;
   readonly goal_id?: string;
+  readonly reflection: Reflection;
 }
 export interface CurrentStatus {
   readonly type: 'CURRENT_STATUS';
@@ -176,6 +203,67 @@ function bool(v: CanonValue | undefined, path: string): boolean {
   return v;
 }
 
+/** An integer in lo..hi -- never a float, a boolean, or past the safe integers
+ * (`parseLossless` gives those as PyFloat / bigint, so they fail here). */
+function int(v: CanonValue | undefined, path: string, lo = 0, hi = Number.MAX_SAFE_INTEGER): number {
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < lo || v > hi) {
+    throw new PacketError(path, `not an integer in ${lo}..${hi}`);
+  }
+  return v;
+}
+
+function closedSet(v: CanonValue | undefined, path: string, allowed: readonly string[], lo: number, hi: number): string[] {
+  if (!Array.isArray(v) || v.length < lo || v.length > hi) throw new PacketError(path, 'not a short list');
+  const out = (v as readonly CanonValue[]).map((x, i) => oneOf(x, `${path}[${i}]`, allowed));
+  if (new Set(out).size !== out.length) throw new PacketError(path, 'repeated');
+  return out;
+}
+
+const quote = (v: CanonValue | undefined, path: string) => str(v, path, LIMITS['reflection.quote'], 1, true);
+
+function checkRecall(item: CanonValue | undefined, path: string): void {
+  const kind = isCanonObject(item) && !Array.isArray(item) ? item['kind'] : undefined;
+  if (kind === 'said') {
+    const o = fields(item, path, ['kind', 'quote', 'at_ms']);
+    quote(o['quote'], `${path}.quote`);
+    int(o['at_ms'], `${path}.at_ms`);
+  } else if (kind === 'confirmed') {
+    quote(fields(item, path, ['kind', 'quote'])['quote'], `${path}.quote`);
+  } else if (kind === 'did') {
+    const o = fields(item, path, ['kind', 'count', 'last_at_ms']);
+    int(o['count'], `${path}.count`, 1, LIMITS['reflection.count']);
+    int(o['last_at_ms'], `${path}.last_at_ms`);
+  } else if (kind === 'saw') {
+    const o = fields(item, path, ['kind', 'fact', 'value', 'at_ms']);
+    oneOf(o['fact'], `${path}.fact`, SAW_FACTS);
+    int(o['value'], `${path}.value`);
+    int(o['at_ms'], `${path}.at_ms`);
+  } else {
+    throw new PacketError(`${path}.kind`, 'not an allowed value');
+  }
+}
+
+function checkReflection(r: CanonValue | undefined, path: string): void {
+  const o = fields(r, path, ['recall', 'questions', 'paths'], ['why_now']);
+  const recall = o['recall'];
+  if (!Array.isArray(recall) || recall.length > LIMITS['reflection.recall']) {
+    throw new PacketError(`${path}.recall`, 'not a short list');
+  }
+  (recall as readonly CanonValue[]).forEach((item, i) => checkRecall(item, `${path}.recall[${i}]`));
+  if ('why_now' in o) {
+    const w = fields(o['why_now'], `${path}.why_now`, ['quote', 'at_ms']);
+    quote(w['quote'], `${path}.why_now.quote`);
+    int(w['at_ms'], `${path}.why_now.at_ms`);
+  }
+  const qs = closedSet(o['questions'], `${path}.questions`, QUESTIONS, 2, 3);
+  if (qs[0] !== 'motive' || qs[qs.length - 1] !== 'later') {
+    throw new PacketError(`${path}.questions`, 'opens with the motive and closes with later');
+  }
+  if (!closedSet(o['paths'], `${path}.paths`, PATHS, 1, PATHS.length).includes('snooze')) {
+    throw new PacketError(`${path}.paths`, 'always offers not deciding today');
+  }
+}
+
 function checkToken(tok: CanonValue | undefined, path: string): void {
   const t = fields(tok, path, TOKEN_FIELDS);
   if (t['type'] !== AUTHORIZATION_TYPE) throw new PacketError(`${path}.type`, 'not an action authorization');
@@ -233,6 +321,10 @@ const CHECKS: Record<string, (p: CanonObject) => void> = {
       checkToken(p['authorization'], 'authorization');
     } else if (decision === 'cancel') {
       fields(p, '', ['type', 'challenge_id', 'decision']);
+    } else if (decision === 'alternative') {
+      // a gentler path the reflection offered (the node checks it was)
+      fields(p, '', ['type', 'challenge_id', 'decision', 'path']);
+      oneOf(p['path'], 'path', PATHS);
     } else {
       throw new PacketError('decision', 'not an allowed value');
     }
@@ -282,9 +374,10 @@ const CHECKS: Record<string, (p: CanonObject) => void> = {
     fields(
       p,
       '',
-      ['type', 'challenge_id', 'emotional_memory', 'target_summary', 'action_type', 'action', 'action_hash', 'subject', 'expires_at'],
+      ['type', 'challenge_id', 'emotional_memory', 'target_summary', 'action_type', 'action', 'action_hash', 'subject', 'expires_at', 'reflection'],
       ['goal_id'],
     );
+    checkReflection(p['reflection'], 'reflection');
     id(p['challenge_id'], 'challenge_id');
     str(p['emotional_memory'], 'emotional_memory', LIMITS.emotional_memory, 1, true);
     str(p['target_summary'], 'target_summary', LIMITS.target_summary);

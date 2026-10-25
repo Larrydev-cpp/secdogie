@@ -21,8 +21,11 @@ The projection honours a trust policy: a ``memory`` event whose author is no
 longer trusted (revoked) drops out of the view, retroactively.
 
 What S3 feeds: ``MemoryView.known_failures`` into ``GateContext.known_failures``
-(Gate 1 -- can only add caution), and ``MemoryView.render()`` into the planner's
-prompt (confirmed facts and cautions only). Gate 2 reads none of it.
+(Gate 1 -- can only add caution), ``MemoryView.render()`` into the planner's
+prompt (confirmed facts and cautions only), and Gate 2's reflection
+(``reflection.py``), which quotes operator-confirmed facts back to the operator
+before an irreversible step. That use is recall only: nothing Gate 2 reads can
+arm, shorten or decide anything, and it never reads S2.
 
 Pure functions over events plus thin writers that append to a journal.
 """

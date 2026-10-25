@@ -167,6 +167,7 @@ test('handshake: refused with the same reasons as Python', async () => {
 
 test('packets: the same limits; good ones round-trip; bad ones fail at the same path and rule', () => {
   assert.deepEqual(V.packets.limits, { ...pk.LIMITS });
+  assert.deepEqual(V.packets.reflection_sets, { questions: [...pk.QUESTIONS], paths: [...pk.PATHS], saw_facts: [...pk.SAW_FACTS] });
   assert.equal(V.packets.max_packet_bytes, pk.MAX_PACKET_BYTES);
   const enc = new TextEncoder();
   for (const c of V.packets.good) {

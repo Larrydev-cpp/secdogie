@@ -209,6 +209,18 @@ Concrete boundary-crossing bugs, especially:
   referrer, follows a redirect, or exceeds its body / time bound; or a state
   graph delta accepted by `graph/` that is unsigned, signed by an untrusted
   author, or removes state.
+- **Gate 2's reflection** — before an irreversible step the node recalls what
+  the subject carried and asks before the confirm card appears
+  (`citadel/reflection.py`, `symbiont/src/gate2/reflection_view.ts`). In scope:
+  a reflection that quotes anything but the operator's own goal words, an
+  operator-confirmed (S3) fact, a count of verified work, or a typed integer the
+  core observed -- in particular S2 candidates, page text, an on-screen target
+  name or model prose; a `GATE_2_CHALLENGE` accepted without a reflection, or
+  with one whose questions skip the motive or "later", or whose paths omit
+  "not today"; anything in it that arms the confirm button, shortens its
+  delay, or reveals it without the operator choosing "I've thought it
+  through"; a gentler path that sends an approval or a path the reflection did
+  not offer; or a recalled memory the reflection invented.
 - **The swarm boundary** — a task dispatched to a node (`swarm/`) that carries a
   credential, API key, or private session context (any secret-shaped key that
   `assert_public` should have refused); a node result accepted into the DAG

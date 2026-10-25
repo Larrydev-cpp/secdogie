@@ -274,7 +274,29 @@
       "step.text": 2000,
       "step.path": 1000,
       "did": 200,
-      "sig": 200
+      "sig": 200,
+      "reflection.recall": 6,
+      "reflection.quote": 120,
+      "reflection.count": 1000000
+    },
+    "reflection_sets": {
+      "questions": [
+        "motive",
+        "recent",
+        "keep",
+        "later"
+      ],
+      "paths": [
+        "export",
+        "deactivate",
+        "snooze"
+      ],
+      "saw_facts": [
+        "joined_at",
+        "last_active_at",
+        "items",
+        "followers"
+      ]
     },
     "max_packet_bytes": 65511,
     "good": [
@@ -328,15 +350,23 @@
       },
       {
         "name": "challenge",
-        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"这是你今天 10:42 交代的事：『把旧账号注销掉』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}"
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"at_ms\":1500000000000,\"kind\":\"said\",\"quote\":\"用这个号给阿杰发生日祝福\"},{\"kind\":\"confirmed\",\"quote\":\"旧号里有大学四年的相册，没别处备份\"},{\"count\":2,\"kind\":\"did\",\"last_at_ms\":1700003600000},{\"at_ms\":1759740000000,\"fact\":\"joined_at\",\"kind\":\"saw\",\"value\":1476000000000},{\"at_ms\":1759740000000,\"fact\":\"items\",\"kind\":\"saw\",\"value\":312},{\"at_ms\":1700000000000,\"kind\":\"said\",\"quote\":\"把大学时的相册整理一下 — tidy the album ✅\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}"
       },
       {
         "name": "challenge with a 160-code-point memory",
-        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"action_type\":\"SOMETHING_NEW\",\"challenge_id\":\"c-2\",\"emotional_memory\":\"🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂\",\"expires_at\":1759740000.25,\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"\",\"type\":\"GATE_2_CHALLENGE\"}"
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"action_type\":\"SOMETHING_NEW\",\"challenge_id\":\"c-2\",\"emotional_memory\":\"🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂\",\"expires_at\":1759740000.25,\"reflection\":{\"paths\":[\"snooze\"],\"questions\":[\"motive\",\"later\"],\"recall\":[]},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"\",\"type\":\"GATE_2_CHALLENGE\"}"
       },
       {
         "name": "closed",
         "text": "{\"id\":\"p-1\",\"kind\":\"probe\",\"reason\":\"answered\",\"type\":\"GATE_CLOSED\"}"
+      },
+      {
+        "name": "a gentler path",
+        "text": "{\"challenge_id\":\"c-1\",\"decision\":\"alternative\",\"path\":\"export\",\"type\":\"GATE_2_REPLY\"}"
+      },
+      {
+        "name": "a reflection at the limits",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-3\",\"emotional_memory\":\"关于它，我这里没有更早的记录。你比我清楚它装过什么。\",\"expires_at\":1759740000.25,\"reflection\":{\"paths\":[\"snooze\",\"deactivate\"],\"questions\":[\"motive\",\"recent\",\"later\"],\"recall\":[{\"at_ms\":0,\"kind\":\"said\",\"quote\":\"🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂\"},{\"at_ms\":0,\"kind\":\"said\",\"quote\":\"🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂\"},{\"at_ms\":0,\"kind\":\"said\",\"quote\":\"🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂\"},{\"at_ms\":0,\"kind\":\"said\",\"quote\":\"🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂\"},{\"at_ms\":0,\"kind\":\"said\",\"quote\":\"🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂\"},{\"at_ms\":9007199254740991,\"fact\":\"followers\",\"kind\":\"saw\",\"value\":9007199254740991}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记记\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"\",\"type\":\"GATE_2_CHALLENGE\"}"
       }
     ],
     "bad": [
@@ -492,49 +522,49 @@
       },
       {
         "name": "a memory too long",
-        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"at_ms\":1500000000000,\"kind\":\"said\",\"quote\":\"用这个号给阿杰发生日祝福\"},{\"kind\":\"confirmed\",\"quote\":\"旧号里有大学四年的相册，没别处备份\"},{\"count\":2,\"kind\":\"did\",\"last_at_ms\":1700003600000},{\"at_ms\":1759740000000,\"fact\":\"joined_at\",\"kind\":\"saw\",\"value\":1476000000000},{\"at_ms\":1759740000000,\"fact\":\"items\",\"kind\":\"saw\",\"value\":312},{\"at_ms\":1700000000000,\"kind\":\"said\",\"quote\":\"把大学时的相册整理一下 — tidy the album ✅\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
         "path": "emotional_memory",
         "rule": "length outside 1..160"
       },
       {
         "name": "a memory on two lines",
-        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"a\\nb\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"a\\nb\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"at_ms\":1500000000000,\"kind\":\"said\",\"quote\":\"用这个号给阿杰发生日祝福\"},{\"kind\":\"confirmed\",\"quote\":\"旧号里有大学四年的相册，没别处备份\"},{\"count\":2,\"kind\":\"did\",\"last_at_ms\":1700003600000},{\"at_ms\":1759740000000,\"fact\":\"joined_at\",\"kind\":\"saw\",\"value\":1476000000000},{\"at_ms\":1759740000000,\"fact\":\"items\",\"kind\":\"saw\",\"value\":312},{\"at_ms\":1700000000000,\"kind\":\"said\",\"quote\":\"把大学时的相册整理一下 — tidy the album ✅\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
         "path": "emotional_memory",
         "rule": "control characters"
       },
       {
         "name": "a memory with a tab",
-        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"a\\tb\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"a\\tb\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"at_ms\":1500000000000,\"kind\":\"said\",\"quote\":\"用这个号给阿杰发生日祝福\"},{\"kind\":\"confirmed\",\"quote\":\"旧号里有大学四年的相册，没别处备份\"},{\"count\":2,\"kind\":\"did\",\"last_at_ms\":1700003600000},{\"at_ms\":1759740000000,\"fact\":\"joined_at\",\"kind\":\"saw\",\"value\":1476000000000},{\"at_ms\":1759740000000,\"fact\":\"items\",\"kind\":\"saw\",\"value\":312},{\"at_ms\":1700000000000,\"kind\":\"said\",\"quote\":\"把大学时的相册整理一下 — tidy the album ✅\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
         "path": "emotional_memory",
         "rule": "control characters"
       },
       {
         "name": "a lower-case action type",
-        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"destructive\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"这是你今天 10:42 交代的事：『把旧账号注销掉』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"destructive\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"at_ms\":1500000000000,\"kind\":\"said\",\"quote\":\"用这个号给阿杰发生日祝福\"},{\"kind\":\"confirmed\",\"quote\":\"旧号里有大学四年的相册，没别处备份\"},{\"count\":2,\"kind\":\"did\",\"last_at_ms\":1700003600000},{\"at_ms\":1759740000000,\"fact\":\"joined_at\",\"kind\":\"saw\",\"value\":1476000000000},{\"at_ms\":1759740000000,\"fact\":\"items\",\"kind\":\"saw\",\"value\":312},{\"at_ms\":1700000000000,\"kind\":\"said\",\"quote\":\"把大学时的相册整理一下 — tidy the album ✅\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
         "path": "action_type",
         "rule": "not an action type"
       },
       {
         "name": "a string high_risk",
-        "text": "{\"action\":{\"high_risk\":\"yes\",\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"这是你今天 10:42 交代的事：『把旧账号注销掉』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "text": "{\"action\":{\"high_risk\":\"yes\",\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"at_ms\":1500000000000,\"kind\":\"said\",\"quote\":\"用这个号给阿杰发生日祝福\"},{\"kind\":\"confirmed\",\"quote\":\"旧号里有大学四年的相册，没别处备份\"},{\"count\":2,\"kind\":\"did\",\"last_at_ms\":1700003600000},{\"at_ms\":1759740000000,\"fact\":\"joined_at\",\"kind\":\"saw\",\"value\":1476000000000},{\"at_ms\":1759740000000,\"fact\":\"items\",\"kind\":\"saw\",\"value\":312},{\"at_ms\":1700000000000,\"kind\":\"said\",\"quote\":\"把大学时的相册整理一下 — tidy the album ✅\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
         "path": "action.high_risk",
         "rule": "not a boolean"
       },
       {
         "name": "an action without a role",
-        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"这是你今天 10:42 交代的事：『把旧账号注销掉』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"at_ms\":1500000000000,\"kind\":\"said\",\"quote\":\"用这个号给阿杰发生日祝福\"},{\"kind\":\"confirmed\",\"quote\":\"旧号里有大学四年的相册，没别处备份\"},{\"count\":2,\"kind\":\"did\",\"last_at_ms\":1700003600000},{\"at_ms\":1759740000000,\"fact\":\"joined_at\",\"kind\":\"saw\",\"value\":1476000000000},{\"at_ms\":1759740000000,\"fact\":\"items\",\"kind\":\"saw\",\"value\":312},{\"at_ms\":1700000000000,\"kind\":\"said\",\"quote\":\"把大学时的相册整理一下 — tidy the album ✅\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
         "path": "action.target_role",
         "rule": "missing"
       },
       {
         "name": "an upper-case hash",
-        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"这是你今天 10:42 交代的事：『把旧账号注销掉』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"at_ms\":1500000000000,\"kind\":\"said\",\"quote\":\"用这个号给阿杰发生日祝福\"},{\"kind\":\"confirmed\",\"quote\":\"旧号里有大学四年的相册，没别处备份\"},{\"count\":2,\"kind\":\"did\",\"last_at_ms\":1700003600000},{\"at_ms\":1759740000000,\"fact\":\"joined_at\",\"kind\":\"saw\",\"value\":1476000000000},{\"at_ms\":1759740000000,\"fact\":\"items\",\"kind\":\"saw\",\"value\":312},{\"at_ms\":1700000000000,\"kind\":\"said\",\"quote\":\"把大学时的相册整理一下 — tidy the album ✅\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
         "path": "action_hash",
         "rule": "not a hash"
       },
       {
         "name": "a float as a string",
-        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"这是你今天 10:42 交代的事：『把旧账号注销掉』\",\"expires_at\":\"1759740120.25\",\"goal_id\":\"g-1\",\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":\"1759740120.25\",\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"at_ms\":1500000000000,\"kind\":\"said\",\"quote\":\"用这个号给阿杰发生日祝福\"},{\"kind\":\"confirmed\",\"quote\":\"旧号里有大学四年的相册，没别处备份\"},{\"count\":2,\"kind\":\"did\",\"last_at_ms\":1700003600000},{\"at_ms\":1759740000000,\"fact\":\"joined_at\",\"kind\":\"saw\",\"value\":1476000000000},{\"at_ms\":1759740000000,\"fact\":\"items\",\"kind\":\"saw\",\"value\":312},{\"at_ms\":1700000000000,\"kind\":\"said\",\"quote\":\"把大学时的相册整理一下 — tidy the album ✅\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
         "path": "expires_at",
         "rule": "not a number"
       },
@@ -543,6 +573,162 @@
         "text": "{\"id\":\"p-1\",\"kind\":\"probe\",\"reason\":\"withdrawn\",\"type\":\"GATE_CLOSED\"}",
         "path": "reason",
         "rule": "not an allowed value"
+      },
+      {
+        "name": "a challenge without a reflection",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "path": "reflection",
+        "rule": "missing"
+      },
+      {
+        "name": "questions that do not open with the motive",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"keep\",\"motive\",\"later\"],\"recall\":[{\"at_ms\":1500000000000,\"kind\":\"said\",\"quote\":\"用这个号给阿杰发生日祝福\"},{\"kind\":\"confirmed\",\"quote\":\"旧号里有大学四年的相册，没别处备份\"},{\"count\":2,\"kind\":\"did\",\"last_at_ms\":1700003600000},{\"at_ms\":1759740000000,\"fact\":\"joined_at\",\"kind\":\"saw\",\"value\":1476000000000},{\"at_ms\":1759740000000,\"fact\":\"items\",\"kind\":\"saw\",\"value\":312},{\"at_ms\":1700000000000,\"kind\":\"said\",\"quote\":\"把大学时的相册整理一下 — tidy the album ✅\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "path": "reflection.questions",
+        "rule": "opens with the motive and closes with later"
+      },
+      {
+        "name": "questions that do not close with later",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\"],\"recall\":[{\"at_ms\":1500000000000,\"kind\":\"said\",\"quote\":\"用这个号给阿杰发生日祝福\"},{\"kind\":\"confirmed\",\"quote\":\"旧号里有大学四年的相册，没别处备份\"},{\"count\":2,\"kind\":\"did\",\"last_at_ms\":1700003600000},{\"at_ms\":1759740000000,\"fact\":\"joined_at\",\"kind\":\"saw\",\"value\":1476000000000},{\"at_ms\":1759740000000,\"fact\":\"items\",\"kind\":\"saw\",\"value\":312},{\"at_ms\":1700000000000,\"kind\":\"said\",\"quote\":\"把大学时的相册整理一下 — tidy the album ✅\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "path": "reflection.questions",
+        "rule": "opens with the motive and closes with later"
+      },
+      {
+        "name": "a single question",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\"],\"recall\":[{\"at_ms\":1500000000000,\"kind\":\"said\",\"quote\":\"用这个号给阿杰发生日祝福\"},{\"kind\":\"confirmed\",\"quote\":\"旧号里有大学四年的相册，没别处备份\"},{\"count\":2,\"kind\":\"did\",\"last_at_ms\":1700003600000},{\"at_ms\":1759740000000,\"fact\":\"joined_at\",\"kind\":\"saw\",\"value\":1476000000000},{\"at_ms\":1759740000000,\"fact\":\"items\",\"kind\":\"saw\",\"value\":312},{\"at_ms\":1700000000000,\"kind\":\"said\",\"quote\":\"把大学时的相册整理一下 — tidy the album ✅\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "path": "reflection.questions",
+        "rule": "not a short list"
+      },
+      {
+        "name": "a repeated question",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"motive\",\"later\"],\"recall\":[{\"at_ms\":1500000000000,\"kind\":\"said\",\"quote\":\"用这个号给阿杰发生日祝福\"},{\"kind\":\"confirmed\",\"quote\":\"旧号里有大学四年的相册，没别处备份\"},{\"count\":2,\"kind\":\"did\",\"last_at_ms\":1700003600000},{\"at_ms\":1759740000000,\"fact\":\"joined_at\",\"kind\":\"saw\",\"value\":1476000000000},{\"at_ms\":1759740000000,\"fact\":\"items\",\"kind\":\"saw\",\"value\":312},{\"at_ms\":1700000000000,\"kind\":\"said\",\"quote\":\"把大学时的相册整理一下 — tidy the album ✅\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "path": "reflection.questions",
+        "rule": "repeated"
+      },
+      {
+        "name": "an unknown question",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"are-you-sure\",\"later\"],\"recall\":[{\"at_ms\":1500000000000,\"kind\":\"said\",\"quote\":\"用这个号给阿杰发生日祝福\"},{\"kind\":\"confirmed\",\"quote\":\"旧号里有大学四年的相册，没别处备份\"},{\"count\":2,\"kind\":\"did\",\"last_at_ms\":1700003600000},{\"at_ms\":1759740000000,\"fact\":\"joined_at\",\"kind\":\"saw\",\"value\":1476000000000},{\"at_ms\":1759740000000,\"fact\":\"items\",\"kind\":\"saw\",\"value\":312},{\"at_ms\":1700000000000,\"kind\":\"said\",\"quote\":\"把大学时的相册整理一下 — tidy the album ✅\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "path": "reflection.questions[1]",
+        "rule": "not an allowed value"
+      },
+      {
+        "name": "paths without a way to not decide today",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"at_ms\":1500000000000,\"kind\":\"said\",\"quote\":\"用这个号给阿杰发生日祝福\"},{\"kind\":\"confirmed\",\"quote\":\"旧号里有大学四年的相册，没别处备份\"},{\"count\":2,\"kind\":\"did\",\"last_at_ms\":1700003600000},{\"at_ms\":1759740000000,\"fact\":\"joined_at\",\"kind\":\"saw\",\"value\":1476000000000},{\"at_ms\":1759740000000,\"fact\":\"items\",\"kind\":\"saw\",\"value\":312},{\"at_ms\":1700000000000,\"kind\":\"said\",\"quote\":\"把大学时的相册整理一下 — tidy the album ✅\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "path": "reflection.paths",
+        "rule": "always offers not deciding today"
+      },
+      {
+        "name": "an unknown path",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"snooze\",\"approve\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"at_ms\":1500000000000,\"kind\":\"said\",\"quote\":\"用这个号给阿杰发生日祝福\"},{\"kind\":\"confirmed\",\"quote\":\"旧号里有大学四年的相册，没别处备份\"},{\"count\":2,\"kind\":\"did\",\"last_at_ms\":1700003600000},{\"at_ms\":1759740000000,\"fact\":\"joined_at\",\"kind\":\"saw\",\"value\":1476000000000},{\"at_ms\":1759740000000,\"fact\":\"items\",\"kind\":\"saw\",\"value\":312},{\"at_ms\":1700000000000,\"kind\":\"said\",\"quote\":\"把大学时的相册整理一下 — tidy the album ✅\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "path": "reflection.paths[1]",
+        "rule": "not an allowed value"
+      },
+      {
+        "name": "seven memories",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"at_ms\":1500000000000,\"kind\":\"said\",\"quote\":\"用这个号给阿杰发生日祝福\"},{\"kind\":\"confirmed\",\"quote\":\"旧号里有大学四年的相册，没别处备份\"},{\"count\":2,\"kind\":\"did\",\"last_at_ms\":1700003600000},{\"at_ms\":1759740000000,\"fact\":\"joined_at\",\"kind\":\"saw\",\"value\":1476000000000},{\"at_ms\":1759740000000,\"fact\":\"items\",\"kind\":\"saw\",\"value\":312},{\"at_ms\":1700000000000,\"kind\":\"said\",\"quote\":\"把大学时的相册整理一下 — tidy the album ✅\"},{\"kind\":\"confirmed\",\"quote\":\"x\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "path": "reflection.recall",
+        "rule": "not a short list"
+      },
+      {
+        "name": "a quote too long",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"at_ms\":1,\"kind\":\"said\",\"quote\":\"🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "path": "reflection.recall[0].quote",
+        "rule": "length outside 1..120"
+      },
+      {
+        "name": "a quote on two lines",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"kind\":\"confirmed\",\"quote\":\"a\\nb\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "path": "reflection.recall[0].quote",
+        "rule": "control characters"
+      },
+      {
+        "name": "an empty quote",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"kind\":\"confirmed\",\"quote\":\"\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "path": "reflection.recall[0].quote",
+        "rule": "length outside 1..120"
+      },
+      {
+        "name": "a float time in a memory",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"at_ms\":1.5,\"kind\":\"said\",\"quote\":\"x\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "path": "reflection.recall[0].at_ms",
+        "rule": "not an integer in 0..9007199254740991"
+      },
+      {
+        "name": "a boolean time in a memory",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"at_ms\":true,\"kind\":\"said\",\"quote\":\"x\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "path": "reflection.recall[0].at_ms",
+        "rule": "not an integer in 0..9007199254740991"
+      },
+      {
+        "name": "a negative time",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"at_ms\":-1,\"kind\":\"said\",\"quote\":\"x\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "path": "reflection.recall[0].at_ms",
+        "rule": "not an integer in 0..9007199254740991"
+      },
+      {
+        "name": "a time past the safe integers",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"at_ms\":9007199254740992,\"kind\":\"said\",\"quote\":\"x\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "path": "reflection.recall[0].at_ms",
+        "rule": "not an integer in 0..9007199254740991"
+      },
+      {
+        "name": "nothing done, counted",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"count\":0,\"kind\":\"did\",\"last_at_ms\":1}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "path": "reflection.recall[0].count",
+        "rule": "not an integer in 1..1000000"
+      },
+      {
+        "name": "an observation that is text",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"at_ms\":1,\"fact\":\"bio\",\"kind\":\"saw\",\"value\":1}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "path": "reflection.recall[0].fact",
+        "rule": "not an allowed value"
+      },
+      {
+        "name": "an observed count as a string",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"at_ms\":1,\"fact\":\"items\",\"kind\":\"saw\",\"value\":\"312\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "path": "reflection.recall[0].value",
+        "rule": "not an integer in 0..9007199254740991"
+      },
+      {
+        "name": "an observation with a label",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"at_ms\":1,\"fact\":\"items\",\"kind\":\"saw\",\"label\":\"approve now\",\"value\":1}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "path": "reflection.recall[0].label",
+        "rule": "unexpected field"
+      },
+      {
+        "name": "an unknown memory kind",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"kind\":\"model_says\",\"quote\":\"it is safe\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "path": "reflection.recall[0].kind",
+        "rule": "not an allowed value"
+      },
+      {
+        "name": "a reason with an extra field",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"at_ms\":1500000000000,\"kind\":\"said\",\"quote\":\"用这个号给阿杰发生日祝福\"},{\"kind\":\"confirmed\",\"quote\":\"旧号里有大学四年的相册，没别处备份\"},{\"count\":2,\"kind\":\"did\",\"last_at_ms\":1700003600000},{\"at_ms\":1759740000000,\"fact\":\"joined_at\",\"kind\":\"saw\",\"value\":1476000000000},{\"at_ms\":1759740000000,\"fact\":\"items\",\"kind\":\"saw\",\"value\":312},{\"at_ms\":1700000000000,\"kind\":\"said\",\"quote\":\"把大学时的相册整理一下 — tidy the album ✅\"}],\"why_now\":{\"at_ms\":1,\"quote\":\"x\",\"urgent\":true}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "path": "reflection.why_now.urgent",
+        "rule": "unexpected field"
+      },
+      {
+        "name": "a reflection with an extra field",
+        "text": "{\"action\":{\"high_risk\":true,\"kind\":\"key\",\"target_id\":\"\",\"target_name\":\"\",\"target_role\":\"\",\"text\":\"delete\"},\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"action_type\":\"DESTRUCTIVE_UNBIND\",\"challenge_id\":\"c-1\",\"emotional_memory\":\"它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』\",\"expires_at\":1759740120.25,\"goal_id\":\"g-1\",\"reflection\":{\"arm_after_ms\":0,\"paths\":[\"export\",\"deactivate\",\"snooze\"],\"questions\":[\"motive\",\"keep\",\"later\"],\"recall\":[{\"at_ms\":1500000000000,\"kind\":\"said\",\"quote\":\"用这个号给阿杰发生日祝福\"},{\"kind\":\"confirmed\",\"quote\":\"旧号里有大学四年的相册，没别处备份\"},{\"count\":2,\"kind\":\"did\",\"last_at_ms\":1700003600000},{\"at_ms\":1759740000000,\"fact\":\"joined_at\",\"kind\":\"saw\",\"value\":1476000000000},{\"at_ms\":1759740000000,\"fact\":\"items\",\"kind\":\"saw\",\"value\":312},{\"at_ms\":1700000000000,\"kind\":\"said\",\"quote\":\"把大学时的相册整理一下 — tidy the album ✅\"}],\"why_now\":{\"at_ms\":1759739990000,\"quote\":\"帮我把那个旧账号注销掉\"}},\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"target_summary\":\"key\",\"type\":\"GATE_2_CHALLENGE\"}",
+        "path": "reflection.arm_after_ms",
+        "rule": "unexpected field"
+      },
+      {
+        "name": "an unknown gentler path",
+        "text": "{\"challenge_id\":\"c-1\",\"decision\":\"alternative\",\"path\":\"delete-later\",\"type\":\"GATE_2_REPLY\"}",
+        "path": "path",
+        "rule": "not an allowed value"
+      },
+      {
+        "name": "a gentler path with a token",
+        "text": "{\"authorization\":{\"action_hash\":\"7883af2d357f738d4ca0c0c907fa2fe5b1e3e3e1697b40c07d7152626377ea99\",\"expires_at\":1759740120.25,\"sig\":\"3te1x++QAEOYYKyKUHIohKWYfxBiW+EezaY1BoVnEhdIyMOoHV3UzEheu74FvPeV+ZeACkkjZNxIr6BgUzdHAQ==\",\"signer\":\"did:key:z6MkjiKt1uqEt4FUUjtMDTiXKDDP68BQQmRahfnEUeM2mmBk\",\"subject\":\"did:key:z6MkjqTcQUfRu1U3i1Qt9Vy6kjFc5WzZsyADedB1dLVnjXpg\",\"type\":\"secdogie/action-authorization/v1\",\"valid_from\":1759740000.25},\"challenge_id\":\"c-1\",\"decision\":\"alternative\",\"path\":\"snooze\",\"type\":\"GATE_2_REPLY\"}",
+        "path": "authorization",
+        "rule": "unexpected field"
+      },
+      {
+        "name": "a gentler path without a path",
+        "text": "{\"challenge_id\":\"c-1\",\"decision\":\"alternative\",\"type\":\"GATE_2_REPLY\"}",
+        "path": "path",
+        "rule": "missing"
       }
     ],
     "not_canonical": [

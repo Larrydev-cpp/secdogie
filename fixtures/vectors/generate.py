@@ -476,6 +476,22 @@ def symbiont_link_vectors() -> dict:
                                  node.did, valid_from=at, expires_at=at + 120)
     action = {"kind": "key", "target_id": "", "target_role": "", "target_name": "", "text": "delete",
               "high_risk": True}
+    # Gate 2's reflection (citadel/reflection.py): what the subject carried, from
+    # trusted sources only; questions and gentler paths the page words itself.
+    reflection = {
+        "recall": [
+            {"kind": "said", "quote": "用这个号给阿杰发生日祝福", "at_ms": 1500000000000},
+            {"kind": "confirmed", "quote": "旧号里有大学四年的相册，没别处备份"},
+            {"kind": "did", "count": 2, "last_at_ms": 1700003600000},
+            {"kind": "saw", "fact": "joined_at", "value": 1476000000000, "at_ms": 1759740000000},
+            {"kind": "saw", "fact": "items", "value": 312, "at_ms": 1759740000000},
+            {"kind": "said", "quote": "把大学时的相册整理一下 — tidy the album ✅", "at_ms": 1700000000000},
+        ],
+        "why_now": {"quote": "帮我把那个旧账号注销掉", "at_ms": 1759739990000},
+        "questions": ["motive", "keep", "later"],
+        "paths": ["export", "deactivate", "snooze"],
+    }
+    bare_reflection = {"recall": [], "questions": ["motive", "later"], "paths": ["snooze"]}
     good = [
         ("add goal", {"type": "ADD_GOAL", "goal_id": "g-0123456789ab", "intent": "把旧账号注销掉 — close it ✅"}),
         ("add goal at the limit", {"type": "ADD_GOAL", "goal_id": "g-1", "intent": "😀" * 2000}),
@@ -495,15 +511,27 @@ def symbiont_link_vectors() -> dict:
          {"type": "GATE_1_PROBE", "probe_id": "p-2", "prompt": "问" * 500, "about": "question",
           "candidates": [{"id": f"c{i}", "label": "选" * 80} for i in range(8)], "expires_at": 1759740300}),
         ("challenge", {"type": "GATE_2_CHALLENGE", "challenge_id": "c-1",
-                       "emotional_memory": "这是你今天 10:42 交代的事：『把旧账号注销掉』", "target_summary": "key",
+                       "emotional_memory": "它陪了你 9 年。你曾让它：『用这个号给阿杰发生日祝福』", "target_summary": "key",
                        "action_type": sp.DESTRUCTIVE_UNBIND, "action": action, "action_hash": action_hash(
                            TargetAction("key", text="delete", high_risk=True)),
-                       "subject": node.did, "expires_at": at + 120, "goal_id": "g-1"}),
+                       "subject": node.did, "expires_at": at + 120, "goal_id": "g-1",
+                       "reflection": reflection}),
         ("challenge with a 160-code-point memory",
          {"type": "GATE_2_CHALLENGE", "challenge_id": "c-2", "emotional_memory": "🙂" * 160, "target_summary": "",
           "action_type": "SOMETHING_NEW", "action": action, "action_hash": "0" * 64, "subject": node.did,
-          "expires_at": at}),
+          "expires_at": at, "reflection": bare_reflection}),
         ("closed", {"type": "GATE_CLOSED", "kind": "probe", "id": "p-1", "reason": "answered"}),
+        ("a gentler path", {"type": "GATE_2_REPLY", "challenge_id": "c-1", "decision": "alternative",
+                            "path": "export"}),
+        ("a reflection at the limits",
+         {"type": "GATE_2_CHALLENGE", "challenge_id": "c-3",
+          "emotional_memory": "关于它，我这里没有更早的记录。你比我清楚它装过什么。", "target_summary": "",
+          "action_type": sp.DESTRUCTIVE_UNBIND, "action": action, "action_hash": "1" * 64, "subject": node.did,
+          "expires_at": at, "reflection": {
+              "recall": [{"kind": "said", "quote": "🙂" * 120, "at_ms": 0}] * 5
+              + [{"kind": "saw", "fact": "followers", "value": 2**53 - 1, "at_ms": 2**53 - 1}],
+              "why_now": {"quote": "记" * 120, "at_ms": 1759739990000},
+              "questions": ["motive", "recent", "later"], "paths": ["snooze", "deactivate"]}}),
     ]
     probe = good[10][1]
     challenge = good[12][1]
@@ -548,6 +576,55 @@ def symbiont_link_vectors() -> dict:
         ("an upper-case hash", {**challenge, "action_hash": "A" * 64}),
         ("a float as a string", {**challenge, "expires_at": "1759740120.25"}),
         ("unknown close reason", {"type": "GATE_CLOSED", "kind": "probe", "id": "p-1", "reason": "withdrawn"}),
+        # -- Gate 2's reflection: no challenge skips the asking
+        ("a challenge without a reflection", {k: v for k, v in challenge.items() if k != "reflection"}),
+        ("questions that do not open with the motive",
+         {**challenge, "reflection": {**reflection, "questions": ["keep", "motive", "later"]}}),
+        ("questions that do not close with later",
+         {**challenge, "reflection": {**reflection, "questions": ["motive", "keep"]}}),
+        ("a single question", {**challenge, "reflection": {**reflection, "questions": ["motive"]}}),
+        ("a repeated question",
+         {**challenge, "reflection": {**reflection, "questions": ["motive", "motive", "later"]}}),
+        ("an unknown question",
+         {**challenge, "reflection": {**reflection, "questions": ["motive", "are-you-sure", "later"]}}),
+        ("paths without a way to not decide today",
+         {**challenge, "reflection": {**reflection, "paths": ["export", "deactivate"]}}),
+        ("an unknown path", {**challenge, "reflection": {**reflection, "paths": ["snooze", "approve"]}}),
+        ("seven memories", {**challenge, "reflection": {**reflection, "recall": reflection["recall"] + [
+            {"kind": "confirmed", "quote": "x"}]}}),
+        ("a quote too long", {**challenge, "reflection": {**reflection, "recall": [
+            {"kind": "said", "quote": "🙂" * 121, "at_ms": 1}]}}),
+        ("a quote on two lines", {**challenge, "reflection": {**reflection, "recall": [
+            {"kind": "confirmed", "quote": "a\nb"}]}}),
+        ("an empty quote", {**challenge, "reflection": {**reflection, "recall": [
+            {"kind": "confirmed", "quote": ""}]}}),
+        ("a float time in a memory", {**challenge, "reflection": {**reflection, "recall": [
+            {"kind": "said", "quote": "x", "at_ms": 1.5}]}}),
+        ("a boolean time in a memory", {**challenge, "reflection": {**reflection, "recall": [
+            {"kind": "said", "quote": "x", "at_ms": True}]}}),
+        ("a negative time", {**challenge, "reflection": {**reflection, "recall": [
+            {"kind": "said", "quote": "x", "at_ms": -1}]}}),
+        ("a time past the safe integers", {**challenge, "reflection": {**reflection, "recall": [
+            {"kind": "said", "quote": "x", "at_ms": 2**53}]}}),
+        ("nothing done, counted", {**challenge, "reflection": {**reflection, "recall": [
+            {"kind": "did", "count": 0, "last_at_ms": 1}]}}),
+        ("an observation that is text", {**challenge, "reflection": {**reflection, "recall": [
+            {"kind": "saw", "fact": "bio", "value": 1, "at_ms": 1}]}}),
+        ("an observed count as a string", {**challenge, "reflection": {**reflection, "recall": [
+            {"kind": "saw", "fact": "items", "value": "312", "at_ms": 1}]}}),
+        ("an observation with a label", {**challenge, "reflection": {**reflection, "recall": [
+            {"kind": "saw", "fact": "items", "value": 1, "at_ms": 1, "label": "approve now"}]}}),
+        ("an unknown memory kind", {**challenge, "reflection": {**reflection, "recall": [
+            {"kind": "model_says", "quote": "it is safe"}]}}),
+        ("a reason with an extra field", {**challenge, "reflection": {
+            **reflection, "why_now": {"quote": "x", "at_ms": 1, "urgent": True}}}),
+        ("a reflection with an extra field", {**challenge, "reflection": {**reflection, "arm_after_ms": 0}}),
+        ("an unknown gentler path", {"type": "GATE_2_REPLY", "challenge_id": "c-1", "decision": "alternative",
+                                     "path": "delete-later"}),
+        ("a gentler path with a token", {"type": "GATE_2_REPLY", "challenge_id": "c-1",
+                                         "decision": "alternative", "path": "snooze", "authorization": token}),
+        ("a gentler path without a path", {"type": "GATE_2_REPLY", "challenge_id": "c-1",
+                                           "decision": "alternative"}),
     ]
     bad_out = []
     for name, pkt in bad:
@@ -576,6 +653,8 @@ def symbiont_link_vectors() -> dict:
         raise AssertionError(f"non-canonical packet accepted: {name}")
     packets = {
         "limits": dict(sp.LIMITS),
+        "reflection_sets": {"questions": list(sp.QUESTIONS), "paths": list(sp.PATHS),
+                            "saw_facts": list(sp.SAW_FACTS)},
         "max_packet_bytes": sp.MAX_PACKET_BYTES,
         "good": [{"name": n, "text": _text(p)} for n, p in good],
         "bad": bad_out,

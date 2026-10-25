@@ -53,7 +53,19 @@ LIMITS = {
     "step.path": 1000,
     "did": 200,
     "sig": 200,
+    "reflection.recall": 6,
+    "reflection.quote": 120,
+    "reflection.count": 1_000_000,
 }
+
+# Gate 2's reflection (citadel/reflection.py builds it; the page words it). Closed
+# sets: the node picks, the page says. A question set always opens with the
+# motive and closes with "later"; a path set always lets the operator not decide
+# today. A challenge without a reflection is refused -- it would skip the asking.
+QUESTIONS = ("motive", "recent", "keep", "later")
+PATHS = ("export", "deactivate", "snooze")
+SAW_FACTS = ("joined_at", "last_active_at", "items", "followers")
+MAX_SAFE_INT = 2**53 - 1
 
 PAGE_TO_NODE = frozenset({"ADD_GOAL", "GATE_1_REPLY", "GATE_2_REPLY", "STOP"})
 NODE_TO_PAGE = frozenset({"CURRENT_STATUS", "GOAL_UPDATE", "GATE_1_PROBE", "GATE_2_CHALLENGE", "GATE_CLOSED"})
@@ -117,6 +129,22 @@ def _bool(v, path: str) -> bool:
     return v
 
 
+def _int(v, path: str, lo: int = 0, hi: int = MAX_SAFE_INT) -> int:
+    if isinstance(v, bool) or not isinstance(v, int) or not lo <= v <= hi:
+        raise PacketError(path, f"not an integer in {lo}..{hi}")
+    return v
+
+
+def _set(v, path: str, allowed, *, lo: int, hi: int) -> list:
+    if not isinstance(v, list) or not lo <= len(v) <= hi:
+        raise PacketError(path, "not a short list")
+    for i, x in enumerate(v):
+        _enum(x, f"{path}[{i}]", allowed)
+    if len(set(v)) != len(v):
+        raise PacketError(path, "repeated")
+    return v
+
+
 def _check_token(tok, path: str) -> None:
     _fields(tok, path, set(TOKEN_FIELDS))
     if tok["type"] != AUTHORIZATION_TYPE:
@@ -155,6 +183,9 @@ def _check_gate2_reply(p) -> None:
         _check_token(p["authorization"], "authorization")
     elif decision == "cancel":
         _fields(p, "", {"type", "challenge_id", "decision"})
+    elif decision == "alternative":  # a gentler path the reflection offered (the node checks it was)
+        _fields(p, "", {"type", "challenge_id", "decision", "path"})
+        _enum(p["path"], "path", PATHS)
     else:
         raise PacketError("decision", "not an allowed value")
     _id(p["challenge_id"], "challenge_id")
@@ -229,9 +260,54 @@ def _check_action(a, path: str) -> None:
     _bool(a["high_risk"], f"{path}.high_risk")
 
 
+def _check_quote(v, path: str) -> None:
+    _str(v, path, max_len=LIMITS["reflection.quote"], min_len=1, single_line=True)
+
+
+def _check_recall(item, path: str) -> None:
+    kind = item.get("kind") if isinstance(item, dict) else None
+    if kind == "said":
+        _fields(item, path, {"kind", "quote", "at_ms"})
+        _check_quote(item["quote"], f"{path}.quote")
+        _int(item["at_ms"], f"{path}.at_ms")
+    elif kind == "confirmed":
+        _fields(item, path, {"kind", "quote"})
+        _check_quote(item["quote"], f"{path}.quote")
+    elif kind == "did":
+        _fields(item, path, {"kind", "count", "last_at_ms"})
+        _int(item["count"], f"{path}.count", 1, LIMITS["reflection.count"])
+        _int(item["last_at_ms"], f"{path}.last_at_ms")
+    elif kind == "saw":
+        _fields(item, path, {"kind", "fact", "value", "at_ms"})
+        _enum(item["fact"], f"{path}.fact", SAW_FACTS)
+        _int(item["value"], f"{path}.value")
+        _int(item["at_ms"], f"{path}.at_ms")
+    else:
+        raise PacketError(f"{path}.kind", "not an allowed value")
+
+
+def _check_reflection(r, path: str) -> None:
+    _fields(r, path, {"recall", "questions", "paths"}, {"why_now"})
+    recall = r["recall"]
+    if not isinstance(recall, list) or len(recall) > LIMITS["reflection.recall"]:
+        raise PacketError(f"{path}.recall", "not a short list")
+    for i, item in enumerate(recall):
+        _check_recall(item, f"{path}.recall[{i}]")
+    if "why_now" in r:
+        _fields(r["why_now"], f"{path}.why_now", {"quote", "at_ms"})
+        _check_quote(r["why_now"]["quote"], f"{path}.why_now.quote")
+        _int(r["why_now"]["at_ms"], f"{path}.why_now.at_ms")
+    qs = _set(r["questions"], f"{path}.questions", QUESTIONS, lo=2, hi=3)
+    if qs[0] != "motive" or qs[-1] != "later":
+        raise PacketError(f"{path}.questions", "opens with the motive and closes with later")
+    if "snooze" not in _set(r["paths"], f"{path}.paths", PATHS, lo=1, hi=len(PATHS)):
+        raise PacketError(f"{path}.paths", "always offers not deciding today")
+
+
 def _check_challenge(p) -> None:
     _fields(p, "", {"type", "challenge_id", "emotional_memory", "target_summary", "action_type", "action",
-                    "action_hash", "subject", "expires_at"}, {"goal_id"})
+                    "action_hash", "subject", "expires_at", "reflection"}, {"goal_id"})
+    _check_reflection(p["reflection"], "reflection")
     _id(p["challenge_id"], "challenge_id")
     _str(p["emotional_memory"], "emotional_memory", max_len=LIMITS["emotional_memory"], min_len=1,
          single_line=True)
@@ -329,4 +405,4 @@ def decode(data: bytes, *, direction: str | None = None) -> dict:
 
 __all__ = ["PacketError", "validate", "encode", "decode", "LIMITS", "MAX_PACKET_BYTES", "PAGE_TO_NODE",
            "NODE_TO_PAGE", "DESTRUCTIVE_UNBIND", "AUTHORIZATION_TYPE", "TOKEN_FIELDS", "CONFIRM_IDS",
-           "CONFIRM_ABOUTS", "ID"]
+           "CONFIRM_ABOUTS", "ID", "QUESTIONS", "PATHS", "SAW_FACTS"]
