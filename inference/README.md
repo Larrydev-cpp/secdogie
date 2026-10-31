@@ -196,9 +196,32 @@ cd inference && python -m pytest tests -q
   lockdown (and the reset), one incident id whoever reports a fork, a link whose end
   stops hearing the other leaving every route, and a node that missed three incidents
   catching up from its neighbours' ledger roots.
+* `test_gate.py`: the canary probe vetoed, divergence escalating an action request to
+  a two-node cross-check (and failing closed when one model cannot be cross-checked),
+  a user implicated by forbidden-capability evidence vetoed until the reset, a latched
+  node vetoing everything, and 300 random histories that never lower a quorum.
 * `test_udp.py`: one request across real UDP (`DirectUDPTransport` + `ChannelMux`).
 * Unit tests for every module: protocol, leases, screens, topology, health and
   breaker, mutiny evidence and ledger, router.
+
+## The decision gate
+
+Before a serving node chooses any route, its `DecisionGate` (`gate.py`) reviews the
+request, deterministically, against hard rules and against the node's own `History`
+of outcomes, divergent answers and opened breakers:
+
+* **veto** (`vetoed: …`), which nothing turns off: the node itself is latched; the input
+  carries a lease canary token; or the request acts (it has scopes) and comes from a
+  user whose earlier action request drew a forbidden capability from a model, until
+  an operator's reset names that incident;
+* **escalate**: an action request whose models recently diverged or were intercepted,
+  whose model nodes' breakers opened, or whose user keeps getting intercepted must be
+  answered by two model nodes that agree, even if the user asked for one. If that
+  cross-check cannot be routed, the request is refused; it fails closed.
+
+History can only make the gate stricter: it raises the quorum, never lowers what the
+user asked for. The absolute circuit breaker is still the mutiny latch (drawing ③);
+the gate keeps the decision layer from walking into what history already shows.
 
 ## Bounded by construction
 

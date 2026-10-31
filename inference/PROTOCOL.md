@@ -54,7 +54,7 @@ signed contents prove.
 | `resp` | hop → previous hop | `decision`, `response`, `leg`, `hop` |
 | `nack` | hop → previous hop | `decision`, `leg`, `hop`, `at`, `unreachable`, `reason` |
 | `result` | decider or forwarder → user | `request_hash`, `items` (`[decision, response]` pairs) |
-| `refused` | entry → user | `request_hash`, `reason` (`intercepted: …`, `lockdown: …`, `no route: …`, `no quorum: …`, `busy: …`, `expired: …`, …). The user waits `retry_backoff` before asking again after `no route` / `no quorum` from its last untried entry |
+| `refused` | entry → user | `request_hash`, `reason` (`intercepted: …`, `lockdown: …`, `no route: …`, `no quorum: …`, `busy: …`, `expired: …`, `vetoed: …`, …). The user waits `retry_backoff` before asking again after `no route` / `no quorum` from its last untried entry |
 | `flood` | any → neighbours | `obj`: heartbeat, advisory, fault report, incident, reset, lease revocation |
 | `grant` | broker → model node | `lease`, `sealed` |
 | `dir?` / `dir` | any ↔ node | `leases`, newest `incidents` (2), `resets` (8), `incident_ids` (≤ 64 held). A user's `dir?` also attaches it. |
@@ -70,7 +70,16 @@ leg whose next hop is latched or unreachable.
 **Normal and degraded.** The steps run in this order:
 
 1. `submit` arrives at a serving node.
-2. The node verifies the request.
+2. The node verifies the request, then its **decision gate** reviews it (`gate.py`,
+   deterministic, before any route is chosen). `veto` refuses it `vetoed: …`: the node
+   is latched, the input carries a lease canary token, or the request acts (has
+   scopes) and comes from a user whose own action request is the evidence in a held
+   `model.forbidden-capability` incident. `escalate` raises the quorum this node needs
+   to 2 agreeing answers from distinct model nodes for an action request whose models
+   recently diverged or were intercepted, whose model nodes' breakers opened, or whose
+   user's requests were intercepted 3 times within the hour; a cross-check that cannot
+   be routed (or pins that rule it out) is refused `vetoed: …`. History only ever
+   raises the quorum. The lockdown forwarder applies the vetoes too.
 3. It builds a view: confirmed links among live nodes, excluding latched, quarantined
    and suspect nodes, and keeping only model nodes with a current lease and a
    non-open breaker.

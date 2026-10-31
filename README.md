@@ -7,8 +7,9 @@
 
 **感知以结构为主。** 目标是通过无障碍树（AX/UIA）+ 只读结构化 DIB 引用 + 已授权
 网页会话的 AX/文本来「看」，而不是屏幕像素。**现状（如实）**：macOS 上实时回路把 AX
-树渲染成结构图交给模型；Windows / Linux 上实时回路**仍在截屏**。改为结构化优先、
-截图只在机主显式开启时使用，见 [`ROADMAP.md`](ROADMAP.md) 的 Track D。
+树渲染成结构图交给模型；Windows / Linux 上实时回路**仍在截屏**。机主已决定彻底移除
+截图 / 视觉路径：无 AX 树的应用改用 Atlas 只读内存结构视图，两者皆无则 fail-closed；
+尚未实现，见 [`ROADMAP.md`](ROADMAP.md) 的 Track D（D5 / D6）。
 
 > 完整架构见 [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md)；总路线图见 [`ROADMAP.md`](ROADMAP.md)；
 > 深度源码审计与规范对齐见 [`docs/AUDIT-P2P-ALIGNMENT.zh.md`](docs/AUDIT-P2P-ALIGNMENT.zh.md)。
@@ -76,7 +77,7 @@ identity/    transport/    citadel/     citadel/       agent/ + 安全边界
 | 记忆 | `citadel/episodes.py` / `lessons.py` / `consolidate.py`：阶段式记忆 S1 情节 → S2 隔离区 → S3 巩固；事实须操作员签名确认，只让门更严 | ✅ |
 | 对话 | `dialogue/`（`secdogie-dialogue`）：操作员的 Dialogue App——追问与回答、结构化视界（无像素）、Gate 2 签名台、记忆确认；丢包 / 乱序下的会话层 | ✅ |
 | 节点 | `node/`（`secdogie-node`）：常驻节点，组装传输、对话、签名日志与受监督回路；真实 UDP 端到端测试 | ✅ |
-| 推理网格 | `inference/`：三态路由——常态经网格到租约模型节点；节点失效时绕行、隔离与中央兜底；叛变锁定（自证证据、密钥轮换、双模型交叉验证、操作员签名解除） | ✅ |
+| 推理网格 | `inference/`：按手绘图三态路由——常态经四个 P2P+S 到租约模型节点；节点失效时绕行、隔离、连中央 server 兜底、新 P2P 挂 API key；叛变锁定（自证证据、密钥轮换、双模型交叉验证、操作员签名解除）。协议 v2：显式模式状态机、有界会话、Merkle-DAG 心跳（分叉隔离、见证链路、账本反熵）、历史感知决策门 | ✅ |
 | 感知/动作 | `agent/observation.py`（AX + DIB 按引用融合）+ `target.py`（TOCTOU）+ AX/safety；`native/atlas`（只读、DIB 重建） | 🔨 构件已建成，observation/target 尚未接入实时回路 |
 | 设备/会话 | `desktop/`（聊天式原生窗口 + `websession.py` 复用**已授权**浏览器会话，只读导航 + 读结构） | ✅ |
 | 承载/运维 | `tunnel/`（C 加密隧道，机密性）、`fleet/`、`console/` | ✅ |
