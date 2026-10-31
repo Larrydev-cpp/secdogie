@@ -40,6 +40,7 @@ from .protocol import (
 )
 from .router import Leg, NoRoute, Router, View
 from .safety import SafetyLayer, Verdict, default_agree
+from .state import IllegalTransition, ModeInputs, ModeMachine, NodeHealth, Transition
 from .wire import MuxWire, Wire
 
 __version__ = "0.1.0"
@@ -76,6 +77,11 @@ __all__ = [
     "CircuitBreaker",
     "Suspicion",
     "FaultTracker",
+    "ModeMachine",
+    "ModeInputs",
+    "Transition",
+    "IllegalTransition",
+    "NodeHealth",
     "Wire",
     "MuxWire",
     "make_request",

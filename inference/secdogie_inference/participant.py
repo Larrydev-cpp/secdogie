@@ -39,9 +39,7 @@ from .protocol import (
     FAULT,
     HEARTBEAT,
     MAX_REASON,
-    MODE_DEGRADED,
     MODE_LOCKDOWN,
-    MODE_NORMAL,
     ROLES,
     check_advisory,
     check_decision,
@@ -54,6 +52,15 @@ from .protocol import (
     is_int,
     make_heartbeat,
     parse_frame,
+)
+from .state import (
+    CAUSE_ADVISORY,
+    CAUSE_LATCH,
+    CAUSE_LIVENESS,
+    CAUSE_RESET,
+    ModeInputs,
+    ModeMachine,
+    NodeHealth,
 )
 from .topology import LinkStateDB
 
@@ -124,7 +131,8 @@ class Participant:
         self._seen = _Recent(8192)
         self._seq = time.time_ns()  # keeps increasing across restarts
         self._next_beat = 0.0
-        self._last_mode: str | None = None
+        self.machine = ModeMachine()     # the mode, as an explicit state machine (state.py)
+        self._causes: set[str] = set()   # what was absorbed since the mode was last evaluated
         self._lock = threading.RLock()
         self._dispatch = {"flood": self._on_flood, "dir?": self._on_dir_query, "dir": self._on_dir}
 
@@ -232,6 +240,7 @@ class Participant:
             if cur is not None and obj["epoch"] <= cur["epoch"]:
                 return False
             self.advisories[obj["coordinator"]] = obj
+            self._causes.add(CAUSE_ADVISORY)
             self.on_advisory(obj)
             return True
         if kind == FAULT:
@@ -244,10 +253,13 @@ class Participant:
             if inc is None:
                 return False
             self.note("incident", kind=inc.kind, targets=sorted(inc.targets), id=inc.incident_id)
+            self._causes.add(CAUSE_LATCH)
             self.on_incident(inc)
             return True
         if kind == RESET:
             new, unlatched = self.ledger.reset(obj)
+            if new:
+                self._causes.add(CAUSE_RESET)
             if unlatched:
                 self.note("reset", targets=sorted(unlatched))
                 self.on_reset(unlatched)
@@ -281,15 +293,40 @@ class Participant:
 
     # -- the view -----------------------------------------------------------------
 
-    def mode(self, now: float | None = None) -> str:
-        if self.ledger.lockdown:
-            return MODE_LOCKDOWN
+    def mode_inputs(self, now: float | None = None) -> ModeInputs:
+        """Everything the mode depends on, as this participant holds it now."""
         now = float(self.clock()) if now is None else now
-        if any(adv["failed"] or adv["quarantined"] for adv in self.advisories.values()):
-            return MODE_DEGRADED
-        if any(not self.lsdb.alive(d, now) for d in self.lsdb.known() if d != self.did):
-            return MODE_DEGRADED
-        return MODE_NORMAL
+        return ModeInputs(
+            lockdown_latches=frozenset(self.ledger.latched()) if self.ledger.lockdown else frozenset(),
+            failed=frozenset(d for adv in self.advisories.values() for d in adv["failed"]),
+            quarantined=frozenset(self.quarantined()),
+            stale=frozenset(d for d in self.lsdb.known() if d != self.did and not self.lsdb.alive(d, now)),
+        )
+
+    def mode(self, now: float | None = None) -> str:
+        """normal | degraded | lockdown, derived from what this participant holds
+        (``state.ModeMachine.derive``)."""
+        return ModeMachine.derive(self.mode_inputs(now))
+
+    def health_snapshot(self, now: float | None = None) -> dict[str, NodeHealth]:
+        """This participant's view of every other node it knows, across the
+        per-node machines: liveness, suspicion, quarantine, breaker, latch."""
+        now = float(self.clock()) if now is None else now
+        suspects = self.local_exclusions(now)
+        out = {}
+        for d in self.lsdb.known():
+            if d == self.did:
+                continue
+            out[d] = NodeHealth(d, self.lsdb.roles(d), self.lsdb.alive(d, now), d in suspects,
+                                self.quarantine_status(d, now), self.breaker_state(d, now),
+                                self.ledger.excludes_node(d), False)
+        return out
+
+    def quarantine_status(self, did: str, now: float) -> str:
+        return "quarantined" if did in self.quarantined() else "healthy"
+
+    def breaker_state(self, did: str, now: float) -> str:
+        return ""
 
     def epoch(self) -> int:
         return max((adv["epoch"] for adv in self.advisories.values()), default=0)
@@ -306,11 +343,15 @@ class Participant:
         return out | self.quarantined() | self.local_exclusions(now)
 
     def _check_mode(self) -> None:
-        mode = self.mode()
-        if mode != self._last_mode:
-            old, self._last_mode = self._last_mode, mode
-            self.note("mode", mode=mode, was=old)
-            self.on_mode(old, mode)
+        """Step the mode machine with what was absorbed since the last step.
+        Time passing (liveness) is always a possible cause; leaving lockdown
+        takes a reset, or ``state.IllegalTransition`` is raised."""
+        now = float(self.clock())
+        causes, self._causes = self._causes | {CAUSE_LIVENESS}, set()
+        t = self.machine.step(self.mode_inputs(now), causes=causes, now=now)
+        if t is not None:
+            self.note("mode", mode=t.new, was=t.old, cause=t.cause)
+            self.on_mode(t.old, t.new)
 
     def _beat(self, now: float) -> None:
         self._seq += 1

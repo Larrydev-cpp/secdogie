@@ -132,6 +132,18 @@ Latches never time out. An operator signs a reset (`make_reset`) naming the targ
 and the incident ids it reviewed. A reset cannot clear an incident it does not name,
 and an incident that arrives again after its reset does not latch again.
 
+## The mode as a state machine
+
+Each participant runs a `ModeMachine` (`state.py`): `normal` (drawing ①), `degraded`
+(②) and `lockdown` (③). A move must have a cause the table allows; only an
+operator's reset leaves lockdown, and any other exit raises `IllegalTransition`. Moves
+are kept as `Transition` records and can be subscribed to:
+
+```python
+node.machine.subscribe(lambda t: print(t.old, "->", t.new, "because", t.cause))
+node.health_snapshot()   # per node: alive, suspect, quarantine, breaker, latched, isolated
+```
+
 ## Using it
 
 ```python
@@ -164,6 +176,9 @@ cd inference && python -m pytest tests -q
   reinstated; decision-model mutiny with lockdown and reset, a convicted decider, a
   leaking model node and key rotation, an upstream model proposing `run_elevated`,
   equivocation caught by multipath, disagreement intercepted.
+* `test_state.py`: the mode machine. Every (from, to, cause) move is taken exactly when
+  the table allows it, only a reset leaves lockdown, the three drawings as recorded
+  transitions, and a latch cleared behind the ledger's back failing loudly.
 * `test_udp.py`: one request across real UDP (`DirectUDPTransport` + `ChannelMux`).
 * Unit tests for every module: protocol, leases, screens, topology, health and
   breaker, mutiny evidence and ledger, router.

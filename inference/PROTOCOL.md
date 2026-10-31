@@ -97,10 +97,30 @@ leg whose next hop is latched or unreachable.
 
 ## State machines
 
-**Mode** is computed by each participant:
-`lockdown` if any latch is held, else `degraded` if any advisory lists failed or
-quarantined nodes, or any known node is stale, else `normal`. Only a valid operator
-reset leaves lockdown.
+**Mode** (`state.ModeMachine`, one per participant). `derive` is the rule:
+`lockdown` if any mutiny latch is held, else `degraded` if any advisory lists failed or
+quarantined nodes, any known node is stale, or a node is isolated by proof, else
+`normal`. `step` moves the machine and checks every move against this table; a move
+needs one of the causes listed for it:
+
+| From → to | Causes |
+| --- | --- |
+| (none) → any | `start` |
+| normal → degraded | `liveness`, `advisory`, `isolation` |
+| degraded → normal | `liveness`, `advisory`, `reset` |
+| normal → lockdown, degraded → lockdown | `latch` |
+| lockdown → normal, lockdown → degraded | `reset` **only** |
+
+Causes are what the participant absorbed since the last step (an advisory, an
+incident, a reset), plus `liveness`, which time passing can always cause. A move with
+no allowed cause raises `IllegalTransition`: latches are cleared only by a verified
+operator reset, so leaving lockdown any other way is a bug and fails loudly. Each
+move is a `Transition {at, old, new, cause, inputs}` kept in a bounded history (256)
+and handed to subscribers; `on_mode(old, new)` still fires.
+
+`Participant.health_snapshot(now)` reads the per-node machines below for every node a
+participant knows: `NodeHealth {alive, suspect, quarantine, breaker, latched,
+isolated}`.
 
 **Liveness.** A node is alive while new heartbeats (higher `seq`) keep arriving, timed
 by the receiver's clock. It is down after `fail_after` (default 7 s).

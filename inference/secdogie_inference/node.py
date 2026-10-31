@@ -375,6 +375,9 @@ class MeshNode(Carrier):
     def local_exclusions(self, now: float) -> set[str]:
         return self.suspicion.suspects(now)
 
+    def breaker_state(self, did: str, now: float) -> str:
+        return self.breaker.state(node_target(did), now) if ROLE_MODEL in self.lsdb.roles(did) else ""
+
     def load(self) -> float:
         return min(len(self._pending) / 32.0, 1.0)
 

@@ -56,6 +56,9 @@ class Coordinator(Carrier):
         if self.faults.report(report["accused"], report["reporter"], now):
             self.note("quarantine", node=report["accused"][-8:], reason=report["reason"])
 
+    def quarantine_status(self, did: str, now: float) -> str:
+        return self.faults.status(did, now)  # its own tracker: probation shows too
+
     def may_carry(self, decision: dict, now: float) -> str | None:
         if self.ledger.lockdown:
             return "lockdown: the central server is off the data path"
