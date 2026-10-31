@@ -48,6 +48,7 @@ spreads with the evidence is already dead.
 from __future__ import annotations
 
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 
 from secdogie_identity import sign_payload
@@ -256,25 +257,50 @@ def verify_reset(obj, trust) -> tuple[frozenset[str], frozenset[str]] | None:
     return frozenset(targets), frozenset(ids)
 
 
+MAX_HOLDERS = 16   # incidents kept per latched target
+MAX_RESETS = 64    # signed resets kept for directories (what they cleared is kept regardless)
+
+
 class MutinyLedger:
-    """Verified incidents and the latches they hold. Any latch is lockdown."""
+    """Verified incidents and the latches they hold. Any latch is lockdown.
+
+    Bounded without ever letting a held latch go:
+
+      * an incident whose every open target is already held by ``MAX_HOLDERS``
+        others is verified but not kept -- it proves nothing new. If it turns
+        up again after a reset frees its target, it latches it again: the
+        bound fails closed;
+      * an incident that no longer holds any target (an operator cleared it)
+        is kept only as a tombstone id, so it is never re-applied; the
+        cleared ``(target, incident)`` pairs stay;
+      * only the newest ``MAX_RESETS`` signed resets are kept for directories.
+
+    Targets are DIDs and model names of the mesh, so with ``MAX_HOLDERS`` the
+    ledger is bounded by the size of the mesh, not by how many incidents arrive.
+    """
 
     def __init__(self, trust):
         self._trust = trust
         self._incidents: dict[str, Incident] = {}
+        self._tombstones: set[str] = set()             # cleared incidents: their ids, not their evidence
         self._latches: dict[str, set[str]] = {}        # target -> incident ids holding it
         self._cleared: set[tuple[str, str]] = set()    # (target, incident id) an operator cleared
-        self._resets: dict[str, dict] = {}
+        self._resets: OrderedDict[str, dict] = OrderedDict()
 
     def add(self, obj) -> Incident | None:
         """Verify and apply an incident; the incident if it was new."""
         inc = verify_incident(obj, self._trust)
-        if inc is None or inc.incident_id in self._incidents:
+        if inc is None or inc.incident_id in self._incidents or inc.incident_id in self._tombstones:
             return None
-        self._incidents[inc.incident_id] = inc
-        for t in inc.targets:
-            if (t, inc.incident_id) not in self._cleared:
+        open_targets = [t for t in inc.targets if (t, inc.incident_id) not in self._cleared]
+        if open_targets and all(len(self._latches.get(t, ())) >= MAX_HOLDERS for t in open_targets):
+            return None  # every target it names is already held by enough evidence
+        if open_targets:
+            self._incidents[inc.incident_id] = inc
+            for t in open_targets:
                 self._latches.setdefault(t, set()).add(inc.incident_id)
+        else:
+            self._tombstones.add(inc.incident_id)  # arrived after the reset that cleared it
         return inc
 
     def reset(self, obj) -> tuple[bool, frozenset[str]]:
@@ -286,6 +312,8 @@ class MutinyLedger:
         if key in self._resets:
             return False, frozenset()
         self._resets[key] = obj
+        while len(self._resets) > MAX_RESETS:
+            self._resets.popitem(last=False)
         targets, ids = parsed
         self._cleared |= {(t, i) for t in targets for i in ids}
         unlatched = set()
@@ -297,11 +325,19 @@ class MutinyLedger:
             if not held:
                 del self._latches[t]
                 unlatched.add(t)
+        for i in ids:
+            inc = self._incidents.get(i)
+            if inc is not None and not any(i in self._latches.get(t, ()) for t in inc.targets):
+                del self._incidents[i]  # holds nothing any more: keep the id, drop the evidence
+                self._tombstones.add(i)
         return True, frozenset(unlatched)
 
     @property
     def lockdown(self) -> bool:
         return bool(self._latches)
+
+    def latched_targets(self) -> frozenset[str]:
+        return frozenset(self._latches)
 
     def latched(self) -> dict[str, frozenset[str]]:
         return {t: frozenset(ids) for t, ids in self._latches.items()}
@@ -317,7 +353,12 @@ class MutinyLedger:
         return self._incidents.get(incident_id)
 
     def signed_incidents(self) -> list[dict]:
+        """The incidents still holding a latch, oldest first."""
         return [inc.signed for inc in self._incidents.values()]
+
+    def sizes(self) -> dict[str, int]:
+        return {"incidents": len(self._incidents), "tombstones": len(self._tombstones),
+                "latched": len(self._latches), "cleared": len(self._cleared), "resets": len(self._resets)}
 
     def signed_resets(self) -> list[dict]:
         return list(self._resets.values())

@@ -88,6 +88,12 @@ class Config:
     probation: float = 30.0
     lease_ttl: float = 600.0
     lease_renew_at: float = 0.5     # renew a lease with less than this fraction of its TTL left
+    # Memory bounds (session.py): what one node holds, whatever arrives.
+    max_sessions: int = 64          # requests a serving node routes at once
+    max_sessions_per_user: int = 8  # of which one user may hold
+    retain_results: int = 256       # settled requests whose final frame is kept for repeats
+    retain_bytes: int = 4 << 20     # ... and their encoded size
+    answer_bytes: int = 8 << 20     # a model node's remembered answers
 
 
 class _Recent:
@@ -185,6 +191,7 @@ class Participant:
             if self.beats and now >= self._next_beat:
                 self._beat(now)
                 self._next_beat = now + self.config.heartbeat_every
+            self.leases.prune(now)
             self.on_tick(now)
             self._check_mode()
 
@@ -297,7 +304,7 @@ class Participant:
         """Everything the mode depends on, as this participant holds it now."""
         now = float(self.clock()) if now is None else now
         return ModeInputs(
-            lockdown_latches=frozenset(self.ledger.latched()) if self.ledger.lockdown else frozenset(),
+            lockdown_latches=self.ledger.latched_targets() if self.ledger.lockdown else frozenset(),
             failed=frozenset(d for adv in self.advisories.values() for d in adv["failed"]),
             quarantined=frozenset(self.quarantined()),
             stale=frozenset(d for d in self.lsdb.known() if d != self.did and not self.lsdb.alive(d, now)),

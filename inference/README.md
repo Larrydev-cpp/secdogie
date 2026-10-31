@@ -179,9 +179,24 @@ cd inference && python -m pytest tests -q
 * `test_state.py`: the mode machine. Every (from, to, cause) move is taken exactly when
   the table allows it, only a reset leaves lockdown, the three drawings as recorded
   transitions, and a latch cleared behind the ledger's back failing loudly.
+* `test_session.py`: session edges, admission per node and per user (`busy`), expiry,
+  late answers for closed sessions, bounded retention, the user's `take`/`forget`,
+  revoked-id forgetting, wiped lease secrets, the ledger's holder cap failing closed,
+  and a **soak**: twenty simulated minutes of crashes, a black hole, lease renewals,
+  lockdown and reset and a stream of requests, after which every table is under its cap.
 * `test_udp.py`: one request across real UDP (`DirectUDPTransport` + `ChannelMux`).
 * Unit tests for every module: protocol, leases, screens, topology, health and
   breaker, mutiny evidence and ledger, router.
+
+## Bounded by construction
+
+Every request a serving node routes is a session with an explicit lifecycle in a
+bounded table (`session.py`): at most 64 at once and 8 per user (`busy: …` beyond
+that), each with an expiry, and closing one releases everything it held. A user's
+asks are bounded the same way; collect outcomes with `take(handle)`. Every other
+table -- answers, equivocation memory, leases, revoked ids, fault records, suspicion,
+the mutiny ledger -- has a bound, listed in PROTOCOL.md. None of them grows with what
+arrives; the soak test checks that.
 
 ## Honest limits
 
@@ -202,5 +217,9 @@ cd inference && python -m pytest tests -q
   been coaxed out by its prompt. The evidence carries the user-signed request, so the
   operator can see who asked and revoke that user. The mesh fails closed instead of
   guessing intent.
+* **Secrets in a garbage-collected heap.** Held lease secrets are `bytearray`s, zeroed
+  on expiry and revocation, but the backend receives a `str`, and opening the grant
+  makes one too; CPython cannot zero those. The guarantee is that nothing references a
+  secret longer than it must, not that it is erased from the process.
 * **Operator-sized meshes.** Link-state flooding costs O(nodes × links) per heartbeat
   interval. That is fine for tens of nodes, and it is not designed for internet scale.

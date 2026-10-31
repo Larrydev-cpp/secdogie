@@ -65,6 +65,7 @@ class Coordinator(Carrier):
         return super().may_carry(decision, now)
 
     def on_tick(self, now: float) -> None:
+        self.faults.prune(now)
         if now >= self._next_advice:
             self._next_advice = now + self.config.advise_every
             self.advise(now)

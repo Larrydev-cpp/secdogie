@@ -35,14 +35,24 @@ import re
 import secrets
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 
 from nacl.exceptions import CryptoError
 from nacl.public import PrivateKey, PublicKey, SealedBox
 from secdogie_identity import sign_payload
 from secdogie_identity.signing import canonical
 
-from .protocol import MAX_REASON, digest, is_did, is_hex32, is_hex64, is_int, is_model, is_num, signed_by
+from .protocol import (
+    MAX_REASON,
+    MAX_SKEW,
+    digest,
+    is_did,
+    is_hex32,
+    is_hex64,
+    is_int,
+    is_model,
+    is_num,
+    signed_by,
+)
 
 LEASE = "secdogie/inference/lease/v1"
 LEASE_REVOCATION = "secdogie/inference/lease-revocation/v1"
@@ -51,6 +61,10 @@ CANARY_PREFIX = "sdgc_"
 CANARY = re.compile(r"sdgc_[0-9a-f]{32}")
 MAX_REVOKED = 64
 DEFAULT_TTL = 600.0
+# The longest lease a broker may sign. It also bounds how long a revoked lease
+# id must be remembered: a lease exists before its revocation, so it is dead
+# by the revocation's time plus this much, whether or not it was ever seen.
+MAX_LEASE_TTL = 3600.0
 _ENVELOPE = ("lease_id", "signer", "sig")
 
 
@@ -62,13 +76,24 @@ def canary_hash(canary: str) -> str:
     return hashlib.sha256(canary.encode("ascii")).hexdigest()
 
 
-@dataclass(frozen=True)
 class LeaseSecret:
-    """A model node's opened lease: the public lease plus what was sealed."""
+    """A model node's opened lease: the public lease plus what was sealed.
 
-    lease: dict
-    secret: str
-    canary: str
+    The secret and the canary are held in ``bytearray``s and zeroed by
+    ``wipe()`` when the lease expires or is revoked. ``secret`` and ``canary``
+    hand out a fresh ``str`` for the backend call and the output guard, and
+    raise once wiped. CPython cannot zero those ``str`` copies, nor the one
+    ``json.loads`` made while opening the grant: the honest promise is that the
+    secret is referenced for as short a time as the code can manage, not that
+    it is erased from the process.
+    """
+
+    __slots__ = ("lease", "_secret", "_canary")
+
+    def __init__(self, lease: dict, secret: str, canary: str):
+        self.lease = lease
+        self._secret = bytearray(secret.encode("utf-8"))
+        self._canary = bytearray(canary.encode("ascii"))
 
     @property
     def lease_id(self) -> str:
@@ -77,6 +102,30 @@ class LeaseSecret:
     @property
     def model(self) -> str:
         return self.lease["model"]
+
+    @property
+    def wiped(self) -> bool:
+        return not self._secret
+
+    @property
+    def secret(self) -> str:
+        if self.wiped:
+            raise ValueError("the lease secret was wiped")
+        return self._secret.decode("utf-8")
+
+    @property
+    def canary(self) -> str:
+        if self.wiped:
+            raise ValueError("the lease secret was wiped")
+        return self._canary.decode("ascii")
+
+    def wipe(self) -> None:
+        for buf in (self._secret, self._canary):
+            buf[:] = bytes(len(buf))
+            del buf[:]
+
+    def __repr__(self) -> str:
+        return f"LeaseSecret({self.lease_id}, {self.model}, {'wiped' if self.wiped else 'held'})"
 
 
 # -- the public lease -----------------------------------------------------------
@@ -109,6 +158,8 @@ def lease_shape(obj: dict) -> str | None:
     vf, exp = obj.get("valid_from"), obj.get("expires_at")
     if not is_num(vf) or not is_num(exp) or exp <= vf:
         return "bad validity window"
+    if exp - vf > MAX_LEASE_TTL:
+        return "lease longer than MAX_LEASE_TTL"
     if not is_hex64(obj.get("canary_hash")):
         return "bad canary_hash"
     body = {k: v for k, v in obj.items() if k not in _ENVELOPE}
@@ -180,12 +231,14 @@ def check_lease_revocation(obj, trust) -> str | None:
 
 class LeaseBook:
     """The verified public leases and lease revocations one participant knows
-    about. Revocation is permanent (by lease id)."""
+    about. Revocation is permanent (by lease id): a revoked id is remembered
+    until the lease it names is dead anyway, then forgotten, so the book stays
+    bounded."""
 
     def __init__(self, trust):
         self._trust = trust
         self._leases: dict[str, dict] = {}
-        self._revoked: set[str] = set()
+        self._revoked: dict[str, float] = {}  # lease id -> when it may be forgotten
 
     def add(self, lease) -> bool:
         """Remember a public lease. True when it verified and was new."""
@@ -201,10 +254,11 @@ class LeaseBook:
         """Apply a broker-signed revocation; the lease ids it newly revoked."""
         if check_lease_revocation(obj, self._trust) is not None:
             return frozenset()
-        newly = frozenset(obj["lease_ids"]) - self._revoked
-        self._revoked |= newly
+        newly = frozenset(obj["lease_ids"]) - self._revoked.keys()
         for lid in newly:
-            self._leases.pop(lid, None)
+            known = self._leases.pop(lid, None)
+            dead_by = known["expires_at"] if known is not None else obj["issued_at"] + MAX_LEASE_TTL
+            self._revoked[lid] = dead_by + MAX_SKEW
         return newly
 
     def is_revoked(self, lease_id: str) -> bool:
@@ -247,6 +301,14 @@ class LeaseBook:
     def prune(self, now: float) -> None:
         for lid in [lid for lid, x in self._leases.items() if x["expires_at"] <= now]:
             del self._leases[lid]
+        for lid in [lid for lid, forget_at in self._revoked.items() if forget_at <= now]:
+            del self._revoked[lid]
+
+    def __len__(self) -> int:
+        return len(self._leases)
+
+    def revoked_count(self) -> int:
+        return len(self._revoked)
 
 
 # -- where secrets come from -------------------------------------------------------
@@ -295,6 +357,7 @@ __all__ = [
     "CANARY",
     "CANARY_PREFIX",
     "DEFAULT_TTL",
+    "MAX_LEASE_TTL",
     "LeaseSecret",
     "LeaseBook",
     "KeySource",

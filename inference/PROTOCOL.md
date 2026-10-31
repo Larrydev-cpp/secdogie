@@ -15,7 +15,7 @@ two keys). Every type is domain-separated, so no signature verifies as another t
 | `heartbeat/v1` | each mesh node | `node`, `roles`, `seq` (strictly increasing), `neighbors` (≤ 32), `load` (0–1), `leases` (≤ 4, own), `issued_at` |
 | `advisory/v1` | a coordinator | `coordinator`, `epoch` (increasing), `failed`, `quarantined`, `bypass` and `recruit` (DID pairs), `issued_at` |
 | `fault/v1` | a mesh node | `reporter`, `accused` (a mesh node, not the reporter), `reason` `timeout` \| `invalid` \| `divergent`, `request_hash`, `issued_at` (± 120 s). Flooded; only coordinators act on it |
-| `lease/v1` | a broker | `broker`, `subject`, `model`, `key_version`, `valid_from`, `expires_at`, `canary_hash`, `lease_id` (first 32 hex of the digest of the rest) |
+| `lease/v1` | a broker | `broker`, `subject`, `model`, `key_version`, `valid_from`, `expires_at` (at most `MAX_LEASE_TTL` = 3600 s after `valid_from`), `canary_hash`, `lease_id` (first 32 hex of the digest of the rest) |
 | `lease-revocation/v1` | a broker | `broker`, `lease_ids` (≤ 64), `reason`, `issued_at` |
 | `incident/v1` | a mesh node or user | `reporter`, `kind`, `evidence`, `incident_id` = digest of `{kind, evidence}`, `issued_at` |
 | `reset/v1` | an operator | `operator`, `targets` (`node:` / `model:` / `decider:` + id), `incident_ids`, `issued_at` |
@@ -47,7 +47,7 @@ signed contents prove.
 | `resp` | hop → previous hop | `decision`, `response`, `leg`, `hop` |
 | `nack` | hop → previous hop | `decision`, `leg`, `hop`, `at`, `unreachable`, `reason` |
 | `result` | decider or forwarder → user | `request_hash`, `items` (`[decision, response]` pairs) |
-| `refused` | entry → user | `request_hash`, `reason` (`intercepted: …`, `lockdown: …`, `no route: …`, `no quorum: …`, …). The user waits `retry_backoff` before asking again after `no route` / `no quorum` from its last untried entry |
+| `refused` | entry → user | `request_hash`, `reason` (`intercepted: …`, `lockdown: …`, `no route: …`, `no quorum: …`, `busy: …`, `expired: …`, …). The user waits `retry_backoff` before asking again after `no route` / `no quorum` from its last untried entry |
 | `flood` | any → neighbours | `obj`: heartbeat, advisory, fault report, incident, reset, lease revocation |
 | `grant` | broker → model node | `lease`, `sealed` |
 | `dir?` / `dir` | any ↔ node | `leases`, newest `incidents` (2), `resets` (8). A user's `dir?` also attaches it. |
@@ -172,9 +172,53 @@ that target again.
 * `decider:` triggers nothing.
 * A key that cannot be rotated is never lent again.
 
+## Session lifecycle and memory bounds
+
+Every request a serving node takes on is a session (`session.py`) in a bounded table,
+keyed by the request digest and owned by the user who submitted it:
+
+```
+open → deciding → dispatched → settling → closed
+          ↑                        │
+          └──── retry (attempt+1) ─┘        (any state → closed)
+```
+
+* **Admission.** At most `max_sessions` (64) live sessions, and `max_sessions_per_user`
+  (8) for one user. A request that does not fit is refused `busy: …` and nothing is
+  kept for it, so the same request may be submitted again later.
+* **Edges.** Any other move raises `IllegalSessionEdge`; `closed` is terminal. A late
+  `resp` or `nack` for a closed session finds no live session and is dropped.
+* **Expiry.** A session expires at the earlier of the request's `expires_at` and
+  `leg_timeout × MAX_ATTEMPTS + 5 s` after it opened; the node closes it and refuses
+  `expired: …`.
+* **Close** is the one way out. It drops the request, decisions, legs and answers the
+  session held and keeps only the final frame, for repeats: at most `retain_results`
+  (256) frames and `retain_bytes` (4 MiB).
+* Outcomes: `accepted`, `intercepted`, `refused`, `expired`, `aborted` (lockdown
+  arrived), `relayed` (the lockdown forwarder, which judges nothing).
+
+A user's asks follow the same discipline (`open → submitted ⇄ awaiting-dir → closed`):
+at most `max_open` (256) open asks, beyond which `ask` returns an immediately refused
+`busy: …` outcome; settled outcomes are kept until `take(handle)`, `forget(handle)`,
+`retain_for` (300 s) or `retain` (1024) newer ones.
+
+Everything else a participant holds is bounded too:
+
+| What | Bound |
+| --- | --- |
+| a model node's remembered answers (`_served`) | 4096 and `answer_bytes` (8 MiB) |
+| the safety layer's equivocation memory | 4096 answers and 16 MiB |
+| flood dedup (`_seen`) | 8192 digests |
+| public leases | pruned on expiry, every tick, by every role |
+| revoked lease ids | forgotten once the lease is dead: its `expires_at` + `MAX_SKEW`, or for an unseen lease the revocation's `issued_at` + `MAX_LEASE_TTL` + `MAX_SKEW` |
+| the coordinator's fault records | accused must be a mesh node; records with no report in the window, no quarantine or probation, and no strike are dropped |
+| local suspicion | zero scores and ended cooldowns are dropped |
+| the mutiny ledger | `MAX_HOLDERS` (16) incidents per latched target; an incident whose every target is already held that many times is not kept (if it arrives again after a reset, it latches again); cleared incidents become id-only tombstones; newest `MAX_RESETS` (64) signed resets |
+| held lease secrets | `bytearray`s zeroed on expiry and revocation |
+
 ## Limits (v1)
 
 `MAX_INPUT` = `MAX_OUTPUT` = 8000 characters (one frame, one datagram), `MAX_QUORUM`
 3, `LOCKDOWN_QUORUM` 2, `MAX_HOPS` 8, `MAX_ATTEMPTS` 3, `MAX_TTL` 300 s, `MAX_SKEW`
 120 s, `MAX_NEIGHBORS` 32, `MAX_LEASES` 4 per heartbeat, `MAX_LISTED` 64 per advisory
-list, and 64 lease ids per revocation.
+list, 64 lease ids per revocation, and `MAX_LEASE_TTL` 3600 s.

@@ -40,17 +40,25 @@ class Suspicion:
             self._score[d] = self._score.get(d, 0) + 1
             if self._score[d] >= self.threshold and self._until.get(d, 0.0) <= now:
                 self._until[d] = now + self.cooldown
-                self._score[d] = 0
+                del self._score[d]
                 newly.append(d)
         return newly
 
     def delivered(self, nodes: Iterable[str]) -> None:
         for d in nodes:
-            if self._score.get(d, 0) > 0:
-                self._score[d] -= 1
+            score = self._score.get(d, 0)
+            if score > 1:
+                self._score[d] = score - 1
+            elif score:
+                del self._score[d]  # a node at zero takes no memory
 
     def suspects(self, now: float) -> set[str]:
-        return {d for d, until in self._until.items() if until > now}
+        for d in [d for d, until in self._until.items() if until <= now]:
+            del self._until[d]  # a cooldown that ended takes no memory
+        return set(self._until)
+
+    def size(self) -> int:
+        return len(self._score) + len(self._until)
 
 
 QUARANTINED = "quarantined"
@@ -110,6 +118,22 @@ class FaultTracker:
 
     def quarantined(self, now: float) -> set[str]:
         return {d for d, rec in self._records.items() if now < rec.until}
+
+    def prune(self, now: float) -> None:
+        """Forget nodes with nothing left to remember: no quarantine or
+        probation running, no report inside the window, no strike (strikes are
+        forgiven after ten clean cooldowns, as in ``report``)."""
+        for did in list(self._records):
+            rec = self._records[did]
+            if now < rec.probation_until:
+                continue
+            if rec.strikes and now > rec.probation_until + 10 * self.cooldown:
+                rec.strikes = 0
+            if not rec.strikes and not any(now - t <= self.window for t in rec.reports.values()):
+                del self._records[did]
+
+    def __len__(self) -> int:
+        return len(self._records)
 
 
 __all__ = ["Suspicion", "FaultTracker", "QUARANTINED", "PROBATION", "HEALTHY"]

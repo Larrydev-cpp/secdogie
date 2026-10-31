@@ -29,7 +29,6 @@ plug in your own comparator for free-form answers.
 from __future__ import annotations
 
 import json
-from collections import OrderedDict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
@@ -57,6 +56,7 @@ from .protocol import (
     decision_violations,
     routed_through,
 )
+from .session import BoundedCache
 
 ACCEPTED = "accepted"
 INTERCEPTED = "intercepted"
@@ -98,14 +98,16 @@ def default_agree(a: str, b: str) -> bool:
 class SafetyLayer:
     def __init__(self, trust, leases: LeaseBook, ledger: MutinyLedger, *,
                  agree: Callable[[str, str], bool] = default_agree, max_skew: float = MAX_SKEW,
-                 memory: int = 4096):
+                 memory: int = 4096, memory_bytes: int = 16 << 20):
         self._trust = trust
         self._leases = leases
         self._ledger = ledger
         self._agree = agree
         self._skew = float(max_skew)
-        self._memory = int(memory)
-        self._seen: OrderedDict[tuple[str, str, str], dict] = OrderedDict()
+        # (provider, request, model) -> the answer it signed: equivocation memory, bounded
+        # by count and by the answers' size
+        self._seen = BoundedCache(max_items=int(memory), max_bytes=int(memory_bytes),
+                                  size=lambda r: 1024 + len(r.get("output", "")))
 
     def inspect(self, request: dict, decision: dict, response: dict, *, now: float,
                 advisory: dict | None = None) -> Finding:
@@ -161,10 +163,7 @@ class SafetyLayer:
         return Finding(True)
 
     def _remember(self, key, response) -> None:
-        self._seen[key] = response
-        self._seen.move_to_end(key)
-        while len(self._seen) > self._memory:
-            self._seen.popitem(last=False)
+        self._seen.put(key, response)
 
     def adjudicate(self, request: dict, items: Iterable[tuple[dict, dict]], *, now: float,
                    quorum: int | None = None, advisory: dict | None = None) -> Verdict:
