@@ -20,14 +20,16 @@ only for DIDs on the matching trust list.
 Paths are shortest by node cost (1 + load), deterministic on ties, and only pass
 through transit nodes (serving or forwarding) -- never a model node, the
 coordinator or the broker. ``plan_repairs`` is the coordinator's half of the
-failure story in the diagram: bypass links around a failed node, and a standby
-forwarder ("new P2P") for a model node left with no transit link.
+failure story in the diagram: bypass links around a failed node, links from the
+nodes it leaves behind to the central server, and a standby forwarder ("new
+P2P") for a model node left with no transit link.
 """
 from __future__ import annotations
 
 import heapq
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from typing import NamedTuple
 
 from .protocol import (
     MAX_LISTED,
@@ -142,17 +144,32 @@ def shortest_path(adj: dict[str, set[str]], src: str, dst: str, *, transit, avoi
     return None
 
 
+class Repairs(NamedTuple):
+    """What the coordinator advises and does when nodes go down."""
+
+    bypass: list[tuple[str, str]]   # links to open around the down nodes
+    recruit: list[tuple[str, str]]  # (standby forwarder, model node or key broker) to link
+    orphans: list[str]              # model nodes with no live transit link
+    central: list[str]              # live nodes a down node leaves behind: they link to the coordinator
+
+
 def plan_repairs(lsdb: LinkStateDB, now: float, *, down: set[str], standby: Iterable[str],
-                 deciders=()) -> tuple[list[tuple[str, str]], list[tuple[str, str]], list[str]]:
-    """What the coordinator advises when nodes go down:
+                 brokers: Iterable[str] = ()) -> Repairs:
+    """What the coordinator advises when nodes go down -- drawing 2, "when a
+    node fails, connect to the central server":
 
       * ``bypass``  -- links between the live neighbours a down node leaves
         behind (the arcs that skip a "wrong" node in the diagram), never
         directly between two model nodes;
-      * ``recruit`` -- for a model node with no live transit link, a standby
-        forwarder to attach to it and to a live decider (the "new P2P");
+      * ``central`` -- those same live neighbours (model and transit nodes):
+        each links to the coordinator, so a model node it cut off is reachable
+        over ``decider -> coordinator -> model node`` and a decider it cut off
+        can send such a leg;
       * ``orphans`` -- model nodes with no live transit link, which the
-        coordinator also attaches to itself for the central fallback.
+        coordinator also attaches to itself for the central fallback;
+      * ``recruit`` -- for each orphan, a standby forwarder (the "new P2P") to
+        attach to it and to a live key broker, as drawn: linked to the model
+        node and to the API key, ready to carry the user's pins in lockdown.
     """
     adj = lsdb.adjacency(now, exclude=down)
     transit = lsdb.transit(now, exclude=down)
@@ -161,14 +178,16 @@ def plan_repairs(lsdb: LinkStateDB, now: float, *, down: set[str], standby: Iter
         return d in transit or ROLE_MODEL in lsdb.roles(d)
 
     bypass: list[tuple[str, str]] = []
+    central: set[str] = set()
     for gone in sorted(down):
         around = sorted(n for n in lsdb.last_neighbors(gone) if n in adj and attachable(n))
+        central.update(around)
         for i, a in enumerate(around):
             for b in around[i + 1:]:
                 if b not in adj[a] and (a in transit or b in transit):
                     bypass.append((a, b))
 
-    live_deciders = sorted(d for d in deciders if d in transit)
+    live_brokers = sorted(d for d in brokers if d in adj and ROLE_BROKER in lsdb.roles(d))
     pool = [d for d in standby if d in transit and ROLE_FORWARD in lsdb.roles(d)
             and ROLE_SERVE not in lsdb.roles(d)]
     recruit: list[tuple[str, str]] = []
@@ -183,10 +202,10 @@ def plan_repairs(lsdb: LinkStateDB, now: float, *, down: set[str], standby: Iter
             continue
         used.add(helper)
         recruit.append((helper, p))
-        anchor = min(live_deciders, key=lambda d: (len(adj.get(d, ())), d), default=None)
-        if anchor is not None and anchor not in adj[helper]:
+        anchor = next((k for k in live_brokers if k not in adj[helper]), None)
+        if anchor is not None:
             recruit.append((helper, anchor))
-    return bypass[:MAX_LISTED], recruit[:MAX_LISTED], orphans
+    return Repairs(bypass[:MAX_LISTED], recruit[:MAX_LISTED], orphans, sorted(central))
 
 
-__all__ = ["NodeState", "LinkStateDB", "shortest_path", "plan_repairs"]
+__all__ = ["NodeState", "LinkStateDB", "Repairs", "shortest_path", "plan_repairs"]

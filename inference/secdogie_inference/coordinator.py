@@ -13,9 +13,12 @@ trust root:
     ``recruit`` pairs that attach a standby forwarder to a model node left
     without a transit link. Nodes act on the repairs that name them; a link
     only exists once both ends confirm it in their own heartbeats.
-  * **The central fallback.** It attaches itself to model nodes left without a
-    transit link, and carries ``decider -> coordinator -> model node`` legs when
-    a decider has no mesh path. It carries signed frames it cannot alter.
+  * **The central fallback** -- the title of drawing 2, "when a node fails,
+    connect to the central server". It links itself to the live nodes a down
+    node leaves behind (model nodes and deciders alike) and to model nodes left
+    without a transit link, and carries ``decider -> coordinator -> model
+    node`` legs when a decider has no mesh path. It carries signed frames it
+    cannot alter.
   * **Nothing in lockdown.** Once a mutiny latches, it carries no data at all
     -- in state 3 of the diagram the central server keeps only its link to the
     key authority. It still floods incidents and advisories.
@@ -30,7 +33,7 @@ import time
 
 from .health import FaultTracker
 from .participant import Carrier, Config
-from .protocol import ROLE_COORDINATOR, ROLE_SERVE, check_fault, make_advisory
+from .protocol import ROLE_BROKER, ROLE_COORDINATOR, make_advisory
 from .topology import plan_repairs
 
 
@@ -47,14 +50,10 @@ class Coordinator(Carrier):
                                    cooldown=cfg.quarantine_cooldown, probation=cfg.probation)
         self._epoch = 0
         self._next_advice = 0.0
-        self._dispatch["fault"] = self._on_fault
 
-    def _on_fault(self, src: str, f: dict) -> None:
-        now = float(self.clock())
-        report = f.get("report")
-        if check_fault(report, self.trust, now=now) is not None or report["reporter"] != src:
-            return
-        if self.faults.report(report["accused"], src, now):
+    def on_fault(self, report: dict, now: float) -> None:
+        """A verified, flooded fault report. The reporter is whoever signed it."""
+        if self.faults.report(report["accused"], report["reporter"], now):
             self.note("quarantine", node=report["accused"][-8:], reason=report["reason"])
 
     def may_carry(self, decision: dict, now: float) -> str | None:
@@ -73,12 +72,13 @@ class Coordinator(Carrier):
         failed = sorted(d for d in known if not self.lsdb.alive(d, now))
         quarantined = sorted(self.faults.quarantined(now))
         down = set(failed) | set(quarantined) | {d for d in known if self.ledger.excludes_node(d)}
-        deciders = [d for d in known if ROLE_SERVE in self.lsdb.roles(d)]
-        bypass, recruit, orphans = plan_repairs(self.lsdb, now, down=down, standby=self.standby,
-                                                deciders=deciders)
-        for provider in orphans:
-            if provider not in self.neighbors and self.connect(provider):
-                self.note("central-attach", node=provider[-8:])
+        brokers = [d for d in known if ROLE_BROKER in self.lsdb.roles(d)]
+        bypass, recruit, orphans, central = plan_repairs(self.lsdb, now, down=down, standby=self.standby,
+                                                         brokers=brokers)
+        if not self.ledger.lockdown:  # in lockdown the central server keeps only its link to the key authority
+            for did in sorted(set(orphans) | set(central)):
+                if did not in self.neighbors and self.connect(did):
+                    self.note("central-attach", node=did[-8:])
         self._epoch = max(self._epoch + 1, int(now * 1000))
         advisory = make_advisory(self.identity, epoch=self._epoch, failed=failed, quarantined=quarantined,
                                  bypass=bypass, recruit=recruit, clock=self.clock)

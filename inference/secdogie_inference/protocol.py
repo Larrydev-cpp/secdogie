@@ -516,7 +516,10 @@ def check_advisory(obj, trust, *, now: float | None = None) -> str | None:
 
 def make_fault(identity, accused: str, reason: str, *, request_hash: str = "", clock=time.time) -> dict:
     """A claim, not proof: the coordinator acts on one only when enough
-    distinct reporters make it (``health.FaultTracker``)."""
+    distinct reporters make it (``health.FaultTracker``). Reports are flooded,
+    because in drawing 1 the deciders that see a failure need not be linked to
+    the central server; the reporter's signature, not the neighbour that
+    handed the report over, says who is accusing."""
     if reason not in FAULT_REASONS:
         raise ValueError(f"unknown fault reason {reason!r}")
     body = {"type": FAULT, "reporter": identity.did, "accused": accused, "reason": reason,
@@ -528,7 +531,7 @@ def check_fault(obj, trust, *, now: float) -> str | None:
     reason = signed_by(obj, FAULT, "reporter", trust.mesh)
     if reason:
         return reason
-    if not is_did(obj.get("accused")) or obj["accused"] == obj["reporter"]:
+    if not is_did(obj.get("accused")) or obj["accused"] == obj["reporter"] or not trust.mesh.contains(obj["accused"]):
         return "bad accused"
     if obj.get("reason") not in FAULT_REASONS:
         return "unknown reason"
@@ -548,8 +551,7 @@ FRAME_KINDS = frozenset({
     "nack",     # back toward the decider:  {decision, leg, hop, at, unreachable, reason}
     "result",   # decider -> user:          {request_hash, items: [[decision, response], ...]}
     "refused",  # entry -> user:            {request_hash, reason}
-    "flood",    # to every neighbour:       {obj} -- heartbeat, advisory, incident, reset, lease revocation
-    "fault",    # node -> coordinator:      {report}
+    "flood",    # to every neighbour:       {obj} -- heartbeat, advisory, fault, incident, reset, lease revocation
     "grant",    # broker -> model node:     {lease, sealed}
     "dir?",     # anyone -> a node:         {}
     "dir",      # the answer:               {leases, incidents, resets}

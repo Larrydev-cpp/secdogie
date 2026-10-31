@@ -8,7 +8,10 @@ model said, or a forwarder that swaps an answer, achieves nothing but a refusal.
 
 **Normal and degraded.** The request goes to an entry -- a serving node the user
 is attached to -- or to ``fanout`` of them at once (the diagram's user is linked
-to two). A refusal or a timeout moves on to the next entry.
+to two). A refusal or a timeout moves on to the next entry. A refusal that only
+says "not now" (``no route``, ``no quorum``, ``busy``) from the last untried entry waits
+``retry_backoff`` first: in drawing 2 the mesh needs a few seconds to route
+around a failed node, and asking again at once would only spend the tries.
 
 **Lockdown.** Once the client holds a verified incident it stops using serving
 nodes: the decision layer is suspended. It picks a standby forwarder, fetches a
@@ -43,6 +46,9 @@ from .protocol import (
 from .safety import ACCEPTED, INTERCEPTED, SafetyLayer, default_agree
 
 HELLO_EVERY = 30.0  # re-attach to entries and standby, refreshing leases and incidents
+# Refusals that say "not now" rather than "no": the mesh may be repairing
+# itself (drawing 2) or the entry may be full, so wait before asking again.
+TRANSIENT = ("no route", "no quorum", "busy")
 
 OUTCOME_ACCEPTED = "accepted"
 OUTCOME_INTERCEPTED = "intercepted"
@@ -83,7 +89,8 @@ class UserClient(Participant):
     beats = False
 
     def __init__(self, identity, wire, trust, *, entries, standby=(), fanout: int = 1, timeout: float = 15.0,
-                 max_tries: int = 4, agree: Callable[[str, str], bool] = default_agree,
+                 max_tries: int = 4, retry_backoff: float = 2.0,
+                 agree: Callable[[str, str], bool] = default_agree,
                  config: Config | None = None, clock=time.time):
         super().__init__(identity, wire, trust, config=config, clock=clock)
         if not trust.users.contains(self.did):
@@ -93,6 +100,7 @@ class UserClient(Participant):
         self.fanout = max(1, int(fanout))
         self.timeout = float(timeout)
         self.max_tries = int(max_tries)
+        self.retry_backoff = float(retry_backoff)
         self.safety = SafetyLayer(trust, self.leases, self.ledger, agree=agree)
         self._asks: dict[str, _Ask] = {}
         self._by_rhash: dict[str, str] = {}
@@ -269,7 +277,14 @@ class UserClient(Participant):
             return  # another path may still answer
         if ask.mode == MODE_LOCKDOWN and "not eligible" in reason:
             ask.unresponsive.add(reason.rsplit(" ", 1)[-1])
-        self._submit(handle, float(self.clock()))
+        now = float(self.clock())
+        if ask.mode != MODE_LOCKDOWN and reason.startswith(TRANSIENT) and self._all_tried(ask):
+            ask.deadline = now + self.retry_backoff  # on_tick asks again once it passes
+            return
+        self._submit(handle, now)
+
+    def _all_tried(self, ask: _Ask) -> bool:
+        return all(e in ask.tried for e in self.entries if not self.ledger.excludes_node(e))
 
     def on_directory(self, src: str) -> None:
         now = float(self.clock())

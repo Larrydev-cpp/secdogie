@@ -14,7 +14,7 @@ two keys). Every type is domain-separated, so no signature verifies as another t
 | `response/v1` | the model node | `request_hash`, `decision_hash`, `provider`, `model`, `lease` (public lease), `status` `ok` \| `refused`, `output` (≤ 8000, empty when refused), `reason`, `issued_at` |
 | `heartbeat/v1` | each mesh node | `node`, `roles`, `seq` (strictly increasing), `neighbors` (≤ 32), `load` (0–1), `leases` (≤ 4, own), `issued_at` |
 | `advisory/v1` | a coordinator | `coordinator`, `epoch` (increasing), `failed`, `quarantined`, `bypass` and `recruit` (DID pairs), `issued_at` |
-| `fault/v1` | a mesh node | `reporter`, `accused`, `reason` `timeout` \| `invalid` \| `divergent`, `request_hash`, `issued_at` (± 120 s) |
+| `fault/v1` | a mesh node | `reporter`, `accused` (a mesh node, not the reporter), `reason` `timeout` \| `invalid` \| `divergent`, `request_hash`, `issued_at` (± 120 s). Flooded; only coordinators act on it |
 | `lease/v1` | a broker | `broker`, `subject`, `model`, `key_version`, `valid_from`, `expires_at`, `canary_hash`, `lease_id` (first 32 hex of the digest of the rest) |
 | `lease-revocation/v1` | a broker | `broker`, `lease_ids` (≤ 64), `reason`, `issued_at` |
 | `incident/v1` | a mesh node or user | `reporter`, `kind`, `evidence`, `incident_id` = digest of `{kind, evidence}`, `issued_at` |
@@ -47,9 +47,8 @@ signed contents prove.
 | `resp` | hop → previous hop | `decision`, `response`, `leg`, `hop` |
 | `nack` | hop → previous hop | `decision`, `leg`, `hop`, `at`, `unreachable`, `reason` |
 | `result` | decider or forwarder → user | `request_hash`, `items` (`[decision, response]` pairs) |
-| `refused` | entry → user | `request_hash`, `reason` (`intercepted: …`, `lockdown: …`, `no quorum: …`, …) |
-| `flood` | any → neighbours | `obj`: heartbeat, advisory, incident, reset, lease revocation |
-| `fault` | decider → coordinator | `report` |
+| `refused` | entry → user | `request_hash`, `reason` (`intercepted: …`, `lockdown: …`, `no route: …`, `no quorum: …`, …). The user waits `retry_backoff` before asking again after `no route` / `no quorum` from its last untried entry |
+| `flood` | any → neighbours | `obj`: heartbeat, advisory, fault report, incident, reset, lease revocation |
 | `grant` | broker → model node | `lease`, `sealed` |
 | `dir?` / `dir` | any ↔ node | `leases`, newest `incidents` (2), `resets` (8). A user's `dir?` also attaches it. |
 
@@ -108,7 +107,20 @@ by the receiver's clock. It is down after `fail_after` (default 7 s).
 
 **Suspicion** (each decider): +1 for each interior node of a timed-out leg, −1 for
 each interior node of a leg that delivered. At `suspect_threshold` (2) the node is
-excluded for `suspect_cooldown` (60 s) and reported once (`fault: timeout`).
+excluded for `suspect_cooldown` (60 s) and reported once (`fault: timeout`). Reports
+are flooded, because in drawing ① the deciders that see a failure need not be linked
+to the coordinator.
+
+**Repairs** (coordinator, each advisory): for every failed, quarantined or latched node,
+
+* `bypass`: links between the live nodes it leaves behind (never model–model);
+* the central attach: the coordinator links itself to those same nodes, model nodes
+  and deciders alike, and to any model node with no live transit link. This is the
+  title of drawing ②, "connect to the central server", and it is what makes a
+  `decider → coordinator → model node` leg possible. It is skipped in lockdown;
+* `recruit`: for each model node with no live transit link, a standby forwarder (the
+  "new P2P") paired with that model node and with a live key broker it is not yet
+  linked to.
 
 **Quarantine** (coordinator), for one accused node:
 

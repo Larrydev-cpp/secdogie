@@ -18,8 +18,8 @@ and the wire can ride `secdogie-transport`'s `ChannelMux` (`MuxWire`).
 | central server | `Coordinator`: signed advisories, repair plans, the central fallback path. Not a trust root. |
 | API key | `KeyBroker`: lends upstream credentials as short leases, sealed to each model node's X25519 key. |
 | M/API (P2P) | `MeshNode(roles={"model"})`: answers with a leased key and signs every answer. |
-| P2P+S | `MeshNode(roles={"serve", "forward"})`: the **decision layer**. It takes user requests, picks routes and judges answers. |
-| P2P / new P2P | `MeshNode(roles={"forward"})`: carries frames and decides nothing. The standby pool is recruited in state 2 and is the user's way in during state 3. |
+| P2P+S (four in drawing ①) | `MeshNode(roles={"serve", "forward"})`: the **decision layer**. It takes user requests, picks routes and judges answers. In drawing ② the outer two are the ones that go "(wrong)". |
+| new P2P | `MeshNode(roles={"forward"})`: carries frames and decides nothing. The standby pool hangs off the API key; one is recruited for a model node in state 2 and is the user's way in during state 3. |
 | user | `UserClient`: signs requests and re-verifies every answer itself. |
 
 ### ① normal: the new arc
@@ -29,12 +29,17 @@ flowchart LR
   C["central server<br/>Coordinator"] --- K["API key<br/>KeyBroker"]
   K -. sealed lease .-> L
   K -. sealed lease .-> R
-  L["M/API<br/>vendor-a"] --- W1["P2P"] --- S2["P2P+S"] --- S3["P2P+S"] --- W4["P2P"] --- R["M/API<br/>vendor-b"]
-  C --- S2
-  C --- S3
-  U((user)) -->|signed request| S2
+  L["M/API<br/>vendor-a"] --- S1["P2P+S"] --- S2["P2P+S"] --- S3["P2P+S"] --- S4["P2P+S"] --- R["M/API<br/>vendor-b"]
+  C --- S1
+  C --- S4
+  U((user)) -->|signed request| S3
   S2 -->|signed answers| U
 ```
+
+As drawn: four serving nodes, the central server linked to the outer two, the user
+attached to the inner two. The user's arrows go in through one and out through the
+other; here the answers come back from whichever decider took the request, since
+the user re-verifies everything and the return path carries no trust.
 
 Every node floods a signed heartbeat with its roles, its neighbours, its load and, for
 a model node, its public leases. A link counts only when **both ends** list each other.
@@ -49,28 +54,34 @@ in between can alter it.
 
 ```mermaid
 flowchart LR
-  C["central server"] -.->|"central leg"| L
+  C["central server"] -.->|"central attach"| L
+  C -.->|"central attach"| R
   S2 ==>|"bypass"| L
   N1["new P2P"] --- L
-  N1 --- S2
-  L["M/API"] --- W1["P2P (crashed)"]:::bad --- S2["S+P2P"] --- S3["S+P2P"] --- W4["P2P (wrong)"]:::bad --- R["M/API"]
+  N1 --- K["API key"]
+  L["M/API"] --- S1["(wrong) P2P"]:::bad --- S2["S+P2P"] --- S3["S+P2P"] --- S4["P2P (wrong)"]:::bad --- R["M/API"]
   S3 ==>|"bypass"| R
+  N2["new P2P"] --- R
+  N2 --- K
   classDef bad stroke-dasharray: 5 5
 ```
 
 * **Crash.** A node that stops sending new heartbeats ages out of everyone's view.
   The first request that dies with it times out. The retry avoids it, and if the mesh
   has no other path, the decider routes `decider → coordinator → model node`, which is
-  the central fallback.
-* **Repair.** The coordinator's next advisory proposes **bypass** links between the
-  failed node's live neighbours, and **recruits** a standby forwarder (the "new P2P")
-  for any model node left with no transit link. It also attaches itself to that model
-  node. Nodes open the links that name them, and a link only exists once both ends
+  the central fallback. A user refused with `no route` waits a little and asks again
+  while the mesh repairs itself.
+* **Repair: connect to the central server.** The coordinator's next advisory proposes
+  **bypass** links between the failed node's live neighbours, and the coordinator links
+  itself to those same neighbours (the drawing's title, and its lines from the central
+  server to both M/API). It **recruits** a standby forwarder (the "new P2P") for any
+  model node left with no transit link, linked to that model node and to the API key
+  as drawn. Nodes open the links that name them, and a link only exists once both ends
   confirm it in their own heartbeats.
 * **Wrong node (gray failure).** Some nodes heartbeat fine but drop traffic. Each
   decider's `Suspicion` charges the interior of legs that time out and credits legs
   that deliver. A node past the threshold is avoided locally and reported to the
-  coordinator. The coordinator's `FaultTracker` quarantines a node only on reports from
+  coordinator; the signed report is flooded, since a decider need not be linked to it. The coordinator's `FaultTracker` quarantines a node only on reports from
   `quarantine_threshold` **distinct** reporters, so one liar cannot isolate an honest
   node. The quarantine cooldown doubles on each repeat. After it comes **probation**:
   one more report sends the node back, and a clean probation reinstates it (the
@@ -147,8 +158,9 @@ cd inference && python -m pytest tests -q
 ```
 
 * `test_states.py`: the three drawings end to end on a deterministic simulated mesh
-  (`tests/sim.py`, the drawn topology): routing, a lying decider, multipath; the crash
-  with central fallback and repair, the black hole quarantined by two deciders and then
+  (`tests/sim.py`, drawing ①'s topology as drawn): routing, a lying decider, multipath;
+  a failed decider whose neighbours connect to the central server, the central fallback,
+  the bypass and the new P2P, the black hole quarantined by two deciders and then
   reinstated; decision-model mutiny with lockdown and reset, a convicted decider, a
   leaking model node and key rotation, an upstream model proposing `run_elevated`,
   equivocation caught by multipath, disagreement intercepted.

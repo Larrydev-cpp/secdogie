@@ -5,17 +5,20 @@ link some node opened (``Wire.connect``); a crashed node receives nothing, but
 sending to it still "succeeds", as a UDP datagram would; ``drop`` holds
 per-node receive filters for nodes that heartbeat fine but mishandle traffic.
 
-``Arc`` builds the hand-drawn "new arc"::
+``Arc`` builds drawing 1, the hand-drawn "new arc", as drawn::
 
-        C (central server) ----- K (API key)
-        |  \\                      |      \\
-    L(M/API) - W1 - S2 - S3 - W4 - R(M/API)      N1, N2: standby forwarders ("new P2P")
-                     \\  /                        linked only to C until recruited
-                      U (user)
+              C (central server) ------------ K (API key) --- N1, N2 (standby "new P2P")
+             /                \\             /           \\
+    L(M/API) - S1 ---- S2 ---- S3 ---- S4 - R(M/API)    (K also leases to L and R)
+                         \\    /
+                          U (user)
 
-``S2`` / ``S3`` serve (the decision layer, P2P+S); ``W1`` / ``W4`` forward
-(plain P2P, the ones that go "wrong" in state 2); ``L`` answers with model
-``vendor-a/alpha`` and ``R`` with ``vendor-b/beta``.
+All four middle nodes are P2P+S: they forward and serve (the decision layer).
+The central server is linked to the outer two, ``S1`` and ``S4`` -- the ones
+that go "wrong" in drawing 2 -- and to the key broker; the user is attached
+to the inner two. The standby forwarders hang off the API key, as the "new
+P2P" of drawing 2 does, until the coordinator recruits one for a model node.
+``L`` answers with model ``vendor-a/alpha`` and ``R`` with ``vendor-b/beta``.
 """
 from __future__ import annotations
 
@@ -39,6 +42,11 @@ from secdogie_inference.protocol import ROLE_FORWARD, ROLE_MODEL, ROLE_SERVE
 
 ALPHA = "vendor-a/alpha"
 BETA = "vendor-b/beta"
+
+DECIDERS = ("S1", "S2", "S3", "S4")
+# Drawing 1's lines. K also links itself to the model nodes it leases to (L, R).
+LINKS = (("L", "S1"), ("S1", "S2"), ("S2", "S3"), ("S3", "S4"), ("S4", "R"),
+         ("C", "S1"), ("C", "S4"), ("C", "K"), ("K", "N1"), ("K", "N2"))
 
 FAST = Config(heartbeat_every=1.0, fail_after=3.5, leg_timeout=3.0, advise_every=2.0, suspect_threshold=2,
               suspect_cooldown=15.0, breaker_threshold=3, breaker_cooldown=10.0, quarantine_threshold=2,
@@ -140,18 +148,18 @@ class Arc:
     ``backends`` / ``policies`` to swap in a misbehaving participant."""
 
     def __init__(self, *, node_classes=None, backends=None, policies=None, config: Config = FAST,
-                 fanout: int = 1, entries=("S2", "S3"), mint=True):
+                 fanout: int = 1, entries=("S2", "S3"), mint=True, coordinator_class=Coordinator):
         node_classes = node_classes or {}
         backends = backends or {}
         policies = policies or {}
         self.net = net = Net()
         self.ids = {name: Identity.generate() for name in
-                    ("L", "W1", "S2", "S3", "W4", "R", "C", "K", "N1", "N2", "U", "O")}
+                    ("L", "S1", "S2", "S3", "S4", "R", "C", "K", "N1", "N2", "U", "O")}
         did = {name: ident.did for name, ident in self.ids.items()}
         self.did = did
-        mesh = {did[n] for n in ("L", "W1", "S2", "S3", "W4", "R", "C", "K", "N1", "N2")}
+        mesh = {did[n] for n in ("L", "S1", "S2", "S3", "S4", "R", "C", "K", "N1", "N2")}
         self.trust = TrustRoots(mesh=Allowlist(mesh), users=Allowlist({did["U"]}),
-                                deciders=Allowlist({did["S2"], did["S3"]}), coordinators=Allowlist({did["C"]}),
+                                deciders=Allowlist({did[n] for n in DECIDERS}), coordinators=Allowlist({did["C"]}),
                                 brokers=Allowlist({did["K"]}), operators=Allowlist({did["O"]}))
         clock = net.clock
         self.tkeys = {n: PrivateKey.generate() for n in ("L", "R")}
@@ -174,18 +182,15 @@ class Arc:
 
         self.L = node("L", {ROLE_MODEL}, backend=backends.get("L", echo), transport_key=self.tkeys["L"])
         self.R = node("R", {ROLE_MODEL}, backend=backends.get("R", echo), transport_key=self.tkeys["R"])
-        self.W1 = node("W1", {ROLE_FORWARD})
-        self.W4 = node("W4", {ROLE_FORWARD})
-        self.S2 = node("S2", {ROLE_SERVE, ROLE_FORWARD}, policy=policies.get("S2"))
-        self.S3 = node("S3", {ROLE_SERVE, ROLE_FORWARD}, policy=policies.get("S3"))
+        for name in DECIDERS:
+            setattr(self, name, node(name, {ROLE_SERVE, ROLE_FORWARD}, policy=policies.get(name)))
         self.N1 = node("N1", {ROLE_FORWARD})
         self.N2 = node("N2", {ROLE_FORWARD})
-        self.C = net.add(Coordinator(self.ids["C"], net.wire(did["C"]), self.trust, standby=[did["N1"], did["N2"]],
+        self.C = net.add(coordinator_class(self.ids["C"], net.wire(did["C"]), self.trust, standby=[did["N1"], did["N2"]],
                                      config=config, clock=clock))
         self.K = net.add(KeyBroker(self.ids["K"], net.wire(did["K"]), self.trust, self.keys,
                                    assignments=assignments, config=config, clock=clock))
-        for a, b in (("L", "W1"), ("W1", "S2"), ("S2", "S3"), ("S3", "W4"), ("W4", "R"),
-                     ("C", "S2"), ("C", "S3"), ("C", "K"), ("C", "N1"), ("C", "N2")):
+        for a, b in LINKS:
             self.part(a).connect(did[b])
             self.part(b).connect(did[a])
         self.U = net.add(UserClient(self.ids["U"], net.wire(did["U"]), self.trust,

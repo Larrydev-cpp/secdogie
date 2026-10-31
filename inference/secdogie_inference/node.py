@@ -168,7 +168,7 @@ class MeshNode(Carrier):
                 legs, why = self.policy.plan(self._view(p.request, now), p.request, quorum=p.quorum,
                                              avoid=frozenset(p.avoid)), None
             except NoRoute as exc:
-                legs, why = None, str(exc)
+                legs, why = None, f"no route: {exc}"
         if legs is None:
             self._settle_refused(p, why)
             return
@@ -354,10 +354,7 @@ class MeshNode(Carrier):
             self.publish(make_incident(self.identity, kind, ev, clock=self.clock))
 
     def _report_fault(self, accused: str, reason: str, rhash: str = "") -> None:
-        report = make_fault(self.identity, accused, reason, request_hash=rhash, clock=self.clock)
-        for c in sorted(self.neighbors):
-            if self.trust.coordinators.contains(c):
-                self.send(c, "fault", report=report)
+        self.publish(make_fault(self.identity, accused, reason, request_hash=rhash, clock=self.clock))
 
     def on_incident(self, incident) -> None:
         if not self.ledger.lockdown:

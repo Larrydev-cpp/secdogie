@@ -184,6 +184,9 @@ def test_advisory_and_fault(cast):
     assert check_fault(fault, trust, now=NOW) is None
     assert check_fault(fault, trust, now=NOW + 1000) == "stale or future report"
     assert check_fault(make_fault(ids["s"], did["s"], "timeout", clock=clock), trust, now=NOW) == "bad accused"
+    # an accusation against a DID outside the mesh is refused, so no reporter can grow the
+    # coordinator's records without bound
+    assert check_fault(make_fault(ids["s"], did["x"], "timeout", clock=clock), trust, now=NOW) == "bad accused"
     with pytest.raises(ValueError):
         make_fault(ids["s"], did["q"], "because", clock=clock)
 

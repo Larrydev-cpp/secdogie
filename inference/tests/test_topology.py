@@ -15,7 +15,7 @@ NOW = 1_000_000.0
 
 @pytest.fixture
 def mesh():
-    ids = {n: Identity.generate() for n in ("a", "b", "c", "d", "p", "q", "s")}
+    ids = {n: Identity.generate() for n in ("a", "b", "c", "d", "k", "p", "q", "s")}
     did = {n: i.did for n, i in ids.items()}
     trust = TrustRoots(mesh=Allowlist(set(did.values())), users=Allowlist(), deciders=Allowlist({did["s"]}),
                        coordinators=Allowlist(), brokers=Allowlist(), operators=Allowlist())
@@ -73,16 +73,32 @@ def test_ties_break_the_same_way_everywhere():
 
 def test_repairs_bypass_the_down_node_and_recruit_for_an_orphan(mesh):
     ids, did, trust = mesh
+    trust = TrustRoots(mesh=trust.mesh, users=trust.users, deciders=trust.deciders, coordinators=trust.coordinators,
+                       brokers=Allowlist({did["k"]}), operators=trust.operators)
     db = LinkStateDB(trust, fail_after=5)
-    # p(model) - a - s(serve) ; d is a standby forwarder linked to s only; q(model) - b - s
+    # p(model) - a - s(serve) - b - q(model); d is a standby forwarder hanging off k, the key broker
     for name, roles, nbrs in (("p", ["model"], ["a"]), ("a", ["forward"], ["p", "s"]),
-                              ("s", ["serve", "forward"], ["a", "b", "d"]), ("d", ["forward"], ["s"]),
-                              ("b", ["forward"], ["s", "q"]), ("q", ["model"], ["b"])):
+                              ("s", ["serve", "forward"], ["a", "b"]), ("d", ["forward"], ["k"]),
+                              ("k", ["broker"], ["d"]), ("b", ["forward"], ["s", "q"]),
+                              ("q", ["model"], ["b"])):
         db.merge(beat(ids, did, name, roles, nbrs), now=NOW)
-    bypass, recruit, orphans = plan_repairs(db, NOW, down={did["a"]}, standby=[did["d"]], deciders=[did["s"]])
-    assert bypass == [tuple(sorted((did["p"], did["s"])))]
-    assert orphans == [did["p"]]
-    assert recruit == [(did["d"], did["p"])]  # d is already linked to the decider s
+    rep = plan_repairs(db, NOW, down={did["a"]}, standby=[did["d"]], brokers=[did["k"]])
+    assert rep.bypass == [tuple(sorted((did["p"], did["s"])))]
+    assert rep.orphans == [did["p"]]
+    assert rep.central == sorted((did["p"], did["s"]))  # what a left behind links to the central server
+    assert rep.recruit == [(did["d"], did["p"])]  # d already hangs off the key broker
     # two model nodes are never linked to each other
-    bypass, _r, _o = plan_repairs(db, NOW, down={did["b"]}, standby=[], deciders=[did["s"]])
-    assert all(did["q"] not in pair or did["s"] in pair for pair in bypass)
+    rep = plan_repairs(db, NOW, down={did["b"]}, standby=[])
+    assert all(did["q"] not in pair or did["s"] in pair for pair in rep.bypass)
+
+
+def test_a_recruit_is_anchored_to_the_key_broker(mesh):
+    ids, did, trust = mesh
+    trust = TrustRoots(mesh=trust.mesh, users=trust.users, deciders=trust.deciders, coordinators=trust.coordinators,
+                       brokers=Allowlist({did["k"]}), operators=trust.operators)
+    db = LinkStateDB(trust, fail_after=5)
+    for name, roles, nbrs in (("p", ["model"], ["a", "k"]), ("a", ["forward"], ["p"]), ("d", ["forward"], ["c"]),
+                              ("c", ["forward"], ["d"]), ("k", ["broker"], ["p"])):
+        db.merge(beat(ids, did, name, roles, nbrs), now=NOW)
+    rep = plan_repairs(db, NOW, down={did["a"]}, standby=[did["d"]], brokers=[did["k"]])
+    assert rep.recruit == [(did["d"], did["p"]), (did["d"], did["k"])]  # the new P2P: model node and API key

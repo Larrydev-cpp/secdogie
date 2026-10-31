@@ -8,6 +8,9 @@ user -- holds the same four things, fed by the same flooded objects:
   * ``ledger``     the verified mutiny incidents and operator resets;
   * ``advisories`` the newest advisory from each coordinator.
 
+Fault reports are flooded too, so they reach the coordinator from deciders
+that are not linked to it; only the coordinator acts on them.
+
 Flooding is plain: a newly verified object is passed to every neighbour except
 the one it came from; anything already seen, or that does not verify, stops
 there. Incidents, resets and lease revocations also go to attached users.
@@ -33,6 +36,7 @@ from .lease import LEASE_REVOCATION, LeaseBook
 from .mutiny import INCIDENT, RESET, MutinyLedger
 from .protocol import (
     ADVISORY,
+    FAULT,
     HEARTBEAT,
     MAX_REASON,
     MODE_DEGRADED,
@@ -41,6 +45,7 @@ from .protocol import (
     ROLES,
     check_advisory,
     check_decision,
+    check_fault,
     check_request,
     check_response,
     digest,
@@ -54,7 +59,7 @@ from .topology import LinkStateDB
 
 log = logging.getLogger("secdogie_inference")
 
-FLOODED = frozenset({HEARTBEAT, ADVISORY, INCIDENT, RESET, LEASE_REVOCATION})
+FLOODED = frozenset({HEARTBEAT, ADVISORY, FAULT, INCIDENT, RESET, LEASE_REVOCATION})
 TO_USERS = frozenset({INCIDENT, RESET, LEASE_REVOCATION})
 DIR_INCIDENTS = 2   # newest incidents a directory answer carries (each may hold a full answer)
 DIR_RESETS = 8
@@ -229,6 +234,11 @@ class Participant:
             self.advisories[obj["coordinator"]] = obj
             self.on_advisory(obj)
             return True
+        if kind == FAULT:
+            if check_fault(obj, self.trust, now=now) is not None:
+                return False
+            self.on_fault(obj, now)
+            return True
         if kind == INCIDENT:
             inc = self.ledger.add(obj)
             if inc is None:
@@ -315,6 +325,7 @@ class Participant:
 
     def on_tick(self, now: float) -> None: ...
     def on_advisory(self, advisory: dict) -> None: ...
+    def on_fault(self, report: dict, now: float) -> None: ...
     def on_incident(self, incident) -> None: ...
     def on_reset(self, unlatched: frozenset) -> None: ...
     def on_lease_revoked(self, lease_ids: frozenset) -> None: ...
