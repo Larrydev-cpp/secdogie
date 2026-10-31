@@ -55,6 +55,9 @@ jobs:
             needs_identity: true
             needs_citadel: true
             needs_transport: true  # so the real-UDP session round trip runs (not skip)
+          - dir: inference  # inference mesh: routing, central fallback, quarantine, mutiny lockdown
+            needs_identity: true
+            needs_transport: true  # so the real-UDP round trip runs (not skip)
           - dir: node       # resident node: end-to-end loop over real UDP, process smoke tests
             needs_identity: true
             needs_citadel: true

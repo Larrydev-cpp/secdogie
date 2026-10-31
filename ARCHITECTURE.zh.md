@@ -229,6 +229,7 @@ flowchart TB
 | `citadel/episodes.py` · `lessons.py` · `consolidate.py` | 阶段式记忆 S1 / S2 / S3 | ③ | ✅ 已建成 |
 | `dialogue/` | Dialogue App:签名信封协议、丢包 / 乱序下的会话层、节点侧桥接、控制器 + Textual 界面 + 无头脚本、结构化视界发布 | ③④ | ✅ 已建成 |
 | `node/` | `secdogie-node` 常驻节点:组装传输、对话、签名日志与受监督回路;真实 UDP 端到端测试 | 全部 | ✅ 已建成 |
+| `inference/` | 推理网格(手绘图「new arc」三态):用户签名请求经 P2P 网格路由到持有短期密钥租约的模型节点,回答端到端签名、在决策节点与用户处各验一次;节点失效时绕行、隔离「wrong」节点并经中央协调者兜底(协调者只做建议与兜底通路,不是信任根);模型或决策层叛变时凭可自证的事件证据锁定全网、吊销并轮换密钥,用户经备用转发节点钉选两个独立模型交叉验证,只有操作员签名可解除。见 [`inference/README.md`](inference/README.md) | ②③ | ✅ 已建成 |
 
 ---
 

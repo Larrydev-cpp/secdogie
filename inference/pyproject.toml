@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secdogie-inference"
+version = "0.1.0"
+description = "Inference mesh for secdogie: DID-signed routing of user requests over the P2P mesh to leased model nodes, with central fallback on node failure and a latched safety circuit breaker for model / decision-layer mutiny."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# Signing, allowlists and revocation come from secdogie-identity (PyNaCl). The
+# transport is optional: `MuxWire` rides any secdogie-transport ChannelMux, and
+# the real-UDP test needs it installed.
+dependencies = ["secdogie-identity"]
+
+[project.optional-dependencies]
+transport = ["secdogie-transport"]
+
+[tool.setuptools.packages.find]
+include = ["secdogie_inference*"]
