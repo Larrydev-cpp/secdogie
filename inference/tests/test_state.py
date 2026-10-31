@@ -144,6 +144,7 @@ def test_a_latch_cleared_behind_the_ledgers_back_fails_loudly():
     arc.S2.publish(make_incident(arc.ids["S2"], DECIDER_SELF_REPORTED, ev, clock=arc.net.clock))
     arc.net.run()
     arc.S3.ledger._latches.clear()  # a bug: latches cleared without an operator's reset
+    arc.S3.ledger._derived = None
     with pytest.raises(IllegalTransition):
         arc.S3.tick()
 

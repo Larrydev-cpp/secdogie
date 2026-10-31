@@ -9,6 +9,8 @@ pytest.importorskip("nacl")
 from secdogie_identity import ALLOW_ANY, Allowlist, Identity  # noqa: E402
 from secdogie_identity.signing import sign_payload  # noqa: E402
 from secdogie_inference.protocol import (  # noqa: E402
+    GENESIS,
+    HEARTBEAT,
     MODE_LOCKDOWN,
     MODE_NORMAL,
     VIA_CENTRAL,
@@ -170,9 +172,24 @@ def test_heartbeat_rules(cast):
                            trust, now=NOW) is None
     future = make_heartbeat(ids["s"], roles=[], seq=1, neighbors=[], clock=lambda: NOW + 500)
     assert check_heartbeat(future, trust, now=NOW) == "issued in the future"
-    forged = sign_payload(ids["s"], {"type": "secdogie/inference/heartbeat/v1", "node": did["s"], "roles": ["god"],
-                                     "seq": 1, "neighbors": [], "load": 0.0, "leases": [], "issued_at": NOW})
-    assert check_heartbeat(forged, trust, now=NOW) == "bad roles"
+    base = {"type": HEARTBEAT, "node": did["s"], "roles": [], "seq": 1, "prev": GENESIS, "neighbors": [],
+            "load": 0.0, "leases": [], "ledger_root": GENESIS, "issued_at": NOW}
+
+    def forged(**kw):
+        return check_heartbeat(sign_payload(ids["s"], {**base, **kw}), trust, now=NOW)
+
+    assert forged() is None
+    assert forged(roles=["god"]) == "bad roles"
+    assert forged(prev="x") == "bad prev"
+    assert forged(ledger_root="") == "bad ledger_root"
+    assert forged(neighbors=[did["p"]]) == "bad neighbours"                        # v1's plain DID list
+    assert forged(neighbors=[[did["p"], 3, ""]]) == "bad neighbours"               # a seq needs its head
+    assert forged(neighbors=[[did["p"], 3, "ab" * 16]]) is None
+    unsorted = [[d, 0, ""] for d in sorted((did["p"], did["q"]), reverse=True)]
+    assert forged(neighbors=unsorted) == "bad neighbours"                          # sorted, once each
+    assert forged(neighbors=[[did["s"], 0, ""]]) == "bad neighbours"               # not itself
+    v1 = sign_payload(ids["s"], {**base, "type": "secdogie/inference/heartbeat/v1"})
+    assert check_heartbeat(v1, trust, now=NOW) == "wrong or missing type"
 
 
 def test_advisory_and_fault(cast):

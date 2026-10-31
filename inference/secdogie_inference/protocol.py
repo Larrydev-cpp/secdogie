@@ -36,7 +36,7 @@ from secdogie_identity.signing import canonical
 REQUEST = "secdogie/inference/request/v1"
 DECISION = "secdogie/inference/decision/v1"
 RESPONSE = "secdogie/inference/response/v1"
-HEARTBEAT = "secdogie/inference/heartbeat/v1"
+HEARTBEAT = "secdogie/inference/heartbeat/v2"
 ADVISORY = "secdogie/inference/advisory/v1"
 FAULT = "secdogie/inference/fault/v1"
 
@@ -77,10 +77,13 @@ MAX_SKEW = 120.0
 MAX_NEIGHBORS = 32
 MAX_LEASES = 4        # leases a model node advertises in one heartbeat
 MAX_LISTED = 64       # DIDs or pairs in one advisory list
+GENESIS = "0" * 64    # a heartbeat chain's first ``prev``: the node (re)started
+HEAD = 32             # hex characters of a heartbeat digest a neighbour witness carries
 
 _MODEL = re.compile(r"^[A-Za-z0-9._:/@+-]{1,128}$")
 _HEX32 = re.compile(r"^[0-9a-f]{32}$")
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
+_HEAD = re.compile(rf"[0-9a-f]{{{HEAD}}}")
 
 
 class AnyOf:
@@ -436,21 +439,54 @@ def check_response(obj, trust, *, request: dict | None = None, decision: dict | 
     return None
 
 
-# -- heartbeat: a node's signed link-state advertisement ------------------------
+# -- heartbeat: a node's signed link-state advertisement, a Merkle-DAG vertex ----
+#
+# v2 hash-links each heartbeat to its node's previous one (``prev``) and to the
+# newest heartbeat the node received *directly* from each neighbour (the
+# neighbour's ``seq`` and the first ``HEAD`` hex of its digest). Together the
+# heartbeats form a Merkle DAG of link state: two heartbeats of one node that
+# fork the chain are proof (``mutiny.NODE_HEARTBEAT_FORK``), and a link whose
+# end has stopped hearing the other end shows it in its own signed heartbeat.
 
-def make_heartbeat(identity, *, roles, seq: int, neighbors, load: float = 0.0, leases=(),
-                   clock=time.time) -> dict:
+def make_heartbeat(identity, *, roles, seq: int, neighbors, prev: str = GENESIS, load: float = 0.0,
+                   leases=(), ledger_root: str = GENESIS, clock=time.time) -> dict:
+    """``neighbors``: DIDs, or ``{did: (seq, head)}`` with the newest heartbeat
+    heard directly from each (``(0, "")`` if none yet)."""
+    if not isinstance(neighbors, dict):
+        neighbors = {d: (0, "") for d in neighbors}
+    listed = sorted(d for d in neighbors if d != identity.did)[:MAX_NEIGHBORS]
     body = {
         "type": HEARTBEAT,
         "node": identity.did,
         "roles": sorted(set(roles)),
         "seq": int(seq),
-        "neighbors": sorted(set(neighbors) - {identity.did})[:MAX_NEIGHBORS],
+        "prev": prev,
+        "neighbors": [[d, int(neighbors[d][0]), str(neighbors[d][1])[:HEAD]] for d in listed],
         "load": min(max(float(load), 0.0), 1.0),
         "leases": list(leases)[:MAX_LEASES],
+        "ledger_root": ledger_root,
         "issued_at": float(clock()),
     }
     return sign_payload(identity, body)
+
+
+def heartbeat_neighbors(obj: dict) -> list[str]:
+    return [entry[0] for entry in obj["neighbors"]]
+
+
+def _witness_list(v) -> bool:
+    if not isinstance(v, list) or len(v) > MAX_NEIGHBORS:
+        return False
+    for entry in v:
+        if not (isinstance(entry, list) and len(entry) == 3 and is_did(entry[0]) and is_int(entry[1])
+                and entry[1] >= 0 and isinstance(entry[2], str)):
+            return False
+        if entry[2] and not _HEAD.fullmatch(entry[2]):
+            return False
+        if (entry[1] == 0) != (entry[2] == ""):
+            return False  # a witness names a heartbeat by both seq and head, or by neither
+    dids = [entry[0] for entry in v]
+    return dids == sorted(set(dids))
 
 
 def check_heartbeat(obj, trust, *, now: float | None = None) -> str | None:
@@ -462,8 +498,12 @@ def check_heartbeat(obj, trust, *, now: float | None = None) -> str | None:
         return "bad roles"
     if not is_int(obj.get("seq")) or obj["seq"] < 0:
         return "bad seq"
-    if not _did_list(obj.get("neighbors"), limit=MAX_NEIGHBORS) or obj["node"] in obj["neighbors"]:
+    if not is_hex64(obj.get("prev")):
+        return "bad prev"
+    if not _witness_list(obj.get("neighbors")) or obj["node"] in heartbeat_neighbors(obj):
         return "bad neighbours"
+    if not is_hex64(obj.get("ledger_root")):
+        return "bad ledger_root"
     if not is_num(obj.get("load")) or not 0.0 <= obj["load"] <= 1.0:
         return "bad load"
     leases = obj.get("leases")
@@ -554,7 +594,8 @@ FRAME_KINDS = frozenset({
     "flood",    # to every neighbour:       {obj} -- heartbeat, advisory, fault, incident, reset, lease revocation
     "grant",    # broker -> model node:     {lease, sealed}
     "dir?",     # anyone -> a node:         {}
-    "dir",      # the answer:               {leases, incidents, resets}
+    "dir",      # the answer:               {leases, incidents, resets, incident_ids}
+    "inc?",     # anyone -> a node:         {ids} -- answered with one flood frame per incident held
 })
 
 

@@ -1,4 +1,11 @@
-# secdogie inference protocol, v1
+# secdogie inference protocol, v2
+
+v2 changes against v1: heartbeats are Merkle-DAG vertices (`heartbeat/v2`); a chain
+fork is evidence that isolates a node without lockdown (`node.heartbeat-fork`); fault
+reports are flooded instead of sent to a neighbouring coordinator; directories list
+held incident ids and `inc?` fetches them; leases are capped at `MAX_LEASE_TTL`. Every
+other object keeps its v1 type. v1 and v2 nodes do not interoperate (a v1 node rejects
+v2 heartbeats), so a mesh upgrades all at once.
 
 All objects are canonical JSON (sorted keys, tight separators, UTF-8), signed by
 `secdogie-identity` (`signer`, `sig` = detached Ed25519 over the payload without those
@@ -12,7 +19,7 @@ two keys). Every type is domain-separated, so no signature verifies as another t
 | `request/v1` | a user | `req_id` (32 hex), `user`, `models` (1–4, sorted), `input` (≤ 8000), `scopes` (sorted, grantable), `quorum` (1–3), `pins` (`[provider, model]`, ≤ 3, at least `quorum`), `issued_at`, `expires_at` (≤ 300 s later) |
 | `decision/v1` | a decider; in lockdown, any mesh node | `request_hash`, `decider`, `mode`, `epoch`, `attempt` (< 3), `legs` (1–3: `provider`, `model`, `path` [decider … provider, ≤ 8 nodes, no repeats], `via` `mesh` \| `central`), `issued_at` |
 | `response/v1` | the model node | `request_hash`, `decision_hash`, `provider`, `model`, `lease` (public lease), `status` `ok` \| `refused`, `output` (≤ 8000, empty when refused), `reason`, `issued_at` |
-| `heartbeat/v1` | each mesh node | `node`, `roles`, `seq` (strictly increasing), `neighbors` (≤ 32), `load` (0–1), `leases` (≤ 4, own), `issued_at` |
+| `heartbeat/v2` | each mesh node | `node`, `roles`, `seq` (strictly increasing), `prev` (digest of this node's previous heartbeat, or `GENESIS` = 64 zeros after a start), `neighbors` (≤ 32 `[did, seq, head]`, sorted by DID: the newest heartbeat that neighbour handed this node directly, by seq and the first 32 hex of its digest; `[did, 0, ""]` if none yet), `load` (0–1), `leases` (≤ 4, own), `ledger_root` (Merkle root over the held `target\|incident_id` pairs), `issued_at` |
 | `advisory/v1` | a coordinator | `coordinator`, `epoch` (increasing), `failed`, `quarantined`, `bypass` and `recruit` (DID pairs), `issued_at` |
 | `fault/v1` | a mesh node | `reporter`, `accused` (a mesh node, not the reporter), `reason` `timeout` \| `invalid` \| `divergent`, `request_hash`, `issued_at` (± 120 s). Flooded; only coordinators act on it |
 | `lease/v1` | a broker | `broker`, `subject`, `model`, `key_version`, `valid_from`, `expires_at` (at most `MAX_LEASE_TTL` = 3600 s after `valid_from`), `canary_hash`, `lease_id` (first 32 hex of the digest of the rest) |
@@ -50,7 +57,8 @@ signed contents prove.
 | `refused` | entry → user | `request_hash`, `reason` (`intercepted: …`, `lockdown: …`, `no route: …`, `no quorum: …`, `busy: …`, `expired: …`, …). The user waits `retry_backoff` before asking again after `no route` / `no quorum` from its last untried entry |
 | `flood` | any → neighbours | `obj`: heartbeat, advisory, fault report, incident, reset, lease revocation |
 | `grant` | broker → model node | `lease`, `sealed` |
-| `dir?` / `dir` | any ↔ node | `leases`, newest `incidents` (2), `resets` (8). A user's `dir?` also attaches it. |
+| `dir?` / `dir` | any ↔ node | `leases`, newest `incidents` (2), `resets` (8), `incident_ids` (≤ 64 held). A user's `dir?` also attaches it. |
+| `inc?` | any → node | `ids` (≤ 16): answered with one `flood` frame per incident the node holds. The asker sends it for the ids in a `dir` it does not know |
 
 A carrier forwards a `req` only when it sits at `path[hop]` and the frame came from
 `path[hop-1]` (for `resp` and `nack`, from `path[hop+1]`). It refuses, with a `nack`,
@@ -125,6 +133,28 @@ isolated}`.
 **Liveness.** A node is alive while new heartbeats (higher `seq`) keep arriving, timed
 by the receiver's clock. It is down after `fail_after` (default 7 s).
 
+**The heartbeat DAG** (`topology.LinkStateDB`, every participant). Each node's
+heartbeats form a hash chain through `prev`; each heartbeat also names, per neighbour,
+the newest heartbeat that neighbour handed it *directly*. Together they are a Merkle
+DAG of link state. Each participant keeps the last 8 heartbeats of every node and checks:
+
+* **Chain.** A `prev` that is not the heartbeat held is a gap (lost datagrams), counted
+  and not a fault. A `GENESIS` `prev` is a (re)start.
+* **Fork.** Two verified heartbeats of one node with the same `seq`, or the same
+  non-`GENESIS` `prev`, and different digests: the node's key runs twice (a restored
+  backup, a cloned key). The pair, in digest order, is `node.heartbeat-fork` evidence,
+  published by whoever sees it; every reporter's incident has the same id.
+* **Witnessed link.** `a — b` is in the graph only if both list each other **and** each
+  one's witness of the other is at most `max_witness_lag` (3) heartbeats behind the
+  newest of the other's held, with a digest head that matches when that heartbeat is
+  held. A node that stops hearing a neighbour says so in its own signed heartbeat, and
+  the link leaves every participant's routes, with no timeout and on nobody's word.
+  A node that hears fine but drops `req` frames is still `Suspicion`'s job.
+* **Ledger root.** A neighbour whose `ledger_root` differs from this participant's for
+  2 heartbeats in a row is sent `dir?`; ids it lists that this participant does not
+  know are fetched with `inc?` (each id at most every 30 s). A node that missed a flood
+  catches up from its neighbours.
+
 **Suspicion** (each decider): +1 for each interior node of a timed-out leg, −1 for
 each interior node of a leg that delivered. At `suspect_threshold` (2) the node is
 excluded for `suspect_cooldown` (60 s) and reported once (`fault: timeout`). Reports
@@ -161,7 +191,9 @@ to the coordinator.
 **Latch** (every participant): a verified incident latches each of its targets until
 a reset by a trusted operator names that target **and** every incident id holding it.
 Cleared `(target, incident)` pairs are remembered, so the same incident never latches
-that target again.
+that target again. A latch held only by `ISOLATE_ONLY` kinds (`node.heartbeat-fork`)
+**isolates** its node: off every path, mode `degraded`, cause `isolation`. Any other
+latch is lockdown.
 
 **Broker on a latch:**
 
@@ -220,5 +252,6 @@ Everything else a participant holds is bounded too:
 
 `MAX_INPUT` = `MAX_OUTPUT` = 8000 characters (one frame, one datagram), `MAX_QUORUM`
 3, `LOCKDOWN_QUORUM` 2, `MAX_HOPS` 8, `MAX_ATTEMPTS` 3, `MAX_TTL` 300 s, `MAX_SKEW`
-120 s, `MAX_NEIGHBORS` 32, `MAX_LEASES` 4 per heartbeat, `MAX_LISTED` 64 per advisory
+120 s, `MAX_NEIGHBORS` 32 (each with a witness), `MAX_LEASES` 4 per heartbeat (a full
+heartbeat stays under 12 KB), `MAX_LISTED` 64 per advisory
 list, 64 lease ids per revocation, and `MAX_LEASE_TTL` 3600 s.

@@ -11,6 +11,14 @@ user -- holds the same four things, fed by the same flooded objects:
 Fault reports are flooded too, so they reach the coordinator from deciders
 that are not linked to it; only the coordinator acts on them.
 
+Heartbeats are Merkle-DAG vertices (protocol v2): each names this node's
+previous heartbeat, the newest heartbeat each neighbour handed it directly,
+and the root of its ledger. A chain fork seen in anyone's heartbeats is
+published as ``node.heartbeat-fork`` evidence; a neighbour whose ledger root
+keeps differing is asked for its directory, and the incidents it lists that
+this participant lacks are fetched one by one (``inc?``) -- anti-entropy, so
+a node that missed a flood catches up.
+
 Flooding is plain: a newly verified object is passed to every neighbour except
 the one it came from; anything already seen, or that does not verify, stops
 there. Incidents, resets and lease revocations also go to attached users.
@@ -33,10 +41,20 @@ from collections import OrderedDict, deque
 from dataclasses import dataclass
 
 from .lease import LEASE_REVOCATION, LeaseBook
-from .mutiny import INCIDENT, RESET, MutinyLedger
+from .mutiny import (
+    INCIDENT,
+    ISOLATE_ONLY,
+    NODE_HEARTBEAT_FORK,
+    RESET,
+    MutinyLedger,
+    fork_evidence,
+    make_incident,
+)
 from .protocol import (
     ADVISORY,
     FAULT,
+    GENESIS,
+    HEAD,
     HEARTBEAT,
     MAX_REASON,
     MODE_LOCKDOWN,
@@ -49,12 +67,14 @@ from .protocol import (
     digest,
     frame,
     is_did,
+    is_hex64,
     is_int,
     make_heartbeat,
     parse_frame,
 )
 from .state import (
     CAUSE_ADVISORY,
+    CAUSE_ISOLATION,
     CAUSE_LATCH,
     CAUSE_LIVENESS,
     CAUSE_RESET,
@@ -70,6 +90,10 @@ FLOODED = frozenset({HEARTBEAT, ADVISORY, FAULT, INCIDENT, RESET, LEASE_REVOCATI
 TO_USERS = frozenset({INCIDENT, RESET, LEASE_REVOCATION})
 DIR_INCIDENTS = 2   # newest incidents a directory answer carries (each may hold a full answer)
 DIR_RESETS = 8
+DIR_IDS = 64        # held incident ids a directory answer lists, for the asker to fetch what it lacks
+INC_QUERY = 16      # incident ids one ``inc?`` may ask for
+ROOT_PATIENCE = 2   # heartbeats a neighbour's ledger root may differ before we ask its directory
+REASK_AFTER = 30.0  # before asking again for an incident we asked for
 
 
 @dataclass(frozen=True)
@@ -136,11 +160,16 @@ class Participant:
         self.events: deque = deque(maxlen=1024)
         self._seen = _Recent(8192)
         self._seq = time.time_ns()  # keeps increasing across restarts
+        self._prev = GENESIS        # this node's previous heartbeat; a restart starts a new chain
+        self._direct: dict[str, tuple[int, str]] = {}  # neighbour -> (seq, digest) it handed us itself
+        self._root_mismatch: dict[str, int] = {}
+        self._asked: OrderedDict[str, float] = OrderedDict()  # incident id -> when we asked for it
         self._next_beat = 0.0
         self.machine = ModeMachine()     # the mode, as an explicit state machine (state.py)
         self._causes: set[str] = set()   # what was absorbed since the mode was last evaluated
         self._lock = threading.RLock()
-        self._dispatch = {"flood": self._on_flood, "dir?": self._on_dir_query, "dir": self._on_dir}
+        self._dispatch = {"flood": self._on_flood, "dir?": self._on_dir_query, "dir": self._on_dir,
+                          "inc?": self._on_inc_query}
 
     # -- wiring -------------------------------------------------------------------
 
@@ -220,10 +249,21 @@ class Participant:
         obj = f.get("obj")
         if not isinstance(obj, dict) or obj.get("type") not in FLOODED:
             return
-        if not self._seen.add(digest(obj)):
+        d = digest(obj)
+        direct = obj["type"] == HEARTBEAT and obj.get("node") == src  # its own heartbeat, from itself
+        if not self._seen.add(d):
+            if direct:
+                self._heard_directly(src, d)  # first came another way; this is still the link working
             return
         if self.absorb(obj, src=src):
+            if direct:
+                self._heard_directly(src, d)
             self.flood(obj, exclude=src)
+
+    def _heard_directly(self, node: str, heartbeat_digest: str) -> None:
+        seq = self.lsdb.seq_of(node, heartbeat_digest)  # only a heartbeat that verified and was kept
+        if seq and seq > self._direct.get(node, (0, ""))[0]:
+            self._direct[node] = (seq, heartbeat_digest)
 
     def absorb(self, obj: dict, *, src: str | None = None) -> bool:
         """Verify and apply one flooded object; True when it changed anything
@@ -231,7 +271,12 @@ class Participant:
         now = float(self.clock())
         kind = obj.get("type")
         if kind == HEARTBEAT:
-            if not self.lsdb.merge(obj, now=now):
+            merged = self.lsdb.merge(obj, now=now)
+            for a, b in self.lsdb.take_forks():
+                self.note("fork", node=a["node"][-8:])
+                self.publish(make_incident(self.identity, NODE_HEARTBEAT_FORK, fork_evidence(a, b),
+                                           clock=self.clock))
+            if not merged:
                 return False
             node = obj["node"]
             for lease in obj["leases"]:
@@ -239,6 +284,8 @@ class Participant:
                     self.leases.add(lease)
             if src == node and node not in self.neighbors and not self.ledger.excludes_node(node):
                 self.neighbors.add(node)  # a direct heartbeat is a link offer; links are mutual
+            if src == node:
+                self._compare_roots(node, obj["ledger_root"])
             return True
         if kind == ADVISORY:
             if check_advisory(obj, self.trust, now=now) is not None:
@@ -260,7 +307,7 @@ class Participant:
             if inc is None:
                 return False
             self.note("incident", kind=inc.kind, targets=sorted(inc.targets), id=inc.incident_id)
-            self._causes.add(CAUSE_LATCH)
+            self._causes.add(CAUSE_ISOLATION if inc.kind in ISOLATE_ONLY else CAUSE_LATCH)
             self.on_incident(inc)
             return True
         if kind == RESET:
@@ -286,7 +333,8 @@ class Participant:
             self.users.add(src)  # a user's directory query attaches it: incidents reach it from now on
         self.send(src, "dir", leases=self.leases.live(now)[:32],
                   incidents=self.ledger.signed_incidents()[-DIR_INCIDENTS:],
-                  resets=self.ledger.signed_resets()[-DIR_RESETS:])
+                  resets=self.ledger.signed_resets()[-DIR_RESETS:],
+                  incident_ids=self.ledger.held_ids()[-DIR_IDS:])
 
     def _on_dir(self, src: str, f: dict) -> None:
         if not self.trust.mesh.contains(src):
@@ -296,7 +344,48 @@ class Participant:
         for obj in (f.get("incidents") or []) + (f.get("resets") or []):
             if isinstance(obj, dict) and self._seen.add(digest(obj)):
                 self.absorb(obj)
+        self._fetch_missing(src, f.get("incident_ids"))
         self.on_directory(src)
+
+    def _fetch_missing(self, src: str, ids) -> None:
+        """Ask ``src`` for the incidents it holds that we do not know."""
+        if not isinstance(ids, list):
+            return
+        now = float(self.clock())
+        want = []
+        for i in ids[:DIR_IDS]:
+            if not is_hex64(i) or self.ledger.knows(i) or now - self._asked.get(i, -REASK_AFTER) < REASK_AFTER:
+                continue
+            want.append(i)
+            self._asked[i] = now
+            self._asked.move_to_end(i)
+            if len(want) == INC_QUERY:
+                break
+        while len(self._asked) > 1024:
+            self._asked.popitem(last=False)
+        if want:
+            self.send(src, "inc?", ids=want)
+
+    def _on_inc_query(self, src: str, f: dict) -> None:
+        ids = f.get("ids")
+        if not isinstance(ids, list):
+            return
+        for i in ids[:INC_QUERY]:
+            inc = self.ledger.incident(i) if is_hex64(i) else None
+            if inc is not None:
+                self.send(src, "flood", obj=inc.signed)
+
+    def _compare_roots(self, node: str, root: str) -> None:
+        """Anti-entropy: a neighbour whose ledger root keeps differing from ours
+        is asked for its directory."""
+        if root == self.ledger.root():
+            self._root_mismatch.pop(node, None)
+            return
+        n = self._root_mismatch.get(node, 0) + 1
+        if n >= ROOT_PATIENCE:
+            n = 0
+            self.send(node, "dir?")
+        self._root_mismatch[node] = n
 
     # -- the view -----------------------------------------------------------------
 
@@ -304,7 +393,8 @@ class Participant:
         """Everything the mode depends on, as this participant holds it now."""
         now = float(self.clock()) if now is None else now
         return ModeInputs(
-            lockdown_latches=self.ledger.latched_targets() if self.ledger.lockdown else frozenset(),
+            lockdown_latches=self.ledger.lockdown_targets(),
+            isolated=self.ledger.isolated(),
             failed=frozenset(d for adv in self.advisories.values() for d in adv["failed"]),
             quarantined=frozenset(self.quarantined()),
             stale=frozenset(d for d in self.lsdb.known() if d != self.did and not self.lsdb.alive(d, now)),
@@ -326,7 +416,7 @@ class Participant:
                 continue
             out[d] = NodeHealth(d, self.lsdb.roles(d), self.lsdb.alive(d, now), d in suspects,
                                 self.quarantine_status(d, now), self.breaker_state(d, now),
-                                self.ledger.excludes_node(d), False)
+                                self.ledger.excludes_node(d), d in self.ledger.isolated())
         return out
 
     def quarantine_status(self, did: str, now: float) -> str:
@@ -362,11 +452,16 @@ class Participant:
 
     def _beat(self, now: float) -> None:
         self._seq += 1
-        hb = make_heartbeat(self.identity, roles=sorted(self.roles), seq=self._seq,
-                            neighbors=sorted(self.neighbors), load=self.load(),
-                            leases=self.advertised_leases(now), clock=self.clock)
+        witness = {}
+        for n in self.neighbors:
+            seq, d = self._direct.get(n, (0, ""))
+            witness[n] = (seq, d[:HEAD])
+        hb = make_heartbeat(self.identity, roles=sorted(self.roles), seq=self._seq, prev=self._prev,
+                            neighbors=witness, load=self.load(), leases=self.advertised_leases(now),
+                            ledger_root=self.ledger.root(), clock=self.clock)
+        self._prev = digest(hb)
         self.lsdb.merge(hb, now=now)
-        self._seen.add(digest(hb))
+        self._seen.add(self._prev)
         self.flood(hb)
 
     # -- hooks ----------------------------------------------------------------------

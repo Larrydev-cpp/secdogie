@@ -78,6 +78,12 @@ flowchart LR
   model node left with no transit link, linked to that model node and to the API key
   as drawn. Nodes open the links that name them, and a link only exists once both ends
   confirm it in their own heartbeats.
+* **Witnessed links (the heartbeat DAG).** Every heartbeat names its predecessor and,
+  for each neighbour, the newest heartbeat that neighbour handed it directly. A link
+  counts only while both ends witness each other recently, so a node that stops
+  hearing a neighbour takes that link out of everyone's routes through its own signed
+  heartbeat. Two heartbeats that fork one node's chain prove its key runs twice: the
+  node is isolated at once, without lockdown, until an operator resets it.
 * **Wrong node (gray failure).** Some nodes heartbeat fine but drop traffic. Each
   decider's `Suspicion` charges the interior of legs that time out and credits legs
   that deliver. A node past the threshold is avoided locally and reported to the
@@ -114,9 +120,10 @@ objects from which any receiver re-derives the violation against its own trust r
 | `model.self-reported` | a leaseholder caught its upstream model before signing | the model |
 | `decider.tampering` | a signed decision that downgrades quorum, swaps a model, ignores pins, breaks lockdown shape, or routes through a node quarantined at its own epoch | the decider |
 | `decider.self-reported` | a serving node's guard caught its decision policy proposing such a route and refused to sign it | the decider |
+| `node.heartbeat-fork` | two signed heartbeats of one node that fork its chain: its key runs twice | the node, **isolated** without lockdown (drawing ②, not ③) |
 
 A verified incident floods the mesh. Every participant latches the target, and **any
-latch is lockdown**, because the decision layer may share one decision model, so one
+mutiny latch is lockdown** (a heartbeat fork only isolates its node), because the decision layer may share one decision model, so one
 mutiny makes all of it suspect. In lockdown:
 
 * serving nodes refuse requests, and the coordinator carries no data;
@@ -184,6 +191,11 @@ cd inference && python -m pytest tests -q
   revoked-id forgetting, wiped lease secrets, the ledger's holder cap failing closed,
   and a **soak**: twenty simulated minutes of crashes, a black hole, lease renewals,
   lockdown and reset and a stream of requests, after which every table is under its cap.
+* `test_merkle.py`: RFC 6962 roots against the Certificate Transparency vectors, a
+  full heartbeat inside one frame, a restored backup's fork isolating its node without
+  lockdown (and the reset), one incident id whoever reports a fork, a link whose end
+  stops hearing the other leaving every route, and a node that missed three incidents
+  catching up from its neighbours' ledger roots.
 * `test_udp.py`: one request across real UDP (`DirectUDPTransport` + `ChannelMux`).
 * Unit tests for every module: protocol, leases, screens, topology, health and
   breaker, mutiny evidence and ledger, router.
@@ -204,10 +216,14 @@ arrives; the soak test checks that.
   sealing the input end to end to the model node is not built yet.
 * **One frame, one datagram.** Inputs and outputs are capped at 8000 characters. There
   is no chunking.
-* **Online propagation.** Incidents, resets and lease revocations flood to the nodes
-  that are up. A newcomer catches up through directories (the newest incidents and
-  resets) and the leases in heartbeats. The ledger is in memory. Persisting it, the
-  way `RevocationStore` persists revocations, is the obvious next step.
+* **Online propagation, then anti-entropy.** Incidents, resets and lease revocations
+  flood to the nodes that are up. A node that was down notices from its neighbours'
+  `ledger_root` and fetches what it lacks (`dir?`, then `inc?` by id); a user catches
+  up through directories. The ledger is in memory. Persisting it, the way
+  `RevocationStore` persists revocations, is the obvious next step.
+* **Forks need a shared past.** A restored backup or a copied process continues the
+  same chain and is caught. Two copies of a key started from scratch each begin a new
+  chain (`GENESIS`, their own seq); receivers see gaps, not a provable fork.
 * **Agreement is strict.** `default_agree` compares JSON structurally and text after
   normalising whitespace and case. For free-form answers, plug in a comparator.
 * **The canary catches dumps, not care.** A model node that strips the canary before

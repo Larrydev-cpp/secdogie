@@ -335,6 +335,8 @@ class UserClient(Participant):
                 self._submit_lockdown(ask.key, ask, now)
 
     def on_incident(self, incident) -> None:
+        if not self.ledger.lockdown:
+            return  # an isolated node is routed around by the mesh; nothing to redo here
         now = float(self.clock())
         for ask in self.asks.sessions():
             if ask.mode != MODE_LOCKDOWN and self.asks.live(ask.key) is ask:

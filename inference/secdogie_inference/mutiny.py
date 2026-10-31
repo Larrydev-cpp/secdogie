@@ -30,10 +30,17 @@ Kinds, and what each latches:
   decider.self-reported          a serving node's own guard caught its decision
                                  model proposing such a route; it refused to
                                  sign it -> that decider
+  node.heartbeat-fork            two signed heartbeats of one node that fork
+                                 its chain (the same seq, or the same
+                                 non-genesis prev, different contents): its
+                                 key runs twice -> the node, *isolated*
 
-The ledger latches every target an incident names, and any latch puts the
-participant in lockdown: the decision layer may share one decision model, so
-one mutiny makes all of it suspect. Latches never time out. An operator's signed
+The ledger latches every target an incident names, and any mutiny latch puts
+the participant in lockdown: the decision layer may share one decision model,
+so one mutiny makes all of it suspect. A heartbeat fork is not mutiny but a
+node-integrity fault (drawing 2, not 3): it latches the node -- off every path
+at once, its leases revoked and keys rotated -- without lockdown
+(``ISOLATE_ONLY``). Latches never time out. An operator's signed
 reset clears a target only for the incident ids it lists, so a reset written
 before a later incident cannot clear that one, and an incident re-delivered
 after its reset does not latch again.
@@ -56,11 +63,14 @@ from secdogie_identity.signing import canonical
 
 from . import screen
 from .lease import check_lease
+from .merkle import merkle_root
 from .protocol import (
+    GENESIS,
     MAX_REASON,
     STATUS_OK,
     check_advisory,
     check_decision,
+    check_heartbeat,
     check_response,
     decision_violations,
     digest,
@@ -81,10 +91,14 @@ MODEL_FORBIDDEN_CAPABILITY = "model.forbidden-capability"
 MODEL_SELF_REPORTED = "model.self-reported"
 DECIDER_TAMPERING = "decider.tampering"
 DECIDER_SELF_REPORTED = "decider.self-reported"
+NODE_HEARTBEAT_FORK = "node.heartbeat-fork"
 KINDS = frozenset({
     PROVIDER_EQUIVOCATION, PROVIDER_LEASE_VIOLATION, PROVIDER_SECRET_EXFILTRATION,
     MODEL_FORBIDDEN_CAPABILITY, MODEL_SELF_REPORTED, DECIDER_TAMPERING, DECIDER_SELF_REPORTED,
+    NODE_HEARTBEAT_FORK,
 })
+# Kinds that isolate their target without putting anyone in lockdown.
+ISOLATE_ONLY = frozenset({NODE_HEARTBEAT_FORK})
 MAX_TARGETS = 16
 MAX_PROPOSAL = 4096  # canonical bytes of a self-reported proposal
 
@@ -200,6 +214,23 @@ def _decider_self_reported(ev, trust, reporter):
     return {decider_target(reporter)}
 
 
+def _heartbeat_fork(ev, trust, reporter):
+    a, b = ev.get("a"), ev.get("b")
+    if check_heartbeat(a, trust) or check_heartbeat(b, trust) or a["node"] != b["node"]:
+        return None
+    da, db = digest(a), digest(b)
+    if not da < db:
+        return None  # one canonical order, so every reporter of a fork names the same incident
+    if a["seq"] == b["seq"] or (a["prev"] == b["prev"] and a["prev"] != GENESIS):
+        return {node_target(a["node"])}
+    return None
+
+
+def fork_evidence(a: dict, b: dict) -> dict:
+    """The evidence for a fork, in its canonical order."""
+    return {"a": a, "b": b} if digest(a) < digest(b) else {"a": b, "b": a}
+
+
 _VERIFIERS = {
     PROVIDER_EQUIVOCATION: _equivocation,
     PROVIDER_LEASE_VIOLATION: _lease_violation,
@@ -208,6 +239,7 @@ _VERIFIERS = {
     MODEL_SELF_REPORTED: _model_self_reported,
     DECIDER_TAMPERING: _decider_tampering,
     DECIDER_SELF_REPORTED: _decider_self_reported,
+    NODE_HEARTBEAT_FORK: _heartbeat_fork,
 }
 
 
@@ -286,6 +318,7 @@ class MutinyLedger:
         self._latches: dict[str, set[str]] = {}        # target -> incident ids holding it
         self._cleared: set[tuple[str, str]] = set()    # (target, incident id) an operator cleared
         self._resets: OrderedDict[str, dict] = OrderedDict()
+        self._derived: tuple[frozenset[str], frozenset[str], str] | None = None  # lockdown, isolated, root
 
     def add(self, obj) -> Incident | None:
         """Verify and apply an incident; the incident if it was new."""
@@ -299,6 +332,7 @@ class MutinyLedger:
             self._incidents[inc.incident_id] = inc
             for t in open_targets:
                 self._latches.setdefault(t, set()).add(inc.incident_id)
+            self._derived = None
         else:
             self._tombstones.add(inc.incident_id)  # arrived after the reset that cleared it
         return inc
@@ -330,11 +364,41 @@ class MutinyLedger:
             if inc is not None and not any(i in self._latches.get(t, ()) for t in inc.targets):
                 del self._incidents[i]  # holds nothing any more: keep the id, drop the evidence
                 self._tombstones.add(i)
+        self._derived = None
         return True, frozenset(unlatched)
+
+    def _derive(self) -> tuple[frozenset[str], frozenset[str], str]:
+        if self._derived is None:
+            mutiny = frozenset(t for t, ids in self._latches.items()
+                               if any(self._incidents[i].kind not in ISOLATE_ONLY for i in ids))
+            isolated = frozenset(t.partition(":")[2] for t in self._latches
+                                 if t not in mutiny and t.startswith("node:"))
+            root = merkle_root(sorted(f"{t}|{i}" for t, ids in self._latches.items() for i in ids))
+            self._derived = (mutiny, isolated, root)
+        return self._derived
 
     @property
     def lockdown(self) -> bool:
-        return bool(self._latches)
+        """Any target latched by mutiny evidence (isolation alone is not lockdown)."""
+        return bool(self._derive()[0])
+
+    def lockdown_targets(self) -> frozenset[str]:
+        return self._derive()[0]
+
+    def isolated(self) -> frozenset[str]:
+        """Nodes off every path by proof, without lockdown (a heartbeat fork)."""
+        return self._derive()[1]
+
+    def root(self) -> str:
+        """Merkle root over the held ``target|incident_id`` pairs: what heartbeats
+        carry as ``ledger_root``, so neighbours that disagree notice."""
+        return self._derive()[2]
+
+    def knows(self, incident_id: str) -> bool:
+        return incident_id in self._incidents or incident_id in self._tombstones
+
+    def held_ids(self) -> list[str]:
+        return sorted(self._incidents)
 
     def latched_targets(self) -> frozenset[str]:
         return frozenset(self._latches)
@@ -375,6 +439,9 @@ __all__ = [
     "MODEL_SELF_REPORTED",
     "DECIDER_TAMPERING",
     "DECIDER_SELF_REPORTED",
+    "NODE_HEARTBEAT_FORK",
+    "ISOLATE_ONLY",
+    "fork_evidence",
     "Incident",
     "MutinyLedger",
     "make_incident",
