@@ -8,7 +8,10 @@ model said, or a forwarder that swaps an answer, achieves nothing but a refusal.
 
 **Normal and degraded.** The request goes to an entry -- a serving node the user
 is attached to -- or to ``fanout`` of them at once (the diagram's user is linked
-to two). A refusal or a timeout moves on to the next entry.
+to two). A refusal or a timeout moves on to the next entry. A refusal that only
+says "not now" (``no route``, ``no quorum``, ``busy``) from the last untried entry waits
+``retry_backoff`` first: in drawing 2 the mesh needs a few seconds to route
+around a failed node, and asking again at once would only spend the tries.
 
 **Lockdown.** Once the client holds a verified incident it stops using serving
 nodes: the decision layer is suspended. It picks a standby forwarder, fetches a
@@ -41,8 +44,20 @@ from .protocol import (
     make_request,
 )
 from .safety import ACCEPTED, INTERCEPTED, SafetyLayer, default_agree
+from .session import (
+    ASK_EDGES,
+    AWAITING_DIR,
+    OUTCOME_ABORTED,
+    OUTCOME_EXPIRED,
+    SUBMITTED,
+    Session,
+    SessionTable,
+)
 
 HELLO_EVERY = 30.0  # re-attach to entries and standby, refreshing leases and incidents
+# Refusals that say "not now" rather than "no": the mesh may be repairing
+# itself (drawing 2) or the entry may be full, so wait before asking again.
+TRANSIENT = ("no route", "no quorum", "busy")
 
 OUTCOME_ACCEPTED = "accepted"
 OUTCOME_INTERCEPTED = "intercepted"
@@ -59,31 +74,37 @@ class Outcome:
     via: str | None = None
 
 
-@dataclass
-class _Ask:
-    models: tuple[str, ...]
-    text: str
-    scopes: tuple[str, ...]
-    quorum: int
-    ttl: float
+@dataclass(eq=False)
+class _Ask(Session):
+    """One ask: a session (``session.py``) keyed by its handle."""
+
+    models: tuple[str, ...] = ()
+    text: str = ""
+    scopes: tuple[str, ...] = ()
+    quorum: int = 1
+    ttl: float = 60.0
     request: dict | None = None
     rhash: str = ""
     mode: str = MODE_NORMAL
     tries: int = 0
-    deadline: float = 0.0
+    deadline: float = 0.0                             # the current try times out
     tried: list[str] = field(default_factory=list)
     awaiting: set[str] = field(default_factory=set)   # nodes the current request went to, yet to refuse
     unresponsive: set[str] = field(default_factory=set)
     waiting_dir: bool = False
     last_reason: str = ""
-    outcome: Outcome | None = None
+
+    def release(self) -> None:
+        self.request, self.text = None, ""
+        self.tried, self.awaiting, self.unresponsive = [], set(), set()
 
 
 class UserClient(Participant):
     beats = False
 
     def __init__(self, identity, wire, trust, *, entries, standby=(), fanout: int = 1, timeout: float = 15.0,
-                 max_tries: int = 4, agree: Callable[[str, str], bool] = default_agree,
+                 max_tries: int = 4, retry_backoff: float = 2.0, max_open: int = 256, retain: int = 1024,
+                 retain_for: float = 300.0, agree: Callable[[str, str], bool] = default_agree,
                  config: Config | None = None, clock=time.time):
         super().__init__(identity, wire, trust, config=config, clock=clock)
         if not trust.users.contains(self.did):
@@ -93,8 +114,12 @@ class UserClient(Participant):
         self.fanout = max(1, int(fanout))
         self.timeout = float(timeout)
         self.max_tries = int(max_tries)
+        self.retry_backoff = float(retry_backoff)
         self.safety = SafetyLayer(trust, self.leases, self.ledger, agree=agree)
-        self._asks: dict[str, _Ask] = {}
+        # open asks, and the outcomes of settled ones until taken, ``retain_for`` passes,
+        # or ``retain`` newer ones push them out
+        self.asks: SessionTable[_Ask] = SessionTable(capacity=max_open, retain_count=retain, retain_bytes=8 << 20,
+                                                     retain_for=retain_for, edges=ASK_EDGES)
         self._by_rhash: dict[str, str] = {}
         self._late: OrderedDict[str, dict] = OrderedDict()  # rhash -> request, for asks already decided
         self._next_hello = 0.0
@@ -105,23 +130,45 @@ class UserClient(Participant):
     # -- the API ----------------------------------------------------------------------
 
     def ask(self, models, text: str, *, scopes=(), quorum: int = 1, ttl: float = 60.0) -> str:
-        """Start a request; returns a handle for ``outcome``."""
+        """Start a request; returns a handle for ``outcome`` / ``take``."""
         with self._lock:
+            now = float(self.clock())
             handle = secrets.token_hex(8)
-            self._asks[handle] = _Ask(tuple(models), text, tuple(scopes), int(quorum), float(ttl))
-            self._submit(handle, float(self.clock()))
+            life = (self.timeout + self.retry_backoff) * (self.max_tries + 1)  # a backstop; tries end sooner
+            ask = _Ask(handle, self.did, now, now + life, models=tuple(models), text=text, scopes=tuple(scopes),
+                       quorum=int(quorum), ttl=float(ttl))
+            if not self.asks.admit(ask):
+                self.asks.remember(handle, Outcome(OUTCOME_REFUSED, reasons=(
+                    f"busy: {len(self.asks)} asks already open",)), now=now)
+                return handle
+            self._submit(handle, now)
             return handle
 
     def outcome(self, handle: str) -> Outcome | None:
+        """The outcome, once there is one (None while the ask is open, and
+        after it was taken, forgotten or aged out)."""
         with self._lock:
-            ask = self._asks.get(handle)
-            return ask.outcome if ask is not None else None
+            return None if self.asks.live(handle) is not None else self.asks.final(handle)
+
+    def take(self, handle: str) -> Outcome | None:
+        """The outcome, forgotten as it is handed over. None while still open."""
+        with self._lock:
+            return None if self.asks.live(handle) is not None else self.asks.forget(handle)
+
+    def forget(self, handle: str) -> None:
+        """Drop an ask: cancel it if still open, forget its outcome if settled."""
+        with self._lock:
+            ask = self.asks.live(handle)
+            if ask is not None:
+                self._finish(handle, Outcome(OUTCOME_REFUSED, reasons=("cancelled",), mode=ask.mode),
+                             label=OUTCOME_ABORTED)
+            self.asks.forget(handle)
 
     # -- submitting -------------------------------------------------------------------
 
     def _submit(self, handle: str, now: float) -> None:
-        ask = self._asks[handle]
-        if ask.outcome is not None:
+        ask = self.asks.live(handle)
+        if ask is None:
             return
         if ask.tries >= self.max_tries:
             reasons = ("out of tries",) + ((ask.last_reason,) if ask.last_reason else ())
@@ -152,6 +199,7 @@ class UserClient(Participant):
         ask.mode = MODE_NORMAL
         request = self._sign(handle, ask, quorum=ask.quorum)
         ask.awaiting = set(fresh[:self.fanout])
+        self.asks.advance(ask, SUBMITTED)
         for entry in fresh[:self.fanout]:
             ask.tried.append(entry)
             self.send(entry, "submit", request=request)
@@ -183,12 +231,14 @@ class UserClient(Participant):
             ask.waiting_dir = True
             ask.deadline = now + self.timeout
             ask.tried.append(forwarder)
+            self.asks.advance(ask, AWAITING_DIR)
             self.send(forwarder, "dir?")
             return
         ask.waiting_dir = False
         request = self._sign(handle, ask, quorum=quorum, pins=pins)
         ask.tried.append(forwarder)
         ask.awaiting = {forwarder}
+        self.asks.advance(ask, SUBMITTED)
         for incident in self.ledger.signed_incidents()[-2:]:
             self.send(forwarder, "flood", obj=incident)  # the proof travels ahead of the request
         self.send(forwarder, "submit", request=request)
@@ -221,7 +271,7 @@ class UserClient(Participant):
         for _d, r in items:
             self.leases.add(r.get("lease"))
         handle = self._by_rhash.get(rhash)
-        ask = self._asks.get(handle) if handle else None
+        ask = self.asks.live(handle) if handle else None
         if ask is None:
             late = self._late.get(rhash)
             if late is not None:  # decided already, but a second path's answers are still evidence
@@ -251,8 +301,8 @@ class UserClient(Participant):
 
     def _on_refused(self, src: str, f: dict) -> None:
         handle = self._by_rhash.get(f.get("request_hash"))
-        ask = self._asks.get(handle) if handle else None
-        if ask is None or ask.outcome is not None or src not in ask.awaiting:
+        ask = self.asks.live(handle) if handle else None
+        if ask is None or src not in ask.awaiting:
             return
         ask.awaiting.discard(src)
         reason = f.get("reason") if isinstance(f.get("reason"), str) else ""
@@ -269,40 +319,57 @@ class UserClient(Participant):
             return  # another path may still answer
         if ask.mode == MODE_LOCKDOWN and "not eligible" in reason:
             ask.unresponsive.add(reason.rsplit(" ", 1)[-1])
-        self._submit(handle, float(self.clock()))
+        now = float(self.clock())
+        if ask.mode != MODE_LOCKDOWN and reason.startswith(TRANSIENT) and self._all_tried(ask):
+            ask.deadline = now + self.retry_backoff  # on_tick asks again once it passes
+            return
+        self._submit(handle, now)
+
+    def _all_tried(self, ask: _Ask) -> bool:
+        return all(e in ask.tried for e in self.entries if not self.ledger.excludes_node(e))
 
     def on_directory(self, src: str) -> None:
         now = float(self.clock())
-        for handle, ask in list(self._asks.items()):
-            if ask.waiting_dir and ask.outcome is None:
-                self._submit_lockdown(handle, ask, now)
+        for ask in self.asks.sessions():
+            if ask.waiting_dir and self.asks.live(ask.key) is ask:
+                self._submit_lockdown(ask.key, ask, now)
 
     def on_incident(self, incident) -> None:
+        if not self.ledger.lockdown:
+            return  # an isolated node is routed around by the mesh; nothing to redo here
         now = float(self.clock())
-        for handle, ask in list(self._asks.items()):
-            if ask.outcome is None and ask.mode != MODE_LOCKDOWN:
-                self._submit(handle, now)
+        for ask in self.asks.sessions():
+            if ask.mode != MODE_LOCKDOWN and self.asks.live(ask.key) is ask:
+                self._submit(ask.key, now)
 
     def on_tick(self, now: float) -> None:
         if now >= self._next_hello:
             self._next_hello = now + HELLO_EVERY
             for did in self.entries + self.standby:
                 self.send(did, "dir?")  # attach, so incidents reach us before we ask anything
-        for handle, ask in list(self._asks.items()):
-            if ask.outcome is None and now >= ask.deadline:
+        for ask in self.asks.expired(now):
+            if self.asks.live(ask.key) is ask:
+                self._finish(ask.key, Outcome(OUTCOME_REFUSED, reasons=("expired",), mode=ask.mode),
+                             label=OUTCOME_EXPIRED)
+        for ask in self.asks.sessions():
+            if self.asks.live(ask.key) is ask and now >= ask.deadline:
                 if ask.mode == MODE_LOCKDOWN and ask.tried:
                     ask.unresponsive.add(ask.tried[-1])  # the forwarder itself went quiet
                     ask.waiting_dir = False
-                self._submit(handle, now)
+                self._submit(ask.key, now)
+        self.asks.prune(now)
 
-    def _finish(self, handle: str, outcome: Outcome) -> None:
-        ask = self._asks[handle]
-        ask.outcome = outcome
+    def _finish(self, handle: str, outcome: Outcome, *, label: str | None = None) -> None:
+        """Close the ask: its outcome is kept (bounded) until taken or aged out."""
+        ask = self.asks.live(handle)
+        if ask is None:
+            return
         self._by_rhash.pop(ask.rhash, None)
         if ask.request is not None:
             self._late[ask.rhash] = ask.request
             while len(self._late) > 256:
                 self._late.popitem(last=False)
+        self.asks.close(ask, label or outcome.status, outcome, now=float(self.clock()))
         self.note("outcome", status=outcome.status, mode=outcome.mode, reasons=list(outcome.reasons)[:3])
 
     def _publish_evidence(self, evidence) -> None:

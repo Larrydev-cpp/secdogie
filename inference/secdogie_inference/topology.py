@@ -13,6 +13,19 @@ keep that view honest without trusting any one node:
     receiving *new* heartbeats from it (a higher ``seq``), timed by its own
     clock -- not by the timestamp the node wrote, which a node could set to
     look alive forever.
+  * **A link is witnessed.** Heartbeats are vertices of a Merkle DAG: each
+    names its node's previous heartbeat (``prev``) and, for each neighbour,
+    the newest heartbeat that neighbour handed it *directly* (seq and digest
+    head). ``a -- b`` counts only while each end's newest heartbeat witnesses
+    one of the other's at most ``max_witness_lag`` heartbeats old. A node that
+    stops hearing a neighbour says so in its own signed heartbeat, and that
+    link drops out of every participant's routes -- no timeout, nobody's word.
+
+``merge`` also keeps the last ``window`` heartbeats of each node. Two of them
+that fork the chain -- the same ``seq``, or the same non-genesis ``prev``,
+with different contents -- are proof the node's key runs twice (a restored
+backup, a cloned key): ``take_forks`` hands them to the participant, which
+publishes them as ``node.heartbeat-fork`` evidence.
 
 Roles in a heartbeat are claims; ``serve`` / ``coordinator`` / ``broker`` count
 only for DIDs on the matching trust list.
@@ -20,16 +33,21 @@ only for DIDs on the matching trust list.
 Paths are shortest by node cost (1 + load), deterministic on ties, and only pass
 through transit nodes (serving or forwarding) -- never a model node, the
 coordinator or the broker. ``plan_repairs`` is the coordinator's half of the
-failure story in the diagram: bypass links around a failed node, and a standby
-forwarder ("new P2P") for a model node left with no transit link.
+failure story in the diagram: bypass links around a failed node, links from the
+nodes it leaves behind to the central server, and a standby forwarder ("new
+P2P") for a model node left with no transit link.
 """
 from __future__ import annotations
 
 import heapq
+from collections import deque
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import NamedTuple
 
 from .protocol import (
+    GENESIS,
+    HEAD,
     MAX_LISTED,
     ROLE_BROKER,
     ROLE_COORDINATOR,
@@ -38,7 +56,11 @@ from .protocol import (
     ROLE_SERVE,
     TRANSIT_ROLES,
     check_heartbeat,
+    digest,
 )
+
+WINDOW = 8            # heartbeats of each node kept for fork proofs and witness checks
+MAX_WITNESS_LAG = 3   # how many heartbeats behind a link's witness may be
 
 
 @dataclass(frozen=True)
@@ -49,26 +71,79 @@ class NodeState:
     neighbors: frozenset
     load: float
     leases: tuple
-    heard_at: float  # this participant's clock when the newest heartbeat arrived
+    heard_at: float          # this participant's clock when the newest heartbeat arrived
+    digest: str = ""         # of the newest heartbeat
+    prev: str = GENESIS
+    witness: dict = field(default_factory=dict)   # neighbour -> (seq, head) it heard directly
+    ledger_root: str = GENESIS
 
 
 class LinkStateDB:
-    def __init__(self, trust, *, fail_after: float):
+    def __init__(self, trust, *, fail_after: float, max_witness_lag: int = MAX_WITNESS_LAG,
+                 window: int = WINDOW):
         self._trust = trust
         self.fail_after = float(fail_after)
+        self.max_witness_lag = int(max_witness_lag)
         self._nodes: dict[str, NodeState] = {}
+        self._chains: dict[str, deque[tuple[str, dict]]] = {}  # did -> last heartbeats (digest, signed), oldest first
+        self._window = int(window)
+        self._forks: list[tuple[dict, dict]] = []
+        self.gaps: dict[str, int] = {}  # heartbeats whose prev was not the one we held (lost datagrams)
 
     def merge(self, heartbeat, *, now: float) -> bool:
-        """Verify and keep a heartbeat when it is newer than what we hold."""
+        """Verify and keep a heartbeat when it is newer than what we hold. A
+        heartbeat that forks the node's chain is not kept; the pair is queued
+        for ``take_forks``."""
         if check_heartbeat(heartbeat, self._trust, now=now) is not None:
             return False
-        did = heartbeat["node"]
+        did, seq, prev = heartbeat["node"], heartbeat["seq"], heartbeat["prev"]
+        d = digest(heartbeat)
+        chain = self._chains.setdefault(did, deque(maxlen=self._window))
+        for held_digest, held in chain:
+            if held_digest == d:
+                return False
+            if held["seq"] == seq or (held["prev"] == prev and prev != GENESIS):
+                if len(self._forks) < 16:  # taken after every merge; the bound is only a backstop
+                    self._forks.append((held, heartbeat))
+                return False
         cur = self._nodes.get(did)
-        if cur is not None and heartbeat["seq"] <= cur.seq:
+        if cur is not None and seq <= cur.seq:
             return False
-        self._nodes[did] = NodeState(did, self._roles(did, heartbeat["roles"]), heartbeat["seq"],
-                                     frozenset(heartbeat["neighbors"]), float(heartbeat["load"]),
-                                     tuple(heartbeat["leases"]), float(now))
+        if cur is not None and prev != cur.digest:
+            self.gaps[did] = self.gaps.get(did, 0) + 1
+        chain.append((d, heartbeat))
+        self._nodes[did] = NodeState(
+            did, self._roles(did, heartbeat["roles"]), seq,
+            frozenset(n for n, _s, _h in heartbeat["neighbors"]), float(heartbeat["load"]),
+            tuple(heartbeat["leases"]), float(now), d, prev,
+            {n: (s, h) for n, s, h in heartbeat["neighbors"]}, heartbeat["ledger_root"])
+        return True
+
+    def take_forks(self) -> list[tuple[dict, dict]]:
+        """Chain forks found since the last call: pairs of signed heartbeats."""
+        forks, self._forks = self._forks, []
+        return forks
+
+    def seq_of(self, did: str, heartbeat_digest: str) -> int:
+        """The seq of a verified heartbeat this DB holds, or 0."""
+        for d, hb in self._chains.get(did, ()):
+            if d == heartbeat_digest:
+                return hb["seq"]
+        return 0
+
+    def witnessed(self, a: str, b: str) -> bool:
+        """Whether a's newest heartbeat shows it heard b directly, recently: it
+        names a heartbeat of b at most ``max_witness_lag`` behind the newest of
+        b's held here, and when that heartbeat is held here its digest matches."""
+        sa, sb = self._nodes.get(a), self._nodes.get(b)
+        if sa is None or sb is None:
+            return False
+        seq, head = sa.witness.get(b, (0, ""))
+        if not seq or sb.seq - seq > self.max_witness_lag:
+            return False
+        for d, hb in self._chains.get(b, ()):
+            if hb["seq"] == seq:
+                return d[:HEAD] == head
         return True
 
     def _roles(self, did: str, claimed) -> frozenset:
@@ -98,15 +173,20 @@ class LinkStateDB:
         return st.neighbors if st is not None else frozenset()
 
     def adjacency(self, now: float, *, exclude: Iterable[str] = ()) -> dict[str, set[str]]:
-        """Confirmed links among live, non-excluded nodes."""
+        """Confirmed, witnessed links among live, non-excluded nodes."""
         excluded = set(exclude)
         live = {d for d in self._nodes if d not in excluded and self.alive(d, now)}
         adj: dict[str, set[str]] = {d: set() for d in live}
         for a in live:
             for b in self._nodes[a].neighbors:
-                if b in live and a in self._nodes[b].neighbors:
+                if b in live and a in self._nodes[b].neighbors and b not in adj[a] \
+                        and self.witnessed(a, b) and self.witnessed(b, a):
                     adj[a].add(b)
+                    adj[b].add(a)
         return adj
+
+    def size(self) -> int:
+        return sum(len(c) for c in self._chains.values())
 
     def transit(self, now: float, *, exclude: Iterable[str] = ()) -> frozenset:
         excluded = set(exclude)
@@ -142,17 +222,32 @@ def shortest_path(adj: dict[str, set[str]], src: str, dst: str, *, transit, avoi
     return None
 
 
+class Repairs(NamedTuple):
+    """What the coordinator advises and does when nodes go down."""
+
+    bypass: list[tuple[str, str]]   # links to open around the down nodes
+    recruit: list[tuple[str, str]]  # (standby forwarder, model node or key broker) to link
+    orphans: list[str]              # model nodes with no live transit link
+    central: list[str]              # live nodes a down node leaves behind: they link to the coordinator
+
+
 def plan_repairs(lsdb: LinkStateDB, now: float, *, down: set[str], standby: Iterable[str],
-                 deciders=()) -> tuple[list[tuple[str, str]], list[tuple[str, str]], list[str]]:
-    """What the coordinator advises when nodes go down:
+                 brokers: Iterable[str] = ()) -> Repairs:
+    """What the coordinator advises when nodes go down -- drawing 2, "when a
+    node fails, connect to the central server":
 
       * ``bypass``  -- links between the live neighbours a down node leaves
         behind (the arcs that skip a "wrong" node in the diagram), never
         directly between two model nodes;
-      * ``recruit`` -- for a model node with no live transit link, a standby
-        forwarder to attach to it and to a live decider (the "new P2P");
+      * ``central`` -- those same live neighbours (model and transit nodes):
+        each links to the coordinator, so a model node it cut off is reachable
+        over ``decider -> coordinator -> model node`` and a decider it cut off
+        can send such a leg;
       * ``orphans`` -- model nodes with no live transit link, which the
-        coordinator also attaches to itself for the central fallback.
+        coordinator also attaches to itself for the central fallback;
+      * ``recruit`` -- for each orphan, a standby forwarder (the "new P2P") to
+        attach to it and to a live key broker, as drawn: linked to the model
+        node and to the API key, ready to carry the user's pins in lockdown.
     """
     adj = lsdb.adjacency(now, exclude=down)
     transit = lsdb.transit(now, exclude=down)
@@ -161,14 +256,16 @@ def plan_repairs(lsdb: LinkStateDB, now: float, *, down: set[str], standby: Iter
         return d in transit or ROLE_MODEL in lsdb.roles(d)
 
     bypass: list[tuple[str, str]] = []
+    central: set[str] = set()
     for gone in sorted(down):
         around = sorted(n for n in lsdb.last_neighbors(gone) if n in adj and attachable(n))
+        central.update(around)
         for i, a in enumerate(around):
             for b in around[i + 1:]:
                 if b not in adj[a] and (a in transit or b in transit):
                     bypass.append((a, b))
 
-    live_deciders = sorted(d for d in deciders if d in transit)
+    live_brokers = sorted(d for d in brokers if d in adj and ROLE_BROKER in lsdb.roles(d))
     pool = [d for d in standby if d in transit and ROLE_FORWARD in lsdb.roles(d)
             and ROLE_SERVE not in lsdb.roles(d)]
     recruit: list[tuple[str, str]] = []
@@ -183,10 +280,10 @@ def plan_repairs(lsdb: LinkStateDB, now: float, *, down: set[str], standby: Iter
             continue
         used.add(helper)
         recruit.append((helper, p))
-        anchor = min(live_deciders, key=lambda d: (len(adj.get(d, ())), d), default=None)
-        if anchor is not None and anchor not in adj[helper]:
+        anchor = next((k for k in live_brokers if k not in adj[helper]), None)
+        if anchor is not None:
             recruit.append((helper, anchor))
-    return bypass[:MAX_LISTED], recruit[:MAX_LISTED], orphans
+    return Repairs(bypass[:MAX_LISTED], recruit[:MAX_LISTED], orphans, sorted(central))
 
 
-__all__ = ["NodeState", "LinkStateDB", "shortest_path", "plan_repairs"]
+__all__ = ["NodeState", "LinkStateDB", "Repairs", "shortest_path", "plan_repairs"]

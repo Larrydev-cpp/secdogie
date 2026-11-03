@@ -1,6 +1,6 @@
 # Atlas: dual-tier perception, read-only handles, Cloudflare Tunnel
 
-中文：[ATLAS.zh.md](ATLAS.zh.md).
+Chinese: [ATLAS.zh.md](ATLAS.zh.md)
 
 Atlas is the next-generation control path for secdogie on operator-owned
 machines. Python decision core: [`agent/secdogie_agent/atlas.py`](../agent/secdogie_agent/atlas.py).

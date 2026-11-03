@@ -1,5 +1,7 @@
 # secdogie · 云端生命体架构
 
+English: [ARCHITECTURE.md](ARCHITECTURE.md)
+
 > 一个**去中心、经 DID 认证、受监督**的自主体：它运行在**你自己拥有或已获授权的节点**上，
 > 通过 P2P 在这些节点间存续与学习，用一套苏格拉底式的质询系统审视自己的每一步意图，
 > 最终**只在经过认证的本地设备上、在明确的能力授权与人类在环下**采取现实动作。
@@ -229,7 +231,7 @@ flowchart TB
 | `citadel/episodes.py` · `lessons.py` · `consolidate.py` | 阶段式记忆 S1 / S2 / S3 | ③ | ✅ 已建成 |
 | `dialogue/` | Dialogue App:签名信封协议、丢包 / 乱序下的会话层、节点侧桥接、控制器 + Textual 界面 + 无头脚本、结构化视界发布 | ③④ | ✅ 已建成 |
 | `node/` | `secdogie-node` 常驻节点:组装传输、对话、签名日志与受监督回路;真实 UDP 端到端测试 | 全部 | ✅ 已建成 |
-| `inference/` | 推理网格(手绘图「new arc」三态):用户签名请求经 P2P 网格路由到持有短期密钥租约的模型节点,回答端到端签名、在决策节点与用户处各验一次;节点失效时绕行、隔离「wrong」节点并经中央协调者兜底(协调者只做建议与兜底通路,不是信任根);模型或决策层叛变时凭可自证的事件证据锁定全网、吊销并轮换密钥,用户经备用转发节点钉选两个独立模型交叉验证,只有操作员签名可解除。见 [`inference/README.md`](inference/README.md) | ②③ | ✅ 已建成 |
+| `inference/` | 推理网格(手绘图「new arc」三态):用户签名请求经 P2P 网格路由到持有短期密钥租约的模型节点,回答端到端签名、在决策节点与用户处各验一次;节点失效时绕行、隔离「wrong」节点并经中央协调者兜底(协调者只做建议与兜底通路,不是信任根);模型或决策层叛变时凭可自证的事件证据锁定全网、吊销并轮换密钥,用户经备用转发节点钉选两个独立模型交叉验证,只有操作员签名可解除。协议 v2:拓扑按图(四个 P2P+S,节点失效时其邻居连中央 server,新 P2P 挂 API key),模式为显式状态机(只有操作员重置能离开锁定),每个请求是有界会话,心跳是 Merkle-DAG 顶点(链分叉即隔离而不锁定、链路须双向见证、账本根不一致即反熵补齐),决策层前有历史感知决策门(硬否决 + 升级为交叉验证)。见 [`inference/README.md`](inference/README.md) 与 [`inference/PROTOCOL.md`](inference/PROTOCOL.md) | ②③ | ✅ 已建成 |
 
 ---
 
@@ -317,7 +319,7 @@ cd agent && python -m pytest tests/test_observation.py -q
 cd native/atlas && cmake -B build && cmake --build build && ctest --test-dir build
 ```
 
-单机控制沿用既有 agent 回路(逐动作 y/N 确认,详见根 [`README.md`](README.md) 与
+单机控制沿用既有 agent 回路(逐动作 y/N 确认,详见根 [`README.zh.md`](README.zh.md) 与
 [`TUTORIAL.md`](TUTORIAL.md)):
 
 ```sh

@@ -18,6 +18,7 @@ from secdogie_inference import (  # noqa: E402
     OUTCOME_ACCEPTED,
     OUTCOME_INTERCEPTED,
     OUTCOME_REFUSED,
+    Coordinator,
     MeshNode,
     Router,
     make_incident,
@@ -34,7 +35,7 @@ from secdogie_inference.mutiny import (  # noqa: E402
     decider_target,
     model_target,
 )
-from secdogie_inference.protocol import STATUS_OK, VIA_CENTRAL  # noqa: E402
+from secdogie_inference.protocol import ADVISORY, STATUS_OK, VIA_CENTRAL, make_advisory  # noqa: E402
 
 ALPHA, BETA = sim.ALPHA, sim.BETA
 
@@ -70,7 +71,7 @@ def test_normal_routing_takes_the_nearest_model_node():
     assert {p.mode() for p in arc.everyone()} == {MODE_NORMAL}
     out = arc.ask([ALPHA, BETA])
     assert (out.status, out.output, names(arc, out.providers)) == (OUTCOME_ACCEPTED, "answer(hello)", ["L"])
-    assert decisions(arc.S2)[-1]["legs"] == [(arc.did["L"][-8:], "mesh", 3)]  # S2 -> W1 -> L
+    assert decisions(arc.S2)[-1]["legs"] == [(arc.did["L"][-8:], "mesh", 3)]  # S2 -> S1 -> L
 
 
 def test_a_quorum_of_two_uses_both_vendors_on_disjoint_paths():
@@ -78,7 +79,7 @@ def test_a_quorum_of_two_uses_both_vendors_on_disjoint_paths():
     out = arc.ask([ALPHA, BETA], quorum=2)
     assert out.status == OUTCOME_ACCEPTED and names(arc, out.providers) == ["L", "R"]
     legs = decisions(arc.S2)[-1]["legs"]
-    assert sorted(n for _p, _v, n in legs) == [3, 4]  # S2-W1-L and S2-S3-W4-R share no interior node
+    assert sorted(n for _p, _v, n in legs) == [3, 4]  # S2-S1-L and S2-S3-S4-R share no interior node
 
 
 def test_the_user_does_not_take_the_deciders_word():
@@ -105,23 +106,56 @@ def test_fanout_reaches_two_entries_at_once():
 
 # -- state 2: nodes fail -------------------------------------------------------------------
 
-def test_a_crashed_forwarder_falls_back_to_the_central_server_then_gets_bypassed():
-    arc = sim.Arc(entries=("S2",))
+class NoBypass(Coordinator):
+    """A central server whose advice has no bypass links: the mesh cannot heal
+    around a down node, so only the central fallback is left."""
+
+    def advise(self, now):
+        self.standby = []  # nobody to recruit either
+        return super().advise(now)
+
+    def publish(self, obj):
+        if obj.get("type") == ADVISORY and obj.get("bypass"):
+            obj = make_advisory(self.identity, epoch=obj["epoch"], failed=obj["failed"],
+                                quarantined=obj["quarantined"], clock=self.clock)
+        return super().publish(obj)
+
+
+def test_when_a_decider_fails_its_neighbours_connect_to_the_central_server():
+    arc = sim.Arc(entries=("S2",), coordinator_class=NoBypass)
     d = arc.did
-    arc.C.connect(d["L"])  # the central server's control link to the model node
-    arc.L.connect(d["C"])
-    arc.net.settle(2)
-    arc.net.down.add(d["W1"])
+    arc.net.down.add(d["S1"])
+    arc.net.settle(8)  # S1 ages out; the coordinator advises; L and S2 link to it
+    assert arc.S2.advisories[d["C"]]["failed"] == [d["S1"]] and arc.S2.mode() == MODE_DEGRADED
+    assert {d["L"], d["S2"]} <= arc.C.neighbors
+    assert d["C"] in arc.L.neighbors and d["C"] in arc.S2.neighbors
+    assert d["L"] not in arc.S2.neighbors  # no bypass: the central server is the only way to L
 
     out = arc.ask([ALPHA])
     assert out.status == OUTCOME_ACCEPTED and names(arc, out.providers) == ["L"]
-    attempts = decisions(arc.S2)[-2:]
-    assert attempts[0]["legs"][0][1] == "mesh" and attempts[1]["legs"][0][1] == VIA_CENTRAL
+    assert decisions(arc.S2)[-1]["legs"][0][1:] == (VIA_CENTRAL, 3)  # S2 -> C -> L
 
-    arc.net.settle(6)  # W1 ages out; the coordinator advises; the repairs are confirmed
+
+def test_a_request_caught_by_the_failure_still_gets_through_the_central_server():
+    arc = sim.Arc(entries=("S2",), coordinator_class=NoBypass)
+    d = arc.did
+    arc.net.down.add(d["S1"])  # crashes just as the user asks
+    out = arc.ask([ALPHA])
+    assert out.status == OUTCOME_ACCEPTED and names(arc, out.providers) == ["L"]
+    legs = [x["legs"][0][1] for x in decisions(arc.S2)]
+    assert legs[0] == "mesh" and legs[-1] == VIA_CENTRAL  # timed out on S1, then went central
+
+
+def test_a_crashed_decider_is_bypassed_and_the_model_node_gets_a_new_p2p():
+    arc = sim.Arc(entries=("S2",))
+    d = arc.did
+    arc.net.down.add(d["S1"])
+    arc.net.settle(6)  # S1 ages out; the coordinator advises; the repairs are confirmed
     advisory = arc.S2.advisories[d["C"]]
-    assert advisory["failed"] == [d["W1"]] and arc.S2.mode() == MODE_DEGRADED
-    assert {d["S2"], d["N1"]} <= arc.L.neighbors  # the bypass link, and the recruited new P2P
+    assert advisory["failed"] == [d["S1"]] and arc.S2.mode() == MODE_DEGRADED
+    # drawing 2: the bypass arc, the central server, and a new P2P hung off the API key
+    assert {d["S2"], d["C"], d["N1"]} <= arc.L.neighbors
+    assert {d["L"], d["K"]} <= arc.N1.neighbors and d["S2"] not in arc.N1.neighbors
     out = arc.ask([ALPHA])
     assert out.status == OUTCOME_ACCEPTED and decisions(arc.S2)[-1]["legs"][0][1:] == ("mesh", 2)
 
@@ -129,11 +163,11 @@ def test_a_crashed_forwarder_falls_back_to_the_central_server_then_gets_bypassed
 def test_an_orphaned_model_node_gets_a_standby_forwarder():
     arc = sim.Arc(entries=("S3",))
     d = arc.did
-    arc.net.down.add(d["W4"])
+    arc.net.down.add(d["S4"])
     arc.net.settle(6)
     assert d["N1"] in arc.R.neighbors  # the recruited new P2P
     assert d["C"] in arc.R.neighbors   # and the central server attached itself
-    assert d["S3"] in arc.R.neighbors  # and the bypass around W4
+    assert d["S3"] in arc.R.neighbors  # and the bypass around S4
     out = arc.ask([BETA])
     assert out.status == OUTCOME_ACCEPTED
 
@@ -141,25 +175,25 @@ def test_an_orphaned_model_node_gets_a_standby_forwarder():
 def test_a_black_hole_is_quarantined_by_two_deciders_and_later_reinstated():
     arc = sim.Arc(entries=("S3", "S2"))
     d = arc.did
-    arc.net.drop[d["W4"]] = lambda src, f: f["k"] == "req"  # heartbeats fine, traffic dropped
-    for entry in ("S3", "S2", "S3", "S2"):
+    arc.net.drop[d["S4"]] = lambda src, f: f["k"] == "req"  # heartbeats fine, traffic dropped
+    for entry in ("S3", "S2"):  # each decider times out on S4 until it stops trusting it, and reports it
         arc.U.entries = [d[entry]]
         assert arc.ask([BETA]).status == OUTCOME_REFUSED
     now = arc.net.clock()
-    assert arc.C.faults.quarantined(now) == {d["W4"]}
+    assert arc.C.faults.quarantined(now) == {d["S4"]}
     assert arc.C.faults.status(d["S3"], now) == HEALTHY  # accused by S2 alone: one voice is not enough
 
     arc.net.settle(3)
-    assert d["R"] in arc.S3.neighbors  # the bypass around W4
+    assert d["R"] in arc.S3.neighbors  # the bypass around S4
     arc.U.entries = [d["S3"]]
     out = arc.ask([BETA])
     assert out.status == OUTCOME_ACCEPTED and decisions(arc.S3)[-1]["legs"][0][1:] == ("mesh", 2)
 
-    del arc.net.drop[d["W4"]]
-    arc.net.until(lambda: arc.C.faults.status(d["W4"], arc.net.clock()) == HEALTHY, limit=120)
+    del arc.net.drop[d["S4"]]
+    arc.net.until(lambda: arc.C.faults.status(d["S4"], arc.net.clock()) == HEALTHY, limit=120)
     arc.net.settle(3)
     assert arc.S3.advisories[d["C"]]["quarantined"] == []
-    assert d["W4"] not in arc.S3.excluded(arc.net.clock())
+    assert d["S4"] not in arc.S3.excluded(arc.net.clock())  # the crossed-out "wrong": reinstated
 
 
 # -- state 3: mutiny -----------------------------------------------------------------------
