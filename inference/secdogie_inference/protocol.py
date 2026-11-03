@@ -95,6 +95,15 @@ class AnyOf:
     def contains(self, did: str) -> bool:
         return any(s.contains(did) for s in self._sets)
 
+    def dids(self) -> set[str]:
+        """The DIDs of every member set that can enumerate them."""
+        out: set[str] = set()
+        for s in self._sets:
+            dids = getattr(s, "dids", None)
+            if callable(dids):
+                out |= set(dids())
+        return out
+
 
 @dataclass(frozen=True)
 class TrustRoots:

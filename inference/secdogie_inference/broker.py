@@ -74,6 +74,9 @@ class KeyBroker(Participant):
         self.assignments = dict(assignments)
         self._issued: dict[str, dict] = {}     # lease id -> public lease, unrevoked
         self._dark: dict[str, int] = {}        # model -> exposed key version not to lend again
+        # lease id -> (node, sealed grant, next resend): grants the node has not yet
+        # confirmed by advertising the lease in its own heartbeat
+        self._unconfirmed: dict[str, tuple[str, str, float]] = {}
         for did in sorted(self.assignments):
             self.connect(did)
 
@@ -82,7 +85,24 @@ class KeyBroker(Participant):
     def on_tick(self, now: float) -> None:
         for lid in [lid for lid, x in self._issued.items() if x["expires_at"] <= now]:
             del self._issued[lid]
+        self._resend_unconfirmed(now)
         self.issue_due(now)
+
+    def _resend_unconfirmed(self, now: float) -> None:
+        """A grant is delivered once its node advertises the lease in its own
+        heartbeat. Until then it is resent every two heartbeat intervals: a
+        datagram can be lost, and a node found through rendezvous may not have
+        been reachable when the grant first went out."""
+        for lid, (did, sealed, due) in list(self._unconfirmed.items()):
+            lease = self._issued.get(lid)
+            st = self.lsdb.get(did)
+            if lease is None or self.leases.is_revoked(lid) or self.ledger.excludes_node(did):
+                del self._unconfirmed[lid]
+            elif st is not None and any(isinstance(x, dict) and x.get("lease_id") == lid for x in st.leases):
+                del self._unconfirmed[lid]
+            elif now >= due:
+                self.send(did, "grant", lease=lease, sealed=sealed)
+                self._unconfirmed[lid] = (did, sealed, now + 2 * self.config.heartbeat_every)
 
     def issue_due(self, now: float) -> int:
         """Grant every assigned (node, model) that has no fresh lease. Returns
@@ -115,6 +135,7 @@ class KeyBroker(Participant):
         self._issued[lease["lease_id"]] = lease
         self.leases.add(lease)
         self.send(did, "grant", lease=lease, sealed=sealed)
+        self._unconfirmed[lease["lease_id"]] = (did, sealed, float(self.clock()) + 2 * self.config.heartbeat_every)
         self.note("lease", node=did[-8:], model=model, version=version)
 
     # -- reacting to mutiny ---------------------------------------------------------------

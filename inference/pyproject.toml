@@ -15,7 +15,11 @@ license = { text = "MIT" }
 dependencies = ["secdogie-identity"]
 
 [project.optional-dependencies]
+# `secdogie-inference run` / `ask` need the real transport.
 transport = ["secdogie-transport"]
+
+[project.scripts]
+secdogie-inference = "secdogie_inference.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["secdogie_inference*"]
