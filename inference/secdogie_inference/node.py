@@ -37,7 +37,6 @@ another path is never equivocation.
 from __future__ import annotations
 
 import time
-from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -45,6 +44,19 @@ from nacl.public import PrivateKey
 
 from . import screen
 from .breaker import CircuitBreaker
+from .gate import (
+    ESCALATE,
+    EV_ACCEPTED,
+    EV_BREAKER_OPEN,
+    EV_DIVERGENT,
+    EV_INTERCEPTED,
+    VETO,
+    DecisionGate,
+    History,
+    model_subject,
+    node_subject,
+    user_subject,
+)
 from .health import Suspicion
 from .lease import LeaseSecret, check_lease, open_grant
 from .mutiny import (
@@ -62,6 +74,7 @@ from .protocol import (
     MAX_ATTEMPTS,
     MAX_LEASES,
     MAX_OUTPUT,
+    MAX_REASON,
     MODE_LOCKDOWN,
     ROLE_COORDINATOR,
     ROLE_FORWARD,
@@ -80,32 +93,64 @@ from .protocol import (
 )
 from .router import Leg, NoRoute, Router, View
 from .safety import ACCEPTED, INTERCEPTED, SafetyLayer
+from .session import (
+    DECIDING,
+    DISPATCHED,
+    OUTCOME_ABORTED,
+    OUTCOME_ACCEPTED,
+    OUTCOME_EXPIRED,
+    OUTCOME_INTERCEPTED,
+    OUTCOME_REFUSED,
+    OUTCOME_RELAYED,
+    SETTLING,
+    BoundedCache,
+    Session,
+    SessionTable,
+)
 
 Backend = Callable[[str, str, str], str]  # (model, input, leased secret) -> output
 
 
-@dataclass
-class _Pending:
-    request: dict
-    rhash: str
-    user: str
-    quorum: int
-    lockdown: bool
+SESSION_SLACK = 5.0  # beyond the legs' own timeouts, before a request's session expires
+
+
+@dataclass(eq=False)
+class _Pending(Session):
+    """One request this node is routing: a session (``session.py``) keyed by
+    the request's digest and owned by the user who submitted it."""
+
+    request: dict | None = None
+    quorum: int = 1
+    lockdown: bool = False
     attempt: int = 0
     decision: dict | None = None
     legs: list[Leg] = field(default_factory=list)
     open: set[int] = field(default_factory=set)
-    deadline: float = 0.0
+    deadline: float = 0.0                              # the current attempt's legs time out
     avoid: set[str] = field(default_factory=set)
     decisions: set[str] = field(default_factory=set)   # digests of every attempt's decision
     items: list[tuple[dict, dict]] = field(default_factory=list)
     charged: set[str] = field(default_factory=set)     # providers already counted against their breaker
+    escalated: bool = False                            # the decision gate demanded a cross-check
+
+    @property
+    def rhash(self) -> str:
+        return self.key
+
+    @property
+    def user(self) -> str:
+        return self.owner
+
+    def release(self) -> None:
+        self.request = self.decision = None
+        self.legs, self.items = [], []
+        self.open, self.avoid, self.decisions, self.charged = set(), set(), set(), set()
 
 
 class MeshNode(Carrier):
     def __init__(self, identity, wire, trust, *, roles, backend: Backend | None = None,
-                 transport_key: PrivateKey | None = None, policy=None, config: Config | None = None,
-                 clock=time.time):
+                 transport_key: PrivateKey | None = None, policy=None, gate: DecisionGate | None = None,
+                 config: Config | None = None, clock=time.time):
         super().__init__(identity, wire, trust, roles=roles, config=config, clock=clock)
         if self.roles & {ROLE_COORDINATOR} or not self.roles:
             raise ValueError("a mesh node serves, forwards and/or answers; the coordinator is its own class")
@@ -115,15 +160,21 @@ class MeshNode(Carrier):
             raise ValueError("a model node needs a backend and its X25519 transport key")
         self.backend = backend
         self.policy = policy or Router()
+        self.gate = gate or DecisionGate()  # judges each request before any route is chosen
+        self.history = History()            # what this node saw happen, for the gate
         self._transport_key = transport_key
         cfg = self.config
         self.safety = SafetyLayer(trust, self.leases, self.ledger)
         self.suspicion = Suspicion(threshold=cfg.suspect_threshold, cooldown=cfg.suspect_cooldown)
         self.breaker = CircuitBreaker(threshold=cfg.breaker_threshold, cooldown=cfg.breaker_cooldown)
         self._held: dict[str, LeaseSecret] = {}                         # lease id -> opened lease
-        self._served: OrderedDict[tuple[str, str], tuple[str, str, str]] = OrderedDict()
-        self._pending: dict[str, _Pending] = {}
-        self._finished: OrderedDict[str, tuple[str, dict]] = OrderedDict()  # rhash -> (frame kind, fields)
+        # (request digest, model) -> (status, output, reason): a repeat gets the same answer
+        self._served = BoundedCache(max_items=4096, max_bytes=cfg.answer_bytes,
+                                    size=lambda v: 64 + len(v[1]) + len(v[2]))
+        # the requests being routed, and the final frames of those already settled
+        self.sessions: SessionTable[_Pending] = SessionTable(
+            capacity=cfg.max_sessions, per_owner=cfg.max_sessions_per_user,
+            retain_count=cfg.retain_results, retain_bytes=cfg.retain_bytes)
         self._dispatch.update({"submit": self._on_submit, "grant": self._on_grant})
 
     # -- serving: take a request -----------------------------------------------------
@@ -137,11 +188,12 @@ class MeshNode(Carrier):
             return
         rhash = digest(request)
         self.users.add(src)
-        if rhash in self._finished:
-            kind, fields = self._finished[rhash]
+        final = self.sessions.final(rhash)
+        if final is not None:
+            kind, fields = final
             self.send(src, kind, **fields)
             return
-        if rhash in self._pending:
+        if self.sessions.live(rhash) is not None:
             return  # the same request over a second path
         lockdown = self.ledger.lockdown
         if lockdown and (ROLE_FORWARD not in self.roles or ROLE_SERVE in self.roles):
@@ -155,12 +207,31 @@ class MeshNode(Carrier):
         if why:
             self._finish(src, rhash, "refused", reason=why)
             return
-        quorum = max(request["quorum"], LOCKDOWN_QUORUM) if lockdown else request["quorum"]
-        p = _Pending(request, rhash, src, quorum, lockdown)
-        self._pending[rhash] = p
+        providers = [provider for provider, _m, _l in self.leases.eligible(request["models"], now)]
+        gated = self.gate.review(request, me=self.did, ledger=self.ledger, history=self.history, now=now,
+                                 providers=providers, lockdown=lockdown)
+        if gated.status == VETO:
+            self.note("veto", request=rhash[:12], reasons=list(gated.reasons))
+            self._finish(src, rhash, "refused", reason=f"vetoed: {'; '.join(gated.reasons)}"[:MAX_REASON])
+            return
+        if gated.status == ESCALATE:
+            self.note("escalate", request=rhash[:12], quorum=gated.quorum, reasons=list(gated.reasons))
+        quorum = max(request["quorum"], LOCKDOWN_QUORUM) if lockdown else gated.quorum
+        life = min(float(request["expires_at"]), now + self.config.leg_timeout * MAX_ATTEMPTS + SESSION_SLACK)
+        p = _Pending(rhash, src, now, life, request=request, quorum=quorum, lockdown=lockdown,
+                     escalated=gated.status == ESCALATE)
+        if not self.sessions.admit(p):
+            # Nothing is kept for a request that did not fit: the user may try again later.
+            mine = self.sessions.owned(src) >= self.sessions.per_owner
+            why = (f"busy: {self.sessions.per_owner} of your requests are in flight here" if mine
+                   else f"busy: {len(self.sessions)} requests in flight here")
+            self.note("busy", request=rhash[:12], user=src[-8:])
+            self.send(src, "refused", request_hash=rhash, reason=why)
+            return
         self._decide(p, now)
 
     def _decide(self, p: _Pending, now: float) -> None:
+        self.sessions.advance(p, DECIDING)
         if p.lockdown:
             legs, why = self._lockdown_legs(p.request, now)
         else:
@@ -168,7 +239,9 @@ class MeshNode(Carrier):
                 legs, why = self.policy.plan(self._view(p.request, now), p.request, quorum=p.quorum,
                                              avoid=frozenset(p.avoid)), None
             except NoRoute as exc:
-                legs, why = None, str(exc)
+                # An escalated request that cannot be cross-checked fails closed, not "try later".
+                legs, why = None, (f"vetoed: cross-check unavailable ({exc})" if p.escalated
+                                   else f"no route: {exc}")
         if legs is None:
             self._settle_refused(p, why)
             return
@@ -183,10 +256,11 @@ class MeshNode(Carrier):
         p.decisions.add(digest(decision))
         p.open = set(range(len(legs)))
         p.deadline = now + self.config.leg_timeout
+        self.sessions.advance(p, DISPATCHED)
         self.note("decide", request=p.rhash[:12], attempt=p.attempt, mode=mode,
                   legs=[(leg.provider[-8:], leg.via, len(leg.path)) for leg in legs])
         for i, leg in enumerate(legs):
-            if self._pending.get(p.rhash) is not p or p.decision is not decision:
+            if self.sessions.live(p.rhash) is not p or p.decision is not decision:
                 return  # settled or re-decided while sending
             if not self.send(leg.path[1], "req", request=p.request, decision=decision, leg=i, hop=1):
                 self.leg_failed(decision, i, leg.path[1], "the first hop is unreachable")
@@ -254,7 +328,7 @@ class MeshNode(Carrier):
     # -- serving: collect and settle ---------------------------------------------------
 
     def collect(self, decision: dict, leg_i: int, response: dict) -> None:
-        p = self._pending.get(decision["request_hash"])
+        p = self.sessions.live(decision["request_hash"])  # a closed session takes nothing more
         dh = digest(decision)
         if p is None or dh not in p.decisions:
             return
@@ -266,7 +340,7 @@ class MeshNode(Carrier):
                 self._settle(p)
 
     def leg_failed(self, decision: dict, leg_i: int, unreachable: str, reason: str) -> None:
-        p = self._pending.get(decision["request_hash"])
+        p = self.sessions.live(decision["request_hash"])
         if p is None or p.decision is None or digest(decision) != digest(p.decision) or leg_i not in p.open:
             return
         self.note("leg-failed", request=p.rhash[:12], leg=leg_i, unreachable=unreachable[-8:], reason=reason)
@@ -276,8 +350,8 @@ class MeshNode(Carrier):
             self._settle(p)
 
     def on_tick(self, now: float) -> None:
-        for p in list(self._pending.values()):
-            if p.decision is None or now < p.deadline or p.rhash not in self._pending:
+        for p in self.sessions.sessions():
+            if self.sessions.live(p.rhash) is not p or p.state != DISPATCHED or now < p.deadline:
                 continue
             for i in sorted(p.open):
                 leg = p.legs[i]
@@ -286,49 +360,62 @@ class MeshNode(Carrier):
                     self.note("suspect", node=d[-8:])
                     self._report_fault(d, "timeout", p.rhash)
                 if not interior:
-                    self.breaker.failure(node_target(leg.provider), now)
+                    self._breaker_failure(leg.provider, now)
                 p.avoid |= set(interior) or {leg.provider}
             p.open.clear()
             self._settle(p)
+        for p in self.sessions.expired(now):
+            if self.sessions.live(p.rhash) is p:
+                self._settle_refused(p, "expired: the request ran out of time here", OUTCOME_EXPIRED)
         for lid in [lid for lid, s in self._held.items() if s.lease["expires_at"] <= now]:
-            del self._held[lid]
-        self.leases.prune(now)
+            self._held.pop(lid).wipe()
 
     def _settle(self, p: _Pending) -> None:
         now = float(self.clock())
+        self.sessions.advance(p, SETTLING)
         if p.lockdown:
             # The new P2P judges nothing; it still reports what it can prove.
             verdict = self.safety.adjudicate(p.request, p.items, now=now, quorum=p.quorum)
+            items = [[d, r] for d, r in p.items]
+            self._close(p, OUTCOME_RELAYED, "result", request_hash=p.rhash, items=items)
             self._publish_evidence(verdict.evidence)
-            self._finish(p.user, p.rhash, "result", request_hash=p.rhash,
-                         items=[[d, r] for d, r in p.items])
-            self._pending.pop(p.rhash, None)
             return
         if self.ledger.lockdown:
-            self._settle_refused(p, "lockdown: the decision layer is suspended; use a standby forwarder")
+            self._settle_refused(p, "lockdown: the decision layer is suspended; use a standby forwarder",
+                                 OUTCOME_ABORTED)
             return
         verdict = self.safety.adjudicate(p.request, p.items, now=now, quorum=p.quorum,
                                          advisory=self.advisory_at(p.decision["epoch"]) if p.decision else None)
         for provider in sorted({who for who, _why in verdict.rejected} - p.charged):
             p.charged.add(provider)  # once per request: retries re-judge the same answers
-            self.breaker.failure(node_target(provider), now)
+            self._breaker_failure(provider, now)
+        models = {r.get("provider"): r.get("model") for _d, r in p.items if isinstance(r, dict)}
+        user = user_subject(p.user)
         if verdict.status == ACCEPTED:
             for provider in verdict.providers:
                 self.breaker.success(node_target(provider))
+            self.history.note(now, EV_ACCEPTED, user)
             self.note("accepted", request=p.rhash[:12], providers=[x[-8:] for x in verdict.providers])
-            self._finish(p.user, p.rhash, "result", request_hash=p.rhash, items=[[d, r] for d, r in p.items])
-            self._pending.pop(p.rhash, None)
+            items = [[d, r] for d, r in p.items]
+            self._close(p, OUTCOME_ACCEPTED, "result", request_hash=p.rhash, items=items)
             return
         if verdict.evidence:
             # The verdict reaches the user before the incident that locks the mesh down.
-            self._settle_refused(p, f"intercepted: {'; '.join(verdict.reasons)[:180]}")
+            self.history.note(now, EV_INTERCEPTED, user)
+            for model in sorted({m for m in models.values() if isinstance(m, str)}):
+                self.history.note(now, EV_INTERCEPTED, model_subject(model))
+            self._settle_refused(p, f"intercepted: {'; '.join(verdict.reasons)[:180]}", OUTCOME_INTERCEPTED)
             self._publish_evidence(verdict.evidence)
             return
         if verdict.status == INTERCEPTED:  # valid answers that disagree
+            rhash = p.rhash
+            self.history.note(now, EV_INTERCEPTED, user)
+            self._settle_refused(p, "intercepted: the model nodes disagree", OUTCOME_INTERCEPTED)
             for provider in verdict.dissent:
-                self.breaker.failure(node_target(provider), now)
-                self._report_fault(provider, "divergent", p.rhash)
-            self._settle_refused(p, "intercepted: the model nodes disagree")
+                if isinstance(models.get(provider), str):
+                    self.history.note(now, EV_DIVERGENT, model_subject(models[provider]))
+                self._breaker_failure(provider, now)
+                self._report_fault(provider, "divergent", rhash)
             return
         if p.attempt + 1 < MAX_ATTEMPTS:
             p.attempt += 1
@@ -336,17 +423,26 @@ class MeshNode(Carrier):
             return
         self._settle_refused(p, f"no quorum: {'; '.join(verdict.reasons)[:180]}")
 
-    def _settle_refused(self, p: _Pending, reason: str) -> None:
-        self._pending.pop(p.rhash, None)
-        self._finish(p.user, p.rhash, "refused", reason=reason)
+    def _breaker_failure(self, provider: str, now: float) -> None:
+        if self.breaker.failure(node_target(provider), now):
+            self.history.note(now, EV_BREAKER_OPEN, node_subject(provider))
+
+    def _settle_refused(self, p: _Pending, reason: str, outcome: str = OUTCOME_REFUSED) -> None:
+        self._close(p, outcome, "refused", reason=reason)
+
+    def _close(self, p: _Pending, outcome: str, kind: str, **fields) -> None:
+        """End a request's session -- the only way one ends -- and tell its user.
+        Build ``fields`` before calling: closing releases what the session held."""
+        user, rhash = p.user, p.rhash
+        self.sessions.close(p, outcome)
+        self._finish(user, rhash, kind, **fields)
 
     def _finish(self, user: str, rhash: str, kind: str, **fields) -> None:
+        """Send the final frame for ``rhash`` and keep it (bounded) for repeats."""
         if kind == "refused":
             fields = {"request_hash": rhash, **fields}
             self.note("refused", request=rhash[:12], reason=fields["reason"])
-        self._finished[rhash] = (kind, fields)
-        while len(self._finished) > 256:
-            self._finished.popitem(last=False)
+        self.sessions.remember(rhash, (kind, fields), now=float(self.clock()))
         self.send(user, kind, **fields)
 
     def _publish_evidence(self, evidence) -> None:
@@ -354,17 +450,18 @@ class MeshNode(Carrier):
             self.publish(make_incident(self.identity, kind, ev, clock=self.clock))
 
     def _report_fault(self, accused: str, reason: str, rhash: str = "") -> None:
-        report = make_fault(self.identity, accused, reason, request_hash=rhash, clock=self.clock)
-        for c in sorted(self.neighbors):
-            if self.trust.coordinators.contains(c):
-                self.send(c, "fault", report=report)
+        self.publish(make_fault(self.identity, accused, reason, request_hash=rhash, clock=self.clock))
 
     def on_incident(self, incident) -> None:
+        now = float(self.clock())
+        for target in sorted(incident.targets):
+            self.history.note(now, f"incident.{incident.kind}", target)
         if not self.ledger.lockdown:
             return
-        for p in list(self._pending.values()):
-            if not p.lockdown:
-                self._settle_refused(p, "lockdown: the decision layer is suspended; use a standby forwarder")
+        for p in self.sessions.sessions():
+            if not p.lockdown and self.sessions.live(p.rhash) is p:
+                self._settle_refused(p, "lockdown: the decision layer is suspended; use a standby forwarder",
+                                     OUTCOME_ABORTED)
 
     def on_advisory(self, advisory: dict) -> None:
         """Act on the repairs that name this node: open the suggested links."""
@@ -378,8 +475,11 @@ class MeshNode(Carrier):
     def local_exclusions(self, now: float) -> set[str]:
         return self.suspicion.suspects(now)
 
+    def breaker_state(self, did: str, now: float) -> str:
+        return self.breaker.state(node_target(did), now) if ROLE_MODEL in self.lsdb.roles(did) else ""
+
     def load(self) -> float:
-        return min(len(self._pending) / 32.0, 1.0)
+        return min(len(self.sessions) / self.sessions.capacity, 1.0)
 
     # -- answering: M/API ---------------------------------------------------------------
 
@@ -401,7 +501,9 @@ class MeshNode(Carrier):
 
     def on_lease_revoked(self, lease_ids: frozenset) -> None:
         for lid in lease_ids:
-            if self._held.pop(lid, None) is not None:
+            held = self._held.pop(lid, None)
+            if held is not None:
+                held.wipe()
                 self.note("lease-revoked", lease=lid)
 
     def advertised_leases(self, now: float) -> list[dict]:
@@ -441,11 +543,11 @@ class MeshNode(Carrier):
             return
         rhash = digest(request)
         key = (rhash, model)
-        if key not in self._served:
-            self._served[key] = self._answer(request, model, held)
-            while len(self._served) > 4096:
-                self._served.popitem(last=False)
-        status, output, reason = self._served[key]
+        answer = self._served.get(key)
+        if answer is None:
+            answer = self._answer(request, model, held)
+            self._served[key] = answer
+        status, output, reason = answer
         response = make_response(self.identity, request, decision, model, held.lease, output=output,
                                  status=status, reason=reason, clock=self.clock)
         self.send(leg["path"][hop - 1], "resp", decision=decision, response=response, leg=leg_i, hop=hop - 1)
