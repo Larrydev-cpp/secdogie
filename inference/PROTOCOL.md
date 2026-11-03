@@ -45,6 +45,7 @@ two keys). Every type is domain-separated, so no signature verifies as another t
 | `lease/v1` | a broker | `broker`, `subject`, `model`, `key_version`, `valid_from`, `expires_at` (at most `MAX_LEASE_TTL` = 3600 s after `valid_from`), `canary_hash`, `lease_id` (first 32 hex of the digest of the rest) |
 | `lease-revocation/v1` | a broker | `broker`, `lease_ids` (≤ 64), `reason`, `issued_at` |
 | `incident/v1` | a mesh node or client | `reporter`, `kind`, `evidence`, `incident_id` = digest of `{kind, evidence}`, `issued_at` |
+| `admission/v1` | an operator | `operator`, `subject` (the admitted DID, not the operator), `roles` (exactly `["forward"]`), `issued_at`, `expires_at` (at most 30 days later). Flooded; makes `subject` part of the mesh trust set at every node, forward-only, until it expires or a Master revocation names the subject |
 | `reset/v1` | an operator | `operator`, `targets` (`node:` / `model:` / `decider:` + id), `incident_ids`, `issued_at` |
 
 A decision is structurally valid only if each path runs from the decider to its
@@ -75,9 +76,9 @@ signed contents prove.
 | `nack` | hop → previous hop | `decision`, `leg`, `hop`, `at`, `unreachable`, `reason` |
 | `result` | serving node or forwarder → client | `request_hash`, `items` (`[decision, response]` pairs) |
 | `refused` | entry → client | `request_hash`, `reason` (`intercepted: …`, `lockdown: …`, `no route: …`, `no quorum: …`, `busy: …`, `expired: …`, `vetoed: …`, …). The client waits `retry_backoff` before retrying after `no route` / `no quorum` from its last untried entry |
-| `flood` | any → neighbours | `obj`: heartbeat, advisory, fault report, incident, reset, lease revocation |
+| `flood` | any → neighbours | `obj`: heartbeat, advisory, fault report, incident, reset, lease revocation, admission |
 | `grant` | broker → model provider node | `lease`, `sealed` |
-| `dir?` / `dir` | any ↔ node | `leases`, newest `incidents` (2), `resets` (8), `incident_ids` (≤ 64 held). A client's `dir?` also attaches it. |
+| `dir?` / `dir` | any ↔ node | `leases`, newest `incidents` (2), `resets` (8), `incident_ids` (≤ 64 held), `admissions` (≤ 32 current). A client's `dir?` also attaches it. |
 | `inc?` | any → node | `ids` (≤ 16): answered with one `flood` frame per incident the node holds. The asker sends it for the ids in a `dir` it does not know |
 
 A carrier forwards a `req` only when it sits at `path[hop]` and the frame came from

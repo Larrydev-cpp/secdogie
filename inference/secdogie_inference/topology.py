@@ -88,6 +88,7 @@ class LinkStateDB:
         self._chains: dict[str, deque[tuple[str, dict]]] = {}  # did -> last heartbeats (digest, signed), oldest first
         self._window = int(window)
         self._forks: list[tuple[dict, dict]] = []
+        self.forward_only = None  # DIDs (``.contains``) whose role claims are cut to forward: admitted nodes
         self.gaps: dict[str, int] = {}  # heartbeats whose prev was not the one we held (lost datagrams)
 
     def merge(self, heartbeat, *, now: float) -> bool:
@@ -147,6 +148,8 @@ class LinkStateDB:
         return True
 
     def _roles(self, did: str, claimed) -> frozenset:
+        if self.forward_only is not None and self.forward_only.contains(did):
+            return frozenset(r for r in claimed if r == ROLE_FORWARD)
         gate = {ROLE_SERVE: self._trust.deciders, ROLE_COORDINATOR: self._trust.coordinators,
                 ROLE_BROKER: self._trust.brokers}
         return frozenset(r for r in claimed if r not in gate or gate[r].contains(did))

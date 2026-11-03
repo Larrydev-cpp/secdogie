@@ -40,6 +40,7 @@ import time
 from collections import OrderedDict, deque
 from dataclasses import dataclass
 
+from .admission import ADMISSION
 from .lease import LEASE_REVOCATION, LeaseBook
 from .mutiny import (
     INCIDENT,
@@ -86,11 +87,12 @@ from .topology import LinkStateDB
 
 log = logging.getLogger("secdogie_inference")
 
-FLOODED = frozenset({HEARTBEAT, ADVISORY, FAULT, INCIDENT, RESET, LEASE_REVOCATION})
+FLOODED = frozenset({HEARTBEAT, ADVISORY, FAULT, INCIDENT, RESET, LEASE_REVOCATION, ADMISSION})
 TO_USERS = frozenset({INCIDENT, RESET, LEASE_REVOCATION})
 DIR_INCIDENTS = 2   # newest incidents a directory answer carries (each may hold a full answer)
 DIR_RESETS = 8
 DIR_IDS = 64        # held incident ids a directory answer lists, for the asker to fetch what it lacks
+DIR_ADMISSIONS = 32 # newest admissions a directory answer carries
 INC_QUERY = 16      # incident ids one ``inc?`` may ask for
 ROOT_PATIENCE = 2   # heartbeats a neighbour's ledger root may differ before we ask its directory
 REASK_AFTER = 30.0  # before asking again for an incident we asked for
@@ -155,6 +157,7 @@ class Participant:
         self.leases = LeaseBook(trust)
         self.lsdb = LinkStateDB(trust, fail_after=self.config.fail_after)
         self.advisories: dict[str, dict] = {}
+        self.admissions = None   # an AdmissionBook, when this participant accepts operator admissions
         self.neighbors: set[str] = set()
         self.users: set[str] = set()
         self.events: deque = deque(maxlen=1024)
@@ -185,6 +188,15 @@ class Participant:
             return False
         self.wire.connect(did)
         return True
+
+    def attach_admissions(self, book) -> None:
+        """Accept operator admissions (``admission.py``) into ``book``, the same
+        book the mesh trust set consults. An admitted DID is forward-only here:
+        whatever else its heartbeats claim is ignored."""
+        if book.trust is None:
+            book.trust = self.trust
+        self.admissions = book
+        self.lsdb.forward_only = book
 
     def send(self, to: str, kind: str, **fields) -> bool:
         return self.wire.send(to, frame(kind, **fields))
@@ -221,6 +233,8 @@ class Participant:
                 self._beat(now)
                 self._next_beat = now + self.config.heartbeat_every
             self.leases.prune(now)
+            if self.admissions is not None:
+                self.admissions.prune(now)
             self.on_tick(now)
             self._check_mode()
 
@@ -297,6 +311,8 @@ class Participant:
             self._causes.add(CAUSE_ADVISORY)
             self.on_advisory(obj)
             return True
+        if kind == ADMISSION:
+            return self.admissions is not None and self.admissions.add(obj, now=now)
         if kind == FAULT:
             if check_fault(obj, self.trust, now=now) is not None:
                 return False
@@ -334,14 +350,15 @@ class Participant:
         self.send(src, "dir", leases=self.leases.live(now)[:32],
                   incidents=self.ledger.signed_incidents()[-DIR_INCIDENTS:],
                   resets=self.ledger.signed_resets()[-DIR_RESETS:],
-                  incident_ids=self.ledger.held_ids()[-DIR_IDS:])
+                  incident_ids=self.ledger.held_ids()[-DIR_IDS:],
+                  admissions=self.admissions.signed()[-DIR_ADMISSIONS:] if self.admissions is not None else [])
 
     def _on_dir(self, src: str, f: dict) -> None:
         if not self.trust.mesh.contains(src):
             return
         for lease in f.get("leases") or []:
             self.leases.add(lease)
-        for obj in (f.get("incidents") or []) + (f.get("resets") or []):
+        for obj in (f.get("incidents") or []) + (f.get("resets") or []) + (f.get("admissions") or []):
             if isinstance(obj, dict) and self._seen.add(digest(obj)):
                 self.absorb(obj)
         self._fetch_missing(src, f.get("incident_ids"))

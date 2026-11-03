@@ -39,9 +39,10 @@ from pathlib import Path
 
 from secdogie_identity import Allowlist, Identity, MasterSet, RevocationStore, TrustPolicy, load_trust_policy
 
+from .admission import DEFAULT_ADMISSION_TTL, AdmissionBook, RevocationFilter, make_admission
 from .discovery import DiscoveryConfig
 from .participant import Config
-from .protocol import ROLE_BROKER, ROLE_COORDINATOR, ROLE_FORWARD, ROLE_MODEL, ROLE_SERVE, TrustRoots
+from .protocol import ROLE_BROKER, ROLE_COORDINATOR, ROLE_FORWARD, ROLE_MODEL, ROLE_SERVE, AnyOf, TrustRoots
 from .runtime import ROLE_CLIENT
 
 log = logging.getLogger("secdogie_inference")
@@ -121,6 +122,8 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--keys", metavar="FILE", help='broker role: JSON {"model": "secret", ...}')
     r.add_argument("--assignments", metavar="FILE",
                    help='broker role: JSON {"models": {DID: [model, ...]}, "bindings": [binding, ...]}')
+    r.add_argument("--admission", action="append", default=[], metavar="FILE",
+                   help="an operator admission to publish at start (repeatable; secdogie-inference admit)")
     r.add_argument("--min-degree", type=int, default=DiscoveryConfig.min_degree)
     r.add_argument("--max-degree", type=int, default=DiscoveryConfig.max_degree)
     r.add_argument("--no-discovery", action="store_true", help="link only to --peer entries")
@@ -138,6 +141,13 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("text")
     a.set_defaults(fn=_ask, listen=("0.0.0.0", 0))
 
+    ad = sub.add_parser("admit", help="sign an admission: a forward-only, expiring right to join the mesh")
+    ad.add_argument("--operator-key", required=True, metavar="KEYFILE", help="an operator's Ed25519 key")
+    ad.add_argument("--subject", required=True, metavar="DID", help="the DID admitted (e.g. a browser node)")
+    ad.add_argument("--ttl", type=_positive, default=DEFAULT_ADMISSION_TTL, metavar="SECONDS",
+                    help=f"validity (default {DEFAULT_ADMISSION_TTL:g} s, at most 30 days)")
+    ad.set_defaults(fn=_admit)
+
     k = sub.add_parser("genkey-x25519", help="write an X25519 key file (lease or transport key)")
     k.add_argument("file")
     k.set_defaults(fn=_genkey)
@@ -154,11 +164,23 @@ def _trust(args, parser) -> TrustRoots:
             parser.error(f"the {name} trust list is required (--{name} or --trust-dir)")
         paths[name] = path
     try:
-        return TrustRoots(**{name: load_trust_policy(path, masters_path=args.masters,
-                                                       revocations_path=args.revocations)
-                             for name, path in paths.items()})
+        lists = {name: load_trust_policy(path, masters_path=args.masters, revocations_path=args.revocations)
+                 for name, path in paths.items()}
+        # The mesh is the allowlist file plus whatever operators admit (admission.py),
+        # minus anything a Master revocation names.
+        book = AdmissionBook()
+        admitted = book
+        if args.masters:
+            store = RevocationStore(args.revocations) if args.revocations else None
+            admitted = RevocationFilter(book, TrustPolicy(Allowlist(), masters=MasterSet.load(args.masters),
+                                                          store=store))
+        lists["mesh"] = AnyOf(lists["mesh"], admitted)
+        trust = TrustRoots(**lists)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
+    book.trust = trust
+    args._admissions = book
+    return trust
 
 
 def _record(path: str) -> dict:
@@ -198,7 +220,9 @@ def _runtime_config(args, parser, roles, trust):
             bootstrap=[_record(f) for f in args.bootstrap], relays=[_record(f) for f in args.relay_record],
             transport_key=load_transport_key(args.transport_key) if args.transport_key else None,
             peer_bindings=[json.loads(Path(f).read_text(encoding="utf-8")) for f in args.peer_binding],
-            config=_timing(args.heartbeat_every), tick=min(0.2, args.heartbeat_every / 4))
+            config=_timing(args.heartbeat_every), tick=min(0.2, args.heartbeat_every / 4),
+            admissions=getattr(args, "_admissions", None),
+            preload=[json.loads(Path(f).read_text(encoding="utf-8")) for f in getattr(args, "admission", [])])
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     return cfg
@@ -321,6 +345,16 @@ def _ask(args, parser) -> int:
     print(json.dumps({"status": outcome.status, "output": outcome.output, "providers": list(outcome.providers),
                       "reasons": list(outcome.reasons), "mode": outcome.mode}, ensure_ascii=False))
     return EXIT.get(outcome.status, 3)
+
+
+def _admit(args, parser) -> int:
+    try:
+        operator = Identity.load(args.operator_key)
+        admission = make_admission(operator, args.subject, ttl=args.ttl)
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
+    print(json.dumps(admission, sort_keys=True))
+    return 0
 
 
 def _genkey(args, parser) -> int:

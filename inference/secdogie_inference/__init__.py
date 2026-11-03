@@ -21,6 +21,7 @@ See README.md for the architecture and PROTOCOL.md for the wire.
 """
 from __future__ import annotations
 
+from .admission import AdmissionBook, check_admission, make_admission
 from .breaker import CircuitBreaker
 from .broker import Assignment, KeyBroker, assignments_from_bindings
 from .client import OUTCOME_ACCEPTED, OUTCOME_INTERCEPTED, OUTCOME_REFUSED, Outcome, UserClient
@@ -95,6 +96,9 @@ __all__ = [
     "Transition",
     "IllegalTransition",
     "NodeHealth",
+    "AdmissionBook",
+    "make_admission",
+    "check_admission",
     "Wire",
     "MuxWire",
     "make_request",

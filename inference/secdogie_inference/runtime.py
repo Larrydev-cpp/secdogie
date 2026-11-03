@@ -56,6 +56,8 @@ class RuntimeConfig:
     entries: list[str] = field(default_factory=list)      # client: serving nodes to submit to
     key_source: object | None = None                 # broker role
     assignments: dict = field(default_factory=dict)       # broker role
+    admissions: object | None = None                 # an AdmissionBook the mesh trust set also consults
+    preload: list[dict] = field(default_factory=list)     # admissions to publish at start
     config: Config = field(default_factory=Config)
     tick: float = 0.2
     discovery: DiscoveryConfig | None = field(default_factory=DiscoveryConfig)
@@ -181,6 +183,8 @@ class Runtime:
             self.resolver = Resolver(self.transport, cfg.peers, self.rendezvous)
             self.wire = ResolvingWire(self.mux, resolve=self.resolver.resolve)
             self.participant = build_participant(cfg, self.wire)
+            if cfg.admissions is not None:
+                self.participant.attach_admissions(cfg.admissions)
             self.wire.attach(self.participant)
             self.discovery = (Discovery(self.participant, config=cfg.discovery, hints=self._hints)
                               if cfg.discovery is not None else None)
@@ -220,6 +224,9 @@ class Runtime:
             self.rendezvous.start(self._own_endpoints)
         for did in self.cfg.peers:
             self.participant.connect(did)
+        for admission in self.cfg.preload:
+            if not self.participant.publish(admission):
+                log.warning("an admission did not verify or is not new: %s", admission.get("subject", "?"))
         self._thread = threading.Thread(target=self._run, daemon=True, name="inference-tick")
         self._thread.start()
 
