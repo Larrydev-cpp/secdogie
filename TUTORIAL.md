@@ -180,7 +180,7 @@ INFO step 3/50: done (the text has been typed)
 INFO done: typed 'hello world' into the editor
 ```
 
-If that plan looks sane, move on. If the coordinates or steps look wrong, see
+If that plan looks correct, move on. If the coordinates or steps look wrong, see
 [aiming better](#part-2--a-real-task-and-aiming-better).
 
 ### 1.4 Real run — you approve every action
@@ -231,7 +231,7 @@ secdogie-agent "in the settings window, turn on Dark Mode" --grid
 secdogie-agent "..." --max-image-edge 2000
 ```
 
-`--gui` is nice for a first real task: it shows the model's **plan** in a
+`--gui` is recommended for a first real task: it shows the model's **plan** in a
 popup *before* it touches anything, so you approve the approach up front:
 
 ```sh

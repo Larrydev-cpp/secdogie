@@ -202,7 +202,7 @@ to the exe; an uncaught error shows a **native error dialog** with the traceback
 (not just a vanishing window); and launched from a terminal it **reattaches to
 that console**, so `secdogie-agent.exe --help` and other CLI output are visible
 as normal. `open.bat` is a thin wrapper that runs the exe from a cmd window —
-handy because the reattach then streams the live log into that window, and
+useful because the reattach then streams the live log into that window, and
 closing it stops the agent.
 
 ## Run
@@ -490,7 +490,7 @@ verified runs, and facts need the operator's signed confirmation — see
 
 **Never have it store secrets.** The file is plaintext on disk — it's your
 machine, your file. The prompt tells the model not to save passwords/tokens, and
-`remember` refuses values that obviously look like credentials (a key named
+`remember` refuses values that match credential patterns (a key named
 `password`, a value shaped like an API token) as a *best-effort backstop* — a
 backstop, not a guarantee. Memory is **off by default**; without `--memory` a
 `remember` is a harmless no-op.
@@ -556,7 +556,7 @@ Think "a patient assistant taking one considered move at a time", not "a reflex
 bot". For reactive setups, `--watch` fits better (wait for a condition, then
 make one move) than trying to play frame-by-frame.
 
-## RPA macros: record once, replay for free
+## RPA macros: record once, replay without model calls
 
 `--macro PATH` gives a task you've already driven successfully a repeatable,
 zero-model-call fast path — the "robotic" half of RPA, on top of the vision

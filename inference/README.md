@@ -1,157 +1,217 @@
 # secdogie-inference
 
-The inference mesh ("new arc"): users' signed requests travel over the P2P mesh to
-**model nodes** that hold short key leases from a **key authority**, and the answers
-come back signed end to end. A deterministic safety layer judges them at the deciding
-node *and* again at the user. When nodes fail, traffic routes around them and falls
-back to the central server. When a model or the decision layer itself turns
-adversarial, the mesh latches into lockdown. Only an operator's signature gets it out.
+The inference mesh. Clients' signed requests are routed over the P2P mesh to **model
+provider nodes** that hold short-lived credential leases from a **key broker**, and the
+answers return signed end to end. A deterministic safety layer adjudicates them at the
+serving node *and* again at the client. When nodes fail, traffic is routed around them and
+falls back to the **coordinator**. When a model, a model provider node or the decision layer
+itself behaves adversarially, the mesh latches into Lockdown, which only an operator's
+signature releases.
 
-Headless and loopback-testable. No UI, no physical-action path, no new crypto:
-signing, allowlists and revocation come from `secdogie-identity`, sealing from PyNaCl,
-and the wire can ride `secdogie-transport`'s `ChannelMux` (`MuxWire`).
+Headless and testable over loopback. No UI, no physical-action path, no new cryptography:
+signing, allowlists and revocation come from `secdogie-identity`, sealing from PyNaCl, and the
+wire can run over `secdogie-transport`'s `ChannelMux` (`MuxWire`).
 
-## The three states, as drawn
+Terminology follows [`docs/GLOSSARY.md`](../docs/GLOSSARY.md).
 
-| Drawing | Here |
+## Operating states and node roles
+
+The mesh has three operating states:
+
+| State | Mode (`state.py`) | Behavior |
+| --- | --- | --- |
+| State 1: Nominal | `normal` | Distributed routing over confirmed, witnessed links to leased model provider nodes |
+| State 2: Degraded | `degraded` | Fault isolation and central fallback: failed and gray-failure nodes are routed around, the coordinator relays, standby forwarders are recruited |
+| State 3: Lockdown | `lockdown` | Adversarial containment: the decision layer and the central path are suspended; clients pin two independent model provider nodes |
+
+| Role | Implementation |
 | --- | --- |
-| central server | `Coordinator`: signed advisories, repair plans, the central fallback path. Not a trust root. |
-| API key | `KeyBroker`: lends upstream credentials as short leases, sealed to each model node's X25519 key. |
-| M/API (P2P) | `MeshNode(roles={"model"})`: answers with a leased key and signs every answer. |
-| P2P+S (four in drawing ①) | `MeshNode(roles={"serve", "forward"})`: the **decision layer**. It takes user requests, picks routes and judges answers. In drawing ② the outer two are the ones that go "(wrong)". |
-| new P2P | `MeshNode(roles={"forward"})`: carries frames and decides nothing. The standby pool hangs off the API key; one is recruited for a model node in state 2 and is the user's way in during state 3. |
-| user | `UserClient`: signs requests and re-verifies every answer itself. |
+| Coordinator | `Coordinator`: signed advisories, repair plans, the central fallback relay. Not a trust root. |
+| Key broker | `KeyBroker`: leases upstream credentials for short periods, sealed to each model provider node's X25519 key. |
+| Model provider node | `MeshNode(roles={"model"})`: answers with a leased credential and signs every answer. |
+| Serving node | `MeshNode(roles={"serve", "forward"})`: the **decision layer**. Admits client requests, selects routes and adjudicates answers. |
+| Transit / standby forwarder | `MeshNode(roles={"forward"})`: carries frames and decides nothing. Standby forwarders are held in reserve, anchored to the key broker; one is recruited for an orphaned model provider node in State 2 and is the client's entry point in State 3. |
+| Client | `UserClient`: signs requests and re-verifies every answer itself. |
 
-### ① normal: the new arc
+### Diagram-to-component mapping
+
+The design originates from a hand-drawn three-panel diagram. This table is the only place
+its labels appear; everywhere else the canonical terms are used.
+
+| Diagram label | Canonical term | Component |
+| --- | --- | --- |
+| ① `new arc` | State 1: Nominal | `ModeMachine` state `normal` |
+| ② `当节点失效（连接中央server）` (node failure; connect to the central server) | State 2: Degraded | `ModeMachine` state `degraded` |
+| ③ `决策模型叛变时` (decision-model mutiny) | State 3: Lockdown | `ModeMachine` state `lockdown` |
+| central server, c/s | Coordinator | `Coordinator` |
+| API key | Key broker | `KeyBroker` |
+| M/API (P2P) | Model provider node | `MeshNode(roles={"model"})` |
+| P2P+S, S+P2P | Serving node | `MeshNode(roles={"serve", "forward"})` |
+| P2P | Transit forwarder | `MeshNode(roles={"forward"})` |
+| new P2P | Standby forwarder | `MeshNode(roles={"forward"})` in `Coordinator(standby=…)` |
+| (wrong) P2P | Gray-failure node | quarantined via `FaultTracker` |
+| S+~~wrong~~ P2P | Reinstated node | `FaultTracker` after a clean probation |
+| user | Client | `UserClient` |
+
+### State 1: Nominal
 
 ```mermaid
 flowchart LR
-  C["central server<br/>Coordinator"] --- K["API key<br/>KeyBroker"]
+  C["Coordinator"] --- K["Key broker"]
   K -. sealed lease .-> L
   K -. sealed lease .-> R
-  L["M/API<br/>vendor-a"] --- S1["P2P+S"] --- S2["P2P+S"] --- S3["P2P+S"] --- S4["P2P+S"] --- R["M/API<br/>vendor-b"]
+  L["Model provider<br/>vendor-a"] --- S1["Serving node S1"] --- S2["Serving node S2"] --- S3["Serving node S3"] --- S4["Serving node S4"] --- R["Model provider<br/>vendor-b"]
   C --- S1
   C --- S4
-  U((user)) -->|signed request| S3
+  U((Client)) -->|signed request| S3
   S2 -->|signed answers| U
 ```
 
-As drawn: four serving nodes, the central server linked to the outer two, the user
-attached to the inner two. The user's arrows go in through one and out through the
-other; here the answers come back from whichever decider took the request, since
-the user re-verifies everything and the return path carries no trust.
+Reference topology: four serving nodes between two model provider nodes, the coordinator
+linked to the outer two, the client attached to the inner two. The client submits through one
+serving node; answers return from the serving node that admitted the request. The return
+path carries no trust, because the client re-verifies every answer.
 
-Every node floods a signed heartbeat with its roles, its neighbours, its load and, for
-a model node, its public leases. A link counts only when **both ends** list each other.
-A serving node routes over that graph with `Router`: the cheapest paths, interior nodes
-that are transit-only, distinct providers, distinct models first, and node-disjoint
-paths for a quorum above one. It signs a **decision** naming each leg's path. The
-model node checks the request and the decision itself, answers, and signs a
-**response** that embeds its lease and binds to the request and the decision. Nothing
-in between can alter it.
+Every node floods a signed heartbeat with its roles, its neighbours, its load and, for a
+model provider node, its public leases. A link counts only when **both ends** list each
+other and witness each other (see State 2). A serving node routes over that graph with
+`Router`: lowest-cost paths, transit-only interior nodes, distinct providers, distinct models
+first, and node-disjoint paths for a quorum above one. It signs a **decision** naming each
+leg's path. The model provider node verifies the request and the decision itself, answers,
+and signs a **response** that embeds its lease and binds to the request and the decision; no
+intermediate node can alter it.
 
-### ② a node fails: connect to the central server
+### State 2: Degraded (fault isolation and central fallback)
 
 ```mermaid
 flowchart LR
-  C["central server"] -.->|"central attach"| L
+  C["Coordinator"] -.->|"central attach"| L
   C -.->|"central attach"| R
   S2 ==>|"bypass"| L
-  N1["new P2P"] --- L
-  N1 --- K["API key"]
-  L["M/API"] --- S1["(wrong) P2P"]:::bad --- S2["S+P2P"] --- S3["S+P2P"] --- S4["P2P (wrong)"]:::bad --- R["M/API"]
+  N1["Standby forwarder N1"] --- L
+  N1 --- K["Key broker"]
+  L["Model provider"] --- S1["Gray-failure node S1"]:::bad --- S2["Serving node S2"] --- S3["Serving node S3"] --- S4["Gray-failure node S4"]:::bad --- R["Model provider"]
   S3 ==>|"bypass"| R
-  N2["new P2P"] --- R
+  N2["Standby forwarder N2"] --- R
   N2 --- K
   classDef bad stroke-dasharray: 5 5
 ```
 
-* **Crash.** A node that stops sending new heartbeats ages out of everyone's view.
-  The first request that dies with it times out. The retry avoids it, and if the mesh
-  has no other path, the decider routes `decider → coordinator → model node`, which is
-  the central fallback. A user refused with `no route` waits a little and asks again
-  while the mesh repairs itself.
-* **Repair: connect to the central server.** The coordinator's next advisory proposes
-  **bypass** links between the failed node's live neighbours, and the coordinator links
-  itself to those same neighbours (the drawing's title, and its lines from the central
-  server to both M/API). It **recruits** a standby forwarder (the "new P2P") for any
-  model node left with no transit link, linked to that model node and to the API key
-  as drawn. Nodes open the links that name them, and a link only exists once both ends
-  confirm it in their own heartbeats.
-* **Witnessed links (the heartbeat DAG).** Every heartbeat names its predecessor and,
-  for each neighbour, the newest heartbeat that neighbour handed it directly. A link
-  counts only while both ends witness each other recently, so a node that stops
-  hearing a neighbour takes that link out of everyone's routes through its own signed
-  heartbeat. Two heartbeats that fork one node's chain prove its key runs twice: the
-  node is isolated at once, without lockdown, until an operator resets it.
-* **Wrong node (gray failure).** Some nodes heartbeat fine but drop traffic. Each
-  decider's `Suspicion` charges the interior of legs that time out and credits legs
-  that deliver. A node past the threshold is avoided locally and reported to the
-  coordinator; the signed report is flooded, since a decider need not be linked to it. The coordinator's `FaultTracker` quarantines a node only on reports from
-  `quarantine_threshold` **distinct** reporters, so one liar cannot isolate an honest
-  node. The quarantine cooldown doubles on each repeat. After it comes **probation**:
-  one more report sends the node back, and a clean probation reinstates it (the
-  crossed-out "wrong" in the drawing).
+* **Crash failure.** A node that stops sending new heartbeats ages out of every
+  participant's view. The first request routed through it times out; the retry avoids it,
+  and if the mesh has no other path, the serving node routes
+  `serving node → coordinator → model provider node` (the central fallback). A client
+  refused with `no route` backs off and retries while the mesh repairs itself.
+* **Repair and central attach.** The coordinator's next advisory proposes **bypass** links
+  between the failed node's live neighbours, and the coordinator links itself to those same
+  neighbours, model provider nodes and serving nodes alike. It **recruits** a standby
+  forwarder for any model provider node left without a transit link, paired with that node
+  and with the key broker. Nodes open the links that name them; a link exists only once both
+  ends confirm it in their own heartbeats.
+* **Witnessed links (the heartbeat DAG).** Every heartbeat names its predecessor and, for
+  each neighbour, the newest heartbeat that neighbour handed it directly. A link counts only
+  while both ends witness each other recently, so a node that stops receiving from a
+  neighbour removes that link from every participant's routes through its own signed
+  heartbeat. Two heartbeats that fork one node's chain prove its key is running twice: the
+  node is isolated immediately, without Lockdown, until an operator resets it.
+* **Gray failure.** Some nodes heartbeat normally but drop traffic. Each serving node's
+  `Suspicion` charges the interior nodes of legs that time out and credits those of legs that
+  deliver. A node past the threshold is excluded locally and reported to the coordinator; the
+  signed fault report is flooded, because a serving node need not be linked to the
+  coordinator. The coordinator's `FaultTracker` quarantines a node only on reports from
+  `quarantine_threshold` **distinct** reporters, so a single dishonest reporter cannot isolate
+  an honest node. The quarantine cooldown doubles on each repeat. **Probation** follows: one
+  more report returns the node to quarantine, and a clean probation reinstates it.
 * Ordinary failures (timeouts, refusals, invalid or divergent answers) feed a per-node
   `CircuitBreaker` that recovers on its own: closed → open → half-open.
 
-### ③ the decision model mutinies: lockdown
+### State 3: Lockdown (adversarial containment)
 
 ```mermaid
 flowchart LR
-  CS["c/s"] --- K["API key"]
-  K --- L["M/API"]
-  K --- R["M/API"]
-  L --- N["new P2P<br/>(standby forwarder)"]
+  CS["Coordinator"] --- K["Key broker"]
+  K --- L["Model provider"]
+  K --- R["Model provider"]
+  L --- N["Standby forwarder"]
   R --- N
-  N --- U((user))
+  N --- U((Client))
 ```
 
-Mutiny is decided by **evidence**, never by anyone's word. An incident carries signed
-objects from which any receiver re-derives the violation against its own trust roots
-(see `mutiny.py`):
+Mutiny (provable adversarial behavior) is established by **evidence**, never by assertion.
+An incident carries signed objects from which any receiver re-derives the violation against
+its own trust roots (see `mutiny.py`):
 
 | Kind | Proof | Latches |
 | --- | --- | --- |
-| `provider.equivocation` | two signed answers, same node / request / model, different output | the node |
-| `provider.lease-violation` | an answer with a forged lease, someone else's, or one for another model | the node |
-| `provider.secret-exfiltration` | an answer containing the canary its own lease commits to | the node |
-| `model.forbidden-capability` | an answer to an action-bearing request proposing a never-grantable capability | the model and the node |
-| `model.self-reported` | a leaseholder caught its upstream model before signing | the model |
-| `decider.tampering` | a signed decision that downgrades quorum, swaps a model, ignores pins, breaks lockdown shape, or routes through a node quarantined at its own epoch | the decider |
-| `decider.self-reported` | a serving node's guard caught its decision policy proposing such a route and refused to sign it | the decider |
-| `node.heartbeat-fork` | two signed heartbeats of one node that fork its chain: its key runs twice | the node, **isolated** without lockdown (drawing ②, not ③) |
+| `provider.equivocation` | Two signed answers from the same node to the same request and model, with different output | The node |
+| `provider.lease-violation` | An answer presenting a forged lease, another node's lease, or a lease for another model | The node |
+| `provider.secret-exfiltration` | An answer containing the canary its own lease commits to | The node |
+| `model.forbidden-capability` | An answer to an action-bearing request proposing a never-grantable capability | The model and the node |
+| `model.self-reported` | A leaseholder caught its upstream model before signing | The model |
+| `decider.tampering` | A signed decision that downgrades the quorum, substitutes a model, ignores pins, violates Lockdown shape, or routes through a node quarantined at its own epoch | The serving node |
+| `decider.self-reported` | A serving node's guard caught its decision policy proposing such a route and refused to sign it | The serving node |
+| `node.heartbeat-fork` | Two signed heartbeats of one node that fork its chain: its key is running twice | The node, **isolated** without Lockdown (a State 2 fault, not State 3) |
 
-A verified incident floods the mesh. Every participant latches the target, and **any
-mutiny latch is lockdown** (a heartbeat fork only isolates its node), because the decision layer may share one decision model, so one
-mutiny makes all of it suspect. In lockdown:
+A verified incident floods the mesh and every participant latches its targets. **Any mutiny
+latch is Lockdown** (a heartbeat fork only isolates its node), because the decision layer may
+share a single decision model, so one mutiny makes all of it suspect. In Lockdown:
 
 * serving nodes refuse requests, and the coordinator carries no data;
-* the broker revokes the latched node's leases and **rotates** every key it held. If
-  the key source cannot rotate, the exposed key is never lent again;
-* the user picks a standby forwarder, fetches a directory, and **pins** two model
-  nodes itself (distinct nodes, distinct models first). The forwarder links straight to
-  them, signs a decision that is exactly the pins, and returns every answer unjudged.
-  The user accepts only if both answers verify and agree. A single-model request
-  cannot be cross-checked, so it is refused.
+* the key broker revokes the latched node's leases and **rotates** every key it held; if the
+  key source cannot rotate, the exposed key is never leased again;
+* the client selects a standby forwarder, fetches a directory and **pins** two model provider
+  nodes itself (distinct nodes, distinct models first). The forwarder links directly to them,
+  signs a decision that is exactly the pins, and returns every answer unadjudicated. The
+  client accepts only if both answers verify and agree. A single-model request cannot be
+  cross-checked, so it is refused.
 
-Latches never time out. An operator signs a reset (`make_reset`) naming the targets
-and the incident ids it reviewed. A reset cannot clear an incident it does not name,
-and an incident that arrives again after its reset does not latch again.
+Latches never expire. An operator signs a reset (`make_reset`) naming the targets and the
+incident ids reviewed. A reset cannot clear an incident it does not name, and an incident
+that arrives again after its reset does not latch again.
 
 ## The mode as a state machine
 
-Each participant runs a `ModeMachine` (`state.py`): `normal` (drawing ①), `degraded`
-(②) and `lockdown` (③). A move must have a cause the table allows; only an
-operator's reset leaves lockdown, and any other exit raises `IllegalTransition`. Moves
-are kept as `Transition` records and can be subscribed to:
+Each participant runs a `ModeMachine` (`state.py`) over `normal` (State 1), `degraded`
+(State 2) and `lockdown` (State 3). Every transition requires a cause the transition table
+allows; only an operator reset leaves Lockdown, and any other exit raises
+`IllegalTransition`. Transitions are recorded as `Transition` records and can be subscribed
+to:
 
 ```python
 node.machine.subscribe(lambda t: print(t.old, "->", t.new, "because", t.cause))
 node.health_snapshot()   # per node: alive, suspect, quarantine, breaker, latched, isolated
 ```
 
-## Using it
+## The decision gate
+
+Before a serving node selects any route, its `DecisionGate` (`gate.py`) reviews the request
+deterministically, against hard rules and against the node's own `History` of outcomes,
+divergent answers and opened breakers:
+
+* **Veto** (`vetoed: …`), which cannot be disabled: the node itself is latched; the input
+  carries a lease canary token; or the request is action-bearing (it has scopes) and comes
+  from a client whose earlier action request drew a forbidden capability from a model, until
+  an operator reset names that incident.
+* **Escalate**: an action-bearing request whose models recently diverged or were
+  intercepted, whose model provider nodes' breakers opened, or whose client is repeatedly
+  intercepted must be answered by two model provider nodes that agree, even if the client
+  asked for one. If that cross-check cannot be routed, the request is refused (fail-closed).
+
+History can only make the gate stricter: it raises the quorum and never lowers what the
+client requested. The absolute circuit breaker remains the mutiny latch (State 3); the gate
+keeps the decision layer from proceeding into conditions history has already exposed.
+
+## Bounded by construction
+
+Every request a serving node routes is a session with an explicit lifecycle in a bounded
+table (`session.py`): at most 64 concurrently and 8 per client (`busy: …` beyond that), each
+with an expiry; closing a session releases everything it held. A client's asks are bounded
+the same way; collect outcomes with `take(handle)`. Every other table (answers, equivocation
+memory, leases, revoked lease ids, fault records, suspicion, the mutiny ledger) has a bound,
+listed in [`PROTOCOL.md`](PROTOCOL.md). None grows with input volume; the soak test verifies
+this.
+
+## Usage
 
 ```python
 from secdogie_inference import (TrustRoots, MeshNode, Coordinator, KeyBroker, UserClient,
@@ -166,8 +226,8 @@ while running:
     node.tick()                    # heartbeats, timeouts, advisories, lease renewal
 ```
 
-`backend(model, input, secret) -> str` is where an upstream API client goes. Every
-trust set is required. `ALLOW_ANY` is for tests only, as everywhere in secdogie.
+`backend(model, input, secret) -> str` is where an upstream API client is plugged in. Every
+trust set is required; `ALLOW_ANY` is for tests only, as everywhere in secdogie.
 
 ## Tests
 
@@ -176,89 +236,60 @@ pip install -e identity -e transport -e inference pytest
 cd inference && python -m pytest tests -q
 ```
 
-* `test_states.py`: the three drawings end to end on a deterministic simulated mesh
-  (`tests/sim.py`, drawing ①'s topology as drawn): routing, a lying decider, multipath;
-  a failed decider whose neighbours connect to the central server, the central fallback,
-  the bypass and the new P2P, the black hole quarantined by two deciders and then
-  reinstated; decision-model mutiny with lockdown and reset, a convicted decider, a
-  leaking model node and key rotation, an upstream model proposing `run_elevated`,
-  equivocation caught by multipath, disagreement intercepted.
-* `test_state.py`: the mode machine. Every (from, to, cause) move is taken exactly when
-  the table allows it, only a reset leaves lockdown, the three drawings as recorded
-  transitions, and a latch cleared behind the ledger's back failing loudly.
-* `test_session.py`: session edges, admission per node and per user (`busy`), expiry,
-  late answers for closed sessions, bounded retention, the user's `take`/`forget`,
-  revoked-id forgetting, wiped lease secrets, the ledger's holder cap failing closed,
-  and a **soak**: twenty simulated minutes of crashes, a black hole, lease renewals,
-  lockdown and reset and a stream of requests, after which every table is under its cap.
-* `test_merkle.py`: RFC 6962 roots against the Certificate Transparency vectors, a
-  full heartbeat inside one frame, a restored backup's fork isolating its node without
-  lockdown (and the reset), one incident id whoever reports a fork, a link whose end
-  stops hearing the other leaving every route, and a node that missed three incidents
-  catching up from its neighbours' ledger roots.
-* `test_gate.py`: the canary probe vetoed, divergence escalating an action request to
-  a two-node cross-check (and failing closed when one model cannot be cross-checked),
-  a user implicated by forbidden-capability evidence vetoed until the reset, a latched
-  node vetoing everything, and 300 random histories that never lower a quorum.
-* `test_udp.py`: one request across real UDP (`DirectUDPTransport` + `ChannelMux`).
-* Unit tests for every module: protocol, leases, screens, topology, health and
-  breaker, mutiny evidence and ledger, router.
+* `test_states.py`: the three operating states end to end on a deterministic simulated mesh
+  (`tests/sim.py`, the reference topology): routing, a dishonest serving node, multipath; a
+  failed serving node whose neighbours attach to the coordinator, the central fallback, the
+  bypass and the standby forwarder, a black-hole node quarantined by two serving nodes and
+  later reinstated; decision-model mutiny with Lockdown and reset, a convicted serving node,
+  a leaking model provider node and key rotation, an upstream model proposing
+  `run_elevated`, equivocation caught by multipath, disagreement intercepted.
+* `test_state.py`: the mode state machine. Every (from, to, cause) transition is taken exactly
+  when the table allows it, only a reset leaves Lockdown, the three states as recorded
+  transitions, and a latch cleared outside the ledger failing loudly.
+* `test_session.py`: session edges, admission per node and per client (`busy`), expiry, late
+  answers for closed sessions, bounded retention, the client's `take` / `forget`, forgetting
+  of revoked lease ids, wiped lease secrets, the ledger's holder cap failing closed, and a
+  **soak test**: twenty simulated minutes of crashes, a black-hole node, lease renewals,
+  Lockdown and reset and a stream of requests, after which every table is under its bound.
+* `test_merkle.py`: RFC 6962 roots against the Certificate Transparency vectors, a full
+  heartbeat within one frame, a restored backup's chain fork isolating its node without
+  Lockdown (and the reset), one incident id regardless of who reports a fork, a link whose
+  end stops receiving from the other leaving every route, and a node that missed three
+  incidents converging from its neighbours' ledger roots.
+* `test_gate.py`: the canary probe vetoed, divergence escalating an action-bearing request to
+  a two-node cross-check (and failing closed when a single model cannot be cross-checked), a
+  client implicated by forbidden-capability evidence vetoed until the reset, a latched node
+  vetoing everything, and 300 random histories that never lower a quorum.
+* `test_udp.py`: one request over real UDP (`DirectUDPTransport` + `ChannelMux`).
+* Unit tests for every module: protocol, leases, screens, topology, health and breaker,
+  mutiny evidence and ledger, router.
 
-## The decision gate
+## Known limitations
 
-Before a serving node chooses any route, its `DecisionGate` (`gate.py`) reviews the
-request, deterministically, against hard rules and against the node's own `History`
-of outcomes, divergent answers and opened breakers:
-
-* **veto** (`vetoed: …`), which nothing turns off: the node itself is latched; the input
-  carries a lease canary token; or the request acts (it has scopes) and comes from a
-  user whose earlier action request drew a forbidden capability from a model, until
-  an operator's reset names that incident;
-* **escalate**: an action request whose models recently diverged or were intercepted,
-  whose model nodes' breakers opened, or whose user keeps getting intercepted must be
-  answered by two model nodes that agree, even if the user asked for one. If that
-  cross-check cannot be routed, the request is refused; it fails closed.
-
-History can only make the gate stricter: it raises the quorum, never lowers what the
-user asked for. The absolute circuit breaker is still the mutiny latch (drawing ③);
-the gate keeps the decision layer from walking into what history already shows.
-
-## Bounded by construction
-
-Every request a serving node routes is a session with an explicit lifecycle in a
-bounded table (`session.py`): at most 64 at once and 8 per user (`busy: …` beyond
-that), each with an expiry, and closing one releases everything it held. A user's
-asks are bounded the same way; collect outcomes with `take(handle)`. Every other
-table -- answers, equivocation memory, leases, revoked ids, fault records, suspicion,
-the mutiny ledger -- has a bound, listed in PROTOCOL.md. None of them grows with what
-arrives; the soak test checks that.
-
-## Honest limits
-
-* **Forwarders see the prompt.** Transport sealing protects each hop on the wire, but
-  sealing the input end to end to the model node is not built yet.
-* **One frame, one datagram.** Inputs and outputs are capped at 8000 characters. There
-  is no chunking.
-* **Online propagation, then anti-entropy.** Incidents, resets and lease revocations
-  flood to the nodes that are up. A node that was down notices from its neighbours'
-  `ledger_root` and fetches what it lacks (`dir?`, then `inc?` by id); a user catches
-  up through directories. The ledger is in memory. Persisting it, the way
-  `RevocationStore` persists revocations, is the obvious next step.
-* **Forks need a shared past.** A restored backup or a copied process continues the
-  same chain and is caught. Two copies of a key started from scratch each begin a new
-  chain (`GENESIS`, their own seq); receivers see gaps, not a provable fork.
+* **Forwarders see the prompt.** Transport sealing protects each hop, but end-to-end sealing
+  of the input to the model provider node is not implemented yet.
+* **One frame per datagram.** Inputs and outputs are capped at 8,000 characters; there is no
+  fragmentation.
+* **Online propagation, then anti-entropy.** Incidents, resets and lease revocations flood to
+  the nodes that are up. A node that was down detects the gap from its neighbours'
+  `ledger_root` and fetches what it lacks (`dir?`, then `inc?` by id); a client catches up
+  through directories. The ledger is in memory; persisting it, as `RevocationStore` persists
+  revocations, is the next step.
+* **Fork proofs require a shared history.** A restored backup or a copied process continues
+  the same chain and is detected. Two copies of a key started from scratch each begin a new
+  chain (`GENESIS`, their own sequence numbers); receivers see gaps, not a provable fork.
 * **Agreement is strict.** `default_agree` compares JSON structurally and text after
-  normalising whitespace and case. For free-form answers, plug in a comparator.
-* **The canary catches dumps, not care.** A model node that strips the canary before
-  leaking the key is not caught by it. Rotating on every node-level latch is the
-  backstop.
-* **Prompt-induced mutiny is still mutiny.** A `forbidden-capability` answer may have
-  been coaxed out by its prompt. The evidence carries the user-signed request, so the
-  operator can see who asked and revoke that user. The mesh fails closed instead of
-  guessing intent.
-* **Secrets in a garbage-collected heap.** Held lease secrets are `bytearray`s, zeroed
-  on expiry and revocation, but the backend receives a `str`, and opening the grant
-  makes one too; CPython cannot zero those. The guarantee is that nothing references a
-  secret longer than it must, not that it is erased from the process.
-* **Operator-sized meshes.** Link-state flooding costs O(nodes × links) per heartbeat
-  interval. That is fine for tens of nodes, and it is not designed for internet scale.
+  normalizing whitespace and case. Free-form answers need a custom comparator.
+* **The canary detects dumps, not deliberate exfiltration.** A model provider node that
+  strips the canary before leaking the key is not detected by it; key rotation on every
+  node-level latch is the backstop.
+* **Prompt-induced mutiny is still mutiny.** A `forbidden-capability` answer may have been
+  elicited by its prompt. The evidence carries the client-signed request, so the operator can
+  identify the requester and revoke that client. The mesh fails closed rather than inferring
+  intent.
+* **Secrets in a garbage-collected heap.** Held lease secrets are `bytearray`s zeroed on
+  expiry and revocation, but the backend receives a `str`, and opening the grant creates one
+  too; CPython cannot zero those. The guarantee is that nothing references a secret longer
+  than necessary, not that it is erased from the process.
+* **Operator-scale meshes.** Link-state flooding costs O(nodes × links) per heartbeat
+  interval: suitable for tens of nodes, not designed for internet scale.
