@@ -37,7 +37,7 @@ A **job** is a chain of related processes (parent / child / same family / operat
 
 ## What this is
 
-1. **UI tree first, memory on miss.** Windows UIA of the target pid. macOS AX of the **frontmost / target pid** (title, description, value, bounds) is a **trackpad**: names/roles/bounds are the surface, `HitTest(x,y)` is the finger, `AXPress` is the tap. The tree is not an image and inspect does not stuff CGWindow pixels into `dibs`. `CGWindowListCreateImage` is loop pixel-diff VERIFY after mutation (Screen Recording grant). SIP may block `task_for_pid` — the UI tree still reads. Linux memory-primary.
+1. **UI tree first, memory on miss.** Windows UIA of the target pid. macOS AX of the **frontmost / target pid** (title, description, value, bounds) is the **interaction surface**: names, roles and bounds describe it, `HitTest(x,y)` resolves a point to an element, and `AXPress` activates that element. The tree is not an image, and inspect does not place CGWindow pixels in `dibs`. `CGWindowListCreateImage` is loop pixel-diff VERIFY after mutation (Screen Recording grant). SIP may block `task_for_pid` — the UI tree still reads. Linux memory-primary.
 2. **Read-only handle.** `PROCESS_VM_READ | QUERY` / `task_for_pid` / `process_vm_readv`. Write bits fail closed, not narrowed.
 3. **Safe pages only.** `PAGE_READONLY` / `PAGE_READWRITE` (Windows), `r`/`rw` maps (Linux), `VM_PROT_READ`/`WRITE` (macOS). Guard / noaccess / execute skipped. 64 KiB chunks. Handle closed before return.
 4. **Token wall.** `TOKEN_QUERY` only. SYSTEM / TI / PPL / higher integrity → `denied-escalate` or `denied-protected`.

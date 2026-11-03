@@ -9,7 +9,7 @@ the Agent sends; it never captures the screen, never reads process memory, and
 never talks to a central server. The operator's signing key stays on the
 operator's machine; the Agent node never holds it.
 
-Design: [DESIGN.zh.md](DESIGN.zh.md).
+Design: [DESIGN.md](DESIGN.md).
 
 ## Modules
 
