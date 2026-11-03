@@ -62,6 +62,32 @@ is not all direct `mesh` legs.
 `sha256(canary) == canary_hash`, so a sealed body cannot be moved onto another lease.
 The canary is `sdgc_` followed by 32 hex.
 
+## Carriers
+
+Frames travel over UDP (`MuxWire` on `ChannelMux` channel `inference/v1`, DID-signed
+and optionally sealed) or over WebRTC DataChannels (`rtc.RtcWire`, label
+`secdogie-inference`, through the Cloudflare Worker signaling gateway, unchanged).
+`FailoverWire` uses a bound DataChannel when there is one and UDP otherwise.
+
+**Lobbies.** The gateway pairs two peers per room, so a listening node waits in its
+lobby room, `"sdl-" + sha256("lobby|" + DID + "|" + salt)[:40]`. A dialer joins the
+target's lobby and offers; the listener answers and then reopens its lobby. A dial
+that fails (a busy lobby, an offline peer) is retried with backoff (2 s doubling to
+30 s) whenever the participant tries to send to that peer.
+
+**DID ↔ DTLS binding.** After the DataChannel opens, each side sends a signed
+`secdogie/inference/rtc-hello/v1` as its first message:
+`{did, room, local_fp, remote_fp, issued_at [, admission]}`. The receiver accepts only
+if the signature is `did`'s own, `room` is this connection's lobby, `issued_at` is
+within ± `MAX_SKEW`, the hello's `local_fp` equals the DTLS fingerprint in the
+negotiated remote SDP and its `remote_fp` equals this side's own, and `did` is on
+`trust.peers` or carries a valid `admission/v1` for itself (which the receiver then
+publishes to the mesh). DTLS fingerprints are unique per connection, so a hello cannot
+be replayed onto another connection, and a gateway in the middle would present
+fingerprints the DIDs did not sign. Only then are frames delivered as coming from
+`did`. When both ends dial each other, both keep the connection dialed by the
+lexicographically smaller DID.
+
 ## Frames
 
 A frame is a JSON object `{"k": kind, …}` on ChannelMux channel `inference/v1`. The

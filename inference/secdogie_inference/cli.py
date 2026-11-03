@@ -102,6 +102,13 @@ def _common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--transport-key", metavar="FILE", help="X25519 key to seal frames (needs --peer-binding)")
     p.add_argument("--peer-binding", action="append", default=[], metavar="FILE",
                    help="a peer's signed DID -> transport-key binding (repeatable)")
+    p.add_argument("--signaling", metavar="URL",
+                   help="WebRTC signaling gateway (wss://…/ws): also link over DataChannels; "
+                        "browser nodes dial in here (needs the [webrtc] extra)")
+    p.add_argument("--rtc-salt", default="", metavar="TEXT", help="lobby-room salt shared by the mesh")
+    p.add_argument("--rtc-no-listen", action="store_true", help="dial out over WebRTC but keep no lobby open")
+    p.add_argument("--ice-server", action="append", default=[], metavar="URL",
+                   help="STUN/TURN server for WebRTC (repeatable; default: none, host candidates only)")
     p.add_argument("--heartbeat-every", type=_positive, default=Config.heartbeat_every, metavar="SECONDS",
                    help="heartbeat interval; failure detection, leg timeouts and advisories scale with it")
 
@@ -221,6 +228,8 @@ def _runtime_config(args, parser, roles, trust):
             transport_key=load_transport_key(args.transport_key) if args.transport_key else None,
             peer_bindings=[json.loads(Path(f).read_text(encoding="utf-8")) for f in args.peer_binding],
             config=_timing(args.heartbeat_every), tick=min(0.2, args.heartbeat_every / 4),
+            signaling=args.signaling, rtc_salt=args.rtc_salt, rtc_listen=not args.rtc_no_listen,
+            ice_servers=list(args.ice_server),
             admissions=getattr(args, "_admissions", None),
             preload=[json.loads(Path(f).read_text(encoding="utf-8")) for f in getattr(args, "admission", [])])
     except (OSError, ValueError) as exc:

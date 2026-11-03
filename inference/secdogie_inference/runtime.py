@@ -56,6 +56,10 @@ class RuntimeConfig:
     entries: list[str] = field(default_factory=list)      # client: serving nodes to submit to
     key_source: object | None = None                 # broker role
     assignments: dict = field(default_factory=dict)       # broker role
+    signaling: str | None = None                     # WebRTC signaling URL: enables the RtcWire carrier
+    rtc_salt: str = ""                               # lobby-room salt shared by the mesh
+    rtc_listen: bool = True                          # keep a lobby open so peers (browsers) can dial in
+    ice_servers: list[str] = field(default_factory=list)
     admissions: object | None = None                 # an AdmissionBook the mesh trust set also consults
     preload: list[dict] = field(default_factory=list)     # admissions to publish at start
     config: Config = field(default_factory=Config)
@@ -181,7 +185,17 @@ class Runtime:
                          active=Endpoint("local", *self.channel.address))
             self.mux = ChannelMux(carrier, me)
             self.resolver = Resolver(self.transport, cfg.peers, self.rendezvous)
-            self.wire = ResolvingWire(self.mux, resolve=self.resolver.resolve)
+            self.wire = self.udp_wire = ResolvingWire(self.mux, resolve=self.resolver.resolve)
+            self.rtc = None
+            if cfg.signaling:
+                from .rtc import FailoverWire, RtcWire
+
+                # A browser that presents an operator admission in its handshake is
+                # published to the mesh, so every node accepts it.
+                self.rtc = RtcWire(cfg.identity, cfg.trust, cfg.signaling, salt=cfg.rtc_salt,
+                                   listen=cfg.rtc_listen, ice_servers=cfg.ice_servers,
+                                   on_admission=lambda adm: self.participant.publish(adm))
+                self.wire = FailoverWire(self.rtc, self.udp_wire)
             self.participant = build_participant(cfg, self.wire)
             if cfg.admissions is not None:
                 self.participant.attach_admissions(cfg.admissions)
@@ -250,6 +264,8 @@ class Runtime:
             self.rendezvous.close()
         if self.link is not None:
             self.link.close()
+        if self.rtc is not None:
+            self.rtc.close()
         self.channel.close()
 
     def stats(self) -> dict:
@@ -260,6 +276,8 @@ class Runtime:
                "degree": len(self.discovery.linked(now)) if self.discovery is not None else len(links),
                "known": len(p.lsdb.known()), "resolved": len(self.resolver.found),
                "leases": len(p.leases.live(now)), "alive": sum(1 for d in p.lsdb.known() if p.lsdb.alive(d, now))}
+        if self.rtc is not None:
+            out["rtc_peers"] = len(self.rtc.peers())
         sessions = getattr(p, "sessions", None)
         if sessions is not None:
             out["sessions"] = len(sessions)

@@ -17,6 +17,8 @@ dependencies = ["secdogie-identity"]
 [project.optional-dependencies]
 # `secdogie-inference run` / `ask` need the real transport.
 transport = ["secdogie-transport"]
+# The WebRTC DataChannel carrier (rtc.py), for browser nodes and NAT-bound peers.
+webrtc = ["secdogie-transport", "aiortc>=1.9", "websockets>=12"]
 
 [project.scripts]
 secdogie-inference = "secdogie_inference.cli:main"
