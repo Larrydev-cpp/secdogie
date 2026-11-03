@@ -486,7 +486,7 @@ secdogie-agent "now use what you learned to export a report" --memory app.sqlite
 Under a Citadel node (`secdogie-citadel run`), memory is the node's staged
 memory instead: `remember` goes to its quarantine, cautions are learned from
 verified runs, and facts need the operator's signed confirmation — see
-[citadel/MEMORY.zh.md](../citadel/MEMORY.zh.md).
+[citadel/MEMORY.md](../citadel/MEMORY.md).
 
 **Never have it store secrets.** The file is plaintext on disk — it's your
 machine, your file. The prompt tells the model not to save passwords/tokens, and

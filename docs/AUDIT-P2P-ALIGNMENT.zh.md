@@ -1,5 +1,7 @@
 # secdogie — 深度源码审计与 P2P / 自主性规范对齐
 
+English: [AUDIT-P2P-ALIGNMENT.md](AUDIT-P2P-ALIGNMENT.md)
+
 > 审计日期：2026-09-19 · 依据：仓库源代码（非 README 声明） · 覆盖：全部包
 >
 > 本文档以**源代码为唯一真实依据**，将实际实现与一份目标规范（自主 P2P"数字生命体"）

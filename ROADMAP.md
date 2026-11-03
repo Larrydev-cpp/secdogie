@@ -1,82 +1,128 @@
-# secdogie · 云端生命体 路线图
+# secdogie roadmap
 
-> 总实现目标与到达它的里程碑。完整架构、组件表与端到端认证链路见
-> [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md)。
+Chinese: [ROADMAP.zh.md](ROADMAP.zh.md)
 
-## 北极星
+> The overall implementation goal and the milestones that lead to it. The full
+> architecture, component map and end-to-end authentication chain are in
+> [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
-一个**去中心、经 DID 认证、受监督**的自主体,运行在**你自有 / 已授权**的节点上:无中心服务器
-而靠 P2P 存续,从**公开或已授权**的资源学习(**结构化感知,不截屏**),用**两层苏格拉底门**
-审视每一步意图,最终**只在经认证的本地设备、在能力授权 + 人在环下**采取现实动作。
+## North Star
 
-**不可协商的前提(严禁)**:进程内存写、远程线程注入、内核 HID、EDR/反检测、隐蔽持久化、
-提权、绕过用户授权 / macOS 权限、把 HITL 改成默认自动批准、流量混淆、打洞式反检测。
-**保持**:memory=只读、execution=受监督、high-risk=fail-closed 且任何入口都必须人工确认(无开关可关)、physical action=显式 capability。
+A **decentralized, DID-authenticated, supervised** autonomous agent running on nodes
+**you own or are authorized to use**. It has no central server and persists through the
+P2P mesh. It learns from **public or authorized** sources (**structured perception, no
+screen capture**). A **two-tier Socratic gate** reviews the intent of every step. It takes
+physical actions **only on an authenticated local device, under a capability grant and
+human-in-the-loop (HITL) confirmation**.
 
-## 五条并行 track
+**Non-negotiable constraints (prohibited):** process-memory writes, remote thread
+injection, kernel-level HID, EDR evasion or anti-detection, covert persistence, privilege
+escalation, bypassing user authorization or macOS permissions, changing HITL to
+auto-approve by default, traffic obfuscation, NAT-traversal techniques used for detection
+evasion. **Always keep:** memory = read-only; execution = supervised; high-risk =
+fail-closed and requiring human confirmation at every entry point (no switch disables
+this); physical action = explicit capability.
 
-- **A 分散式网络** —— DID 身份 → 会话/端点 → 真 P2P UDP → rendezvous → 直连升级/relay 兜底 →
-  成员 gossip → Kademlia 路由 →(后)rendezvous 上 UDP、线上 gossip、C + libsodium 隧道加固(T9)。
-- **B 分布式状态与学习** —— 签名日志 + StateStore → 反熵复制在 mesh 上收敛 → 内容寻址的观测/
-  知识存储(大数据按 content_hash 引用)→(后)评估真正的 CRDT。
-- **C 心智(苏格拉底 + 监督)** —— 指令门 + 计划门 → **2.7 Agent↔Citadel run 闭环** →
-  2.8 崩溃恢复(executing 崩溃先重观测再重试)→ 第二阶段:意图契约 + 阶段式记忆(S1–S3)接入实时回路,
-  Gate 2 由 Dialogue App 签名。
-- **D 受认证设备实战** —— 结构化观测融合(AX + DIB 按引用)+ 目标 TOCTOU → 2.9 能力签名授权
-  模型 → AX 原生身份/代际的 OS 侧接线(macOS/Windows 验证)→ DIB 完整接入运行时。
-- **E 控制与运维** —— desktop 原生 GUI / console / fleet 协调 / CI 矩阵 / 发布 / 文档,贯穿维护。
+## Five parallel tracks
 
-## 里程碑(每个给「完成判据」)
+- **A Decentralized networking.** DID identity → sessions and endpoints → direct P2P over
+  UDP → rendezvous → direct-path upgrade with relay fallback → membership gossip →
+  Kademlia routing → (later) rendezvous over UDP, on-the-wire gossip, C + libsodium tunnel
+  hardening (T9).
+- **B Distributed state and learning.** Signed journal and `StateStore` → anti-entropy
+  replication converging across the mesh → content-addressed observation and knowledge
+  storage (large payloads referenced by `content_hash`) → (later) evaluate a true CRDT.
+- **C Reasoning (Socratic gates and supervision).** Instruction gate and plan gate →
+  **2.7 Agent↔Citadel run loop** → 2.8 crash recovery (a crash while executing
+  re-observes before retrying) → Stage 2: intent contract and staged memory (S1–S3) in the
+  live loop, Gate 2 signed through the Dialogue App.
+- **D Authenticated device execution.** Structured observation fusion (AX + DIB by
+  reference) and target TOCTOU protection → 2.9 signed capability-grant model → OS-side
+  wiring of native AX identity and generations (validated on macOS and Windows) → DIB
+  fully integrated into the runtime.
+- **E Control and operations.** Native desktop GUI, console, fleet coordination, CI
+  matrix, releases, documentation; maintained throughout.
 
-- **M1 基础认证链 — ✅ 已达成**:2.1→2.6 + P2P.1。判据:身份→会话→状态→门→(受监督)动作
-  每一步可验证,全 headless 绿。
-- **M2 P2P mesh + 状态收敛 — ✅ 已达成**:P2P.2 直连升级 + P2P.3 成员 gossip + Replication.1。
-  判据:任意两个授权节点能直连或经 relay 通信,一个节点写入的签名状态收敛到其余节点(loopback 多节点测)。
-- **M3 运行闭环 + 能力治理 — ✅ 已达成(第二阶段,#56 / #57 / #60 / #61 / #62)**:C 的 2.7/2.8 + D 的 2.9。判据:交给节点一个目标,它能
-  规划→观测→过门→(能力 + HITL)执行→验证→写回,崩溃后先重观测再安全恢复,每个动作经签名能力校验。
-  由 `secdogie-node` 的真实 UDP 端到端测试验证(Gate 1、Gate 2 签名、追问、阶段式记忆、已知失败拒绝)。
-- **M4 端到端纵切 — 🔨 部分**:单节点「学习 + 行动」的整条链已可 headless 演示(`node/tests/test_e2e.py`);
-  结果经复制在多节点间收敛的演示留到第三阶段。
-- **M5 加固 / 落地 — 🔜**:OS 原生接线在实机验证、tunnel 机密性接上数据面、打包/发布/文档、安全复审。
+## Milestones (each with exit criteria)
 
-## 切片计划（2026-09）
+- **M1 Foundational authentication chain: ✅ achieved.** 2.1→2.6 + P2P.1. Exit criteria:
+  identity → session → state → gate → (supervised) action is verifiable at every step,
+  with the whole suite green headless.
+- **M2 P2P mesh and state convergence: ✅ achieved.** P2P.2 direct-path upgrade, P2P.3
+  membership gossip, Replication.1. Exit criteria: any two authorized nodes communicate
+  directly or through a relay, and signed state written on one node converges to the
+  others (multi-node loopback tests).
+- **M3 Closed run loop and capability governance: ✅ achieved (Stage 2, #56 / #57 / #60 /
+  #61 / #62).** C's 2.7 and 2.8, D's 2.9. Exit criteria: given a goal, a node plans →
+  observes → passes the gates → executes (capability + HITL) → verifies → writes back; after
+  a crash it re-observes before recovering safely; every action is checked against a
+  signed capability. Verified by `secdogie-node`'s end-to-end tests over real UDP (Gate 1,
+  Gate 2 signatures, clarifying questions, staged memory, known-failure rejection).
+- **M4 End-to-end vertical slice: 🔨 partial.** The full single-node "learn + act" chain
+  runs headless (`node/tests/test_e2e.py`). The demonstration of results converging across
+  multiple nodes through replication is deferred to Stage 3.
+- **M5 Hardening and deployment: 🔜.** Native OS wiring validated on real hardware, tunnel
+  confidentiality on the data plane, packaging, releases, documentation, security review.
 
-每项一个 PR：审计 → 实现 → 测试 → 跑全量 → lint → 提交。✅ 已完成，🔨 进行中，🔜 未开始。
+## Slice plan (2026-09)
 
-**已定决策**：
-- 加密隧道只用本仓库的 C + libsodium 实现（`tunnel/`），不引入另一套 VPN 后端；加固（v2 握手、rekey、端到端中继、控制 socket）为第三阶段 T9；
-- 中转只转发密文（端到端）；NAT 穿透经 mesh 协调，只在白名单节点之间；
-- 整机路由 = 网格子网 + 出口节点；
-- 撤销由 Master **k-of-n 门限签名**、**永久**生效；
-- 感知：**彻底移除截图 / OCR / 视觉解析**（机主决定，2026-10，取代此前「截图须显式开启」）：只用 AX/UIA 无障碍树 + Atlas 只读进程内存结构视图；两者皆无的应用 fail-closed（「无结构视图」）。读目标进程仍是只读拷贝（token wall + 拒绝名单不变），「零拷贝」只指 Atlas → agent 的共享内存交接（D5/D6，未开始）；
-- 推理网格的 WebRTC 载体用 aiortc 可选依赖，DID 在数据通道内与 DTLS 指纹绑定，信令 Worker 不改（W5，未开始）；
-- HITL 默认只确认高风险，但高风险在任何入口都必须确认。
+One PR per item: audit → implement → test → run the full suite → lint → commit. ✅ done,
+🔨 in progress, 🔜 not started.
 
-| 轨道 | 切片 | 状态 |
+**Decisions taken:**
+- The encrypted tunnel uses only this repository's C + libsodium implementation
+  (`tunnel/`); no second VPN back end. Hardening (v2 handshake, rekeying, end-to-end
+  relaying, control socket) is Stage 3 item T9.
+- Relays forward ciphertext only (end-to-end). NAT traversal is coordinated through the
+  mesh and only between allowlisted nodes.
+- Whole-machine routing = mesh subnet + exit node.
+- Revocation is a Master **k-of-n threshold signature** and is **permanent**.
+- Perception: **screen capture, OCR and vision parsing are removed entirely** (owner
+  decision, 2026-10, superseding the earlier "screen capture only when explicitly
+  enabled"). Only the AX/UIA accessibility tree and Atlas's read-only process-memory
+  structure view are used; an application with neither fails closed ("no structured
+  view"). Reading a target process remains a read-only copy (token wall and denylist
+  unchanged); "zero-copy" refers only to the Atlas → agent shared-memory hand-off (D5/D6,
+  not started).
+- The inference mesh's WebRTC transport uses aiortc as an optional dependency; the DID is
+  bound to the DTLS fingerprint inside the DataChannel, and the signaling Worker is
+  unchanged (W5, not started).
+- HITL confirms only high-risk actions by default, but high-risk actions require
+  confirmation at every entry point.
+
+| Track | Slices | Status |
 | --- | --- | --- |
-| S 安全修复/纠偏 | S1 SDTP 确认后再切换· S2 fleet 安全模式全有或全无 · S3 文档与代码对齐 | ✅ ✅ ✅ |
-| A 网格运行时 | 2C 任一白名单节点兼任 relay · A0 rendezvous 上 UDP（T3）· A1 wire gossip（T4）· A2 `secdogie-node` 运行时 | ✅ 🔜 🔜 ✅ |
-| R 3.0 撤销 | R1 MasterSet/门限撤销声明/TrustPolicy · R2 全面执行 + 缓存失效 · R3 零信任默认关闭 · R4 传播（快速帧已建成；经日志的持久传播 = T6）· R5 自检停机 | ✅ ✅ ✅ 🔨 ✅ |
-| T9 隧道加固 | C + libsodium 隧道：卫生/fuzz/netns 冒烟 → Noise IK v2 握手 → 定时器/rekey/DoS 限速 → 端到端中继 → 本地控制 socket | 🔜（第三阶段） |
-| C M3 实时回路 | C1 CI 跑真实回路测试 · C2 HITL 修正（高风险清单、全入口必确认、签名审批 = Gate 2 经 Dialogue App）· C3 fleet/console/desktop 审批通路 · C4 门控加强（意图契约 + 已知失败）· C5 运行记录前移（每步 `action_key` / 结果）· C6 统一入口（`secdogie-node`）· C7 设备类别与无头隔离（T7） | ✅ ✅ 🔜 ✅ ✅ ✅ 🔜 |
-| D 感知 | D1 observation/target 入环 · D2 结构化优先（Windows UIA 结构图）· D3 macOS AX 命中测试 · D4 Atlas 只读桥（先 `/inspect` 回环客户端）· D5 删除像素/视觉路径（`screen`/`mac_capture`/`ax_image`/`reflex`/`look`/像素校验/视觉提示词，帧哈希改为 AX 树 + Atlas 快照哈希，纯度测试禁截屏）· D6 Atlas → agent 共享内存 seqlock 交接（零拷贝，读端即 `perception/dib.py`） | 🔜 |
-| W 浏览器 | W1 浏览器 DID + 信令 DID 认证 · W2 跨语言签名向量 · W3 aiortc 桥接技术验证 · W4 浏览器作为观察/审批端（`symbiont/` + `graph/`：双重苏格拉底门、内联签名、注意力调度、WASM 状态图）· W5 推理网格 `RtcWire`（`[webrtc]` 可选依赖，签名 `rtc-hello` 绑定 DID ↔ DTLS 指纹，`FailoverWire` 回落 UDP / relay） | 🔜 ✅ 🔜 🔨 🔜 |
-| I 推理网格（三态手绘图） | I0 三态（#75）· I1 拓扑按图（四个 P2P+S、节点失效时连中央 server、新 P2P 挂 API key、故障报告泛洪）· I2 模式状态机（只有操作员重置能离开锁定）· I3 会话生命周期与内存上界 · I4 Merkle-DAG 心跳（分叉隔离不锁定、见证链路、账本根反熵）· I5 历史感知决策门（硬否决 + 升级交叉验证） | ✅ ✅ ✅ ✅ ✅ ✅ |
-| M 收尾 | M4 纵切演示 · M5 安全复审 / 实机验证 / 发布 | 🔜 |
+| S Security fixes and corrections | S1 SDTP switches only after confirmation · S2 fleet secure mode all-or-nothing · S3 documentation aligned with code | ✅ ✅ ✅ |
+| A Mesh runtime | 2C any allowlisted node can act as a relay · A0 rendezvous over UDP (T3) · A1 wire gossip (T4) · A2 `secdogie-node` runtime | ✅ 🔜 🔜 ✅ |
+| R 3.0 Revocation | R1 MasterSet / threshold revocation statements / TrustPolicy · R2 enforcement everywhere plus cache invalidation · R3 zero-trust closed by default · R4 propagation (fast frames built; durable propagation through the journal = T6) · R5 self-halt on revocation | ✅ ✅ ✅ 🔨 ✅ |
+| T9 Tunnel hardening | C + libsodium tunnel: hygiene, fuzzing and netns smoke tests → Noise IK v2 handshake → timers, rekeying, DoS rate limiting → end-to-end relaying → local control socket | 🔜 (Stage 3) |
+| C M3 live loop | C1 CI runs real loop tests · C2 HITL corrections (high-risk list, confirmation at every entry point, signed approval = Gate 2 through the Dialogue App) · C3 fleet/console/desktop approval paths · C4 stronger gating (intent contract + known-failure memory) · C5 run records earlier (per-step `action_key` and outcome) · C6 single entry point (`secdogie-node`) · C7 device classes and headless isolation (T7) | ✅ ✅ 🔜 ✅ ✅ ✅ 🔜 |
+| D Perception | D1 observation/target in the loop · D2 structure-first (Windows UIA structure image) · D3 macOS AX hit-testing · D4 Atlas read-only bridge (first a loopback `/inspect` client) · D5 remove the pixel and vision paths (`screen`, `mac_capture`, `ax_image`, `reflex`, `look`, pixel-diff verification, vision prompts; the frame hash becomes an AX-tree plus Atlas-snapshot hash; a purity test forbids screen capture) · D6 Atlas → agent shared-memory seqlock hand-off (zero-copy; the reader is `perception/dib.py`) | 🔜 |
+| W Browser | W1 browser DID + DID-authenticated signaling · W2 cross-language signature vectors · W3 aiortc bridge proof of concept · W4 browser as observer and approver (`symbiont/` + `graph/`: dual Socratic gates, inline signing, attention scheduling, WASM state graph) · W5 inference-mesh `RtcWire` (`[webrtc]` optional dependency, a signed `rtc-hello` binding DID ↔ DTLS fingerprint, `FailoverWire` falling back to UDP / relay) | 🔜 ✅ 🔜 🔨 🔜 |
+| I Inference mesh (three-state model) | I0 the three states (#75) · I1 reference topology (four serving nodes, the coordinator attaches to the neighbours of a failed node, standby forwarders anchored to the key broker, flooded fault reports) · I2 mode state machine (only an operator reset leaves Lockdown) · I3 session lifecycle and memory bounds · I4 Merkle-DAG heartbeats (fork isolation without Lockdown, witnessed links, ledger-root anti-entropy) · I5 history-aware decision gate (hard vetoes, escalation to cross-checking) | ✅ ✅ ✅ ✅ ✅ ✅ |
+| M Completion | M4 vertical-slice demonstration · M5 security review, validation on real hardware, release | 🔜 |
 
-**第二阶段（可运行闭环）已完成**：P0、Wave A / B / C / D / E（#56、#57、#60、#61、#62 及文档 PR），7 条退出条件见 [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md) 第 5 节。
+**Stage 2 (runnable closed loop) is complete:** P0 and Waves A / B / C / D / E (#56, #57,
+#60, #61, #62 and the documentation PR). The seven exit criteria are in section 5 of
+[`ARCHITECTURE.md`](ARCHITECTURE.md).
 
-**第三阶段顺序**：
-1. T3 rendezvous 上 UDP、T4 线上 gossip、T6 撤销持久传播；
-2. T7 设备类别、C3 fleet/console/desktop 审批通路；
-3. T9 隧道加固；
-4. W、M（多节点纵切演示、安全复审、实机验证、发布）。
+**Stage 3 order:**
+1. T3 rendezvous over UDP, T4 on-the-wire gossip, T6 durable revocation propagation.
+2. T7 device classes, C3 fleet/console/desktop approval paths.
+3. T9 tunnel hardening.
+4. W and M (multi-node vertical-slice demonstration, security review, validation on real
+   hardware, release).
 
-感知轨道（D）由机主推进。
+The perception track (D) is driven by the owner.
 
-网络轨道与 agent 轨道改动的包不同，可以并行推进。
+The networking track and the agent track change different packages and can proceed in
+parallel.
 
-## 贯穿纪律
+## Standing discipline
 
-每片 `inspect→implement→test→跑全量→lint→提交`,不做一次性重写;全部 headless/loopback 可测、
-DID 签名 + allowlist 门控;提交前 grep 回归确认无严禁原语;冲突/现状如实记录进文档,不为架构图伪造完成状态。
+Every slice is `inspect → implement → test → run the full suite → lint → commit`; no
+big-bang rewrites. Everything is testable headless over loopback and gated by DID
+signatures and allowlists. Before each commit, a grep-based regression check confirms that
+no prohibited primitive is present. Conflicts and the actual state are recorded in the
+documentation as they are; no architecture diagram is allowed to claim completion that
+does not exist.

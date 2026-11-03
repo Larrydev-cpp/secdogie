@@ -40,7 +40,7 @@ action -- including the Gate 1 intent contract (which active goal it serves, how
 to back out or an explicit "irreversible", whether its preconditions still hold)
 -- and `authz.py` is Gate 2, the operator's signature on anything irreversible.
 
-Memory is staged ([MEMORY.zh.md](MEMORY.zh.md)):
+Memory is staged ([MEMORY.md](MEMORY.md)):
 
 | Stage | Module | Where it lives | Trust |
 | --- | --- | --- | --- |

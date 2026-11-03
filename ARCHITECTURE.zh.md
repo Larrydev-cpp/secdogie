@@ -1,5 +1,7 @@
 # secdogie · 云端生命体架构
 
+English: [ARCHITECTURE.md](ARCHITECTURE.md)
+
 > 一个**去中心、经 DID 认证、受监督**的自主体：它运行在**你自己拥有或已获授权的节点**上，
 > 通过 P2P 在这些节点间存续与学习，用一套苏格拉底式的质询系统审视自己的每一步意图，
 > 最终**只在经过认证的本地设备上、在明确的能力授权与人类在环下**采取现实动作。
@@ -317,7 +319,7 @@ cd agent && python -m pytest tests/test_observation.py -q
 cd native/atlas && cmake -B build && cmake --build build && ctest --test-dir build
 ```
 
-单机控制沿用既有 agent 回路(逐动作 y/N 确认,详见根 [`README.md`](README.md) 与
+单机控制沿用既有 agent 回路(逐动作 y/N 确认,详见根 [`README.zh.md`](README.zh.md) 与
 [`TUTORIAL.md`](TUTORIAL.md)):
 
 ```sh

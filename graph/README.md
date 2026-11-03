@@ -1,67 +1,81 @@
-# graph · 状态图内核（Rust，原生 + wasm32）
+# graph: state-graph kernel (Rust, native + wasm32)
 
-`secdogie-graph`：内容寻址、只追加的状态图；have/want 反熵；保守的词法路由适配器；
-`secdogie/action-authorization/v1` 字段集上的确定性动作预览。编译成 wasm32 后**没有任何导入**——
-碰不到网络、DOM 和时钟，只评判交给它的字节。TypeScript 侧见 [`../symbiont/`](../symbiont/)。
+Chinese: [README.zh.md](README.zh.md)
 
-依赖只有 `sha2`、`ed25519-dalek`（`verify_strict`）、`base64`。
+`secdogie-graph`: a content-addressed, append-only state graph; have/want anti-entropy; a
+conservative lexical route adapter; deterministic action previews over the
+`secdogie/action-authorization/v1` field set. Compiled to wasm32, it has **no imports at
+all**: it cannot reach the network, the DOM or a clock, and judges only the bytes handed to
+it. The TypeScript side is in [`../symbiont/`](../symbiont/).
 
-## 图增量 `secdogie/state-graph-delta/v1`
+The only dependencies are `sha2`, `ed25519-dalek` (`verify_strict`) and `base64`.
+
+## Graph delta `secdogie/state-graph-delta/v1`
 
 ```text
 payload  = {"type": "secdogie/state-graph-delta/v1", "author": did,
-            "parents": [cid, ...],   升序、去重、≤16
-            "lamport": int,          = 1 + max(父 lamport)，根为 1
+            "parents": [cid, ...],   ascending, deduplicated, ≤16
+            "lamport": int,          = 1 + max(parent lamport); 1 for a root
             "ops": [op, ...]}        1..=256
-envelope = payload + {"signer": did, "sig": b64}     signer 必须等于 author
-cid      = sha256(canonical(payload)).hex()           与 citadel/journal 的 entry_hash 同法
+envelope = payload + {"signer": did, "sig": b64}     signer must equal author
+cid      = sha256(canonical(payload)).hex()           computed like citadel/journal's entry_hash
 ```
 
-只有三种 op，全部是「加」：
+There are only three ops, all additive:
 
-| op | 字段 | 含义 |
+| op | Fields | Meaning |
 | --- | --- | --- |
-| `add_state` | `origin`（规范 https origin）、`route`（规范化路径）、`query_keys`（排序的键名，不含值） | 一个状态；键 = sha256(canonical({type:"secdogie/state-key/v1", origin, route, query_keys})) |
-| `add_reference` | `from`、`to`、`via`（a/area/form/link/redirect）、`method`、`fields`（字段**名**） | 页面标记**提到了**另一个状态——不是迁移，也不声称走过 |
-| `add_observation` | `state`、`content_hash`、`byte_len` | 读到的字节按哈希引用，内容本身不进图 |
+| `add_state` | `origin` (canonical https origin), `route` (normalized path), `query_keys` (sorted key names, no values) | A state; key = sha256(canonical({type:"secdogie/state-key/v1", origin, route, query_keys})) |
+| `add_reference` | `from`, `to`, `via` (a/area/form/link/redirect), `method`, `fields` (field **names**) | A page's markup **mentions** another state; not a transition, and no claim it was followed |
+| `add_observation` | `state`, `content_hash`, `byte_len` | Bytes that were read, referenced by hash; the content itself never enters the graph |
 
-**v1 拒绝任何删除 / 墓碑语义**：其他 op 名一律拒收。视图是所有 op 的增长集合并集，与到达顺序无关、
-天然收敛。增量里**没有浮点**。
+**v1 refuses all deletion / tombstone semantics:** any other op name is rejected. The view is
+the grow-only union of all ops, independent of arrival order and convergent by construction.
+Deltas contain **no floating-point values**.
 
-`DagStore::insert` 的顺序：验签（Ed25519 `verify_strict`）→ signer == author → 作者在受信集合内
-（集合不能为空）→ 严格 schema → 父节点齐了再核对 lamport。父节点未到的增量先验签后作为孤儿暂存
-（有上限），父节点到达时级联提升。存储满了就拒绝写入，**不驱逐**。
+The order inside `DagStore::insert`: verify the signature (Ed25519 `verify_strict`) → signer
+== author → author in the trusted set (the set cannot be empty) → strict schema → once the
+parents are present, check the lamport value. A delta whose parents have not arrived is
+signature-verified and then buffered as an orphan (bounded), and promoted in cascade when the
+parents arrive. When the store is full, writes are refused; **nothing is evicted**.
 
-## 反熵
+## Anti-entropy
 
 ```text
 graph_have   {heads}
-graph_want   {cids, have_heads}     带上请求方的前沿
-graph_deltas {envelopes}            所请求的节点及其不在对方前沿祖先中的全部祖先，父在前，单批 ≤256
+graph_want   {cids, have_heads}     carries the requester's frontier
+graph_deltas {envelopes}            the requested nodes and all their ancestors not among the
+                                    ancestors of the peer's frontier, parents first, ≤256 per batch
 ```
 
-带前沿的 want 让常见情况一轮收敛；还缺的父节点在入库后再发 want。传输与对端认证由传输层负责
-（WebRTC DTLS / DID 绑定的 UDP 会话），每条增量仍由 `insert` 独立验证。
+A want that carries the frontier converges in one round in the common case; parents still
+missing are requested with another want after insertion. Transport and peer authentication
+belong to the transport layer (WebRTC DTLS / DID-bound UDP sessions); every delta is still
+verified independently by `insert`.
 
-## 词法路由适配器（`route.rs`）
+## Lexical route adapter (`route.rs`)
 
-只从 `a/area[href]`、`link[rel=canonical|alternate|next|prev]`、`form[action]`（只记 method 与字段名；
-含密码框的表单整体跳过）、第一个同源的 `base[href]` 提取；跳过注释与 `script/style/template/textarea/noscript`
-等原始文本元素；不读 `on*`、`data-*`、`srcset`、内联脚本。只接受 https；userinfo、IDN、IPv6 字面量、
-反斜杠等一律拒绝并按原因计数，从不「修复」成别的东西。站外链接只计数。
+It extracts only from `a/area[href]`, `link[rel=canonical|alternate|next|prev]`,
+`form[action]` (recording only the method and field names; a form containing a password field
+is skipped entirely) and the first same-origin `base[href]`. It skips comments and raw-text
+elements such as `script/style/template/textarea/noscript`, and does not read `on*`,
+`data-*`, `srcset` or inline scripts. Only https is accepted; userinfo, IDNs, IPv6 literals,
+backslashes and the like are rejected and counted by reason, never "repaired" into something
+else. Off-site links are only counted.
 
-## 规范化 JSON（`canon.rs`）
+## Canonical JSON (`canon.rs`)
 
-与 Python `canonical()` 逐字节一致，包括 `repr(float)` 的排版与 int/float 区分；`NaN`、重复键、
-孤立代理项一律拒绝。见 [`../fixtures/vectors/canonical.json`](../fixtures/vectors/canonical.json)。
+Byte-for-byte identical to Python's `canonical()`, including `repr(float)` formatting and the
+int/float distinction; `NaN`, duplicate keys and lone surrogates are rejected. See
+[`../fixtures/vectors/canonical.json`](../fixtures/vectors/canonical.json).
 
 ## FFI
 
-JSON 进、JSON 出，手写 C ABI（`sd_alloc`、`sd_free`、`sd_graph_new`、`sd_graph_call`、`sd_graph_drop`、
-`sd_route_scan`、`sd_canonical`），返回 `(ptr << 32) | len`。错误一律作为 `{"ok": false, "error": ...}`
-返回，不陷入。
+JSON in, JSON out, through a hand-written C ABI (`sd_alloc`, `sd_free`, `sd_graph_new`,
+`sd_graph_call`, `sd_graph_drop`, `sd_route_scan`, `sd_canonical`) returning
+`(ptr << 32) | len`. Every error is returned as `{"ok": false, "error": ...}`; nothing traps.
 
-## 构建与测试
+## Build and test
 
 ```sh
 cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
@@ -69,5 +83,6 @@ rustup target add wasm32-unknown-unknown
 cargo build --release --target wasm32-unknown-unknown
 ```
 
-`tests/vectors.rs` 读取 `fixtures/vectors/`（Python 参考实现生成）：规范化字节、Python 签名的令牌与
-对话信封、图增量的 CID 与拒绝理由必须一致。
+`tests/vectors.rs` reads `fixtures/vectors/` (generated by the Python reference
+implementation): canonical bytes, Python-signed tokens and dialogue envelopes, and graph-delta
+CIDs and rejection reasons must all match.
