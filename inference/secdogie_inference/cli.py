@@ -12,6 +12,10 @@
     secdogie-inference ask --identity client.key --trust-dir trust/ --entry DID [--entry DID] \\
         [--bootstrap rendezvous.json | --peer DID@HOST:PORT] --model vendor/model "question"
 
+    secdogie-inference admit --operator-key op.key --subject did:key:… [--ttl 86400] > admission.json
+    secdogie-inference bundle --trust-dir trust/ --admission admission.json \\
+        --signaling wss://…/ws --entry DID [--entry DID] > bundle.json   # a browser node pastes this
+
     secdogie-inference genkey-x25519 FILE
 
 ``run`` is a foreground process the owner starts and stops. It prints one JSON
@@ -39,7 +43,7 @@ from pathlib import Path
 
 from secdogie_identity import Allowlist, Identity, MasterSet, RevocationStore, TrustPolicy, load_trust_policy
 
-from .admission import DEFAULT_ADMISSION_TTL, AdmissionBook, RevocationFilter, make_admission
+from .admission import DEFAULT_ADMISSION_TTL, AdmissionBook, RevocationFilter, check_admission, make_admission
 from .discovery import DiscoveryConfig
 from .participant import Config
 from .protocol import ROLE_BROKER, ROLE_COORDINATOR, ROLE_FORWARD, ROLE_MODEL, ROLE_SERVE, AnyOf, TrustRoots
@@ -154,6 +158,19 @@ def build_parser() -> argparse.ArgumentParser:
     ad.add_argument("--ttl", type=_positive, default=DEFAULT_ADMISSION_TTL, metavar="SECONDS",
                     help=f"validity (default {DEFAULT_ADMISSION_TTL:g} s, at most 30 days)")
     ad.set_defaults(fn=_admit)
+
+    b = sub.add_parser("bundle", help="write the join bundle a browser node pastes (symbiont/mesh.html)")
+    b.add_argument("--trust-dir", metavar="DIR", help="the mesh's <list>.allow files")
+    for name in TRUST_LISTS:
+        b.add_argument(f"--{name}", metavar="FILE", help=f"the {name} allowlist (overrides --trust-dir)")
+    b.add_argument("--admission", required=True, metavar="FILE", help="the browser's admission (admit)")
+    b.add_argument("--signaling", required=True, metavar="URL", help="the WebRTC signaling gateway (wss://…/ws)")
+    b.add_argument("--entry", action="append", required=True, metavar="DID",
+                   help="a mesh node with a WebRTC lobby for the browser to dial (repeatable, at most 8)")
+    b.add_argument("--rtc-salt", default="", metavar="TEXT", help="the mesh's lobby-room salt")
+    b.add_argument("--ice-server", action="append", default=[], metavar="URL", help="STUN/TURN server (repeatable)")
+    b.add_argument("--heartbeat-every", type=_positive, default=Config.heartbeat_every, metavar="SECONDS")
+    b.set_defaults(fn=_bundle)
 
     k = sub.add_parser("genkey-x25519", help="write an X25519 key file (lease or transport key)")
     k.add_argument("file")
@@ -363,6 +380,36 @@ def _admit(args, parser) -> int:
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     print(json.dumps(admission, sort_keys=True))
+    return 0
+
+
+def _bundle(args, parser) -> int:
+    """The browser's join bundle: the signaling gateway, the entry nodes, the
+    trust lists as plain DID lists, and its admission. A browser checks the
+    admission against the operators listed and refuses a bundle not for it."""
+    trust = {}
+    for name in TRUST_LISTS:
+        path = getattr(args, name) or (os.path.join(args.trust_dir, f"{name}.allow") if args.trust_dir else None)
+        if path is None:
+            parser.error(f"the {name} trust list is required (--{name} or --trust-dir)")
+        try:
+            trust[name] = sorted(Allowlist.load(path).dids())
+        except (OSError, ValueError) as exc:
+            parser.error(f"{path}: {exc}")
+    try:
+        admission = json.loads(Path(args.admission).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        parser.error(f"{args.admission}: {exc}")
+    reason = check_admission(admission, TrustRoots(**{n: Allowlist(set(d)) for n, d in trust.items()}),
+                             now=time.time())
+    if reason:
+        parser.error(f"the admission does not verify against these lists: {reason}")
+    if not 1 <= len(args.entry) <= 8 or any(e not in trust["mesh"] for e in args.entry):
+        parser.error("--entry: 1..8 DIDs from the mesh list")
+    print(json.dumps({"type": "secdogie/inference/join/v1", "signaling": args.signaling, "salt": args.rtc_salt,
+                      "ice_servers": args.ice_server, "entries": args.entry, "trust": trust,
+                      "admission": admission, "heartbeat_every": args.heartbeat_every},
+                     sort_keys=True, ensure_ascii=False))
     return 0
 
 

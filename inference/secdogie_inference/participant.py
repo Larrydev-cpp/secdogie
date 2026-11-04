@@ -394,7 +394,10 @@ class Participant:
 
     def _compare_roots(self, node: str, root: str) -> None:
         """Anti-entropy: a neighbour whose ledger root keeps differing from ours
-        is asked for its directory."""
+        is asked for its directory. An admitted, forward-only node (a browser)
+        keeps no mutiny ledger, so its root says nothing and is not compared."""
+        if self.admissions is not None and self.admissions.contains(node):
+            return
         if root == self.ledger.root():
             self._root_mismatch.pop(node, None)
             return

@@ -85,8 +85,12 @@ class Discovery:
         excluded = p.excluded(now)
         trusted = p.trust.mesh
 
+        admitted = p.admissions
+
         def eligible(d: str) -> bool:
-            return d != p.did and d not in p.neighbors and d not in excluded and trusted.contains(d)
+            # Admitted nodes (browsers) keep no lobby to dial: they dial in themselves.
+            return d != p.did and d not in p.neighbors and d not in excluded and trusted.contains(d) \
+                and not (admitted is not None and admitted.contains(d))
 
         known = []
         for d in p.lsdb.known():

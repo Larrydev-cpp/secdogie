@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mesh Forwarder</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --panel: #ffffff; --ink: #1d1f1e; --muted: #67706b; --line: #e3e1da;
+    --accent: #2f6f5a; --accent-ink: #ffffff; --warn: #9a5b12; --danger: #a33a2f; --radius: 12px;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141716; --panel: #1c201e; --ink: #e7ebe8; --muted: #9aa49f; --line: #2c322f;
+      --accent: #6cc3a1; --accent-ink: #0d1411; --warn: #e0a85a; --danger: #ec8a7f; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141716; --panel: #1c201e; --ink: #e7ebe8; --muted: #9aa49f; --line: #2c322f;
+    --accent: #6cc3a1; --accent-ink: #0d1411; --warn: #e0a85a; --danger: #ec8a7f; color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 system-ui, -apple-system, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+  h1 { font-size: 18px; margin: 4px 0 0; }
+  p { margin: 0; color: var(--muted); }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  code, #did, textarea, #log { font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+  textarea { width: 100%; min-height: 120px; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  button { font: inherit; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button.danger { color: var(--danger); }
+  button:disabled { opacity: .45; cursor: default; }
+  #status { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); }
+  #status[data-state="joined"] { border-color: var(--accent); color: var(--accent); }
+  #status[data-state="connecting"] { color: var(--warn); }
+  #status[data-state="lockdown"] { border-color: var(--danger); color: var(--danger); }
+  #stats { color: var(--muted); font-size: 13px; }
+  #log { max-height: 220px; overflow-y: auto; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Lend this tab to the mesh</h1>
+  <p>This page runs a forward-only node of the secdogie inference mesh: it passes signed frames between mesh nodes over
+    encrypted WebRTC DataChannels. It never answers as a model, holds no API keys, and stops when you click Stop or close
+    the tab. It starts only when you click Join, and only with an admission your operator signed for this browser.</p>
+
+  <section>
+    <strong>1. Identity</strong>
+    <div id="did">no identity yet</div>
+    <div class="row">
+      <button id="create" class="primary" disabled>Create identity</button>
+      <button id="leave" class="danger" disabled>Leave (discard key)</button>
+    </div>
+    <p>The key lives in this tab only: nothing is stored, and closing the tab discards it. Send the DID above to your operator; their admission lets it forward, and nothing else, until it expires.</p>
+  </section>
+
+  <section>
+    <strong>2. Join bundle</strong>
+    <textarea id="bundle" placeholder='{"type": "secdogie/inference/join/v1", ...}' spellcheck="false"></textarea>
+    <div class="row">
+      <button id="join" class="primary" disabled>Join</button>
+      <button id="stop" disabled>Stop</button>
+    </div>
+    <div id="status" data-state="idle">Not joined. This tab forwards nothing.</div>
+    <div id="stats"></div>
+  </section>
+
+  <section>
+    <strong>Activity</strong>
+    <div id="log"></div>
+  </section>
+</main>
+<script type="module" src="./dist/mesh/page.js"></script>
+</body>
+</html>
