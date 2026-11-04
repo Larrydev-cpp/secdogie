@@ -51,25 +51,25 @@ English: [ROADMAP.md](ROADMAP.md)
 - 整机路由 = 网格子网 + 出口节点；
 - 撤销由 Master **k-of-n 门限签名**、**永久**生效；
 - 感知：**彻底移除截图 / OCR / 视觉解析**（机主决定，2026-10，取代此前「截图须显式开启」）：只用 AX/UIA 无障碍树 + Atlas 只读进程内存结构视图；两者皆无的应用 fail-closed（「无结构视图」）。读目标进程仍是只读拷贝（token wall + 拒绝名单不变），「零拷贝」只指 Atlas → agent 的共享内存交接（D5/D6，未开始）；
-- 推理网格的 WebRTC 载体用 aiortc 可选依赖，DID 在数据通道内与 DTLS 指纹绑定，信令 Worker 不改（W5，未开始）；
+- 推理网格的 WebRTC 载体用 aiortc 可选依赖，DID 在数据通道内与 DTLS 指纹绑定，信令 Worker 不改（W5，已建成）。浏览器标签页只能作为被准入、仅转发的节点加入：点击后才启动，密钥只存在于该标签页，不存储任何东西（W6，已建成）；网格如何获得节点、明确不做什么，见 [`docs/NODES.zh.md`](docs/NODES.zh.md)；
 - HITL 默认只确认高风险，但高风险在任何入口都必须确认。
 
 | 轨道 | 切片 | 状态 |
 | --- | --- | --- |
 | S 安全修复/纠偏 | S1 SDTP 确认后再切换· S2 fleet 安全模式全有或全无 · S3 文档与代码对齐 | ✅ ✅ ✅ |
-| A 网格运行时 | 2C 任一白名单节点兼任 relay · A0 rendezvous 上 UDP（T3）· A1 wire gossip（T4）· A2 `secdogie-node` 运行时 | ✅ 🔜 🔜 ✅ |
+| A 网格运行时 | 2C 任一白名单节点兼任 relay · A0 rendezvous 上 UDP（T3，#64；推理节点经它引导与发现）· A1 wire gossip（T4）· A2 `secdogie-node` 运行时 | ✅ ✅ 🔜 ✅ |
 | R 3.0 撤销 | R1 MasterSet/门限撤销声明/TrustPolicy · R2 全面执行 + 缓存失效 · R3 零信任默认关闭 · R4 传播（快速帧已建成；经日志的持久传播 = T6）· R5 自检停机 | ✅ ✅ ✅ 🔨 ✅ |
 | T9 隧道加固 | C + libsodium 隧道：卫生/fuzz/netns 冒烟 → Noise IK v2 握手 → 定时器/rekey/DoS 限速 → 端到端中继 → 本地控制 socket | 🔜（第三阶段） |
 | C M3 实时回路 | C1 CI 跑真实回路测试 · C2 HITL 修正（高风险清单、全入口必确认、签名审批 = Gate 2 经 Dialogue App）· C3 fleet/console/desktop 审批通路 · C4 门控加强（意图契约 + 已知失败）· C5 运行记录前移（每步 `action_key` / 结果）· C6 统一入口（`secdogie-node`）· C7 设备类别与无头隔离（T7） | ✅ ✅ 🔜 ✅ ✅ ✅ 🔜 |
 | D 感知 | D1 observation/target 入环 · D2 结构化优先（Windows UIA 结构图）· D3 macOS AX 命中测试 · D4 Atlas 只读桥（先 `/inspect` 回环客户端）· D5 删除像素/视觉路径（`screen`/`mac_capture`/`ax_image`/`reflex`/`look`/像素校验/视觉提示词，帧哈希改为 AX 树 + Atlas 快照哈希，纯度测试禁截屏）· D6 Atlas → agent 共享内存 seqlock 交接（零拷贝，读端即 `perception/dib.py`） | 🔜 |
-| W 浏览器 | W1 浏览器 DID + 信令 DID 认证 · W2 跨语言签名向量 · W3 aiortc 桥接技术验证 · W4 浏览器作为观察/审批端（`symbiont/` + `graph/`：双重苏格拉底门、内联签名、注意力调度、WASM 状态图）· W5 推理网格 `RtcWire`（`[webrtc]` 可选依赖，签名 `rtc-hello` 绑定 DID ↔ DTLS 指纹，`FailoverWire` 回落 UDP / relay） | 🔜 ✅ 🔜 🔨 🔜 |
-| I 推理网格（三态手绘图） | I0 三态（#75）· I1 拓扑按图（四个 P2P+S、节点失效时连中央 server、新 P2P 挂 API key、故障报告泛洪）· I2 模式状态机（只有操作员重置能离开锁定）· I3 会话生命周期与内存上界 · I4 Merkle-DAG 心跳（分叉隔离不锁定、见证链路、账本根反熵）· I5 历史感知决策门（硬否决 + 升级交叉验证） | ✅ ✅ ✅ ✅ ✅ ✅ |
+| W 浏览器 | W1 浏览器 DID + DID 认证（不可导出、只存在于标签页的密钥；DID 在数据通道内由 `rtc-hello` 认证，信令 Worker 仍不认证；运营方 `admission/v1`，仅转发，≤ 30 天，泛洪）· W2 跨语言签名向量（新增 `fixtures/vectors/mesh.json`）· W3 aiortc 桥接技术验证 · W4 浏览器作为观察/审批端（`symbiont/` + `graph/`：双重苏格拉底门、内联签名、注意力调度、WASM 状态图）· W5 推理网格 `RtcWire`（`[webrtc]` 可选依赖，签名 `rtc-hello` 绑定 DID ↔ DTLS 指纹，`FailoverWire` 回落 UDP / relay）· W6 浏览器仅转发网格节点（`symbiont/mesh.html`：心跳、按角色核验的泛洪、带路径检查的转发、锁定时拒绝；Playwright 端到端测试） | ✅ ✅ 🔜 🔨 ✅ ✅ |
+| I 推理网格（三态手绘图） | I0 三态（#75）· I1 拓扑按图（四个 P2P+S、节点失效时连中央 server、新 P2P 挂 API key、故障报告泛洪）· I2 模式状态机（只有操作员重置能离开锁定）· I3 会话生命周期与内存上界 · I4 Merkle-DAG 心跳（分叉隔离不锁定、见证链路、账本根反熵）· I5 历史感知决策门（硬否决 + 升级交叉验证）· I6 节点运行时与自动发现（`secdogie-inference run`、rendezvous 引导、3–6 条见证中转链路） | ✅ ✅ ✅ ✅ ✅ ✅ ✅ |
 | M 收尾 | M4 纵切演示 · M5 安全复审 / 实机验证 / 发布 | 🔜 |
 
 **第二阶段（可运行闭环）已完成**：P0、Wave A / B / C / D / E（#56、#57、#60、#61、#62 及文档 PR），7 条退出条件见 [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md) 第 5 节。
 
 **第三阶段顺序**：
-1. T3 rendezvous 上 UDP、T4 线上 gossip、T6 撤销持久传播；
+1. T4 线上 gossip、T6 撤销持久传播（T3 已完成）；
 2. T7 设备类别、C3 fleet/console/desktop 审批通路；
 3. T9 隧道加固；
 4. W、M（多节点纵切演示、安全复审、实机验证、发布）。

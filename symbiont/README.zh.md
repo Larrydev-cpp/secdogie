@@ -81,10 +81,14 @@ python3 -m http.server 8080   # 打开 http://localhost:8080/ 看离线 demo
 `tests/journey.test.ts` 用真实的 WASM 引擎走完 **FlowState（排队）→ AttentionGap →
 Gate 1 苏格拉底澄清 → Gate 2 内联签名**，并覆盖探问过期、反驳删除拓扑、敏感场景遮蔽、签名过期。
 
+## 浏览器仅转发网格节点（`mesh.html`）
+
+`src/mesh/` 让志愿者的标签页经 WebRTC 以被准入、仅转发的节点加入推理网格：签发见证邻居的 `heartbeat/v2` 心跳，按角色核验后泛洪，以与 Python `Carrier` 相同的路径检查转发 `req` / `resp` / `nack`，锁定期间拒绝非锁定决策。它从不决策、不受理、不持有密钥。点击之前什么都不运行；密钥不可导出且只存在于该标签页（按红线不做任何存储），关闭标签页即结束节点。`npm run build` 之后，用与演示相同的静态服务器打开 `mesh.html`。运营方流程（`admit`、`bundle`）见 [`../docs/NODES.zh.md`](../docs/NODES.zh.md)；`tests/mesh.test.ts` 用 `fixtures/vectors/mesh.json` 逐字节核对。
+
 ## 尚未做（如实）
 
 - 与 Python 节点之间的真实传输桥接（W3）：包形状已兼容，但目前两侧在同一页面内经回环连接；
-- 操作员密钥只在内存中（IndexedDB 持久化与浏览器 DID 属于 W1），浏览器操作员 DID 需先登记进节点的 operators；
+- 操作员密钥只在内存中（红线禁止浏览器存储），浏览器操作员 DID 需先登记进节点的 operators；
 - 记忆候选（`MemoryCandidatePacket`）的内联确认气泡；
 - 真正的系统窗口（需要桌面外壳）；目前沙箱 = 专用 Worker + 页面内非模态侧栏；
 - 系统侧焦点信号来源（见上）。

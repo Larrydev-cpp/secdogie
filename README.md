@@ -178,4 +178,6 @@ perception stack lives there.
 - [`ROADMAP.md`](ROADMAP.md): overall implementation goal and milestones.
 - [`docs/AUDIT-P2P-ALIGNMENT.md`](docs/AUDIT-P2P-ALIGNMENT.md): source-level audit and conflict record.
 - [`docs/GLOSSARY.md`](docs/GLOSSARY.md): canonical terminology, English and Chinese.
+- [`docs/NODES.md`](docs/NODES.md): how the inference mesh obtains nodes (operator machines,
+  automatic discovery, admitted browser forwarders) and what is excluded.
 - [`SECURITY.md`](SECURITY.md): trust model and vulnerability reporting.

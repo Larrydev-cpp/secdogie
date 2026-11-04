@@ -229,6 +229,16 @@ while running:
 `backend(model, input, secret) -> str` is where an upstream API client is plugged in. Every
 trust set is required; `ALLOW_ANY` is for tests only, as everywhere in secdogie.
 
+### Running nodes
+
+`secdogie-inference run` is the node process (any role); `ask` sends one signed request;
+`admit` signs a forward-only, expiring operator admission; `bundle` writes the join bundle
+a browser node pastes into `symbiont/mesh.html`. Nodes bootstrap from a rendezvous record
+and keep 3–6 witnessed transit links on their own; with `--signaling` (the `[webrtc]`
+extra) they also link over WebRTC DataChannels and accept admitted browser forwarders.
+How the mesh obtains nodes, ports and NAT, and what is excluded:
+[`docs/NODES.md`](../docs/NODES.md).
+
 ## Tests
 
 ```sh
@@ -261,6 +271,17 @@ cd inference && python -m pytest tests -q
   client implicated by forbidden-capability evidence vetoed until the reset, a latched node
   vetoing everything, and 300 random histories that never lower a quorum.
 * `test_udp.py`: one request over real UDP (`DirectUDPTransport` + `ChannelMux`).
+* `test_discovery.py`, `test_run.py`: discovery to degree over the simulated mesh, and a real
+  rendezvous plus six `secdogie-inference run` processes that find each other from its
+  record alone, answer `ask`, and route around a killed forwarder.
+* `test_admission.py`: who may admit and what (forward only, expiring, revocable), and an
+  admission flooding so every node accepts the DID with its roles cut to forward.
+* `test_rtc.py`: `RtcWire` over real aiortc DataChannels with a local stand-in for the
+  signaling Worker: the DID ↔ DTLS hello, untrusted vs admitted peers, simultaneous dials,
+  an inference request over WebRTC.
+* `test_mesh_vectors.py`, `test_browser_node.py`: `fixtures/vectors/mesh.json` is current,
+  and Playwright Chromium joins a Python mesh as a browser forwarder that carries a request
+  (skipped without the `symbiont` toolchain and Playwright).
 * Unit tests for every module: protocol, leases, screens, topology, health and breaker,
   mutiny evidence and ledger, router.
 

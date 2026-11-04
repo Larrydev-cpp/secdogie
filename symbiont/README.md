@@ -102,12 +102,24 @@ AttentionGap → Gate 1 Socratic clarification → Gate 2 inline signature**, an
 expiry, deletion of the topology on rebuttal, masking in sensitive contexts, and signature
 expiry.
 
+## Browser forward-only mesh node (`mesh.html`)
+
+`src/mesh/` lets a volunteer's tab join the inference mesh as an admitted, forward-only
+node over WebRTC: signed `heartbeat/v2` heartbeats that witness its neighbours,
+role-checked flooding, `req` / `resp` / `nack` carrying with the same path checks as the
+Python `Carrier`, and refusal of non-Lockdown decisions during Lockdown. It never decides,
+serves or holds a key. Nothing runs before a click; the key is non-extractable and lives
+in the tab only (no storage, per the red lines), so closing the tab ends the node. After
+`npm run build`, open `mesh.html` from the same static server as the demo. The operator
+flow (`admit`, `bundle`) is in [`../docs/NODES.md`](../docs/NODES.md);
+`tests/mesh.test.ts` checks it byte for byte against `fixtures/vectors/mesh.json`.
+
 ## Not yet done
 
 - A real transport bridge to the Python nodes (W3): the packet shapes are compatible, but the
   two sides currently connect in-page over loopback.
-- The operator key lives only in memory (IndexedDB persistence and a browser DID belong to
-  W1); a browser operator DID must first be registered in the node's operators.
+- The operator key lives only in memory (the red lines forbid browser storage); a browser
+  operator DID must first be registered in the node's operators.
 - An inline confirmation prompt for memory candidates (`MemoryCandidatePacket`).
 - Real system windows (requires a desktop shell); today the sandbox = a dedicated Worker + a
   non-modal in-page sidebar.

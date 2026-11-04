@@ -147,4 +147,5 @@ CI（[`.github/workflows/test.yml`](.github/workflows/test.yml)）对每个包�
 - [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md) —— 四大支柱、端到端认证链路、组件表、安全边界、路线图。
 - [`ROADMAP.zh.md`](ROADMAP.zh.md) —— 总实现目标与里程碑。
 - [`docs/AUDIT-P2P-ALIGNMENT.zh.md`](docs/AUDIT-P2P-ALIGNMENT.zh.md) —— 深度源码审计与冲突记录。
+- [`docs/NODES.zh.md`](docs/NODES.zh.md) —— 推理网格如何获得节点（运营方机器、自动发现、被准入的浏览器转发节点）以及明确不做的事。
 - [`SECURITY.md`](SECURITY.md) —— 信任模型与漏洞上报。

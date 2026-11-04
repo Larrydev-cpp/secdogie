@@ -86,20 +86,22 @@ One PR per item: audit → implement → test → run the full suite → lint �
   not started).
 - The inference mesh's WebRTC transport uses aiortc as an optional dependency; the DID is
   bound to the DTLS fingerprint inside the DataChannel, and the signaling Worker is
-  unchanged (W5, not started).
+  unchanged (W5, built). Browser tabs join only as admitted, forward-only nodes, after a
+  click, with a key that lives in the tab and nothing stored (W6, built); how the mesh
+  obtains nodes, and what is excluded, is in [`docs/NODES.md`](docs/NODES.md).
 - HITL confirms only high-risk actions by default, but high-risk actions require
   confirmation at every entry point.
 
 | Track | Slices | Status |
 | --- | --- | --- |
 | S Security fixes and corrections | S1 SDTP switches only after confirmation · S2 fleet secure mode all-or-nothing · S3 documentation aligned with code | ✅ ✅ ✅ |
-| A Mesh runtime | 2C any allowlisted node can act as a relay · A0 rendezvous over UDP (T3) · A1 wire gossip (T4) · A2 `secdogie-node` runtime | ✅ 🔜 🔜 ✅ |
+| A Mesh runtime | 2C any allowlisted node can act as a relay · A0 rendezvous over UDP (T3, #64; inference nodes bootstrap and discover through it) · A1 wire gossip (T4) · A2 `secdogie-node` runtime | ✅ ✅ 🔜 ✅ |
 | R 3.0 Revocation | R1 MasterSet / threshold revocation statements / TrustPolicy · R2 enforcement everywhere plus cache invalidation · R3 zero-trust closed by default · R4 propagation (fast frames built; durable propagation through the journal = T6) · R5 self-halt on revocation | ✅ ✅ ✅ 🔨 ✅ |
 | T9 Tunnel hardening | C + libsodium tunnel: hygiene, fuzzing and netns smoke tests → Noise IK v2 handshake → timers, rekeying, DoS rate limiting → end-to-end relaying → local control socket | 🔜 (Stage 3) |
 | C M3 live loop | C1 CI runs real loop tests · C2 HITL corrections (high-risk list, confirmation at every entry point, signed approval = Gate 2 through the Dialogue App) · C3 fleet/console/desktop approval paths · C4 stronger gating (intent contract + known-failure memory) · C5 run records earlier (per-step `action_key` and outcome) · C6 single entry point (`secdogie-node`) · C7 device classes and headless isolation (T7) | ✅ ✅ 🔜 ✅ ✅ ✅ 🔜 |
 | D Perception | D1 observation/target in the loop · D2 structure-first (Windows UIA structure image) · D3 macOS AX hit-testing · D4 Atlas read-only bridge (first a loopback `/inspect` client) · D5 remove the pixel and vision paths (`screen`, `mac_capture`, `ax_image`, `reflex`, `look`, pixel-diff verification, vision prompts; the frame hash becomes an AX-tree plus Atlas-snapshot hash; a purity test forbids screen capture) · D6 Atlas → agent shared-memory seqlock hand-off (zero-copy; the reader is `perception/dib.py`) | 🔜 |
-| W Browser | W1 browser DID + DID-authenticated signaling · W2 cross-language signature vectors · W3 aiortc bridge proof of concept · W4 browser as observer and approver (`symbiont/` + `graph/`: dual Socratic gates, inline signing, attention scheduling, WASM state graph) · W5 inference-mesh `RtcWire` (`[webrtc]` optional dependency, a signed `rtc-hello` binding DID ↔ DTLS fingerprint, `FailoverWire` falling back to UDP / relay) | 🔜 ✅ 🔜 🔨 🔜 |
-| I Inference mesh (three-state model) | I0 the three states (#75) · I1 reference topology (four serving nodes, the coordinator attaches to the neighbours of a failed node, standby forwarders anchored to the key broker, flooded fault reports) · I2 mode state machine (only an operator reset leaves Lockdown) · I3 session lifecycle and memory bounds · I4 Merkle-DAG heartbeats (fork isolation without Lockdown, witnessed links, ledger-root anti-entropy) · I5 history-aware decision gate (hard vetoes, escalation to cross-checking) | ✅ ✅ ✅ ✅ ✅ ✅ |
+| W Browser | W1 browser DID + DID authentication (a non-extractable, tab-scoped key; the DID is authenticated inside the DataChannel by `rtc-hello`, the signaling Worker stays unauthenticated; operator `admission/v1`, forward-only, ≤ 30 days, flooded) · W2 cross-language signature vectors (now also `fixtures/vectors/mesh.json`) · W3 aiortc bridge proof of concept · W4 browser as observer and approver (`symbiont/` + `graph/`: dual Socratic gates, inline signing, attention scheduling, WASM state graph) · W5 inference-mesh `RtcWire` (`[webrtc]` optional dependency, a signed `rtc-hello` binding DID ↔ DTLS fingerprint, `FailoverWire` falling back to UDP / relay) · W6 browser forward-only mesh node (`symbiont/mesh.html`: heartbeats, role-checked flooding, carrying with path checks, Lockdown refusal; Playwright end-to-end test) | ✅ ✅ 🔜 🔨 ✅ ✅ |
+| I Inference mesh (three-state model) | I0 the three states (#75) · I1 reference topology (four serving nodes, the coordinator attaches to the neighbours of a failed node, standby forwarders anchored to the key broker, flooded fault reports) · I2 mode state machine (only an operator reset leaves Lockdown) · I3 session lifecycle and memory bounds · I4 Merkle-DAG heartbeats (fork isolation without Lockdown, witnessed links, ledger-root anti-entropy) · I5 history-aware decision gate (hard vetoes, escalation to cross-checking) · I6 node runtime and discovery (`secdogie-inference run`, rendezvous bootstrap, 3–6 witnessed transit links) | ✅ ✅ ✅ ✅ ✅ ✅ ✅ |
 | M Completion | M4 vertical-slice demonstration · M5 security review, validation on real hardware, release | 🔜 |
 
 **Stage 2 (runnable closed loop) is complete:** P0 and Waves A / B / C / D / E (#56, #57,
@@ -107,7 +109,7 @@ One PR per item: audit → implement → test → run the full suite → lint �
 [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 **Stage 3 order:**
-1. T3 rendezvous over UDP, T4 on-the-wire gossip, T6 durable revocation propagation.
+1. T4 on-the-wire gossip, T6 durable revocation propagation (T3 is done).
 2. T7 device classes, C3 fleet/console/desktop approval paths.
 3. T9 tunnel hardening.
 4. W and M (multi-node vertical-slice demonstration, security review, validation on real
