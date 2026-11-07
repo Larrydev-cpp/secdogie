@@ -33,4 +33,4 @@ secdogie-studio = "secdogie_studio.cli:main"
 include = ["secdogie_studio*"]
 
 [tool.setuptools.package-data]
-secdogie_studio = ["qml/*.qml"]
+secdogie_studio = ["qml/*.qml", "qml/qmldir"]

@@ -1,15 +1,22 @@
-"""The companion's window: a faint, breathing light in the corner of the screen.
+"""Studio's two windows: the home window, and the light it leaves behind.
 
-Qt Quick draws it (``qml/Presence.qml``); this module is the thin bridge. On a
-timer it reads the controller (profile, node), the companion (the dialogue
-with the node), the OS idle counter, and lets ``presence.Stage`` decide what
-to show: the light alone, a whisper, or one card. Slow work (unlocking the
-operator key, creating keys) runs on a worker thread, and its result arrives
-on the next tick, so Qt is never touched from another thread.
+Opening Studio opens the home window (``qml/Home.qml``): the conversation, and
+this node and its mesh. Closing it leaves the companion as a faint, breathing
+light in the corner of the screen (``qml/Presence.qml``); clicking the light
+opens the home window again. While the home window is open, what waits on the
+person (a question, a signature, a memory) shows inside it. While it is
+closed, the light's own cards take over, and ``presence.Stage`` decides when.
 
-The window never takes the keyboard focus by itself. It appears when the
-person opens Studio, and after that only changes inside its own frame. Typing
-into a card is the person's click away.
+This module is the thin bridge. On a timer it reads the controller (profile,
+node), the companion (the dialogue with the node), the OS idle counter and,
+while the home window is open, the node's own status (``admin/v1``). Slow work
+(unlocking the operator key, creating keys, asking the node) runs on worker
+threads, and its result arrives on the next tick, so Qt is never touched from
+another thread.
+
+Neither window takes the keyboard focus by itself: the home window opens
+because the person opened Studio or clicked the light, and the light's cards
+fade in without taking focus.
 
 Qt is imported lazily, so the rest of the package (and its tests) runs without
 PySide6.
@@ -28,6 +35,12 @@ from .motion import reduce_motion
 from .presence import Attention, Moment, Stage, Whisper
 
 QML_DIR = Path(__file__).resolve().parent / "qml"
+POLL_EVERY = 3.0  # seconds between asking the node how it is, while the home window is open
+
+STATE_WORDS = {"running": "醒着", "starting": "正在醒来", "stopped": "在休息", "exited": "停下了"}
+GOAL_WORDS = {"pending": "排队中", "active": "正在做", "done": "做完了", "failed": "没做成"}
+ROLE_WORDS = {"forward": "转发", "serve": "服务", "model": "模型", "ingest": "采集", "relay": "中继"}
+KIND_WORDS = {"gate-rules": "门的规则", "decision-model": "决策模型", "ingest": "采集规则", "allowlist": "允许名单"}
 
 WELCOME = Moment(
     "welcome", "welcome", "你好。我们先认识一下。",
@@ -43,6 +56,30 @@ def card_dict(m: Moment | None) -> dict | None:
         return None
     return {"id": m.id, "kind": m.kind, "label": m.label, "says": m.says, "options": list(m.options),
             "details": [[k, v] for k, v in m.details], "freeText": m.free_text, "canApprove": m.can_approve}
+
+
+def duration_words(seconds: float) -> str:
+    s = max(0, int(seconds))
+    if s < 60:
+        return "不到一分钟"
+    m, h, d = s // 60 % 60, s // 3600 % 24, s // 86400
+    if not h and not d:
+        return f"{m} 分钟"
+    if not d:
+        return f"{h} 小时 {m} 分钟" if m else f"{h} 小时"
+    return f"{d} 天 {h} 小时" if h else f"{d} 天"
+
+
+def work_words(goals: dict) -> str:
+    parts = [f"{GOAL_WORDS[k]} {goals[k]} 件" for k in ("active", "pending", "done", "failed") if goals.get(k)]
+    return " · ".join(parts) if parts else "还没有交给我的事。"
+
+
+def first_moment(moments: list[Moment], now: float) -> Moment | None:
+    """What the home window shows first: the same order the light uses."""
+    live = [m for m in moments if m.expires is None or m.expires > now]
+    order = sorted(live, key=lambda m: (m.kind != "welcome", m.urgency != "soon", m.arrived, m.id))
+    return order[0] if order else None
 
 
 class Presence:
@@ -65,8 +102,12 @@ class Presence:
         self._in_force = ""
         self._busy_with = ""
         self.inner_open = False
-        self.say_open = False
+        self.home_open = True  # opening Studio opens the home window
         self.rules_text = ""
+        self._status: dict | None = None  # the node's last answer on admin/v1
+        self._active: list[dict] = []  # the policy bundles in force, as the node listed them
+        self._polled = float("-inf")
+        self._polling = False
 
     # -- the tick ----------------------------------------------------------------------
 
@@ -98,9 +139,17 @@ class Presence:
         self.attention.sample(self.idle(), now)
         busy = self.companion.busy() if self.companion is not None else bool(snap.busy)
         view = self.stage.update(moments, self.attention.mode(now), now, busy=busy)
+        self._maybe_poll(now)
         with self._lock:
             feedback, rules_note, in_force, working = self._feedback, self._rules_note, self._in_force, self._busy_with
+        home_card = first_moment(moments, now)
         return {
+            "homeOpen": self.home_open,
+            "homeCard": card_dict(home_card),
+            "homeCardKey": home_card.id if home_card is not None else "",
+            "waiting": max(0, len(moments) - 1),
+            "conversation": self.companion.conversation() if self.companion is not None else [],
+            "node": self._node_view(snap, now),
             "mood": view.mood,
             "card": card_dict(view.card),
             "cardKey": view.card.id if view.card is not None else "",
@@ -110,13 +159,76 @@ class Presence:
             "feedback": feedback,
             "working": working or snap.busy,
             "innerOpen": self.inner_open,
-            "sayOpen": self.say_open,
             "statusRows": self._status_rows(snap),
             "logText": "\n".join(self.companion.log_lines(14) if self.companion is not None else snap.log[-14:]),
             "rulesText": self.rules_text,
             "rulesNote": rules_note,
             "inForce": in_force,
         }
+
+    def _node_view(self, snap, now: float) -> dict:
+        """The home window's node and mesh page: the controller's view of this
+        machine, the node's own answer on admin/v1, and the rules in force."""
+        if not snap.initialized:
+            return {}
+        with self._lock:
+            status, active = self._status, list(self._active)
+        st = status or {}
+        app = st.get("app") or {}
+        relays, rendezvous = st.get("relays", 0), st.get("rendezvous", 0)
+        carriers = " · ".join([*(c.upper() for c in st.get("carriers", ["udp"])),
+                               *([f"中继 {relays} 个"] if relays else []),
+                               *([f"会合点 {rendezvous} 个"] if rendezvous else [])])
+        rules = [{"name": KIND_WORDS.get(a.get("kind"), a.get("kind", "")), "version": a.get("version", 0),
+                  "applied": bool(a.get("applied")),
+                  "words": f"第 {a.get('version', 0)} 版 · " + ("生效中" if a.get("applied") else "已记录，节点还没启用")}
+                 for a in active]
+        return {
+            "state": snap.node_state,
+            "stateWords": STATE_WORDS.get(snap.node_state, snap.node_state),
+            "since": f"醒了 {duration_words(now - st['since'])}" if st.get("since") and snap.node_state == RUNNING
+                     else "",
+            "answered": status is not None,
+            "did": snap.node_did,
+            "app": snap.app_did,
+            "appConnected": bool(app.get("connected")),
+            "operator": snap.operator_did,
+            "mesh": st.get("mesh") or (self.companion.mesh if self.companion is not None else "home"),
+            "roles": "、".join(ROLE_WORDS.get(r, r) for r in (st.get("roles") or snap.roles)),
+            "listen": st.get("listen") or snap.listen,
+            "carriers": carriers,
+            "work": work_words(st.get("goals") or {}),
+            "recent": [{"title": g.get("title") or g.get("id", ""), "status": g.get("status", ""),
+                        "words": GOAL_WORDS.get(g.get("status", ""), "")} for g in st.get("recent", [])],
+            "rules": rules,
+            "halted": bool(st.get("halted")),
+        }
+
+    def _maybe_poll(self, now: float) -> None:
+        """While the home window is open, ask the node how it is every few seconds."""
+        companion = self.companion
+        if companion is None or not self.home_open or now - self._polled < POLL_EVERY:
+            return
+        with self._lock:
+            if self._polling:
+                return
+            self._polling = True
+        self._polled = now
+
+        def fetch():
+            try:
+                status = companion.node_status(timeout=3.0)
+                listing = companion.rules_in_force(timeout=3.0)
+                with self._lock:
+                    if status is not None:
+                        self._status = status
+                    if listing is not None:
+                        self._active = list(listing.get("active", []))
+            finally:
+                with self._lock:
+                    self._polling = False
+
+        threading.Thread(target=fetch, daemon=True, name="studio-status").start()
 
     def _status_rows(self, snap) -> list:
         if not snap.initialized:
@@ -185,17 +297,25 @@ class Presence:
     def say(self, text: str) -> None:
         if self.companion is not None and text.strip():
             self.companion.say(text)
-            self.say_open = False
 
-    def toggle_say(self) -> None:
-        self.say_open = not self.say_open and self.companion is not None
-        if self.say_open:
-            self.inner_open = False
+    def open_home(self) -> None:
+        self.home_open = True
+        self.inner_open = False
+        self._polled = float("-inf")  # ask the node at once
+        self.attention.touch(self.clock())
+
+    def close_home(self) -> None:
+        self.home_open = False
+
+    def open_rules(self) -> None:
+        """The rules editor, wherever it is shown: load the draft and what is in force."""
+        if not self.rules_text:
+            self.rules_text = RULES_TEMPLATE
+        self.refresh_in_force()
 
     def toggle_inner(self) -> None:
         self.inner_open = not self.inner_open
         if self.inner_open:
-            self.say_open = False
             if not self.rules_text:
                 self.rules_text = RULES_TEMPLATE
             self.refresh_in_force()
@@ -215,6 +335,8 @@ class Presence:
                                 for a in active) or "还没有注入过规则，用的是内置的门。"
             with self._lock:
                 self._in_force = "生效中：" + text
+                if listing is not None:
+                    self._active = list(listing.get("active", []))
 
         threading.Thread(target=fetch, daemon=True, name="studio-rules-list").start()
 
@@ -271,8 +393,10 @@ def bridge_class():
     from PySide6.QtCore import Property, QObject, Signal, Slot
     from PySide6.QtGui import QGuiApplication
 
-    names = ("mood", "card", "cardKey", "whisper", "whisperTone", "held", "feedback", "working", "innerOpen",
-             "sayOpen", "statusRows", "logText", "rulesText", "rulesNote", "inForce")
+    names = ("homeOpen", "homeCard", "homeCardKey", "waiting", "conversation", "node", "mood",
+             "card", "cardKey",
+             "whisper", "whisperTone", "held", "feedback", "working", "innerOpen", "statusRows", "logText",
+             "rulesText", "rulesNote", "inForce")
     changed = Signal()
 
     def init(self, presence: Presence, still: bool = False):
@@ -302,7 +426,8 @@ def bridge_class():
         "hover": ((), Presence.hover), "welcome": ((str, str), Presence.welcome),
         "answer": ((str, str), Presence.answer), "approve": ((str, str), Presence.approve),
         "deny": ((str,), Presence.deny), "remember": ((str, bool), Presence.remember),
-        "say": ((str,), Presence.say), "toggleSay": ((), Presence.toggle_say),
+        "say": ((str,), Presence.say), "openHome": ((), Presence.open_home),
+        "closeHome": ((), Presence.close_home), "openRules": ((), Presence.open_rules),
         "toggleInner": ((), Presence.toggle_inner), "tryRules": ((str, str), Presence.try_rules),
         "pushRules": ((str, str), Presence.push_rules),
     }
@@ -322,6 +447,7 @@ def run_gui(root: Path, *, kdf: str = "moderate") -> int:
 
     app = QGuiApplication.instance() or QGuiApplication([])
     app.setApplicationName("secdogie")
+    app.setQuitOnLastWindowClosed(False)  # closing the home window leaves the light; "让我休息" quits
     font = QFont()
     font.setFamilies(["PingFang SC", "Microsoft YaHei UI", "Noto Sans CJK SC", "Source Han Sans SC",
                       "WenQuanYi Zen Hei", "Segoe UI", "Helvetica Neue", "sans-serif"])
@@ -330,8 +456,9 @@ def run_gui(root: Path, *, kdf: str = "moderate") -> int:
     bridge = Bridge(presence, reduce_motion(app))
     engine = QQmlApplicationEngine()
     engine.rootContext().setContextProperty("P", bridge)
-    engine.load(QUrl.fromLocalFile(str(QML_DIR / "Presence.qml")))
-    if not engine.rootObjects():
+    for name in ("Presence.qml", "Home.qml"):
+        engine.load(QUrl.fromLocalFile(str(QML_DIR / name)))
+    if len(engine.rootObjects()) != 2:
         presence.shutdown()
         return 1
     timer = QTimer()

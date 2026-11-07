@@ -50,10 +50,12 @@ def test_the_scan_would_catch_a_violation():
                     "taking the keyboard focus on its own"]
 
 
-def test_the_window_never_takes_focus_on_its_own():
-    """The only focus the QML moves is into the talk field, right after the
-    person clicked the light to talk."""
-    qml = (SRC / "qml" / "Presence.qml").read_text(encoding="utf-8")
-    assert qml.count("forceActiveFocus") == 1
-    assert "onShownNowChanged: if (shownNow) { say.text = \"\"; say.forceActiveFocus() }" in qml
-    assert "requestActivate" not in qml and "raise()" not in qml
+def test_no_window_takes_focus_on_its_own():
+    """Neither window moves the keyboard focus. The home window opens because
+    the person opened Studio or clicked the light; its input line is that
+    window's first focus item, nothing more. The light's cards fade in and
+    wait to be clicked."""
+    for f in sorted((SRC / "qml").glob("*.qml")):
+        qml = f.read_text(encoding="utf-8")
+        assert "forceActiveFocus" not in qml, f.name
+        assert "requestActivate" not in qml and "raise()" not in qml, f.name

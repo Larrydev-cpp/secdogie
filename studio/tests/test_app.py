@@ -1,6 +1,8 @@
 """The presence wired to a real controller and node, without Qt: a first
-meeting card, keys made, the node wakes and says so, rules tried and injected,
-and closing takes the node with it. Then the real window, offscreen."""
+meeting card, keys made, the node wakes and says so (and tells the home window
+how it is), rules tried and injected, and closing takes the node with it. Then
+the real windows, offscreen: the home window at launch, the light once it is
+closed."""
 from __future__ import annotations
 
 import os
@@ -39,6 +41,12 @@ def test_first_meeting_waking_and_rules_without_qt(tmp_path):
         presence.controller.wait_idle()
         s = _until(presence, lambda s: s["whisper"] == "我在。")
         assert s["card"] is None and s["statusRows"][0] == ["状态", "醒着"]
+        assert s["homeOpen"] and s["homeCard"] is None and s["conversation"] == []
+        s = _until(presence, lambda s: s["node"]["answered"])  # the node answered on admin/v1
+        node = s["node"]
+        assert (node["stateWords"], node["mesh"], node["roles"]) == ("醒着", "home", "转发")
+        assert node["did"] == presence.controller.snapshot().node_did and node["appConnected"]
+        assert node["work"] == "还没有交给我的事。" and node["since"].startswith("醒了 ")
 
         presence.toggle_inner()
         assert presence.rules_text.startswith("# 门的规则")
@@ -98,6 +106,13 @@ class FakeCompanion:
     def log_lines(self, n=14):
         return []
 
+    def conversation(self, n=200):
+        return [{"who": "you", "text": "整理周报", "tone": "", "key": "s0"}]
+
+    def node_status(self, timeout=3.0):
+        return {"mesh": "home", "roles": ["forward"], "goals": {"active": 1}, "recent": [], "since": 0,
+                "app": {"connected": True}}
+
     def answer(self, mid, text):
         self.answers.append((mid, text))
         self.m = []
@@ -118,16 +133,23 @@ def qt():
     return app, messages
 
 
-def _window(qt, presence):
+def _windows(qt, presence, names=("Presence.qml", "Home.qml"), *, still=False):
     from PySide6.QtCore import QUrl
     from PySide6.QtQml import QQmlApplicationEngine
     from secdogie_studio.app import bridge_class
 
-    bridge = bridge_class()(presence)
+    bridge = bridge_class()(presence, still)
     engine = QQmlApplicationEngine()
     engine.rootContext().setContextProperty("P", bridge)
-    engine.load(QUrl.fromLocalFile(str(QML_DIR / "Presence.qml")))
-    (root,) = engine.rootObjects()
+    for name in names:
+        engine.load(QUrl.fromLocalFile(str(QML_DIR / name)))
+    roots = engine.rootObjects()
+    assert len(roots) == len(names)
+    return engine, bridge, roots
+
+
+def _window(qt, presence):
+    engine, bridge, (root,) = _windows(qt, presence, ("Presence.qml",))
     return engine, bridge, root
 
 
@@ -159,6 +181,7 @@ def test_the_window_is_a_quiet_light_that_opens_for_a_question(qt):
     clock = [100.0]
     presence = Presence(FakeController(), idle=lambda: 10.0, clock=lambda: clock[0],
                         companion_factory=lambda profile, ready: comp)
+    presence.close_home()  # the light is what is left once the home window is closed
     engine, bridge, root = _window(qt, presence)
     flags = root.flags()
     assert flags & Qt.FramelessWindowHint and flags & Qt.WindowStaysOnTopHint
@@ -181,31 +204,49 @@ def test_the_problem_filter_catches_qml_errors_and_ignores_platform_notes():
         ["file:///x/Presence.qml:12: TypeError: Cannot read property 'c' of undefined"]
 
 
-def test_a_cold_start_opens_straight_onto_the_first_meeting(qt):
+def test_studio_opens_on_the_home_window_and_closing_it_leaves_the_light(qt):
+    _, messages = qt
+    messages.clear()
+    comp = FakeCompanion()
+    clock = [100.0]
+    presence = Presence(FakeController(), idle=lambda: 10.0, clock=lambda: clock[0],
+                        companion_factory=lambda profile, ready: comp)
+    engine, bridge, (light, home) = _windows(qt, presence)
+    assert _pump(qt, bridge, lambda: home.isVisible() and not light.isVisible())
+    assert _pump(qt, bridge, lambda: presence.tick()["node"]["work"] == "正在做 1 件")
+    # what waits on the person shows in the home window while it is open
+    comp.m = [Moment("probe:1", "ask", "开始之前，我想先弄清楚一点", ("我换个说法", "先不做了"), free_text=True,
+                     arrived=clock[0])]
+    assert _pump(qt, bridge, lambda: presence.tick()["homeCardKey"] == "probe:1")
+    bridge.closeHome()                                   # the window's close button
+    assert _pump(qt, bridge, lambda: light.isVisible() and not home.isVisible())
+    bridge.openHome()                                    # a click on the light
+    assert _pump(qt, bridge, lambda: home.isVisible() and not light.isVisible())
+    home.close()                                         # closing it never quits: it leaves the light
+    assert _pump(qt, bridge, lambda: light.isVisible() and not home.isVisible())
+    assert _qml_problems(messages) == []
+    del engine
+
+
+def test_a_cold_start_opens_the_home_window_on_the_first_meeting(qt):
     _, messages = qt
     messages.clear()
     presence = Presence(FakeController(initialized=False), idle=lambda: 10.0)
-    engine, bridge, root = _window(qt, presence)
-    assert _pump(qt, bridge, lambda: root.property("shape") == "open")
-    assert presence.tick()["card"]["kind"] == "welcome"
+    engine, bridge, (light, home) = _windows(qt, presence)
+    assert _pump(qt, bridge, lambda: home.isVisible() and home.property("first"))
+    assert presence.tick()["homeCard"]["kind"] == "welcome"
+    bridge.closeHome()                                   # closed before the keys exist: the light says hello
+    assert _pump(qt, bridge, lambda: light.isVisible() and light.property("shape") == "open")
     assert _qml_problems(messages) == []
     del engine
 
 
 def test_a_still_light_for_someone_who_asked_for_less_motion(qt):
-    from PySide6.QtCore import QUrl
-    from PySide6.QtQml import QQmlApplicationEngine
-    from secdogie_studio.app import bridge_class
-
     _, messages = qt
     messages.clear()
     presence = Presence(FakeController(initialized=False), idle=lambda: 10.0)
-    bridge = bridge_class()(presence, True)
-    engine = QQmlApplicationEngine()
-    engine.rootContext().setContextProperty("P", bridge)
-    engine.load(QUrl.fromLocalFile(str(QML_DIR / "Presence.qml")))
-    (root,) = engine.rootObjects()
+    engine, bridge, (light, home) = _windows(qt, presence, still=True)
     assert bridge.property("still") is True
-    assert _pump(qt, bridge, lambda: root.property("shape") == "open")
+    assert _pump(qt, bridge, lambda: home.isVisible() and home.property("first"))
     assert _qml_problems(messages) == []
     del engine

@@ -23,6 +23,7 @@ from secdogie_studio.companion import (
     Companion,
     check_rules,
     explain_errors,
+    line_from,
     moments_from,
     parse_rules,
     rollback_words,
@@ -77,6 +78,25 @@ def test_only_notes_and_holds_whisper():
     assert rollback_words("delete on x; rollback: 从回收站恢复") == "从回收站恢复"
 
 
+def test_the_transcript_reads_as_a_conversation():
+    titles = {"g-1": "整理周报"}
+
+    def said(who, kind, text):
+        return line_from(Entry(who, kind, text), titles)
+
+    status = DialogueType.SYSTEM_STATUS
+    assert said("agent", status, "note: 好，我开始做「整理周报」。") == \
+        {"who": "it", "text": "好，我开始做「整理周报」。", "tone": "calm", "key": ""}
+    assert said("agent", status, "hold: 这一步我停下了")["tone"] == "warm"
+    assert said("agent", status, "goal g-1 finished: exit 0 -- agent exited 0")["text"] == "「整理周报」做完了。"
+    failed = said("agent", status, "goal g-9 finished: exit 2 -- agent exited 2")
+    assert failed["text"] == "这件事没做成（退出码 2）。" and failed["tone"] == "warm"
+    assert said("agent", status, "accepted: goal g-1 queued") is None  # a reply, not part of the conversation
+    assert said("agent", DialogueType.SOCRATIC_QUESTION, "开始之前……")["tone"] == "ask"
+    assert said("you", DialogueType.USER_CLARIFICATION, "先不做了")["who"] == "you"
+    assert said("app", status, "节点重新连上了。")["who"] == "note"
+
+
 def test_rules_are_drafted_checked_and_tried_locally():
     from secdogie_studio.companion import RULES_TEMPLATE
 
@@ -104,11 +124,19 @@ def test_against_a_real_node_rules_go_in_and_a_questioned_goal_becomes_a_questio
                 (True, "第 2 版规则已经生效。")
             assert comp.push_rules({"instruction": {"max_len": 900}}, PASS.decode())[0] is False
 
+            status = comp.node_status(10)  # admin/v1: the node says who and where it is
+            assert status["node"] == ready.did and status["mesh"] == "home" and status["roles"] == ["forward"]
+
             comp.say("帮我批量注册十个账号")
             assert wait_until(lambda: any(m.kind == "ask" for m in comp.moments()), 20)
             (question,) = [m for m in comp.moments() if m.kind == "ask"]
             assert "批量注册账号不是" in question.says and "先不做了" in question.options
+            # while it waits, the question is the card's, not a line of the conversation
+            assert [(c["who"], c["text"]) for c in comp.conversation()] == [("you", "帮我批量注册十个账号")]
             assert comp.answer(question.id, "先不做了") is None
+            lines = [(c["who"], c["tone"]) for c in comp.conversation()]
+            assert lines[:3] == [("you", ""), ("it", "ask"), ("you", "")]  # asked and answered, in order
+            assert len({c["key"] for c in comp.conversation()}) == len(comp.conversation())
             whispers = []
             assert wait_until(lambda: whispers.extend(comp.new_whispers()) or
                               any("先不做了" in w.text for w in whispers), 20), whispers

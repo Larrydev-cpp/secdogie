@@ -21,6 +21,7 @@ itself.
 """
 from __future__ import annotations
 
+import re
 import time
 
 import yaml
@@ -32,6 +33,7 @@ from secdogie_dialogue.keystore import KeystoreError, unseal_identity
 from secdogie_dialogue.protocol import DialogueType
 from secdogie_dialogue.session import DialogueSession, SessionRouter
 from secdogie_identity import Allowlist, Identity
+from secdogie_node.admin import AdminClient
 from secdogie_node.policy_host import PolicyClient
 from secdogie_policy import assemble, check_bundle, create_bundle, sign_bundle
 from secdogie_transport import ChannelMux, DirectUDPTransport, Endpoint, PeerIdentity, Session, UDPChannel
@@ -149,6 +151,37 @@ def moments_from(probes, challenges, memories, arrived: dict, now: float) -> lis
     return out
 
 
+def line(who: str, text: str, tone: str = "", *, key: str = "") -> dict:
+    return {"who": who, "text": text, "tone": tone, "key": key}
+
+
+_FINISHED = re.compile(r"^goal (\S+) finished: exit (-?\d+)")
+
+
+def line_from(entry, titles: dict[str, str]) -> dict | None:
+    """One transcript entry as a conversation line, in the companion's words;
+    None for what the conversation does not show (replies to requests)."""
+    if entry.who == "you":
+        return line("you", entry.text)
+    if entry.who == "app":
+        return line("note", entry.text)
+    if entry.kind is DialogueType.SOCRATIC_QUESTION:
+        return line("it", entry.text, "ask")
+    for prefix, tone in (("note: ", "calm"), ("hold: ", "warm")):
+        if entry.text.startswith(prefix):
+            return line("it", entry.text[len(prefix):], tone)
+    done = _FINISHED.match(entry.text)
+    if done:
+        what = titles.get(done.group(1))
+        what = f"「{what}」" if what else "这件事"
+        if done.group(2) == "0":
+            return line("it", f"{what}做完了。", "calm")
+        return line("it", f"{what}没做成（退出码 {done.group(2)}）。", "warm")
+    if entry.text.startswith(("accepted: ", "refused: ")):
+        return None
+    return line("note", entry.text)
+
+
 def whisper_from(entry, index: int, now: float) -> Whisper | None:
     if entry.kind is not DialogueType.SYSTEM_STATUS:
         return None
@@ -178,6 +211,7 @@ class Companion:
             session = router.add(DialogueSession(identity, ready.did, router.sender_for(ready.did), trust=trust))
             self.ctl = AppController(session)
             self.policy = PolicyClient(mux, ready.did)
+            self.admin = AdminClient(mux, ready.did)
             session.start(0.05)
             self.ctl.start()
         except Exception:
@@ -185,6 +219,8 @@ class Companion:
             raise
         self._arrived: dict[str, float] = {}
         self._seen = 0
+        self._said: list[tuple[int, str]] = []  # (transcript length when said, what the person said)
+        self._titles: dict[str, str] = {}  # goal id -> what the person asked for
 
     def close(self) -> None:
         self.ctl.close()
@@ -223,6 +259,32 @@ class Companion:
 
         return [f"{'它' if e.who == 'agent' else '你'}：{plain(e.text)}" for e in self.ctl.transcript()[-n:]]
 
+    def conversation(self, n: int = 200) -> list[dict]:
+        """The conversation as the home window shows it, oldest first: what the
+        person said, what the companion said, and quiet notes in between. The
+        last ``n`` lines, each with a stable ``key`` (so the window appends
+        what is new instead of redrawing). A question still waiting for its
+        answer is left out: the card above the input line asks it."""
+        entries = self.ctl.transcript()
+        waiting = {p.probe_id for p in self.ctl.outstanding()[0]}
+        said = list(self._said)
+        out: list[dict] = []
+        j = 0
+        for i, e in enumerate(entries):
+            while j < len(said) and said[j][0] <= i:
+                out.append(line("you", said[j][1], key=f"s{j}"))
+                j += 1
+            if e.kind is DialogueType.SOCRATIC_QUESTION and e.probe_id in waiting:
+                continue
+            shown = line_from(e, self._titles)
+            if shown is not None:
+                out.append({**shown, "key": f"t{i}"})
+        out.extend(line("you", text, key=f"s{k}") for k, (_, text) in enumerate(said) if k >= j)
+        return out[-n:]
+
+    def node_status(self, timeout: float = 3.0) -> dict | None:
+        return self.admin.status(timeout=timeout)
+
     @property
     def connected(self) -> bool:
         return bool(self.ctl.peer_up)
@@ -232,7 +294,9 @@ class Companion:
     def say(self, text: str) -> None:
         text = text.strip()
         if text:
-            self.ctl.add_goal(text)
+            self._said.append((len(self.ctl.transcript()), text))
+            pkt = self.ctl.add_goal(text)
+            self._titles[pkt.goal_id] = text
 
     def answer(self, moment_id: str, text: str) -> str | None:
         if not moment_id.startswith("probe:") or not text.strip():
@@ -342,5 +406,5 @@ def try_rules(body: dict, sample: str) -> str:
     return f"我会先问你：「{involvement.says}」{more}"
 
 
-__all__ = ["Companion", "FORGET", "KEEP", "RULES_TEMPLATE", "check_rules", "explain_errors", "moments_from",
+__all__ = ["Companion", "FORGET", "KEEP", "RULES_TEMPLATE", "check_rules", "explain_errors", "line_from", "moments_from",
            "parse_rules", "try_rules", "whisper_from"]

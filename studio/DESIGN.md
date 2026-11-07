@@ -1,14 +1,28 @@
-# Studio design system: the companion window
+# Studio design system: the home window and the light
 
-Studio is not a control panel. It is a companion that lives in the corner of
-the screen as a faint, breathing light. It shows a whisper when it has
-something to say in passing. A card rises above the light only when the work
-needs the person: one question, one signature, one thing to remember, or the
-first hello. Everything else, its state and its rules, sits behind the light
-(click to talk, right-click or the Menu key for "inside").
+Studio has two faces, and only one shows at a time.
 
-The code is `secdogie_studio/qml/Presence.qml`. The Python bridge (`app.py`)
-decides *what* to show; the QML only draws it.
+- **The home window** opens when the person opens Studio. It has two pages:
+  - **对话 (conversation):** what was said, and what waits on the person.
+  - **节点与网格 (node and mesh):** this node, its work, its mesh, and the
+    rules in force.
+- **The light.** Closing the home window leaves the companion as a faint,
+  breathing light in the corner of the screen.
+  - A whisper shows beside it when it has something to say in passing.
+  - A card rises above it only when the work needs the person: one question,
+    one signature, one memory, or the first hello.
+  - Clicking the light opens the home window again. Right-click or the Menu
+    key opens its "inside": state, log and the rules editor.
+
+The code is in `secdogie_studio/qml/`:
+
+- `Home.qml` and `Presence.qml` are the two windows.
+- `Theme.qml` is a singleton that holds the tokens.
+- The shared parts are `Sheet`, `Shadow`, `Pill`, `Link`, `CloseButton`,
+  `Tab`, `Field`, `Caret`, `Bar`, `Ring`, `Fact`, `Orb`, `MomentCard` and
+  `RulesEditor`, listed in `qmldir`.
+
+The Python bridge (`app.py`) decides *what* to show; the QML only draws it.
 
 This pass took its guidance from three skills vendored in `.claude/`
 (impeccable, ui-ux-pro-max, Vercel's web-design-guidelines) and from the
@@ -30,16 +44,18 @@ them asks for it. `.claude/VENDORED.md` lists the sources.
 
 ## Tokens
 
-All tokens live at the top of `Presence.qml` (`ink`, `typo`, `motion`).
+All tokens live in `Theme.qml`, a singleton both windows share.
 
-### Colour (`ink`)
+### Colour
 
 | Token | Value | Use | On the card |
 | --- | --- | --- | --- |
-| `card` | rgba(0.071, 0.078, 0.106, 0.96) | every sheet and the whisper | n/a |
+| `ground` | `#0E1015` | the home window | n/a |
+| `panel` | `#161922` | a raised area in the home window: chat bubbles, the waiting card | n/a |
+| `card` | rgba(0.071, 0.078, 0.106, 0.96) | the light's sheets and the whisper | n/a |
 | `text` | `#ECE6DC` | primary text | 14.7 : 1 |
-| `soft` | `#BDB5AA` | secondary text, explanations, the log | 9.0 : 1 |
-| `faint` | `#948C82` | labels, placeholders, notes | 5.5 : 1 |
+| `soft` | `#BDB5AA` | secondary text, explanations, the log | 9.0 : 1 (8.6 on `panel`) |
+| `faint` | `#948C82` | labels, placeholders, notes | 5.5 : 1 (5.3 on `panel`) |
 | `edge` | white 34 % | control boundaries (ghost pill, field underline) | 3.1 : 1 |
 | `hairline` | white 8 % | sheet outline and dividers (decorative only) | n/a |
 | `wash` / `press` | white 6 % / 11 % | hover and pressed fill on quiet controls | n/a |
@@ -51,10 +67,10 @@ All tokens live at the top of `Presence.qml` (`ink`, `typo`, `motion`).
 The secondary text colours are tinted warm, never grey. Every text colour
 clears 4.5 : 1 on the card, and every control boundary clears 3 : 1.
 
-### Type (`typo`)
+### Type
 
-The scale has three steps at a ratio of about 1.2: `meta` 12, `body` 14,
-`lead` 17.
+The scale has four steps at a ratio of about 1.2: `meta` 12, `body` 14,
+`lead` 17, `title` 20 (a home page's title).
 
 - What the companion says, which is the heading of a card, is `lead` at
   medium weight.
@@ -81,7 +97,7 @@ The scale has three steps at a ratio of about 1.2: `meta` 12, `body` 14,
   hard block shadow. It is drawn rather than blurred, so it renders the same
   on the software backend and on every OS.
 
-### Motion (`motion`)
+### Motion
 
 | Token | Normal | Reduced | Use |
 | --- | --- | --- | --- |
@@ -131,7 +147,7 @@ are quick.
 - **Status rows.** A DID is one line, elided in the middle. Click it (or
   press Enter on it) to copy, and it says "已复制".
 
-## States the window covers
+## States the windows cover
 
 - **Empty.**
   - A log with nothing in it explains how to fill it.
@@ -145,21 +161,70 @@ are quick.
   - Every control is reachable and shows a focus ring only when focus came
     from the keyboard.
   - Esc puts away the talk and inside sheets.
-  - The window never takes focus by itself. The one place it moves focus is
-    into the talk field, right after the person clicked the light
-    (`tests/test_purity.py`).
+  - Neither window moves the focus by itself (no `forceActiveFocus` anywhere;
+    `tests/test_purity.py`). The home window's input line is just its first
+    focus item, in a window the person opened.
 
-## Window
+## The home window
 
-- **Frameless and on top.** The window is only as large as what it shows:
-  the light alone, the light with a whisper, or the light with one sheet
-  above it. The desktop around it stays the person's.
+- **Shape.** It is a normal, decorated window: 980 × 680, and never smaller
+  than 760 × 540. It is drawn on `ground`.
+- **Closing.** Closing it never quits. It leaves the light, and "让我休息"
+  in the rail is what quits (window and node together).
+- **Rail (216 px).**
+  - The companion's light at 48 px, its name, and its mood in words
+    ("醒着", "正在做事", "有事等你", "等你签名").
+  - Two pages, switched by click, Tab and Enter, or Ctrl+1 / Ctrl+2. The page
+    you are on is filled with `press`. When you are on the other page,
+    "对话" shows how many things wait on you (a warm count).
+  - At the bottom: "关掉窗口，我就在屏幕角落。" and "让我休息".
+- **对话.**
+  - A readable column, at most 720 px wide.
+  - The person's lines sit on the right in a calm-tinted bubble; the
+    companion's lines sit on the left on `panel`. A step it stopped is
+    written in warm, and quiet notes are centred in `faint`.
+  - A short conversation sits just above the input line. The list keeps the
+    newest line in view unless you scrolled up, and lines are appended by a
+    stable key, so the list never jumps.
+  - What waits on the person shows as one card (`MomentCard` on `panel`)
+    above the input line, with "还有 N 件在等你" when there are more. A
+    question that is still waiting appears only in that card. Once it is
+    answered, question and answer take their place in the conversation.
+  - The input line is the window's first focus item. "交给我" is enabled
+    once there is something to send.
+- **节点与网格.** Sections with headings and no boxes; the facts are
+  label/value rows, and DIDs copy on click.
+  - **This node:** its state (dot and words), how long it has been awake,
+    DID, roles, listen address, how it connects, and whether Studio is
+    connected.
+  - **Its work:** a one-line count, then the latest goals with their state.
+  - **The mesh:** the operator's signing key and the App. The other nodes
+    have an honest empty state: there are none yet, and invitations, LAN
+    discovery and WebRTC are still being built.
+  - **The gate rules:** which bundles are in force and which are only
+    recorded. "编辑规则" opens the same editor the light uses, inline (no
+    modal).
+  - The node itself supplies this, over `admin/v1` (read-only, every 3 s
+    while the window is open). The controller and `policy/v1` supply the
+    rest.
+- **The first hello.** Before there is a node, the whole window is the light
+  (96 px) above the welcome card.
+
+## The light's window
+
+- **Frameless and on top**, and hidden while the home window is open. It is
+  only as large as what it shows: the light alone, the light with a whisper,
+  or the light with one sheet above it. The desktop around it stays the
+  person's.
 - **Resizing.** It grows at once and shrinks after the fade has finished.
 
 ## Checking it
 
 - `studio/tests/test_app.py` loads the real QML offscreen, normal and with
-  reduced motion, and fails on any QML error.
+  reduced motion, and fails on any QML error. It also checks the lifecycle:
+  the home window at launch; closing it leaves the light; clicking the light
+  brings it back; a cold start opens on the first hello.
 - The design was checked by rendering every scene with the software backend:
-  rest, whisper, ask (and its keyboard focus), sign, memory, talk, inside
-  (now and rules), and first meeting.
+  the home window (empty conversation, a question waiting, a signature, node
+  and mesh, the rules editor, first hello) and the light (rest, whisper, ask,
+  sign, memory, inside).

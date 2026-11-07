@@ -1,8 +1,23 @@
 # secdogie-studio
 
-The desktop app for Windows, macOS and Linux. It is not a control panel. It is
-**the companion's presence on your desktop**: a faint, breathing light in a
-corner of the screen.
+The desktop app for Windows, macOS and Linux. Opening it opens the **home
+window**, which has two pages:
+
+- **对话 (conversation):** what you and the companion said, and the one thing
+  that waits on you right now, above the line you type into.
+- **节点与网格 (node and mesh):**
+  - this node: its state, DID, roles, address, how long it has been awake;
+  - its work: what it is doing, queued, done;
+  - its mesh: your signing key and your App, and other nodes once
+    invitations and discovery exist;
+  - the gate rules in force, which you can edit and inject right there.
+
+Closing the home window does not quit. It leaves **the companion's presence on
+your desktop**: a faint, breathing light in a corner of the screen. Clicking
+the light opens the home window again. "让我休息" quits (window and node
+together).
+
+While the home window is closed, the light behaves as follows.
 
 - **Quiet by default.** Most of the time the light is all there is. When it has
   something to say in passing ("I've started on …", "I stopped a step: …"), one
@@ -27,8 +42,8 @@ corner of the screen.
   surfaces after 30 seconds at most. A card never takes the keyboard focus, and
   when nobody is there, nothing surfaces: a signature that expires unanswered is
   a no.
-- **Click the light** to tell it something to do. **Right-click** for its inner
-  workings:
+- **Click the light** to open the home window. **Right-click** (or the Menu
+  key) for its inner workings:
   - **此刻**: who it is (DIDs), whether it is awake, and what was said;
   - **规则**: the Socratic gates' rules. Draft them in YAML, try them on a
     sentence, then sign with your passphrase and inject them into the node,
@@ -36,7 +51,8 @@ corner of the screen.
 
 The visual tone is night with a soft glow: deep ink, warm white text, a light
 that breathes slower at rest, warmer when something waits for you, and no alarm
-red. Qt Quick draws it (`secdogie_studio/qml/Presence.qml`).
+red. Qt Quick draws both windows (`secdogie_studio/qml/`); the design system
+is in `DESIGN.md`.
 
 ## Under the light
 
@@ -46,7 +62,10 @@ red. Qt Quick draws it (`secdogie_studio/qml/Presence.qml`).
   or a kill all close it, and the node stops cleanly on every OS. Nothing is
   installed, started at login, detached or scheduled.
 - **One dialogue with its node**, the same DID-authenticated session the
-  Dialogue App uses, plus the `policy/v1` channel for rules.
+  Dialogue App uses, plus two more channels on it:
+  - `policy/v1` for rules;
+  - `admin/v1`, a read-only channel the node uses to report its own status
+    to the home window.
 - **Three keys** are made at the first meeting:
   - the node's own key;
   - Studio's App key, for talking to the node;
@@ -60,8 +79,11 @@ red. Qt Quick draws it (`secdogie_studio/qml/Presence.qml`).
 | `presence.py` | attention (from idle time) and the stage: what shows, and when (pure, tested) |
 | `idle.py` | the OS idle counter: CoreGraphics, `GetLastInputInfo`, X11 screen saver; `None` on Wayland |
 | `companion.py` | the dialogue with the node, turned into cards and whispers; rules drafted, tried, signed, injected |
-| `app.py` | `Presence` (everything the window shows, without Qt) and the thin Qt bridge |
+| `app.py` | `Presence` (everything both windows show, without Qt) and the thin Qt bridge |
+| `qml/Home.qml` | the home window: the conversation, the node and its mesh, the first hello |
 | `qml/Presence.qml` | the light, the whisper, the cards, the inner sheet |
+| `qml/Theme.qml` + parts | the tokens (a singleton) and the shared parts (`MomentCard`, `RulesEditor`, `Pill`, `Field`, …) |
+| `motion.py` | whether the person asked for less motion |
 | `controller.py` / `nodeproc.py` / `profile.py` | the profile, the child node, the keys |
 | `link.py` / `selftest.py` | the loopback check and `--self-test` |
 
@@ -69,7 +91,7 @@ red. Qt Quick draws it (`secdogie_studio/qml/Presence.qml`).
 
 ```sh
 pip install -e ../identity -e ../transport -e ../citadel -e ../policy -e ../dialogue -e ../node -e '.[gui]'
-secdogie-studio                  # the light; the first meeting asks for your passphrase
+secdogie-studio                  # the home window; the first meeting asks for your passphrase
 secdogie-studio --self-test      # headless: profile, node, link, stop
 ```
 
@@ -94,7 +116,11 @@ QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software pytest tests -q
 - **`test_app.py`**:
   - the presence wired to a real node: first meeting → keys → "我在。" → rules
     tried and injected → closing stops the node;
-  - the real window offscreen, with no QML warnings allowed.
+  - the real windows offscreen, with no QML warnings allowed:
+    - the home window at launch;
+    - closing it leaves the light, and clicking the light brings it back;
+    - a cold start opens on the first hello;
+    - the same with reduced motion.
 - **`test_nodeproc.py`**: the node does not outlive a SIGKILLed parent.
 - **`test_purity.py`** fails on:
   - screen capture or image processing;
@@ -105,8 +131,9 @@ QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software pytest tests -q
 
 ## Not yet
 
-- Mesh, discovery and ingestion views. They will live in the inner sheet,
-  never on the light itself.
+- Other nodes in the mesh view (invitations, LAN discovery, WebRTC: F1–F4,
+  N3), and the decision-model, ingestion and incident pages. They will be
+  pages of the home window, never on the light itself.
 - Keeping the node after the window closes (tray). Decided in the plan, not
   built yet.
 - Installers and signed builds (K1–K3).
