@@ -44,13 +44,35 @@ see who asked and revoke that user; the mesh fails closed instead of guessing
 intent. And a secret-exfiltration incident carries the leaking answer as
 evidence; the broker rotates the key on that same incident, so the copy that
 spreads with the evidence is already dead.
+
+Durability. Given a ``LedgerStore``, the ledger writes every incident and reset
+it accepts, and a restarted participant replays them -- so a restart is not a
+way out of lockdown. Replay is asymmetric, because the two kinds of record fail
+in opposite directions: an incident can only make the ledger stricter, a reset
+can only make it looser. So
+
+  * a stored **reset** applies only if it still verifies against today's
+    operators -- a forged line, or one from an operator since removed, clears
+    nothing;
+  * a stored **incident** latches if it still verifies, *and also* if it merely
+    is whole (its id is the digest of its kind and evidence, and it names the
+    targets it latched). The second case matters: the natural answer to a
+    mutiny is to revoke the mutinous node, and that alone makes its signed
+    evidence stop verifying. Without the fallback, revoke-and-restart would end
+    lockdown with no operator reset. Such an incident is held *unverified*: it
+    still latches and an operator's reset still clears it, but it is not handed
+    to peers, who could not verify it either.
+
+In short: a restart can make the ledger stricter, never looser. Evidence checks
+read no clock, so a ledger replayed hours later re-derives the same verdicts.
 """
 from __future__ import annotations
 
+import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from secdogie_identity import sign_payload
+from secdogie_identity import RevocationStore, sign_payload
 from secdogie_identity.signing import canonical
 
 from . import screen
@@ -63,12 +85,16 @@ from .protocol import (
     check_response,
     decision_violations,
     digest,
+    is_did,
     is_hex64,
+    is_model,
     is_num,
     request_evidence_ok,
     routed_through,
     signed_by,
 )
+
+log = logging.getLogger("secdogie_inference")
 
 INCIDENT = "secdogie/inference/incident/v1"
 RESET = "secdogie/inference/reset/v1"
@@ -108,6 +134,7 @@ class Incident:
     reporter: str
     issued_at: float
     signed: dict
+    verified: bool = True  # False: held from the store, no longer verifiable against today's trust
 
 
 def incident_id(kind: str, evidence: dict) -> str:
@@ -256,29 +283,140 @@ def verify_reset(obj, trust) -> tuple[frozenset[str], frozenset[str]] | None:
     return frozenset(targets), frozenset(ids)
 
 
-class MutinyLedger:
-    """Verified incidents and the latches they hold. Any latch is lockdown."""
+# -- durability ---------------------------------------------------------------------
 
-    def __init__(self, trust):
+RECORD_INCIDENT = "incident"
+RECORD_RESET = "reset"
+_TARGET_KINDS = {"node": is_did, "decider": is_did, "model": is_model}
+
+
+class LedgerStore(RevocationStore):
+    """The ledger's durable memory: one JSON record per line, appended with
+    ``fsync`` to a file created ``0600`` -- the mechanics of identity's
+    ``RevocationStore``, which survives restarts for the same reason. Corrupt
+    or torn lines are skipped, never fatal. The ledger writes each line itself,
+    after the object verified::
+
+        {"t": "incident", "obj": <signed incident>, "targets": [...]}
+        {"t": "reset",    "obj": <signed reset>}
+
+    One store per participant. The file is trusted no further than the module
+    docstring says: resets must re-verify, incidents must at least be whole."""
+
+
+def _recorded_targets(targets) -> frozenset[str] | None:
+    if not isinstance(targets, list) or not 1 <= len(targets) <= MAX_TARGETS:
+        return None
+    for t in targets:
+        kind, _, ref = t.partition(":") if isinstance(t, str) else ("", "", "")
+        check = _TARGET_KINDS.get(kind)
+        if check is None or not check(ref):
+            return None
+    return frozenset(targets)
+
+
+def _recorded_incident(obj, targets) -> Incident | None:
+    """A stored incident checked for integrity only: the record is whole and
+    names what it latched. For incidents that no longer verify against the
+    current trust roots (see the module docstring)."""
+    if not isinstance(obj, dict) or obj.get("type") != INCIDENT:
+        return None
+    kind, evidence, iid = obj.get("kind"), obj.get("evidence"), obj.get("incident_id")
+    if kind not in KINDS or not isinstance(evidence, dict) or not is_hex64(iid):
+        return None
+    try:
+        if iid != incident_id(kind, evidence):
+            return None
+    except (TypeError, ValueError):
+        return None
+    recorded = _recorded_targets(targets)
+    if recorded is None:
+        return None
+    reporter, issued = obj.get("reporter"), obj.get("issued_at")
+    return Incident(iid, kind, recorded, reporter if isinstance(reporter, str) else "",
+                    float(issued) if is_num(issued) else 0.0, obj, verified=False)
+
+
+class MutinyLedger:
+    """Verified incidents and the latches they hold. Any latch is lockdown.
+
+    With a ``store``, everything accepted is written down and replayed on the
+    next start; a restart can make the ledger stricter, never looser."""
+
+    def __init__(self, trust, *, store: LedgerStore | None = None):
         self._trust = trust
         self._incidents: dict[str, Incident] = {}
         self._latches: dict[str, set[str]] = {}        # target -> incident ids holding it
         self._cleared: set[tuple[str, str]] = set()    # (target, incident id) an operator cleared
         self._resets: dict[str, dict] = {}
+        self._store = store
+        self.store_errors = 0
+        if store is not None:
+            # Order does not matter: an incident stays latched exactly when no
+            # applied reset names both it and the target, whichever came first.
+            for rec in store.load():
+                self._restore(rec)
 
     def add(self, obj) -> Incident | None:
         """Verify and apply an incident; the incident if it was new."""
         inc = verify_incident(obj, self._trust)
-        if inc is None or inc.incident_id in self._incidents:
+        if inc is None or not self._apply_incident(inc):
             return None
-        self._incidents[inc.incident_id] = inc
-        for t in inc.targets:
-            if (t, inc.incident_id) not in self._cleared:
-                self._latches.setdefault(t, set()).add(inc.incident_id)
+        self._persist({"t": RECORD_INCIDENT, "obj": obj, "targets": sorted(inc.targets)})
         return inc
+
+    def _apply_incident(self, inc: Incident) -> bool:
+        held = self._incidents.get(inc.incident_id)
+        if held is not None:
+            if inc.verified and not held.verified:
+                # Verifiable again (the trust roots changed back): no longer held on
+                # the store's word alone. Not new, so it is not re-written or re-sent.
+                self._incidents[inc.incident_id] = replace(inc, targets=inc.targets | held.targets)
+                self._latch(inc.incident_id, inc.targets)
+            return False
+        self._incidents[inc.incident_id] = inc
+        self._latch(inc.incident_id, inc.targets)
+        return True
+
+    def _latch(self, iid: str, targets) -> None:
+        for t in targets:
+            if (t, iid) not in self._cleared:
+                self._latches.setdefault(t, set()).add(iid)
+
+    def _restore(self, rec) -> None:
+        if not isinstance(rec, dict):
+            return
+        obj = rec.get("obj")
+        if rec.get("t") == RECORD_INCIDENT:
+            inc = verify_incident(obj, self._trust) if isinstance(obj, dict) else None
+            recorded = _recorded_incident(obj, rec.get("targets"))
+            if inc is not None and recorded is not None:
+                inc = replace(inc, targets=inc.targets | recorded.targets)
+            if inc is not None or recorded is not None:
+                self._apply_incident(inc or recorded)
+        elif rec.get("t") == RECORD_RESET and isinstance(obj, dict):
+            self._apply_reset(obj)  # re-verified against today's operators, or nothing
+
+    def _persist(self, rec: dict) -> None:
+        if self._store is None:
+            return
+        try:
+            self._store.append(rec)
+        except OSError as exc:
+            # The latch already holds in memory; only its survival of a restart is
+            # at risk. Say so loudly rather than drop the incident on the floor.
+            self.store_errors += 1
+            log.error("mutiny ledger: could not persist %s %s: %s",
+                      rec["t"], digest(rec["obj"])[:16], exc)
 
     def reset(self, obj) -> tuple[bool, frozenset[str]]:
         """Apply an operator reset: ``(new, unlatched targets)``."""
+        result = self._apply_reset(obj)
+        if result[0]:
+            self._persist({"t": RECORD_RESET, "obj": obj})
+        return result
+
+    def _apply_reset(self, obj) -> tuple[bool, frozenset[str]]:
         parsed = verify_reset(obj, self._trust)
         if parsed is None:
             return False, frozenset()
@@ -317,10 +455,17 @@ class MutinyLedger:
         return self._incidents.get(incident_id)
 
     def signed_incidents(self) -> list[dict]:
-        return [inc.signed for inc in self._incidents.values()]
+        """What a directory may hand to peers: only incidents that verify here,
+        since a peer with the same trust roots could not verify the others."""
+        return [inc.signed for inc in self._incidents.values() if inc.verified]
 
     def signed_resets(self) -> list[dict]:
         return list(self._resets.values())
+
+    def unverified(self) -> list[str]:
+        """Incident ids latched on the store's record alone -- for the operator,
+        who reviews the evidence and clears them with a reset like any other."""
+        return sorted(i for i, inc in self._incidents.items() if not inc.verified)
 
 
 __all__ = [
@@ -335,6 +480,7 @@ __all__ = [
     "DECIDER_TAMPERING",
     "DECIDER_SELF_REPORTED",
     "Incident",
+    "LedgerStore",
     "MutinyLedger",
     "make_incident",
     "verify_incident",

@@ -131,6 +131,15 @@ a reset by a trusted operator names that target **and** every incident id holdin
 Cleared `(target, incident)` pairs are remembered, so the same incident never latches
 that target again.
 
+**Ledger store** (optional, local, not on the wire): one JSON line per accepted
+object, `{"t":"incident","obj":…,"targets":[…]}` or `{"t":"reset","obj":…}`, appended
+and fsync'd to a `0600` file. On start, a reset applies only if it verifies against
+the current operators. An incident latches if it verifies, or else if it is whole:
+`incident_id` equals the digest of `{kind, evidence}`, `kind` is known, and `targets`
+is 1–16 well-formed `node:` / `model:` / `decider:` targets. An incident held only
+on the second rule is excluded from `dir` answers. The final state does not depend
+on line order.
+
 **Broker on a latch:**
 
 * `node:` loses its leases, and each model it held is rotated. Older-version leases of

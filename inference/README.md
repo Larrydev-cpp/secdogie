@@ -121,15 +121,33 @@ Latches never time out. An operator signs a reset (`make_reset`) naming the targ
 and the incident ids it reviewed. A reset cannot clear an incident it does not name,
 and an incident that arrives again after its reset does not latch again.
 
+**Restarts.** With a `LedgerStore`, a restart is not a way out of lockdown. The
+ledger writes each incident and reset it accepts and replays them on start, and a
+restart can make it stricter, never looser:
+
+* a stored **reset** applies only if it still verifies against today's operators;
+* a stored **incident** latches if it still verifies, and also if it is merely
+  whole (its id matches its evidence and it names its targets). Revoking the
+  mutinous node is the natural response to a mutiny, and it makes that node's
+  signed evidence stop verifying. Without this rule, revoke-and-restart would end
+  lockdown with no reset. Such an incident is held **unverified**
+  (`ledger.unverified()`): it latches and a reset clears it as usual, but it is not
+  passed to peers, since they could not verify it either.
+
+Evidence checks read no clock, so a ledger replayed hours later reaches the same
+verdicts. A torn or forged line can add lockdown but never lift it. Whoever can
+write the store is a trusted operator (`SECURITY.md`).
+
 ## Using it
 
 ```python
 from secdogie_inference import (TrustRoots, MeshNode, Coordinator, KeyBroker, UserClient,
-                                MemoryKeySource, MuxWire, assignments_from_bindings)
+                                LedgerStore, MemoryKeySource, MuxWire, assignments_from_bindings)
 
 trust = TrustRoots(mesh=..., users=..., deciders=..., coordinators=..., brokers=..., operators=...)
 wire = MuxWire(mux, resolve=lambda did: transport.set_peer_endpoint(did, *endpoints[did]))
-node = MeshNode(identity, wire, trust, roles={"model"}, backend=call_upstream, transport_key=x25519)
+node = MeshNode(identity, wire, trust, roles={"model"}, backend=call_upstream, transport_key=x25519,
+                ledger_store=LedgerStore("state/ledger.jsonl"))  # lockdown survives restarts
 wire.attach(node)                  # inbound frames on the inference/v1 channel
 node.connect(peer_did)             # links are opened explicitly, and only to trusted DIDs
 while running:
@@ -152,6 +170,10 @@ cd inference && python -m pytest tests -q
   reinstated; decision-model mutiny with lockdown and reset, a convicted decider, a
   leaking model node and key rotation, an upstream model proposing `run_elevated`,
   equivocation caught by multipath, disagreement intercepted.
+* `test_ledger_store.py`: the ledger across restarts: latches and resets survive;
+  revoking the mutinous node does not end lockdown; a reset from a removed operator
+  does not replay; forged, torn and tampered lines never lift lockdown; replay order
+  does not matter; a failing store still latches.
 * `test_udp.py`: one request across real UDP (`DirectUDPTransport` + `ChannelMux`).
 * Unit tests for every module: protocol, leases, screens, topology, health and
   breaker, mutiny evidence and ledger, router.
@@ -164,8 +186,13 @@ cd inference && python -m pytest tests -q
   is no chunking.
 * **Online propagation.** Incidents, resets and lease revocations flood to the nodes
   that are up. A newcomer catches up through directories (the newest incidents and
-  resets) and the leases in heartbeats. The ledger is in memory. Persisting it, the
-  way `RevocationStore` persists revocations, is the obvious next step.
+  resets) and the leases in heartbeats.
+* **The ledger persists only if you give it a store.** Pass `ledger_store=LedgerStore(path)`
+  and a restart replays every incident and reset (see *Restarts* above). Without one,
+  lockdown lasts as long as the process. The broker's other memory does not persist
+  yet: key versions live in the `KeySource`, and the set of exposed keys it must
+  never lend again (when a key cannot be rotated) is in memory. After a broker
+  restart, rotate or replace any key a latched node held before relying on it.
 * **Agreement is strict.** `default_agree` compares JSON structurally and text after
   normalising whitespace and case. For free-form answers, plug in a comparator.
 * **The canary catches dumps, not care.** A model node that strips the canary before

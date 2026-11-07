@@ -22,7 +22,7 @@ from .client import OUTCOME_ACCEPTED, OUTCOME_INTERCEPTED, OUTCOME_REFUSED, Outc
 from .coordinator import Coordinator
 from .health import FaultTracker, Suspicion
 from .lease import KeySource, LeaseBook, MemoryKeySource
-from .mutiny import KINDS, MutinyLedger, make_incident, make_reset, verify_incident
+from .mutiny import KINDS, LedgerStore, MutinyLedger, make_incident, make_reset, verify_incident
 from .node import MeshNode
 from .participant import Config, Participant
 from .protocol import (
@@ -65,6 +65,7 @@ __all__ = [
     "SafetyLayer",
     "Verdict",
     "default_agree",
+    "LedgerStore",
     "MutinyLedger",
     "KINDS",
     "make_incident",

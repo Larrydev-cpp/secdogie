@@ -30,7 +30,7 @@ from collections import OrderedDict, deque
 from dataclasses import dataclass
 
 from .lease import LEASE_REVOCATION, LeaseBook
-from .mutiny import INCIDENT, RESET, MutinyLedger
+from .mutiny import INCIDENT, RESET, LedgerStore, MutinyLedger
 from .protocol import (
     ADVISORY,
     HEARTBEAT,
@@ -98,7 +98,10 @@ class Participant:
     roles: frozenset = frozenset()
     beats = True  # floods heartbeats (users do not)
 
-    def __init__(self, identity, wire, trust, *, roles=None, config: Config | None = None, clock=time.time):
+    def __init__(self, identity, wire, trust, *, roles=None, config: Config | None = None, clock=time.time,
+                 ledger_store: LedgerStore | None = None):
+        """``ledger_store``: where the mutiny ledger is kept across restarts.
+        Without one, lockdown lasts only as long as the process does."""
         self.identity = identity
         self.did = identity.did
         self.wire = wire
@@ -109,7 +112,7 @@ class Participant:
             self.roles = frozenset(roles)
         if not self.roles <= ROLES:
             raise ValueError(f"unknown role(s): {sorted(self.roles - ROLES)}")
-        self.ledger = MutinyLedger(trust)
+        self.ledger = MutinyLedger(trust, store=ledger_store)
         self.leases = LeaseBook(trust)
         self.lsdb = LinkStateDB(trust, fail_after=self.config.fail_after)
         self.advisories: dict[str, dict] = {}

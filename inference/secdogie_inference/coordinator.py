@@ -37,8 +37,9 @@ from .topology import plan_repairs
 class Coordinator(Carrier):
     roles = frozenset({ROLE_COORDINATOR})
 
-    def __init__(self, identity, wire, trust, *, standby=(), config: Config | None = None, clock=time.time):
-        super().__init__(identity, wire, trust, config=config, clock=clock)
+    def __init__(self, identity, wire, trust, *, standby=(), config: Config | None = None, clock=time.time,
+                 ledger_store=None):
+        super().__init__(identity, wire, trust, config=config, clock=clock, ledger_store=ledger_store)
         if not trust.coordinators.contains(self.did):
             raise ValueError("a coordinator must be on the coordinators list")
         cfg = self.config

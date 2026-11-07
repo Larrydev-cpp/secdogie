@@ -66,8 +66,8 @@ class KeyBroker(Participant):
     roles = frozenset({ROLE_BROKER})
 
     def __init__(self, identity, wire, trust, keys: KeySource, *, assignments: dict[str, Assignment],
-                 config: Config | None = None, clock=time.time):
-        super().__init__(identity, wire, trust, config=config, clock=clock)
+                 config: Config | None = None, clock=time.time, ledger_store=None):
+        super().__init__(identity, wire, trust, config=config, clock=clock, ledger_store=ledger_store)
         if not trust.brokers.contains(self.did):
             raise ValueError("a broker must be on the brokers list")
         self.keys = keys

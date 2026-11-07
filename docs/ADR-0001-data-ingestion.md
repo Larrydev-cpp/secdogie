@@ -225,7 +225,10 @@ standby forwarder, `dir?`-fetches a directory, **pins two model nodes itself**
 and agree. A single-model request cannot be cross-checked, so it is refused.
 Latches never time out; an operator `reset/v1` names the targets and the exact
 incident ids it reviewed, and a re-arriving incident after its reset does not
-latch again.
+latch again. With a `LedgerStore`, latches also survive restarts, and replay can
+only make the ledger stricter. Stored resets must re-verify. Stored incidents latch
+even after the mutinous node's revocation stops its evidence verifying, so
+revoke-and-restart is not a way out of lockdown.
 
 ---
 

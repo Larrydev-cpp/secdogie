@@ -84,8 +84,8 @@ class UserClient(Participant):
 
     def __init__(self, identity, wire, trust, *, entries, standby=(), fanout: int = 1, timeout: float = 15.0,
                  max_tries: int = 4, agree: Callable[[str, str], bool] = default_agree,
-                 config: Config | None = None, clock=time.time):
-        super().__init__(identity, wire, trust, config=config, clock=clock)
+                 config: Config | None = None, clock=time.time, ledger_store=None):
+        super().__init__(identity, wire, trust, config=config, clock=clock, ledger_store=ledger_store)
         if not trust.users.contains(self.did):
             raise ValueError("a user client must be on the users list")
         self.entries = list(entries)

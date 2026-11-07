@@ -105,8 +105,9 @@ class _Pending:
 class MeshNode(Carrier):
     def __init__(self, identity, wire, trust, *, roles, backend: Backend | None = None,
                  transport_key: PrivateKey | None = None, policy=None, config: Config | None = None,
-                 clock=time.time):
-        super().__init__(identity, wire, trust, roles=roles, config=config, clock=clock)
+                 clock=time.time, ledger_store=None):
+        super().__init__(identity, wire, trust, roles=roles, config=config, clock=clock,
+                         ledger_store=ledger_store)
         if self.roles & {ROLE_COORDINATOR} or not self.roles:
             raise ValueError("a mesh node serves, forwards and/or answers; the coordinator is its own class")
         if ROLE_SERVE in self.roles and not trust.deciders.contains(self.did):
