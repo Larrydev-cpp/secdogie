@@ -506,18 +506,20 @@ fetch ─▶ blob 存储（mmap）─▶ parse（子进程）─▶ StructSnapsh
 
 ---
 
-## 10. 需要你拍板的决定
+## 10. 已定决策（D0）
 
-| # | 问题 | 建议 |
+机主已确认按下表的建议执行（2026-11）。之后若要改，先改这张表，再改代码。
+
+| # | 问题 | 决定 |
 | --- | --- | --- |
-| 1 | GUI 技术栈 | **PySide6**（§7.1） |
-| 2 | Python 侧 WebRTC 实现 | 先用 **aiortc** 做 N3 spike。它强制依赖 PyAV / FFmpeg（约 40 MB）。若体积或稳定性不可接受，改用 Rust sidecar（`webrtc-rs` / `str0m`），与 `graph/` 同属 Rust 工具链 |
-| 3 | TURN | 自建 coturn（自己掌控，有运维成本）或租用托管 TURN（有带宽费用）。v1 可以不配，对称 NAT 时落到 relay |
+| 1 | GUI 技术栈 | **PySide6**（依赖 `PySide6-Essentials`，不引入 QtWebEngine），见 §7.1 |
+| 2 | Python 侧 WebRTC 实现 | N3 先用 **aiortc** 做 spike。它强制依赖 PyAV / FFmpeg（约 40 MB）；若体积或稳定性不可接受，改用 Rust sidecar（`webrtc-rs` / `str0m`），与 `graph/` 同属 Rust 工具链 |
+| 3 | TURN | **v1 不配 TURN**，对称 NAT 下落到 relay。以后要配时，在自建 coturn 与托管 TURN 之间再定 |
 | 4 | 签名权限 | `gate-rules` / `ingest` 由单个操作员签；`decision-model` / `allowlist` 用 k-of-n masters 签（§5.1） |
 | 5 | 采集默认礼貌度 | 每 origin 1 req/s、并发 1；robots 不可关闭 |
 | 6 | 感知轨道 D2（Win / Linux 实时回路仍在截屏） | 机主推进。不管 D2 何时完成，本计划新增的 `studio/`、`ingest/` 都不含截屏路径，并有纯净性测试把关 |
-| 7 | 代码签名证书 | Apple Developer ID、Windows Authenticode 需要你的账号，放进 GitHub secrets；没有证书时发布未签名版 |
-| 8 | 「关窗后保留节点」 | v1 提供，但默认关闭、托盘可见；不做开机自启 |
+| 7 | 代码签名证书 | 证书到位前发布**未签名版**并在文档中说明；Apple Developer ID、Windows Authenticode 到位后放进 GitHub secrets（K3） |
+| 8 | 「关窗后保留节点」 | 提供，但默认关闭、托盘可见；不做开机自启。G1 只做「关窗即停」，托盘选项放到后续切片 |
 
 ---
 

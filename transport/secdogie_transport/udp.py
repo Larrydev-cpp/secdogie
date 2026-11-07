@@ -30,8 +30,14 @@ deliberate boundaries, so this is an honest advance and not a tunnel rewrite:
       - a frame that arrived through a relay never moves the endpoint at all
         (`open_relayed`), though it does advance the window.
 
-The datagram sink is injectable (`Channel`): production uses `UDPChannel` (a real
-loopback/UDP socket); this makes the transport fully testable on 127.0.0.1.
+The pipe is a `Carrier` (carrier.py, N0): production uses `UDPChannel` (a real
+UDP socket), and a `CarrierSet` puts several carriers under one transport. Every
+check above lives here, above the carrier, so it holds whichever pipe a frame
+came on. With a `CarrierSet`, an endpoint remembers its carrier: a reply goes
+back on the carrier the newest authenticated frame arrived on, and the transport
+also keeps the last good address per carrier (`peer_endpoints`) for carrier
+selection to build on. Roles that share the socket (`on_frame`: relay,
+rendezvous) are served on the primary carrier only.
 
 Other protocols can share the socket: `on_frame(type, handler)` hands inbound
 envelopes of that type to a handler instead of the direct-message path (the relay
@@ -50,6 +56,7 @@ from collections.abc import Callable
 from secdogie_identity import Identity, require_trust, sign_payload, verify_payload
 
 from . import sealed as _sealed
+from .carrier import Carrier
 from .endpoint import Endpoint
 from .peer import PeerIdentity
 from .session import Session
@@ -95,9 +102,12 @@ def _decode_frame(raw: bytes, allowlist, self_did: str) -> tuple[str, int, bytes
         return None
 
 
-class UDPChannel:
-    """A UDP socket with a background receive loop. Injectable so the transport
-    is testable without real sockets if needed."""
+class UDPChannel(Carrier):
+    """A UDP socket with a background receive loop: the `udp` carrier."""
+
+    kind = "udp"
+    reliable = False
+    max_frame = 65507
 
     def __init__(self, host: str = "127.0.0.1", port: int = 0):
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -126,7 +136,8 @@ class UDPChannel:
             except Exception:
                 pass  # a bad datagram must never kill the receive loop
 
-    def send(self, host: str, port: int, data: bytes) -> None:
+    def send(self, host: str, port: int, data: bytes, carrier: str | None = None) -> None:
+        self._check_kind(carrier)
         self._sock.sendto(data, (host, port))
 
     def close(self) -> None:
@@ -141,16 +152,24 @@ class DirectUDPTransport(Transport):
     """One local node's direct transport. `register` sets THIS node's session and
     inbound handler (delivery is to the local node, keyed by the local identity);
     remote peers are reached via endpoints learned from `set_peer_endpoint`,
-    `migrate`, or -- the roaming path -- an inbound datagram's source address."""
+    `migrate`, or -- the roaming path -- an inbound datagram's source address.
 
-    def __init__(self, identity: Identity, channel: UDPChannel, *, allowlist=None,
+    The name predates the carrier seam: `channel` is any `Carrier`, a single
+    `UDPChannel` or a `CarrierSet`. `DirectTransport` is the same class."""
+
+    def __init__(self, identity: Identity, channel: Carrier, *, allowlist=None,
                  transport_key=None):
         self.identity = identity
         self.channel = channel
         self._allowlist = require_trust(allowlist, "DirectUDPTransport")
         self._inbound: DeliverFn | None = None
         self._local_session: Session | None = None
-        self._endpoints: dict[str, tuple[str, int]] = {}
+        # did -> where `route` sends: (host, port) on the primary carrier, or
+        # (host, port, kind) when the address came from a named carrier.
+        self._endpoints: dict[str, tuple] = {}
+        # did -> kind -> (host, port): the last good address on each carrier.
+        self._carrier_endpoints: dict[str, dict[str, tuple[str, int]]] = {}
+        self._primary_kind = getattr(channel, "primary_kind", None) or "udp"
         # Encryption (v2 frames) is on when this node has an X25519 transport key.
         if isinstance(transport_key, str):
             transport_key = _sealed.private_key_from_b64(transport_key)
@@ -196,8 +215,22 @@ class DirectUDPTransport(Transport):
         session.established = True
         return True
 
-    def set_peer_endpoint(self, did: str, host: str, port: int) -> None:
-        self._endpoints[did] = (host, port)
+    def set_peer_endpoint(self, did: str, host: str, port: int, *, carrier: str | None = None) -> None:
+        """Send to `did` at (host, port), on `carrier` (a kind) or the primary one."""
+        self._endpoints[did] = (host, port) if carrier is None else (host, port, carrier)
+        self._carrier_endpoints.setdefault(did, {})[carrier or self._primary_kind] = (host, port)
+
+    def peer_endpoints(self, did: str) -> dict[str, tuple[str, int]]:
+        """The last good address of `did` on each carrier kind, as learned from
+        its authenticated frames or set explicitly. A copy."""
+        return dict(self._carrier_endpoints.get(did, {}))
+
+    def peer_carrier(self, did: str) -> str | None:
+        """The carrier kind `route` currently uses for `did`, or None."""
+        ep = self._endpoints.get(did)
+        if ep is None:
+            return None
+        return ep[2] if len(ep) > 2 else self._primary_kind
 
     def on_frame(self, frame_type: str, handler: FrameHandler | None) -> None:
         """Hand inbound envelopes whose `t` is `frame_type` to `handler(obj,
@@ -232,15 +265,22 @@ class DirectUDPTransport(Transport):
         ep = self._endpoints.get(to_did)
         if ep is None:
             return False  # nowhere to send yet (need an endpoint or an inbound packet first)
+        kind = ep[2] if len(ep) > 2 else None
+        if kind is not None and kind not in self.channel.kinds:
+            return False  # that carrier is not on this node
         frame = self.build_frame(to_did, message)
         if frame is None:
             return False  # no verified key for this peer: never fall back to plaintext
-        self.channel.send(ep[0], ep[1], frame)
+        if kind is None:
+            self.channel.send(ep[0], ep[1], frame)
+        else:
+            self.channel.send(ep[0], ep[1], frame, carrier=kind)
         return True
 
     def migrate(self, did: str, endpoint: Endpoint) -> bool:
         """Record that peer `did` moved to `endpoint` (identity unchanged)."""
         self._endpoints[did] = (endpoint.host, endpoint.port)
+        self._carrier_endpoints.setdefault(did, {})[self._primary_kind] = (endpoint.host, endpoint.port)
         if self._local_session is not None and did == self._local_session.peer.did:
             self._local_session.migrate(endpoint)
         return True
@@ -283,11 +323,16 @@ class DirectUDPTransport(Transport):
         return signer, data, before is None or ctr > before
 
     def _on_datagram(self, raw: bytes, addr: tuple) -> None:
-        if self._handlers:
+        kind = addr[2] if len(addr) > 2 else None  # tagged by a CarrierSet
+        if self._handlers and (kind is None or kind == self._primary_kind):
+            # Shared-socket roles (relay, rendezvous) answer on the primary
+            # carrier only; their frames arriving on another carrier are not
+            # theirs to see, and fall through to the direct path (which drops
+            # them: they are not direct frames).
             obj = _parse(raw)
             handler = self._handlers.get(obj.get("t")) if obj is not None else None
             if handler is not None:
-                handler(obj, addr)
+                handler(obj, (addr[0], addr[1]))
                 return
         opened = self._open(raw)
         if opened is None:
@@ -297,7 +342,16 @@ class DirectUDPTransport(Transport):
         # by address), so a peer's NAT rebind keeps working without a re-register.
         # Only the newest frame moves it (or the first one, when there is nothing
         # to move yet): a late frame from before the rebind must not drag it back.
+        # The carrier travels with the address, so replies go back the way the
+        # newest frame came.
         if newest or signer not in self._endpoints:
-            self._endpoints[signer] = (addr[0], addr[1])
+            self._endpoints[signer] = (addr[0], addr[1]) if kind is None else (addr[0], addr[1], kind)
+        per_carrier = self._carrier_endpoints.setdefault(signer, {})
+        k = kind or self._primary_kind
+        if newest or k not in per_carrier:
+            per_carrier[k] = (addr[0], addr[1])
         if self._inbound is not None:
             self._inbound(signer, data)
+
+
+DirectTransport = DirectUDPTransport  # carrier-neutral name (N0)

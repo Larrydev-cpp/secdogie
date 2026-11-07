@@ -17,6 +17,31 @@ endpoints -- instead of a hub socket.
 This layer is transport-mechanism-free (no sockets): it is the identity/session/
 routing model, backed later by the fleet TCP or the C tunnel.
 
+## Carriers (N0)
+
+The frame layer (`DirectUDPTransport`, also exported as `DirectTransport`) owns
+everything that makes a frame trustworthy: the DID signature, sealing, the
+replay window and the roaming rules. The pipe under it is a `Carrier`
+(`carrier.py`), so the same checks hold on every pipe.
+
+- **`UDPChannel`** is the `udp` carrier. A transport built on one behaves
+  exactly as before.
+- **`CarrierSet(primary, *others)`** puts several carriers under one transport.
+  Inbound frames are tagged `(host, port, kind)` and handed up on **one**
+  delivery thread, in arrival order, whatever thread or event loop the carrier
+  received on. An endpoint remembers its carrier, so a reply goes back on the
+  carrier the newest authenticated frame came on; `peer_endpoints(did)` keeps the
+  last good address per carrier for carrier selection (N4) to build on.
+  Shared-socket roles (relay, rendezvous) answer on the primary carrier only.
+- **`AsyncCarrierHost`** runs one asyncio loop on a daemon thread for the
+  asyncio carriers to come (QUIC via aioquic, WebRTC via aiortc). Under a
+  `CarrierSet`, upper layers never run on the loop thread.
+- **`MemoryNetwork` / `MemoryCarrier`** are an in-process network with
+  per-address blocking, for headless tests and simulations.
+
+A carrier authenticates nothing. A frame is believed for its signature, never
+for the pipe it came on.
+
 ## Roaming: which frames may move a peer's endpoint
 
 `DirectUDPTransport` learns a peer's address from its authenticated datagrams,
