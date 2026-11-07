@@ -535,6 +535,7 @@ Studio 因此改成**浮动伙伴**：屏幕角落一枚几乎透明的呼吸光
 | Gate 1 入口 | `node.intake`：每个新目标都按当前规则审视并写入日志；有疑问就问一个问题，答案站得住才排队；不答、放弃、App 不在场都视为不做 |
 | schema | gate-rules 新增 `presence`（每个新目标先确认、每次改动留一句），两个开关只能打开；Python、TS 与金向量同步 |
 | Studio | `studio/`：`presence.py`（注意力 + 舞台）、`idle.py`、`companion.py`、`app.py`、`qml/Presence.qml`；旧的控件界面已删除 |
+| 设计打磨 | 参照 impeccable、ui-ux-pro-max、Vercel web-design-guidelines 与 Taste 重做伙伴窗口，设计系统写在 `studio/DESIGN.md`。要点：<br>· 所有文字对比度 ≥4.5:1，次要文字用暖色而不是灰色；<br>· 去掉卡片标题上方的小标签，改用真实的偏移阴影；<br>· 每个控件都能用键盘操作，并有焦点环；<br>· 遵循系统的「减少动态效果」（`motion.py`）；<br>· 窗口只和显示的内容一样大；<br>· 错误提示写明下一步怎么做 |
 
 **V1 验收场景**：三台机器（Win / macOS / Linux 各一）装 Studio，经邀请码加入同一网格。
 - 局域网内经 mDNS 互相发现；跨网经 rendezvous 发现；封锁 UDP 后经 WebRTC 或 TLS 连通。

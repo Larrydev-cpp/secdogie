@@ -54,7 +54,7 @@ def test_what_arrives_becomes_cards_in_the_companions_words():
     assert (ask.kind, ask.options, ask.free_text, ask.urgency) == ("ask", ("我换个说法", "先不做了"), True, SOON)
     assert sign.kind == "sign" and sign.says == "这一步做了就改不回来。" and sign.can_approve
     assert dict(sign.details)["回退"] == "撤不回来（已明确说明）" and dict(sign.details)["对象"] == "旧备份"
-    assert mem.says == "周报文件夹：~/Reports" and dict(mem.details) == {"类别": "事实", "来源": "我自己的判断"}
+    assert mem.says == "我想记住「周报文件夹」：~/Reports" and dict(mem.details) == {"类别": "事实", "来源": "我自己的判断"}
     again = moments_from((probe,), (), (), arrived, 200.0)
     assert again[0].arrived == 100.0  # its place in line is kept
 
@@ -98,7 +98,7 @@ def test_against_a_real_node_rules_go_in_and_a_questioned_goal_becomes_a_questio
         comp = Companion(profile, ready)
         try:
             body = {"instruction": {"revise_on": [{"phrases": ["批量注册"], "reason": "批量注册账号不是我们要一起做的事"}]}}
-            assert comp.push_rules(body, "wrong passphrase") == (False, "口令不对")
+            assert comp.push_rules(body, "wrong passphrase") == (False, "口令不对，再输一次。")
             assert comp.push_rules(body, PASS.decode()) == (True, "第 1 版规则已经生效。")
             assert comp.push_rules({"plan": {"blocked_kinds": ["run"]}, **body}, PASS.decode()) == \
                 (True, "第 2 版规则已经生效。")

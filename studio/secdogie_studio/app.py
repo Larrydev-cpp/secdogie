@@ -24,6 +24,7 @@ from pathlib import Path
 from .companion import RULES_TEMPLATE, Companion, parse_rules, try_rules
 from .controller import EXITED, RUNNING, StudioController
 from .idle import idle_seconds
+from .motion import reduce_motion
 from .presence import Attention, Moment, Stage, Whisper
 
 QML_DIR = Path(__file__).resolve().parent / "qml"
@@ -84,7 +85,7 @@ class Presence:
                 try:
                     self.companion = self.companion_factory(self.controller.profile, ready)
                 except (OSError, ValueError) as e:
-                    self._set_feedback(f"我连不上自己的节点：{e}")
+                    self._set_feedback(f"我连不上自己的节点（{e}）。关掉 Studio 再打开试试。")
             if self.companion is not None:
                 if not self._woke:
                     self._woke = True
@@ -93,7 +94,7 @@ class Presence:
                     self.stage.note(w)
                 moments = self.companion.moments()
             if snap.node_state == EXITED and self.companion is None:
-                self.stage.note(Whisper(f"exit{snap.returncode}", f"我没能醒来（代码 {snap.returncode}）。", "warm", now))
+                self.stage.note(Whisper(f"exit{snap.returncode}", f"我没能醒来（代码 {snap.returncode}）。右键点我，看看里面的记录。", "warm", now))
         self.attention.sample(self.idle(), now)
         busy = self.companion.busy() if self.companion is not None else bool(snap.busy)
         view = self.stage.update(moments, self.attention.mode(now), now, busy=busy)
@@ -154,9 +155,9 @@ class Presence:
 
     def welcome(self, passphrase: str, confirm: str) -> None:
         if len(passphrase) < 8:
-            self._set_feedback("口令至少 8 位。")
+            self._set_feedback("口令至少要 8 位，再长一点。")
         elif passphrase != confirm:
-            self._set_feedback("两次输入的不一样。")
+            self._set_feedback("两次输入的不一样，再输一次。")
         else:
             self._set_feedback("")
             self.controller.create_profile(passphrase)
@@ -274,9 +275,10 @@ def bridge_class():
              "sayOpen", "statusRows", "logText", "rulesText", "rulesNote", "inForce")
     changed = Signal()
 
-    def init(self, presence: Presence):
+    def init(self, presence: Presence, still: bool = False):
         QObject.__init__(self)
         self.presence = presence
+        self._still = still
         self._s = presence.tick()
 
     def refresh(self):
@@ -294,6 +296,8 @@ def bridge_class():
     ns = {"changed": changed, "__init__": init, "refresh": refresh}
     for name in names:  # declared at class creation, so the meta-object has them
         ns[name] = Property("QVariant", (lambda n: lambda self: self._s[n])(name), notify=changed)
+    # The person asked their computer for less motion: a still light, plain fades.
+    ns["still"] = Property(bool, lambda self: self._still, constant=True)
     slots = {
         "hover": ((), Presence.hover), "welcome": ((str, str), Presence.welcome),
         "answer": ((str, str), Presence.answer), "approve": ((str, str), Presence.approve),
@@ -323,7 +327,7 @@ def run_gui(root: Path, *, kdf: str = "moderate") -> int:
                       "WenQuanYi Zen Hei", "Segoe UI", "Helvetica Neue", "sans-serif"])
     app.setFont(font)
     presence = Presence(StudioController(root, kdf=kdf))
-    bridge = Bridge(presence)
+    bridge = Bridge(presence, reduce_motion(app))
     engine = QQmlApplicationEngine()
     engine.rootContext().setContextProperty("P", bridge)
     engine.load(QUrl.fromLocalFile(str(QML_DIR / "Presence.qml")))

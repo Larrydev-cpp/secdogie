@@ -143,7 +143,7 @@ def moments_from(probes, challenges, memories, arrived: dict, now: float) -> lis
         details = [("类别", _CLASS_WORDS.get(pkt.mclass, pkt.mclass)), ("来源", _SOURCE_WORDS.get(pkt.source, pkt.source))]
         if m.problems:
             details.append(("不能记", "；".join(m.problems)))
-        out.append(Moment(mid, "memory", f"{pkt.key}：{pkt.value}", (KEEP, FORGET), tuple(details),
+        out.append(Moment(mid, "memory", f"我想记住「{pkt.key}」：{pkt.value}", (KEEP, FORGET), tuple(details),
                           urgency=GAP_URGENCY, arrived=arrived.setdefault(mid, now),
                           can_approve=m.confirmable, label="想记住一件事"))
     return out
@@ -249,7 +249,7 @@ class Companion:
         try:
             self.ctl.approve(cid, lambda: unseal_identity(self.profile.operator_keystore, passphrase.encode("utf-8")))
         except KeystoreError:
-            return "口令不对"
+            return "口令不对，再输一次。"
         except GuardRefusal as e:
             return f"这一步不能签：{e}"
         except ValueError as e:
@@ -287,7 +287,7 @@ class Companion:
             return False, "规则还有问题：" + "；".join(problems)
         listing = self.rules_in_force(timeout)
         if listing is None:
-            return False, "联系不上节点"
+            return False, "联系不上节点。等它醒着的时候再签。"
         current = next((a for a in listing.get("active", []) if a["kind"] == "gate-rules"
                         and a["scope"] == {"nodes": [], "roles": []}), None)
         version = current["version"] + 1 if current else 1
@@ -296,10 +296,10 @@ class Companion:
         try:
             operator = unseal_identity(self.profile.operator_keystore, passphrase.encode("utf-8"))
         except KeystoreError:
-            return False, "口令不对"
+            return False, "口令不对，再输一次。"
         reply = self.policy.offer(sign_bundle(operator, bundle), timeout=timeout)
         if reply is None:
-            return False, "节点没有回应"
+            return False, "节点没有回应，过一会儿再签一次。"
         if reply.get("ok"):
             return True, f"第 {version} 版规则已经生效。"
         return False, "节点没有接受：" + "；".join(explain_errors(reply.get("errors", [])))

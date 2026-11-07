@@ -32,9 +32,9 @@ def test_first_meeting_waking_and_rules_without_qt(tmp_path):
         s = presence.tick()
         assert s["card"]["kind"] == "welcome" and s["mood"] == "speaking"
         presence.welcome("short", "short")
-        assert presence.tick()["feedback"] == "口令至少 8 位。"
+        assert presence.tick()["feedback"] == "口令至少要 8 位，再长一点。"
         presence.welcome(PASS, PASS + "x")
-        assert presence.tick()["feedback"] == "两次输入的不一样。"
+        assert presence.tick()["feedback"] == "两次输入的不一样，再输一次。"
         presence.welcome(PASS, PASS)
         presence.controller.wait_idle()
         s = _until(presence, lambda s: s["whisper"] == "我在。")
@@ -188,5 +188,24 @@ def test_a_cold_start_opens_straight_onto_the_first_meeting(qt):
     engine, bridge, root = _window(qt, presence)
     assert _pump(qt, bridge, lambda: root.property("shape") == "open")
     assert presence.tick()["card"]["kind"] == "welcome"
+    assert _qml_problems(messages) == []
+    del engine
+
+
+def test_a_still_light_for_someone_who_asked_for_less_motion(qt):
+    from PySide6.QtCore import QUrl
+    from PySide6.QtQml import QQmlApplicationEngine
+    from secdogie_studio.app import bridge_class
+
+    _, messages = qt
+    messages.clear()
+    presence = Presence(FakeController(initialized=False), idle=lambda: 10.0)
+    bridge = bridge_class()(presence, True)
+    engine = QQmlApplicationEngine()
+    engine.rootContext().setContextProperty("P", bridge)
+    engine.load(QUrl.fromLocalFile(str(QML_DIR / "Presence.qml")))
+    (root,) = engine.rootObjects()
+    assert bridge.property("still") is True
+    assert _pump(qt, bridge, lambda: root.property("shape") == "open")
     assert _qml_problems(messages) == []
     del engine
