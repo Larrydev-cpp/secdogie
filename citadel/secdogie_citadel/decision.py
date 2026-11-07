@@ -8,9 +8,18 @@ speaks when the work needs the person:
 
   proceed   carry on quietly
   note      leave one line that fades: "I've started on ...", "I skipped a step"
-  ask       one Socratic question (Gate 1): something is unclear or does not hold
+  ask       one Socratic question (Gate 1): something only the person can settle,
+            in prose, answered in their own words
   sign      a step that cannot be undone needs the person's signature (Gate 2)
-  hold      the step is not taken; one line says why
+  hold      the request or step is not taken; one line says why, and for a
+            request a letter says it at length
+
+At intake the decision rests on the automatic Socratic gate
+(``deliberate.py``): it questions the request itself (who is asking, as far
+as the companion knows them; is what would be deleted still in use) and
+decides. Only what the gate cannot settle becomes a question for the person,
+and only the operator's own "ask before every goal" switch comes with
+buttons.
 
 ``urgency`` says when the person should see it. ``gap`` means wait for a pause
 in what they are doing. ``soon`` means the work is waiting on them, so surface
@@ -32,6 +41,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from .action_gate import GateDecision, PlannedAction
+from .deliberate import CLARIFY, REFUSE, Deliberation, deliberate
 from .rules import GateRules
 from .socratic import Review
 
@@ -41,12 +51,9 @@ PROCEED, NOTE, ASK, SIGN, HOLD = "proceed", "note", "ask", "sign", "hold"
 GAP, SOON = "gap", "soon"
 _RANK = {PROCEED: 0, NOTE: 1, ASK: 2, SIGN: 3, HOLD: 4}
 
-# The options a goal-intake question offers.
+# The options of the one question that keeps buttons: the operator's own
+# "ask before every new goal" switch.
 REPHRASE, AS_SAID, START, DROP = "我换个说法", "就按原话做", "开始吧", "先不做了"
-
-# Gate 1 reasons the person may overrule by saying "just as I said": they are
-# about how well-formed a request is, not about safety.
-_OVERRIDABLE = ("overlong", "inefficient polling")
 
 _REASON_WORDS = (
     ("empty instruction", "你还没说想做什么。"),
@@ -73,6 +80,7 @@ class Involvement:
     says: str = ""
     options: tuple[str, ...] = ()
     why: tuple[str, ...] = ()
+    letter: str = ""  # the long form, when there is one (a refusal, a question with reasons)
 
     @property
     def needs_person(self) -> bool:
@@ -93,20 +101,22 @@ class DecisionModel:
 
     # -- moments ------------------------------------------------------------------
 
-    def intake(self, title: str, review: Review) -> Involvement:
-        """A new goal arrives (Gate 1, instruction layer)."""
-        if not review.accepted:
-            first = review.reasons[0] if review.reasons else ""
-            overridable = all(r.startswith(_OVERRIDABLE) for r in review.reasons)
-            says = "开始之前，我想先弄清楚一点：" + say_reason(first)
-            options = (REPHRASE, AS_SAID, DROP) if overridable else (REPHRASE, DROP)
-            floor = Involvement(ASK, GAP, says, options, tuple(review.reasons))
+    def intake(self, title: str, review: Review, deliberation: Deliberation | None = None) -> Involvement:
+        """A new goal arrives (Gate 1). ``deliberation``: the automatic
+        Socratic gate's verdict on it (worked out here, with no history and no
+        view of the disk, when the caller has none)."""
+        d = deliberation if deliberation is not None else deliberate(title, review)
+        why = tuple(review.reasons) + ((d.category,) if d.category else ())
+        if d.verdict == REFUSE:
+            floor = Involvement(HOLD, SOON, d.says, why=why, letter=d.letter)
+        elif d.verdict == CLARIFY:
+            floor = Involvement(ASK, GAP, d.says, (), why, letter=d.letter)
         elif self.rules.ask_before_new_goal:
             floor = Involvement(ASK, GAP, f"我理解的是：「{title}」。就这样开始吗？", (START, REPHRASE, DROP),
                                 ("ask before every new goal",))
         else:
-            floor = Involvement(NOTE, GAP, f"好，我开始做「{title}」。")
-        return self._final("intake", {"title": title, "review": review}, floor)
+            floor = Involvement(NOTE, GAP, d.says or f"好，我开始做「{title}」。", why=why)
+        return self._final("intake", {"title": title, "review": review, "deliberation": d}, floor)
 
     def step(self, planned: PlannedAction, decision: GateDecision | None, *, blocked: bool) -> Involvement:
         """A step the loop is about to take (Gate 1, plan layer; Gate 2)."""
@@ -150,7 +160,8 @@ class DecisionModel:
                 continue  # a proposer may ask or note, never sign, hold or lower
             if _RANK[p.disposition] > _RANK[best.disposition]:
                 best = Involvement(p.disposition, p.urgency if p.urgency in (GAP, SOON) else GAP,
-                                   p.says or best.says, p.options or best.options, best.why + p.why)
+                                   p.says or best.says, p.options or best.options, best.why + p.why,
+                                   p.letter or best.letter)
         return best
 
 

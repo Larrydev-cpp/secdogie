@@ -29,13 +29,35 @@ ended and offers any quarantined (S2) facts / preferences for confirmation.
 
 Rules arrive as signed policy bundles on ``policy/v1`` (``policy_host.py``) and
 take effect at once. The App may ask how the node is doing on ``admin/v1``
-(``admin.py``, read-only). Gate 1 meets every new goal at the door: the instruction
-review runs under the rules in force, and when it finds something, the
-companion's decision model turns the finding into one Socratic question. The
-goal waits for the answer and is queued only once it holds up. An unanswered
-question is a no. Notes the decision model wants the person to see in passing
-(a goal started or ended, a step it stopped) go to the App as status lines
-starting ``note:`` or ``hold:``.
+(``admin.py``, read-only).
+
+Gate 1 meets every new goal at the door. First the instruction review runs
+under the rules in force. Then the automatic Socratic gate
+(``citadel/deliberate.py``) questions the request itself, drawing on what this
+node knows:
+
+  * of the person: every request it reviewed, how each was judged, and the
+    facts they confirmed;
+  * of the things involved: how anything that would be deleted has been used
+    (``citadel/usage.py``).
+
+What the gate decides:
+
+  * fraud, and accounts in bulk from a history with fraud marks: refused for
+    good;
+  * deleting something still in use: refused, in a letter that recounts that
+    use;
+  * what the gate cannot settle: one question, in prose. The goal waits for
+    the answer and is queued only once it holds up. An unanswered question
+    is a no.
+
+Each verdict is journaled (``deliberation``) and becomes part of the person's
+standing. The same check runs again before Gate 2 asks to sign any deletion
+the loop proposes.
+
+What reaches the App: a refusal is a status line starting ``letter:``. Notes
+the decision model wants the person to see in passing (a goal started or
+ended, a step it stopped) are status lines starting ``note:`` or ``hold:``.
 """
 from __future__ import annotations
 
@@ -48,10 +70,12 @@ from dataclasses import dataclass, field
 
 from secdogie_citadel import socratic
 from secdogie_citadel.consolidate import confirm_and_promote, retract_memory
-from secdogie_citadel.decision import AS_SAID, ASK, DROP, REPHRASE, START, DecisionModel
+from secdogie_citadel.decision import ASK, DROP, HOLD, REPHRASE, START, DecisionModel
+from secdogie_citadel.deliberate import CONTEXT, REFUSE, Asked, Standing, deliberate, drops
 from secdogie_citadel.journal import Journal
 from secdogie_citadel.lessons import MemoryClass
 from secdogie_citadel.supervisor import MemoryConfig, Supervisor, agent_run_task
+from secdogie_citadel.usage import read_usage
 from secdogie_dialogue.agent_bridge import OperatorBridge
 from secdogie_dialogue.dialogue import system_status
 from secdogie_dialogue.protocol import ControlOp, MemoryCandidatePacket
@@ -75,6 +99,8 @@ from .policy_host import PolicyHost
 log = logging.getLogger("secdogie_node")
 
 ALIGN_ROUNDS = 3  # questions at goal intake before the goal is set aside
+DELIBERATION_EVENT = "deliberation"  # the automatic Socratic gate's verdict, with the questions it asked itself
+DELETE_KINDS = frozenset({"delete", "remove", "rm", "trash", "erase", "wipe"})
 
 OFFERED_CLASSES = (MemoryClass.FACT, MemoryClass.PREFERENCE)  # cautions are promoted on evidence
 
@@ -98,6 +124,7 @@ class NodeConfig:
     challenge_ttl: float = 120.0
     probe_ttl: float = 300.0
     idle_poll: float = 1.0
+    usage: Callable | None = None  # how the gate reads a thing's use (usage.read_usage; tests pass a stand-in)
     mesh: str = "home"  # policy bundles for another mesh are refused
     masters: object = None  # MasterSet: who may sign decision-model / allowlist bundles
     roles: tuple = ("forward",)  # what this node offers the mesh; bundle scopes name roles
@@ -131,6 +158,7 @@ class Node:
         self._worker: threading.Thread | None = None
         self._refused: set[str] = set()
         self._started_at = 0.0
+        self.read_usage = cfg.usage if cfg.usage is not None else read_usage
         self.channel = UDPChannel(*cfg.listen)
         try:
             self.transport = DirectUDPTransport(cfg.identity, self.channel, allowlist=self.apps,
@@ -259,18 +287,75 @@ class Node:
         return session
 
     def _hooks(self, bridge: OperatorBridge):
-        return dataclasses.replace(bridge.hooks(), note=self._note)
+        hooks = bridge.hooks()
+        authorize = hooks.authorize
+
+        def spare_what_is_used(planned):
+            # Before Gate 2 even asks for a signature: something the person
+            # still uses is not deleted, and the letter says why.
+            refusal = self._spare(planned)
+            if refusal is not None:
+                self._letter(refusal.letter)
+                return None
+            return authorize(planned)
+
+        return dataclasses.replace(hooks, note=self._note,
+                                   authorize=spare_what_is_used if authorize is not None else None)
 
     def _note(self, involvement) -> None:
         """A decision-model note for the person: one line, shown in passing."""
         self._send(system_status(f"{involvement.disposition}: {involvement.says}"))
 
-    # -- Gate 1 at the door --------------------------------------------------------------
+    def _letter(self, text: str) -> None:
+        """A refusal at length: the first paragraph is what the person sees in
+        passing, the rest is for when they read it."""
+        self._send(system_status(f"letter: {text}"))
+
+    # -- Gate 1 at the door: the review, then the automatic Socratic gate ----------------
 
     def _review(self, rules, title: str):
         review = rules.review(title)
         socratic.record_review(self.journal, title, review)
         return review
+
+    def standing(self) -> Standing:
+        """Who is asking, as far as this node knows them: every request it
+        reviewed and how the gate judged it, and the facts the person
+        confirmed (consolidated memory)."""
+        judged: dict[str, tuple[str, str]] = {}
+        asked: list[Asked] = []
+        for e in self.journal.events():
+            body = e.get("body") if isinstance(e.get("body"), dict) else {}
+            if e.get("kind") == DELIBERATION_EVENT and isinstance(body.get("title"), str):
+                judged[body["title"]] = (str(body.get("verdict", "")), str(body.get("category", "")))
+            elif e.get("kind") == "socratic" and isinstance(body.get("instruction"), str):
+                asked.append(Asked(float(e.get("ts", 0.0)), body["instruction"]))
+        asked = [Asked(a.when, a.text, *judged.get(a.text, ("", ""))) for a in asked]
+        facts: list[tuple[str, str]] = []
+        try:
+            facts = [(r.key, r.value) for r in self.supervisor.memory_view().facts().values()]
+        except Exception:  # noqa: BLE001 - memory is an aid; no memory, no facts
+            log.exception("could not read memory for the standing")
+        return Standing(tuple(asked), tuple(facts))
+
+    def _deliberate(self, title: str, review, standing: Standing, *, answered: bool = False):
+        d = deliberate(title, review, standing=standing, usage=self.read_usage, answered=answered)
+        self.journal.append(DELIBERATION_EVENT, d.journal_body(title))
+        return d
+
+    def _spare(self, planned):
+        """A deletion the loop is about to take, of something the person still
+        uses: the gate's refusal, else None."""
+        if planned.kind not in DELETE_KINDS:
+            return None
+        target = planned.target_name or planned.text or ""
+        if not target:
+            return None
+        d = deliberate(f"删除 {target}", standing=self.standing(), usage=self.read_usage)
+        if d.verdict != REFUSE:
+            return None
+        self.journal.append(DELIBERATION_EVENT, d.journal_body(f"删除 {target}"))
+        return d
 
     def _queue(self, goal_id: str, title: str, says: str = "") -> None:
         self.supervisor.add_goal(goal_id, title=title)
@@ -278,9 +363,16 @@ class Node:
         self._send(system_status(f"note: {says or f'好，我开始做「{title}」。'}"))
 
     def intake(self, goal_id: str, title: str) -> str:
-        """Gate 1 meets a new goal: queue it, or ask first."""
+        """Gate 1 meets a new goal: the review, then the automatic Socratic
+        gate. Queue it, refuse it with a letter, or ask one question first."""
         rules = self.policy.gate_rules()
-        involvement = DecisionModel(rules).intake(title, self._review(rules, title))
+        standing = self.standing()  # before this request joins the record
+        review = self._review(rules, title)
+        d = self._deliberate(title, review, standing)
+        involvement = DecisionModel(rules).intake(title, review, d)
+        if involvement.disposition == HOLD:
+            self._letter(involvement.letter or involvement.says)
+            return f"refused: goal {goal_id}: {d.category or 'held'}"
         if involvement.disposition != ASK:
             self._queue(goal_id, title, involvement.says)
             return f"accepted: goal {goal_id} queued"
@@ -288,18 +380,48 @@ class Node:
             link = self._link
         if link is None:
             return f"refused: goal {goal_id} needs a word with you first, and no App is connected"
-        threading.Thread(target=self._align, args=(link.bridge, goal_id, title, involvement, rules),
+        target = self._confirm if involvement.options else self._align
+        threading.Thread(target=target, args=(link.bridge, goal_id, title, involvement, d, rules),
                          daemon=True, name=f"align-{goal_id}").start()
         return f"accepted: goal {goal_id} waits for your answer to one question"
 
-    def _align(self, bridge: OperatorBridge, goal_id: str, title: str, involvement, rules) -> None:
-        model = DecisionModel(rules)
+    def _align(self, bridge: OperatorBridge, goal_id: str, title: str, involvement, d, rules) -> None:
+        """One question in prose, answered in the person's own words; then the
+        gate judges again, with the answer."""
+        original = title
+        for _ in range(ALIGN_ROUNDS):
+            answer = bridge.ask(involvement.letter or involvement.says)
+            if answer is None or drops(answer) or not answer.strip():
+                self._send(system_status(f"note: 好，「{original}」先不做了。"))
+                return
+            answer = answer.strip()
+            context = d.answer == CONTEXT
+            title = f"{original}（{answer}）" if context else answer
+            if not context:
+                original = title
+            review = self._review(rules, title)
+            d = self._deliberate(title, review, self.standing(), answered=context)
+            involvement = DecisionModel(rules).intake(title, review, d)
+            if involvement.disposition == HOLD:
+                self._letter(involvement.letter or involvement.says)
+                return
+            if involvement.disposition != ASK:
+                self._queue(goal_id, title, involvement.says)
+                return
+            if involvement.options:
+                self._confirm(bridge, goal_id, title, involvement, d, rules)
+                return
+        self._send(system_status(f"note: 我们还没说到一块儿，「{original}」先放着。"))
+
+    def _confirm(self, bridge: OperatorBridge, goal_id: str, title: str, involvement, d, rules) -> None:
+        """The operator's own "ask before every new goal": start, say it
+        differently, or drop it."""
         for _ in range(ALIGN_ROUNDS):
             answer = bridge.ask(involvement.says, options=involvement.options)
-            if answer is None or answer == DROP:
+            if answer is None or answer == DROP or drops(answer):
                 self._send(system_status(f"note: 好，「{title}」先不做了。"))
                 return
-            if answer in (START, AS_SAID) and answer in involvement.options:
+            if answer == START:
                 self._queue(goal_id, title)
                 return
             if answer == REPHRASE:
@@ -308,9 +430,17 @@ class Node:
                     self._send(system_status(f"note: 好，「{title}」先不做了。"))
                     return
             title = answer.strip()
-            involvement = model.intake(title, self._review(rules, title))
+            review = self._review(rules, title)
+            d = self._deliberate(title, review, self.standing())
+            involvement = DecisionModel(rules).intake(title, review, d)
+            if involvement.disposition == HOLD:
+                self._letter(involvement.letter or involvement.says)
+                return
             if involvement.disposition != ASK:
                 self._queue(goal_id, title, involvement.says)
+                return
+            if not involvement.options:
+                self._align(bridge, goal_id, title, involvement, d, rules)
                 return
         self._send(system_status(f"note: 我们还没说到一块儿，「{title}」先放着。"))
 

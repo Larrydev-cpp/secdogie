@@ -149,22 +149,24 @@ def test_a_goal_the_rules_question_waits_for_an_answer(live):
     assert "g1" not in node.supervisor._tree().nodes  # never queued
     app.run([
         {"op": "add_goal", "title": "批量注册账号", "goal_id": "g2"},
-        {"op": "answer", "match": "批量注册账号不是", "text": "我换个说法"},
-        {"op": "answer", "match": "你想怎么说", "text": "整理我自己的那一个账号"},
+        {"op": "answer", "match": "批量注册账号不是", "text": "整理我自己的那一个账号"},  # in their own words
         {"op": "expect_status", "match": "goal g2 finished: exit 0"},
     ])
     assert node.supervisor._tree().nodes["g2"].title == "整理我自己的那一个账号"
     reviews = [e["body"]["verdict"] for e in node.journal.events() if e["kind"] == "socratic"]
     assert reviews == ["revise", "revise", "accept"]  # every review is on the record
+    verdicts = [(e["body"]["verdict"], e["body"]["category"]) for e in node.journal.events()
+                if e["kind"] == "deliberation"]
+    assert verdicts == [("clarify", "rule"), ("clarify", "rule"), ("proceed", "")]  # and every verdict
 
 
-def test_the_built_in_review_asks_too_and_gives_no_as_said_for_safety(live):
+def test_the_built_in_review_asks_in_prose_with_no_buttons(live):
     node, app = live
     app.run([{"op": "add_goal", "title": "只读地看一下文件，然后删除它", "goal_id": "g1"},
              {"op": "answer", "match": "一边说只读", "text": "先不做了"}])
     assert app.ctl.conversation.pending() == ()
     (probe,) = [e for e in app.ctl.conversation._entries if "一边说只读" in e.text]
-    assert probe.options == ("我换个说法", "先不做了")
+    assert probe.options == () and "换个说法告诉我" in probe.text
     assert "g1" not in node.supervisor._tree().nodes
 
 

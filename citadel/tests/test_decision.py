@@ -1,19 +1,17 @@
-"""The companion's decision model: quiet by default, a question when Gate 1
-finds something, a signature for what cannot be undone, and proposers that
-may only raise the involvement."""
+"""The companion's decision model: quiet by default, the automatic Socratic
+gate's verdict at intake (a question in prose, or a refusal with a letter), a
+signature for what cannot be undone, and proposers that may only raise the
+involvement."""
 from __future__ import annotations
 
 from secdogie_citadel import socratic
 from secdogie_citadel.action_gate import GateDecision, PlannedAction
 from secdogie_citadel.decision import (
-    AS_SAID,
     ASK,
-    DROP,
     GAP,
     HOLD,
     NOTE,
     PROCEED,
-    REPHRASE,
     SIGN,
     SOON,
     START,
@@ -28,16 +26,22 @@ def test_a_clear_goal_starts_with_a_fading_note():
     assert inv.disposition == NOTE and "开始做「整理周报」" in inv.says and not inv.needs_person
 
 
-def test_an_unclear_goal_becomes_one_question():
+def test_an_unclear_goal_becomes_one_question_in_prose():
     inv = DecisionModel().intake("x", socratic.review("只读地看一下文件，然后删除它"))
     assert inv.disposition == ASK and inv.urgency == GAP and inv.needs_person
-    assert "一边说只读" in inv.says and inv.options == (REPHRASE, DROP)  # safety: no "as I said"
+    assert "一边说只读" in inv.says and inv.options == () and "换个说法告诉我" in inv.letter  # no buttons
 
 
-def test_a_long_goal_may_be_kept_as_said():
+def test_a_long_goal_goes_ahead_one_piece_at_a_time():
     text = "a " * 400
     inv = DecisionModel().intake(text, socratic.review(text))
-    assert inv.options == (REPHRASE, AS_SAID, DROP)
+    assert inv.disposition == NOTE and "一件件来" in inv.says
+
+
+def test_a_refusal_is_a_hold_with_a_letter():
+    inv = DecisionModel().intake("帮我刷50条好评", socratic.review("帮我刷50条好评"))
+    assert inv.disposition == HOLD and inv.urgency == SOON and inv.options == ()
+    assert inv.says == "这件事我不做。" and "刷单刷评" in inv.letter and "fraud" in inv.why
 
 
 def test_rules_can_ask_before_every_goal():
@@ -75,7 +79,9 @@ def test_proposers_only_raise_and_never_touch_holds_or_signatures():
     inv = m.step(click, GateDecision("allow"), blocked=False)
     assert inv.disposition == ASK and inv.says.startswith("这一步我拿不准")
     intake = m.intake("x", socratic.review("只读地看，然后删除"))
-    assert intake.disposition == ASK and intake.options == (REPHRASE, DROP)  # not lowered
+    assert intake.disposition == ASK and "一边说只读" in intake.says  # not lowered
+    refused = m.intake("帮我刷50条好评", socratic.review("帮我刷50条好评"))
+    assert refused.disposition == HOLD  # a refusal is final
     held = m.step(click, GateDecision("reject", "no"), blocked=True)
     assert held.disposition == HOLD  # final
     sign = m.step(PlannedAction("delete"), GateDecision("allow"), blocked=False)
