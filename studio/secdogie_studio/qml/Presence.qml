@@ -434,7 +434,9 @@ Window {
                     anchors.fill: parent; anchors.margins: 10
                     TextArea {
                         id: rules
-                        color: ink.text; font.family: "monospace"; font.pixelSize: 12
+                        color: ink.text; font.pixelSize: 12
+                        font.family: Qt.platform.os === "osx" ? "Menlo"
+                                     : (Qt.platform.os === "windows" ? "Consolas" : "monospace")
                         selectionColor: Qt.rgba(win.accent.r, win.accent.g, win.accent.b, 0.35)
                         background: null; wrapMode: TextEdit.NoWrap
                     }

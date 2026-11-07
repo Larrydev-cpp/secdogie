@@ -143,7 +143,11 @@ def _pump(qt, bridge, pred, timeout=5.0):
 
 
 def _qml_problems(messages):
-    return [m for m in messages if "propagateSizeHints" not in m]
+    """What the QML itself got wrong: errors located in a .qml file, script
+    errors, binding loops. The platform's own notes (fonts the offscreen
+    platform cannot find, alias lookups) are about the test machine, not us."""
+    markers = (".qml:", "TypeError", "ReferenceError", "Binding loop", "Unable to assign", "is not defined")
+    return [m for m in messages if any(k in m for k in markers)]
 
 
 def test_the_window_is_a_quiet_light_that_opens_for_a_question(qt):
@@ -168,6 +172,13 @@ def test_the_window_is_a_quiet_light_that_opens_for_a_question(qt):
     assert _pump(qt, bridge, lambda: root.property("shape") != "open", timeout=5)
     assert _qml_problems(messages) == []
     del engine
+
+
+def test_the_problem_filter_catches_qml_errors_and_ignores_platform_notes():
+    assert _qml_problems(["file:///x/Presence.qml:12: TypeError: Cannot read property 'c' of undefined",
+                          "QFontDatabase: Cannot find font directory C:/x/fonts.",
+                          "Populating font family aliases took 66 ms."]) == \
+        ["file:///x/Presence.qml:12: TypeError: Cannot read property 'c' of undefined"]
 
 
 def test_a_cold_start_opens_straight_onto_the_first_meeting(qt):
