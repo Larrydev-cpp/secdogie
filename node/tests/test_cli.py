@@ -67,6 +67,25 @@ def test_the_process_announces_itself_and_stops_cleanly_on_sigterm(files):
     assert "stopped" in err
 
 
+def test_the_node_stops_when_its_parent_closes_stdin(files):
+    """--exit-on-stdin-eof: the owner closes the pipe (or dies, and the OS
+    closes it) and the node stops cleanly, with no signal -- the way a parent
+    window stops its node on every OS."""
+    env = dict(os.environ, PYTHONUNBUFFERED="1")
+    proc = subprocess.Popen([sys.executable, "-m", "secdogie_node.cli", *files["args"], "--exit-on-stdin-eof"],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+    try:
+        assert json.loads(proc.stdout.readline())["event"] == "ready"
+        proc.stdin.close()
+        assert proc.wait(timeout=20) == 0
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+    err = proc.stderr.read().decode()
+    assert "standard input closed" in err and "stopped" in err
+
+
 def test_run_checks_its_flags_before_starting(files, capsys):
     with pytest.raises(SystemExit):
         main([*files["args"], "--revocations", "r.jsonl"])

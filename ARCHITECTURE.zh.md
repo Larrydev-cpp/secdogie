@@ -229,6 +229,9 @@ flowchart TB
 | `citadel/episodes.py` · `lessons.py` · `consolidate.py` | 阶段式记忆 S1 / S2 / S3 | ③ | ✅ 已建成 |
 | `dialogue/` | Dialogue App:签名信封协议、丢包 / 乱序下的会话层、节点侧桥接、控制器 + Textual 界面 + 无头脚本、结构化视界发布 | ③④ | ✅ 已建成 |
 | `node/` | `secdogie-node` 常驻节点:组装传输、对话、签名日志与受监督回路;真实 UDP 端到端测试 | 全部 | ✅ 已建成 |
+| `transport/carrier.py` | 载体接口(N0):DID 签名帧下的管道抽象;`CarrierSet` 多载体共用一个投递线程,端点记住载体;`AsyncCarrierHost` 为 QUIC / WebRTC 的 asyncio 载体预留;载体不认证任何东西 | ② | ✅ 已建成 |
+| `policy/` | 策略包(P1):操作员注入网格的苏格拉底门规则、决策模型配置、采集限额、allowlist 变更;**只是数据,不是代码**;封闭 schema、只能更严;门规则 / 采集由操作员签,决策模型 / allowlist 由 k-of-n master 签;TS 镜像 `symbiont/src/policy/` 由金向量锁住。分发与生效(P2)待做 | ③ | 🔨 校验已建成,分发待做 |
+| `studio/` | Studio 桌面应用(G1,PySide6):首启生成节点 / App / 操作员三把钥匙,`secdogie-node` 作为子进程随窗口生死,经与 Dialogue App 相同的 DID 认证对话做回环检查;其余页面在后续切片 | ④ | 🔨 骨架已建成 |
 | `inference/` | 推理网格(手绘图「new arc」三态):用户签名请求经 P2P 网格路由到持有短期密钥租约的模型节点,回答端到端签名、在决策节点与用户处各验一次;节点失效时绕行、隔离「wrong」节点并经中央协调者兜底(协调者只做建议与兜底通路,不是信任根);模型或决策层叛变时凭可自证的事件证据锁定全网、吊销并轮换密钥,用户经备用转发节点钉选两个独立模型交叉验证,只有操作员签名可解除。见 [`inference/README.md`](inference/README.md) | ②③ | ✅ 已建成 |
 
 ---

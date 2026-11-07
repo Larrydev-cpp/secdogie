@@ -1,6 +1,6 @@
 # 计划：Studio 桌面应用 · 多协议传输 · 策略注入 · 分布式结构化采集
 
-> **状态：规划中，本文件对应的代码还没有写。**
+> **状态：第一批（D0 · N0 · P1 · G1）已完成，其余规划中。** 已完成的切片在 §9 的表里标 ✅。
 > 输入有三份：手绘图（① new arc；② 当节点失效，连接中央 server；③ 决策模型叛变时）、
 > 《TECHNICAL SPECIFICATION & ENGINE REFACTORING》§1–§2，以及桌面应用需求。
 > 需求是 Mac / Linux / Windows 三平台带 GUI 的应用程序，能在本地连接 P2P 节点，
@@ -208,11 +208,14 @@ DirectTransport（原 DirectUDPTransport 的帧逻辑，帧格式 secdogie/direc
   "scope": {"roles": ["serve"], "nodes": []},
   "not_before": 1767225600,
   "body": { "...": "按 kind 的封闭 schema，未知字段一律拒绝" },
-  "signer": "did:key:…", "sig": "…"
+  "bundle_id": "<不含 bundle_id / sigs 的规范化包的 SHA-256>",
+  "sigs": [{"signer": "did:key:…", "sig": "…"}]
 }
 ```
 
-- 规范化 JSON，域分隔，`digest` 为整个签名对象的 SHA-256，与 `inference/PROTOCOL.md` 的规则一致。
+- 规范化 JSON，域分隔。所有签名都覆盖同一段字节：去掉 `bundle_id` 与 `sigs` 的规范化包；`bundle_id`
+  就是这段字节的 SHA-256，用作版本链与心跳里的名字。单签与门限签用同一格式（`sigs` 列表），与撤销记录一致。
+- 包里**只有整数，没有浮点**（权重写成千分值，如 `hop_milli`），Python 与 TS 不可能在数字编码上分歧。
 - 同一 `kind` 同一 `scope` 下，版本号严格递增，`supersedes` 必须指向当前生效版本。
   回滚等于发布一个更高的版本，内容是旧的。
 
@@ -454,8 +457,8 @@ fetch ─▶ blob 存储（mmap）─▶ parse（子进程）─▶ StructSnapsh
 
 | 编号 | 切片 | 完成判据 |
 | --- | --- | --- |
-| **D0** | 决策记录：§10 的选择定稿 | 文档合入 |
-| N0 | 载体接口重构（UDP 行为不变） | 现有 transport / node / inference 测试零改动通过 |
+| **D0** ✅ | 决策记录：§10 的选择定稿 | 文档合入 |
+| N0 ✅ | 载体接口重构（UDP 行为不变） | 现有 transport / node / inference 测试零改动通过 |
 | N1 | TLS/TCP 载体 + SPKI 按 DID 钉住 | 回环测试：错误 SPKI 被拒，帧逻辑不变 |
 | N2 | QUIC 载体（aioquic） | 回环 + 丢包模拟；datagram 与 stream 都可用 |
 | N3 | WebRTC 载体（aiortc）+ `carrier-bind/v1`（= W3） | 两个 Python 节点经本地信令打通；伪造指纹的「信令中间人」测试被识别并断开 |
@@ -465,7 +468,7 @@ fetch ─▶ blob 存储（mmap）─▶ parse（子进程）─▶ StructSnapsh
 | F2 | mDNS（默认关） | 同网段两节点互相发现；关闭时零广播（抓包断言） |
 | F3 | DHT 上线（`dht/v1`） | 20 节点模拟网格中 O(log N) 跳内找到目标记录 |
 | F4 | 信令网关 DID 认证 + 按 DID 寻址（= W1） | `webrtc/tests` 增补：未签名、重放、冒名均被拒 |
-| P1 | 策略包 schema + 「只能更严」校验器 + 金向量 | 放宽型字段、未知字段、越权签名者全部被拒；Python 与 TS 向量一致 |
+| P1 ✅ | 策略包 schema + 「只能更严」校验器 + 金向量 | 放宽型字段、未知字段、越权签名者全部被拒；Python 与 TS 向量一致 |
 | P2 | 分发与生效（日志事件 + 心跳 `policy` 字段） | 5 节点收敛到同一 digest；被撤销签名者的包不生效 |
 | P3 | Gate 1 / 计划门加载 `gate-rules`（Python + TS） | 规则命中、试运行差异与向量一致 |
 | P4 | `decision-model` 包 + shadow / canary / full | 影子期违规不触发锁定但阻止晋级；canary 中违规触发 ③ 锁定，操作员重置后恢复 |
@@ -478,7 +481,7 @@ fetch ─▶ blob 存储（mmap）─▶ parse（子进程）─▶ StructSnapsh
 | I6 | session / desktop-ax 模式 | 任务只调度到持有会话或屏幕的节点；没有能力授权时被拒 |
 | I7 | 结果写入 citadel `StateDelta` / `graph` 增量 | 3 节点日志收敛，结果可在任意节点查询 |
 | INF-1/2/3 | §2 的三个缺口 | 长输入走 blob；重启后锁定状态仍在；转发节点看不到明文输入 |
-| G1 | Studio 骨架 + 子进程生命周期 + 首启向导 | 关窗后节点退出（进程表断言）；`--self-test` 通过 |
+| G1 ✅ | Studio 骨架 + 子进程生命周期 + 首启向导 | 关窗后节点退出（进程表断言）；`--self-test` 通过 |
 | G2 | 对话视图（复用 `AppController`） | 用 Studio 跑通 `node/tests/test_e2e.py` 的同一场景 |
 | G3 | 网格 / 发现视图 + `admin/v1` | 三态在拓扑图上正确着色（用 `inference/tests/sim.py` 驱动） |
 | G4 | 规则与决策模型编辑器 | 编辑 → 试运行 → 签名 → 发布 → 生效进度，全程可测 |
@@ -491,11 +494,20 @@ fetch ─▶ blob 存储（mmap）─▶ parse（子进程）─▶ StructSnapsh
 
 **顺序（波次）**：
 
-1. D0 · N0 · P1 · G1 并行（彼此改不同的包）。
+1. D0 · N0 · P1 · G1 并行（彼此改不同的包）。**✅ 已完成**，落地记录见 §9.1。
 2. N1 · N4 · F1 · I1–I3 · G2 · G3。
 3. N2 · N3 · N5 · F2–F4 · P2 · P3 · I4 · I5 · G4 · G5。
 4. P4 · P5 · I6 · I7 · INF-1/2/3 · G6 · K1–K3。
 5. V1。
+
+### 9.1 第一批落地记录
+
+| 切片 | 落在哪里 | 与计划的出入（如实） |
+| --- | --- | --- |
+| D0 | §10 | 无 |
+| N0 | `transport/secdogie_transport/carrier.py`：`Carrier`、`CarrierSet`（单一投递线程）、`MemoryNetwork` / `MemoryCarrier`、`AsyncCarrierHost`；`UDPChannel` 成为 `udp` 载体；端点记住载体，`peer_endpoints` 记录每个载体最后的好地址 | 顺带修了 UDP 接收循环在 Windows 上遇到迟到的 ICMP「端口不可达」就永久停止的问题。共享 socket 的角色（relay、rendezvous）只在主载体上应答 |
+| P1 | 新包 `policy/`（`secdogie-policy`）；`symbiont/src/policy/bundle.ts`；`fixtures/vectors/policy.json`（80 个由 Python 签出的包 + 规范化 + 版本链 + floor） | 签名格式统一为 `sigs` 列表（§5.2 已改）；浮点一律拒绝；`ingest` 的按 origin 覆盖限速留到 I2 |
+| G1 | 新包 `studio/`（`secdogie-studio`）；`secdogie-node run --exit-on-stdin-eof`；`AppController.request()` | 首启钥匙三分（节点 / App / 操作员 keystore），首启不签任何能力；窗口与节点的生命周期由「父进程持有子进程 stdin」保证，跨平台一致（Windows 上 `terminate()` 是硬杀，不走信号）；托盘「关窗后保留节点」留到后续切片 |
 
 **V1 验收场景**：三台机器（Win / macOS / Linux 各一）装 Studio，经邀请码加入同一网格。
 - 局域网内经 mDNS 互相发现；跨网经 rendezvous 发现；封锁 UDP 后经 WebRTC 或 TLS 连通。

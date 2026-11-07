@@ -346,6 +346,12 @@ class AppController:
     def resume(self, goal_id: str) -> ControlPacket:
         return self._request(ControlPacket(_new_id(), ControlOp.RESUME, goal_id=goal_id))
 
+    def request(self, request_id: str) -> Request | None:
+        """The state of one request this App sent: its reply once the node
+        answered, or ``undelivered`` once the session gave up."""
+        with self._cond:
+            return self._requests.get(request_id)
+
     def _request(self, pkt: ControlPacket) -> ControlPacket:
         with self._cond:
             self._requests[pkt.request_id] = Request(pkt)

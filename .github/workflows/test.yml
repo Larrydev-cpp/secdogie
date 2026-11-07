@@ -68,6 +68,14 @@ jobs:
             needs_transport: true
             needs_agent: true      # the end-to-end test drives the real agent loop
             needs_dialogue: true
+          - dir: studio     # desktop app: first run, the node as a child, loopback link, the window offscreen
+            extras: "[gui]"  # so the offscreen window test runs (not skip)
+            needs_identity: true
+            needs_citadel: true
+            needs_transport: true
+            needs_dialogue: true
+            needs_node: true
+            needs_qt: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -76,6 +84,10 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
+
+      - name: Qt system libraries (offscreen window tests)
+        if: matrix.needs_qt
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3
 
       - name: Install
         working-directory: ${{ matrix.dir }}
@@ -105,10 +117,15 @@ jobs:
           if [ "${{ matrix.needs_dialogue }}" = "true" ]; then
             pip install -e "../dialogue[tui]"
           fi
+          if [ "${{ matrix.needs_node }}" = "true" ]; then
+            pip install -e ../node
+          fi
           pip install -e ".${{ matrix.extras }}" pytest
 
       - name: Test
         working-directory: ${{ matrix.dir }}
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: pytest tests/ -q
 
       # P2 commercial gate: offline CAD golden-scenario fixtures must load cleanly.
@@ -117,6 +134,38 @@ jobs:
         if: matrix.dir == 'agent'
         working-directory: agent
         run: python -m secdogie_agent.scenario_runner ../fixtures/cad --all
+
+  # --- Studio on every desktop OS: the node-as-child lifecycle and the loopback
+  # link are exactly what differs between Windows, macOS and Linux, so they run
+  # on all three (the window offscreen too), then the release smoke check.
+  studio-cross-os:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Qt system libraries (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3
+      - name: Install
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e identity -e transport -e citadel -e dialogue -e node -e "studio[gui]" pytest
+      - name: Test
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pytest studio/tests -q
+      - name: Self-test (what a release build must pass)
+        shell: bash
+        run: secdogie-studio --self-test
 
   # --- Browser P2P: signaling gateway unit tests (plain Node, no deps) --------
   webrtc-tests:
