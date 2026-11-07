@@ -17,7 +17,7 @@ See README.md for the architecture and PROTOCOL.md for the wire.
 from __future__ import annotations
 
 from .breaker import CircuitBreaker
-from .broker import Assignment, KeyBroker, assignments_from_bindings
+from .broker import Assignment, BrokerStore, KeyBroker, assignments_from_bindings, key_fingerprint
 from .client import OUTCOME_ACCEPTED, OUTCOME_INTERCEPTED, OUTCOME_REFUSED, Outcome, UserClient
 from .coordinator import Coordinator
 from .health import FaultTracker, Suspicion
@@ -51,6 +51,8 @@ __all__ = [
     "MeshNode",
     "Coordinator",
     "KeyBroker",
+    "BrokerStore",
+    "key_fingerprint",
     "Assignment",
     "assignments_from_bindings",
     "UserClient",
