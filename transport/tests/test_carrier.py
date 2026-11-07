@@ -379,3 +379,36 @@ def test_frames_from_an_event_loop_carrier_are_delivered_off_the_loop_thread():
         assert tb.peer_carrier(ia.did) == "aio"
         for _, _, tr, _ in nodes:
             tr.channel.close()
+
+
+def test_a_stale_icmp_error_does_not_stop_the_udp_receive_loop():
+    """Windows reports an ICMP "port unreachable" for an earlier send as a
+    ConnectionResetError on the next recvfrom. That is not a dead socket: the
+    loop must keep receiving. (Simulated: Linux never raises it here.)"""
+    ch = UDPChannel()
+    real = ch._sock
+
+    class Flaky:
+        raised = False
+
+        def recvfrom(self, n):
+            if not Flaky.raised:
+                Flaky.raised = True
+                raise ConnectionResetError(10054, "an existing connection was forcibly closed")
+            return real.recvfrom(n)
+
+        def __getattr__(self, name):
+            return getattr(real, name)
+
+    ch._sock = Flaky()
+    got = queue.Queue()
+    ch.start(lambda data, addr: got.put(data))
+    sender = UDPChannel()
+    try:
+        assert threading.Event().wait(0.3) is False  # let the loop hit the reset first
+        assert Flaky.raised
+        sender.send(*ch.address, b"after the reset")
+        assert _get(got) == b"after the reset"
+    finally:
+        sender.close()
+        ch.close()

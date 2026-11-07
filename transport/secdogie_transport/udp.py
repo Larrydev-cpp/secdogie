@@ -129,6 +129,11 @@ class UDPChannel(Carrier):
                 data, addr = self._sock.recvfrom(65535)
             except TimeoutError:
                 continue
+            except ConnectionResetError:
+                # Windows reports an ICMP "port unreachable" for an earlier send
+                # (a peer that went away) as an error on the NEXT recvfrom. The
+                # socket is fine; stopping here would leave the node deaf.
+                continue
             except OSError:
                 break
             try:
