@@ -25,6 +25,7 @@ from .action_gate import (
     INTENT_UNPROVEN,
     KNOWN_FAILURE,
     OUT_OF_CAPABILITY,
+    REJECT,
     UNATTENDED_POSTING,
     UNAUTHORIZED_ACTION,
     GateContext,
@@ -56,8 +57,11 @@ _KIND_MAP = {
     "look": "observe",
 }
 
+# A step the node's injected gate rules (rules.GateRules) do not allow.
+BLOCKED_BY_RULE = "blocked-by-rule"
+
 BLOCKING = frozenset({OUT_OF_CAPABILITY, UNATTENDED_POSTING, KNOWN_FAILURE, INTENT_CONTRADICTION,
-                      INTENT_UNPROVEN, UNAUTHORIZED_ACTION})
+                      INTENT_UNPROVEN, UNAUTHORIZED_ACTION, BLOCKED_BY_RULE})
 
 PlanGate = Callable[[dict, list], "tuple[bool, str]"]
 GateObserver = Callable[[PlannedAction, GateDecision], None]
@@ -100,7 +104,7 @@ def make_plan_gate(capabilities: Iterable[str], *, enforce: bool = True, instruc
                    purpose: str = "", require_intent: bool = False,
                    observer: GateObserver | None = None,
                    authorize: Callable[[PlannedAction], dict | None] | None = None,
-                   operators=None, subject_did: str = "") -> PlanGate:
+                   operators=None, subject_did: str = "", rules=None) -> PlanGate:
     """A loop hook enforcing ``capabilities`` (the node's current scopes, e.g.
     from ``secdogie_identity.capability.effective_scopes``).
 
@@ -115,13 +119,26 @@ def make_plan_gate(capabilities: Iterable[str], *, enforce: bool = True, instruc
     sends a challenge and waits), and the gate then VERIFIES that token against
     ``operators`` and ``subject_did`` -- the bridge collects, the gate judges.
     With ``authorize`` set, a destructive action without a valid token is
-    refused; a raising ``authorize`` counts as no token."""
+    refused; a raising ``authorize`` counts as no token.
+
+    ``rules`` (``rules.GateRules``, from injected gate-rules bundles) can only
+    make the gate stricter: a kind they call destructive goes to Gate 2, a
+    blocked kind or target is refused before anyone is asked, and the plan
+    gate's limits tighten."""
     caps = frozenset(capabilities)
     known = frozenset(known_failures)
     active = frozenset(active_goal_ids)
 
     def plan_gate(view: dict, recent: list) -> tuple[bool, str]:
         planned = to_planned(view, purpose=purpose)
+        if rules is not None:
+            planned = rules.mark(planned)
+            why = rules.blocked_reason(planned)
+            if why is not None:
+                refused = GateDecision(REJECT, why, (BLOCKED_BY_RULE,))
+                if observer is not None:
+                    observer(planned, refused)
+                return False, why
         token = None
         if authorize is not None and planned.destructive:
             try:
@@ -131,7 +148,8 @@ def make_plan_gate(capabilities: Iterable[str], *, enforce: bool = True, instruc
         ctx = GateContext(
             capabilities=caps,
             enforce_capabilities=enforce,
-            recent_actions=tuple(to_planned(r) for r in recent),
+            recent_actions=tuple((rules.mark(to_planned(r)) if rules is not None else to_planned(r))
+                                 for r in recent),
             requires_verification=False,
             instruction=instruction,
             require_intent=require_intent,
@@ -142,6 +160,8 @@ def make_plan_gate(capabilities: Iterable[str], *, enforce: bool = True, instruc
             operators=operators,
             subject_did=subject_did,
         )
+        if rules is not None:
+            ctx = rules.context(ctx)
         decision = gate(planned, ctx)
         if observer is not None:
             observer(planned, decision)
@@ -152,4 +172,4 @@ def make_plan_gate(capabilities: Iterable[str], *, enforce: bool = True, instruc
     return plan_gate
 
 
-__all__ = ["BLOCKING", "PlanGate", "GateObserver", "make_plan_gate", "to_planned"]
+__all__ = ["BLOCKED_BY_RULE", "BLOCKING", "PlanGate", "GateObserver", "make_plan_gate", "to_planned"]
