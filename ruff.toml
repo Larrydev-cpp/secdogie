@@ -6,6 +6,7 @@ line-length = 110
 
 # Generated / vendored trees that aren't ours to lint.
 extend-exclude = [
+    ".claude",  # vendored third-party skills, kept as upstream wrote them (.claude/VENDORED.md)
     "**/.venv",
     "**/.build-venv",
     "**/build",
