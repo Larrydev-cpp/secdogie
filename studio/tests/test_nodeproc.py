@@ -51,6 +51,25 @@ def test_a_node_that_cannot_start_says_why(profile):
         node.stop()
 
 
+def test_output_closing_before_the_exit_is_still_reported_as_the_exit(monkeypatch):
+    """The end of the child's stdout and its exit status can arrive apart (on
+    Windows they do): a node that closed its output without a ready line must
+    be reported with its exit code and what it said, not as a timeout."""
+    from secdogie_studio import nodeproc
+
+    child = ("import os, sys, time; sys.stderr.write('bad key\\n'); sys.stderr.flush(); "
+             "os.close(1); time.sleep(0.5); sys.exit(3)")
+    monkeypatch.setattr(nodeproc, "node_command", lambda args: [sys.executable, "-c", child])
+    node = NodeProcess([])
+    node.start()
+    try:
+        with pytest.raises(NodeError, match="exited with code 3") as e:
+            node.wait_ready(30)
+        assert "bad key" in str(e.value)
+    finally:
+        node.stop()
+
+
 def test_stop_before_start_and_twice_is_harmless(profile):
     node = NodeProcess(profile.node_args())
     assert node.stop() is None

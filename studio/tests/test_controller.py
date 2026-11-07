@@ -44,7 +44,19 @@ def test_link_check_needs_a_running_node(profile):
 
 
 def test_one_worker_at_a_time(tmp_path):
+    import threading
+
     c = StudioController(tmp_path / "p", kdf="min")
+    release = threading.Event()
+    assert c._run("holding", release.wait)  # a worker that stays busy until released
+    try:
+        assert c.snapshot().busy == "holding"
+        assert not c.create_profile("operator passphrase")  # refused while the first runs
+        assert not c.profile.initialized
+    finally:
+        release.set()
+        c.wait_idle()
+    assert c.snapshot().busy == ""
     assert c.create_profile("operator passphrase")
-    assert not c.create_profile("operator passphrase")  # still busy with the first
     c.wait_idle()
+    assert c.profile.initialized

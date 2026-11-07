@@ -57,6 +57,7 @@ class NodeProcess:
         self._proc: subprocess.Popen | None = None
         self._ready: Ready | None = None
         self._ready_event = threading.Event()
+        self._stdout_closed = False
         self._log: collections.deque[str] = collections.deque(maxlen=log_lines)
         self._lock = threading.Lock()
         self._readers: list[threading.Thread] = []
@@ -97,6 +98,7 @@ class NodeProcess:
                     self._note(f"ready: {msg['did']} on {msg['listen']}")
                     continue
             self._note(line)
+        self._stdout_closed = True
         self._ready_event.set()  # stdout closed: wake anyone waiting
 
     def _read_stderr(self) -> None:
@@ -136,6 +138,15 @@ class NodeProcess:
         ready = self.ready
         if ready is not None:
             return ready
+        if self._stdout_closed and self._proc.poll() is None:
+            # The pipe's end of file and the exit status do not arrive together
+            # (on Windows the gap is visible): a node that closed its output
+            # without a ready line is on its way out, so let it finish exiting
+            # and report why, rather than a misleading timeout.
+            try:
+                self._proc.wait(timeout=10.0)
+            except subprocess.TimeoutExpired:
+                pass
         if self._proc.poll() is not None:
             for t in self._readers:
                 t.join(timeout=2.0)  # collect what it said before it went
