@@ -1,11 +1,12 @@
 """Golden vectors shared by the Python, Rust (graph/) and TypeScript (symbiont/)
 implementations of secdogie's canonical JSON, Gate 2 authorization, state-graph
-deltas and the Socratic instruction review.
+deltas, the Socratic instruction review and policy bundles.
 
 Python is the reference: every expected value here is produced by the real
 production functions (``secdogie_identity.signing.canonical`` / ``sign_payload``,
 ``secdogie_citadel.authz``, ``secdogie_citadel.socratic``,
-``secdogie_dialogue.protocol.seal``), never written by hand. The Rust and TS test
+``secdogie_dialogue.protocol.seal``, ``secdogie_policy.verify_bundle``), never
+written by hand. The Rust and TS test
 suites read these files and must agree byte for byte; the Python suite
 (``dialogue/tests/test_cross_language_vectors.py``) regenerates them and fails if
 the committed files drifted.
@@ -14,7 +15,7 @@ Every float, and every integer past 2**53, appears only inside a JSON *text*
 string, so reading the vector files with a plain JSON parser never loses the
 int/float distinction the cases are about.
 
-    python fixtures/vectors/generate.py          # rewrite the four files
+    python fixtures/vectors/generate.py          # rewrite the vector files
     python fixtures/vectors/generate.py --check  # exit 1 if any file is stale
 
 The seeds below are public test keys. Never use them for anything real.
@@ -41,6 +42,7 @@ from secdogie_dialogue.protocol import (
 )
 from secdogie_identity import Identity, sign_payload
 from secdogie_identity.signing import canonical
+from secdogie_policy.vectors import build as policy_vectors
 
 HERE = Path(__file__).resolve().parent
 
@@ -342,6 +344,7 @@ def build_all() -> dict[str, str]:
         "gate2.json": gate2_vectors(),
         "graph_delta.json": graph_delta_vectors(),
         "socratic.json": socratic_vectors(),
+        "policy.json": policy_vectors(),
     }
     return {name: json.dumps(obj, indent=2, ensure_ascii=False) + "\n" for name, obj in files.items()}
 

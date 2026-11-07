@@ -17,6 +17,8 @@ SecDogie 在浏览器里的运行时：**双重苏格拉底门**（Gate 1 语义
 | B 注意力调度 | `attention/*` | 由焦点信号算 `InterruptionBudget`（flow / engaged / gap / away / suppressed）；提案队列在心流时压住、空隙时浮现、敏感场景遮住 |
 | C 双重苏格拉底门 | `gate1/*` · `gate2/*` · `gates/pipeline.ts` | Gate 1 一次问一个问题、没对齐不出计划；对齐后 WASM 确定性预计算动作；高风险动作经内联气泡由操作员 Ed25519 签名放行 |
 
+策略包：`policy/bundle.ts`——`secdogie_policy` 校验器的逐行镜像（封闭 schema、「只能更严」、操作员 / k-of-n master 签名、版本链），由 `fixtures/vectors/policy.json` 锁住。
+
 视图层：`stream/*`——常驻的「意识流」（群体与拓扑状态在最上面，从不是空白页）、按意图折叠的
 叙述（从不逐步列机械操作）、Gate 1 / Gate 2 的**内联气泡**（从不是模态框）。
 
