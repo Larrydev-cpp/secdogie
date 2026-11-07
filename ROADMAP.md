@@ -74,6 +74,10 @@
 
 网络轨道与 agent 轨道改动的包不同，可以并行推进。
 
+**下一阶段（规划中）**：三平台 Studio 桌面应用（G/K）、多协议载体 UDP / QUIC / WebRTC / TLS（N）、
+节点发现（F，含 W1 / W3）、苏格拉底门规则与决策模型的签名策略包（P）、分布式结构化采集
+`WebStateIngestionService`（I），见 [`docs/PLAN-STUDIO-INGEST.zh.md`](docs/PLAN-STUDIO-INGEST.zh.md)。
+
 ## 贯穿纪律
 
 每片 `inspect→implement→test→跑全量→lint→提交`,不做一次性重写;全部 headless/loopback 可测、
