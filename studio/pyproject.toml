@@ -31,3 +31,6 @@ secdogie-studio = "secdogie_studio.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["secdogie_studio*"]
+
+[tool.setuptools.package-data]
+secdogie_studio = ["qml/*.qml"]
