@@ -346,6 +346,18 @@ class AppController:
     def resume(self, goal_id: str) -> ControlPacket:
         return self._request(ControlPacket(_new_id(), ControlOp.RESUME, goal_id=goal_id))
 
+    def outstanding(self) -> tuple[tuple, tuple, tuple]:
+        """What waits on the operator right now, in arrival order: open probes
+        (``DialoguePacket``), pending Gate 2 challenges (``PendingChallenge``)
+        and offered memories (``OfferedMemory``). Copies, read under the lock."""
+        with self._cond:
+            return self.conversation.pending(), tuple(self._challenges.values()), tuple(self._memories.values())
+
+    def transcript(self) -> tuple:
+        """Everything said so far (``dialogue.Entry``), oldest first. A copy."""
+        with self._cond:
+            return tuple(self.conversation._entries)
+
     def request(self, request_id: str) -> Request | None:
         """The state of one request this App sent: its reply once the node
         answered, or ``undelivered`` once the session gave up."""

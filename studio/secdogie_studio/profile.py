@@ -37,6 +37,7 @@ SETTINGS_VERSION = 1
 ROLES = ("forward", "serve", "model", "ingest", "relay")  # what a node may offer the mesh
 DEFAULT_ROLES = ("forward",)
 DEFAULT_LISTEN = "127.0.0.1:0"
+DEFAULT_MESH = "home"
 MIN_PASSPHRASE = 8
 
 _FILES = ("node.key", "app.key", "operator.keystore", "apps.allow", "operators.allow", "nodes.allow",
@@ -127,8 +128,10 @@ class Profile:
     def node_args(self) -> list[str]:
         """The ``secdogie-node run`` arguments for this profile. The node stops
         when its standard input closes, so it never outlives Studio."""
-        listen = self.settings().get("listen", DEFAULT_LISTEN)
+        settings = self.settings()
+        listen = settings.get("listen", DEFAULT_LISTEN)
         parse_listen(listen)
+        roles = [r for r in settings.get("roles", DEFAULT_ROLES) if r in ROLES] or list(DEFAULT_ROLES)
         return ["run",
                 "--identity", str(self.node_key),
                 "--apps", str(self.path("apps.allow")),
@@ -137,6 +140,8 @@ class Profile:
                 "--issuers", str(self.path("issuers.allow")),
                 "--journal", str(self.journal),
                 "--listen", listen,
+                "--mesh", settings.get("mesh", DEFAULT_MESH),
+                *[arg for role in roles for arg in ("--role", role)],
                 "--exit-on-stdin-eof"]
 
 
@@ -176,7 +181,8 @@ def create_profile(root: str | os.PathLike, passphrase: bytes, *, roles=DEFAULT_
     _write_allow(root / "operators.allow", operator.did, "Gate 2 operator")
     _write_allow(root / "nodes.allow", node.did, "journal authors")
     _write_allow(root / "issuers.allow", operator.did, "who may grant this node capabilities")
-    settings = {"version": SETTINGS_VERSION, "roles": sorted(roles), "listen": listen, "mdns": False,
+    settings = {"version": SETTINGS_VERSION, "roles": sorted(roles), "listen": listen, "mesh": DEFAULT_MESH,
+                "mdns": False,
                 "keep_node_after_close": False, "created_at": int(clock())}
     tmp = root / "studio.json.tmp"
     tmp.write_text(json.dumps(settings, indent=2, sort_keys=True) + "\n", encoding="utf-8")

@@ -16,6 +16,12 @@ FORBIDDEN = [
      "autostart, services or scheduling"),
     (r"DETACHED_PROCESS|CREATE_NEW_PROCESS_GROUP|start_new_session|setsid|os\.fork|daemon\(",
      "detaching the node from the window"),
+    # Attention reads the OS idle counter and nothing else: never keys, never input events.
+    (r"SetWindowsHookEx|GetAsyncKeyState|GetKeyState|CGEventTapCreate|XRecord|pynput|\bimport keyboard\b|"
+     r"evdev|/dev/input",
+     "reading keystrokes or input events"),
+    (r"requestActivate|\.raise_\(|activateWindow|setFocus\(Qt",
+     "taking the keyboard focus on its own"),
 ]
 
 
@@ -27,7 +33,7 @@ def _code(path: Path) -> str:
 
 def test_no_source_file_crosses_a_red_line():
     found = []
-    for f in sorted(SRC.rglob("*.py")):
+    for f in sorted([*SRC.rglob("*.py"), *SRC.rglob("*.qml")]):
         code = _code(f)
         for rx, what in FORBIDDEN:
             if re.search(rx, code):
@@ -36,7 +42,18 @@ def test_no_source_file_crosses_a_red_line():
 
 
 def test_the_scan_would_catch_a_violation():
-    probe = "QScreen.grabWindow(0); subprocess.Popen(cmd, start_new_session=True); run('launchctl load')"
+    probe = ("QScreen.grabWindow(0); subprocess.Popen(cmd, start_new_session=True); run('launchctl load'); "
+             "user32.SetWindowsHookExW(13); window.requestActivate()")
     hits = [what for rx, what in FORBIDDEN if re.search(rx, probe)]
     assert hits == ["screen capture or image processing", "autostart, services or scheduling",
-                    "detaching the node from the window"]
+                    "detaching the node from the window", "reading keystrokes or input events",
+                    "taking the keyboard focus on its own"]
+
+
+def test_the_window_never_takes_focus_on_its_own():
+    """The only focus the QML moves is into the talk field, right after the
+    person clicked the light to talk."""
+    qml = (SRC / "qml" / "Presence.qml").read_text(encoding="utf-8")
+    assert qml.count("forceActiveFocus") == 1
+    assert "onShownNowChanged: if (shownNow) { say.text = \"\"; say.forceActiveFocus() }" in qml
+    assert "requestActivate" not in qml and "raise()" not in qml

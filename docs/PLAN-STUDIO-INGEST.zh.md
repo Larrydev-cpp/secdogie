@@ -371,6 +371,22 @@ fetch ─▶ blob 存储（mmap）─▶ parse（子进程）─▶ StructSnapsh
 
 ## 7. G：Studio 桌面应用
 
+### 7.0 方向调整（2026-11，机主定）：伙伴，而不是控制台
+
+第一版 Studio（G1）做成了管理控制台，关系定位错了。云端生命体与人是**伙伴**，不是管理员和被管理者。
+Studio 因此改成**浮动伙伴**：屏幕角落一枚几乎透明的呼吸光点，视觉基调是「夜色柔光」，用 Qt Quick 绘制。
+
+- **平时淡出。** 只有光点；顺带要说的话，作为一行低语淡入、再淡出。
+- **需要你时才出现。** 一次只浮出一张卡片：Gate 1 的苏格拉底提问、Gate 2 的签名、想记住的一件事，
+  或初次见面。答完即淡出。
+- **由谁决定「需要」：两层门 + 决策模型。** Gate 1 在目标入口就审视；决策模型
+  （`citadel/decision.py`）把门的判断转成「静默 / 低语 / 提问 / 签名 / 停下」。
+- **何时出现由注意力决定。** 只读取操作系统的空闲计数：你连续输入时先压住，有几秒停顿再浮现；
+  工作在等你的事，最多压 30 秒；没人在场就不出现，到期即视为拒绝。卡片从不抢焦点。
+- **技术细节收进「内部」面板（右键光点）。** 里面有 DID、状态、日志，以及规则的编写、试运行、签名注入。
+
+§7.4 的多页视图不再作为主界面；网格、发现、采集等视图以后放进「内部」面板。
+
 ### 7.1 选型：PySide6（推荐）
 
 | 理由 | 说明 |
@@ -508,6 +524,17 @@ fetch ─▶ blob 存储（mmap）─▶ parse（子进程）─▶ StructSnapsh
 | N0 | `transport/secdogie_transport/carrier.py`：`Carrier`、`CarrierSet`（单一投递线程）、`MemoryNetwork` / `MemoryCarrier`、`AsyncCarrierHost`；`UDPChannel` 成为 `udp` 载体；端点记住载体，`peer_endpoints` 记录每个载体最后的好地址 | 顺带修了 UDP 接收循环在 Windows 上遇到迟到的 ICMP「端口不可达」就永久停止的问题。共享 socket 的角色（relay、rendezvous）只在主载体上应答 |
 | P1 | 新包 `policy/`（`secdogie-policy`）；`symbiont/src/policy/bundle.ts`；`fixtures/vectors/policy.json`（80 个由 Python 签出的包 + 规范化 + 版本链 + floor） | 签名格式统一为 `sigs` 列表（§5.2 已改）；浮点一律拒绝；`ingest` 的按 origin 覆盖限速留到 I2 |
 | G1 | 新包 `studio/`（`secdogie-studio`）；`secdogie-node run --exit-on-stdin-eof`；`AppController.request()` | 首启钥匙三分（节点 / App / 操作员 keystore），首启不签任何能力；窗口与节点的生命周期由「父进程持有子进程 stdin」保证，跨平台一致（Windows 上 `terminate()` 是硬杀，不走信号）；托盘「关窗后保留节点」留到后续切片 |
+
+### 9.2 第二批（伙伴化）落地记录
+
+| 内容 | 落在哪里 |
+| --- | --- |
+| 门规则 | `citadel/rules.py` `GateRules`：注入的 gate-rules 合并时严者胜，并以内置值为底线，畸形包也放松不了门；计划门据此把更多动作送到 Gate 2，拒绝被封的动作或目标，并收紧限额 |
+| 决策模型 | `citadel/decision.py`：静默 / 低语 / 提问 / 签名 / 停下，加上「等停顿 / 尽快」；可接入提议者（如 LLM），但它们只能提高介入程度 |
+| 注入链路 | `node/policy_host.py` + `policy/v1`：Studio 用操作员钥签名 → 节点验证（签名者、网格、范围、版本链、生效时间）→ 写入日志 → 立即生效；重启后从日志恢复。决策模型（路由）、采集、allowlist 包已记录，节点如实说明尚未启用 |
+| Gate 1 入口 | `node.intake`：每个新目标都按当前规则审视并写入日志；有疑问就问一个问题，答案站得住才排队；不答、放弃、App 不在场都视为不做 |
+| schema | gate-rules 新增 `presence`（每个新目标先确认、每次改动留一句），两个开关只能打开；Python、TS 与金向量同步 |
+| Studio | `studio/`：`presence.py`（注意力 + 舞台）、`idle.py`、`companion.py`、`app.py`、`qml/Presence.qml`；旧的控件界面已删除 |
 
 **V1 验收场景**：三台机器（Win / macOS / Linux 各一）装 Studio，经邀请码加入同一网格。
 - 局域网内经 mDNS 互相发现；跨网经 rendezvous 发现；封锁 UDP 后经 WebRTC 或 TLS 连通。

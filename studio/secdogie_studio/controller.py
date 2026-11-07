@@ -109,6 +109,12 @@ class StudioController:
             node = self._node
         return node.stop(timeout) if node is not None else None
 
+    def ready(self):
+        """The running node's ready line (``nodeproc.Ready``), or None."""
+        with self._lock:
+            node = self._node
+        return node.ready if node is not None and node.running else None
+
     def check_link(self) -> bool:
         with self._lock:
             node = self._node

@@ -14,8 +14,11 @@ license = { text = "MIT" }
 dependencies = [
     "secdogie-identity",
     "secdogie-transport",
+    "secdogie-citadel",
+    "secdogie-policy",
     "secdogie-dialogue",
     "secdogie-node",
+    "PyYAML>=6",  # the rules editor reads YAML
 ]
 
 [project.optional-dependencies]
