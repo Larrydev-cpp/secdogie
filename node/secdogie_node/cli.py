@@ -79,6 +79,10 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--rendezvous-record", action="append", default=[], metavar="FILE",
                    help="a rendezvous' self-signed record, as secdogie-relay --rendezvous prints it "
                         "(repeatable): this node registers there, so an App can find it by DID")
+    r.add_argument("--mesh", default="home", metavar="NAME",
+                   help="the mesh this node belongs to: policy bundles for another mesh are refused (default: home)")
+    r.add_argument("--role", action="append", default=[], metavar="ROLE",
+                   help="a role this node offers (repeatable; default: forward): bundle scopes can name roles")
     r.add_argument("--exit-on-stdin-eof", action="store_true",
                    help="stop when standard input closes: for a parent process that owns this node "
                         "(the Studio window), so the node never outlives it")
@@ -134,6 +138,7 @@ def _run(args, parser) -> int:
     except (OSError, ValueError) as e:
         parser.error(str(e))
 
+    masters = MasterSet.load(args.masters) if args.masters else None
     self_policy = None
     if args.masters:
         store = RevocationStore(args.revocations) if args.revocations else None
@@ -162,7 +167,8 @@ def _run(args, parser) -> int:
                                issuers=issuers, unrestricted=unrestricted, journal_path=args.journal,
                                candidates_path=candidates, listen=args.listen, transport_key=tkey,
                                app_bindings=bindings, relay_records=relays,
-                               rendezvous_records=rendezvous))
+                               rendezvous_records=rendezvous, mesh=args.mesh, masters=masters,
+                               roles=tuple(args.role) or ("forward",)))
     except (OSError, ValueError) as e:
         parser.error(str(e))
     if self_policy is not None:

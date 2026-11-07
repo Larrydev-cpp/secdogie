@@ -234,7 +234,17 @@ def _blocked_target(v, path: str, errs: Errors) -> None:
 
 
 def _gate_rules(body: dict, path: str, errs: Errors) -> None:
-    fields(body, path, {"instruction", "plan"}, (), errs)
+    fields(body, path, {"instruction", "plan", "presence"}, (), errs)
+    if "presence" in body:
+        # When the companion involves the person: both switches can only turn on
+        # (asking more, noting more), never off.
+        p = join(path, "presence")
+        d = obj(body["presence"], p, errs)
+        if d is not None:
+            fields(d, p, {"ask_before_new_goal", "note_every_mutation"}, (), errs)
+            for k in ("ask_before_new_goal", "note_every_mutation"):
+                if k in d:
+                    true_only(d[k], join(p, k), errs)
     if "instruction" in body:
         p = join(path, "instruction")
         d = obj(body["instruction"], p, errs)

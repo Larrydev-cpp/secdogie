@@ -284,7 +284,16 @@ function blockedTarget(v: CanonValue | undefined, path: string, errs: Errors): v
 }
 
 function gateRules(body: Obj, path: string, errs: Errors): void {
-  fields(body, path, ['instruction', 'plan'], [], errs);
+  fields(body, path, ['instruction', 'plan', 'presence'], [], errs);
+  if (has(body, 'presence')) {
+    // When the companion involves the person: both switches only turn on.
+    const p = join(path, 'presence');
+    const d = obj(body['presence'], p, errs);
+    if (d !== null) {
+      fields(d, p, ['ask_before_new_goal', 'note_every_mutation'], [], errs);
+      for (const k of ['ask_before_new_goal', 'note_every_mutation']) if (has(d, k)) trueOnly(d[k], join(p, k), errs);
+    }
+  }
   if (has(body, 'instruction')) {
     const p = join(path, 'instruction');
     const d = obj(body['instruction'], p, errs);

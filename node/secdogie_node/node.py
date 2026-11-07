@@ -26,15 +26,27 @@ refused at once (no answer is a no); they come back with the App.
 Control requests from the App are answered with a status line starting
 ``accepted`` or ``refused``. After each goal the node tells the App how it
 ended and offers any quarantined (S2) facts / preferences for confirmation.
+
+Rules arrive as signed policy bundles on ``policy/v1`` (``policy_host.py``) and
+take effect at once. Gate 1 meets every new goal at the door: the instruction
+review runs under the rules in force, and when it finds something, the
+companion's decision model turns the finding into one Socratic question. The
+goal waits for the answer and is queued only once it holds up. An unanswered
+question is a no. Notes the decision model wants the person to see in passing
+(a goal started or ended, a step it stopped) go to the App as status lines
+starting ``note:`` or ``hold:``.
 """
 from __future__ import annotations
 
+import dataclasses
 import logging
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from secdogie_citadel import socratic
 from secdogie_citadel.consolidate import confirm_and_promote, retract_memory
+from secdogie_citadel.decision import AS_SAID, ASK, DROP, REPHRASE, START, DecisionModel
 from secdogie_citadel.journal import Journal
 from secdogie_citadel.lessons import MemoryClass
 from secdogie_citadel.supervisor import MemoryConfig, Supervisor, agent_run_task
@@ -55,7 +67,11 @@ from secdogie_transport import (
     UDPChannel,
 )
 
+from .policy_host import PolicyHost
+
 log = logging.getLogger("secdogie_node")
+
+ALIGN_ROUNDS = 3  # questions at goal intake before the goal is set aside
 
 OFFERED_CLASSES = (MemoryClass.FACT, MemoryClass.PREFERENCE)  # cautions are promoted on evidence
 
@@ -79,6 +95,9 @@ class NodeConfig:
     challenge_ttl: float = 120.0
     probe_ttl: float = 300.0
     idle_poll: float = 1.0
+    mesh: str = "home"  # policy bundles for another mesh are refused
+    masters: object = None  # MasterSet: who may sign decision-model / allowlist bundles
+    roles: tuple = ("forward",)  # what this node offers the mesh; bundle scopes name roles
 
 
 class _AppLink:
@@ -95,9 +114,12 @@ class Node:
         self.operators = require_trust(cfg.operators, "the node's operator allowlist")
         self.journal = Journal(cfg.journal_path, identity=cfg.identity,
                                allowlist=require_trust(cfg.authorized, "the node's journal allowlist"))
+        self.policy = PolicyHost(self.journal, mesh=cfg.mesh, operators=self.operators, masters=cfg.masters,
+                                 node_did=cfg.identity.did, roles=cfg.roles)
         self.supervisor = Supervisor(
             self.journal, cfg.run_task, issuers=cfg.issuers, unrestricted=cfg.unrestricted,
             memory=MemoryConfig(candidates_path=cfg.candidates_path, confirmers=self.apps),
+            rules=self.policy.gate_rules,
         )
         self._lock = threading.RLock()
         self._link: _AppLink | None = None
@@ -122,6 +144,7 @@ class Node:
             self.mux = ChannelMux(carrier, Session("node", PeerIdentity(cfg.identity.did, ""),
                                                    active=Endpoint("local", *self.channel.address)))
             self.router = SessionRouter(self.mux, accept=self._accept)
+            self.policy.attach(self.mux, may_send=self.apps.contains)
         except Exception:
             self.channel.close()
             raise
@@ -187,7 +210,7 @@ class Node:
                                     challenge_ttl=self.cfg.challenge_ttl, probe_ttl=self.cfg.probe_ttl,
                                     on_control=self.on_control, publisher=publisher)
             link = self._link = _AppLink(session, bridge, publisher)
-            self.supervisor.set_operator_hooks(bridge.hooks())
+            self.supervisor.set_operator_hooks(self._hooks(bridge))
 
         def down():
             bridge.on_peer_down()  # every pending challenge and probe fails now
@@ -199,7 +222,7 @@ class Node:
         def up():
             with self._lock:
                 if self._link is link:
-                    self.supervisor.set_operator_hooks(bridge.hooks())
+                    self.supervisor.set_operator_hooks(self._hooks(bridge))
             log.info("operator App %s is reachable again", did)
 
         session.on_peer_down, session.on_peer_up = down, up
@@ -208,14 +231,68 @@ class Node:
         self._offer_memories()
         return session
 
+    def _hooks(self, bridge: OperatorBridge):
+        return dataclasses.replace(bridge.hooks(), note=self._note)
+
+    def _note(self, involvement) -> None:
+        """A decision-model note for the person: one line, shown in passing."""
+        self._send(system_status(f"{involvement.disposition}: {involvement.says}"))
+
+    # -- Gate 1 at the door --------------------------------------------------------------
+
+    def _review(self, rules, title: str):
+        review = rules.review(title)
+        socratic.record_review(self.journal, title, review)
+        return review
+
+    def _queue(self, goal_id: str, title: str, says: str = "") -> None:
+        self.supervisor.add_goal(goal_id, title=title)
+        self._wake.set()
+        self._send(system_status(f"note: {says or f'好，我开始做「{title}」。'}"))
+
+    def intake(self, goal_id: str, title: str) -> str:
+        """Gate 1 meets a new goal: queue it, or ask first."""
+        rules = self.policy.gate_rules()
+        involvement = DecisionModel(rules).intake(title, self._review(rules, title))
+        if involvement.disposition != ASK:
+            self._queue(goal_id, title, involvement.says)
+            return f"accepted: goal {goal_id} queued"
+        with self._lock:
+            link = self._link
+        if link is None:
+            return f"refused: goal {goal_id} needs a word with you first, and no App is connected"
+        threading.Thread(target=self._align, args=(link.bridge, goal_id, title, involvement, rules),
+                         daemon=True, name=f"align-{goal_id}").start()
+        return f"accepted: goal {goal_id} waits for your answer to one question"
+
+    def _align(self, bridge: OperatorBridge, goal_id: str, title: str, involvement, rules) -> None:
+        model = DecisionModel(rules)
+        for _ in range(ALIGN_ROUNDS):
+            answer = bridge.ask(involvement.says, options=involvement.options)
+            if answer is None or answer == DROP:
+                self._send(system_status(f"note: 好，「{title}」先不做了。"))
+                return
+            if answer in (START, AS_SAID) and answer in involvement.options:
+                self._queue(goal_id, title)
+                return
+            if answer == REPHRASE:
+                answer = bridge.ask("好，你想怎么说？")
+                if not answer or not answer.strip():
+                    self._send(system_status(f"note: 好，「{title}」先不做了。"))
+                    return
+            title = answer.strip()
+            involvement = model.intake(title, self._review(rules, title))
+            if involvement.disposition != ASK:
+                self._queue(goal_id, title, involvement.says)
+                return
+        self._send(system_status(f"note: 我们还没说到一块儿，「{title}」先放着。"))
+
     def on_control(self, pkt, signer: str) -> str:
         """One operator request (already authenticated as ``signer``, an App on
         the allowlist). Returns the status line sent back."""
         op = pkt.op
         if op is ControlOp.ADD_GOAL:
-            self.supervisor.add_goal(pkt.goal_id, title=pkt.title)
-            self._wake.set()
-            return f"accepted: goal {pkt.goal_id} queued"
+            return self.intake(pkt.goal_id, pkt.title)
         if op is ControlOp.STOP:
             self.supervisor.request_stop(pkt.goal_id)
             return f"accepted: stop requested for {pkt.goal_id}"

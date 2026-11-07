@@ -61,6 +61,7 @@ def _gate_rules_body() -> dict:
             "blocked_kinds": ["run"],
             "blocked_targets": [{"name": "terminal"}, {"name": "delete all", "role": "button"}],
         },
+        "presence": {"ask_before_new_goal": True, "note_every_mutation": True},
     }
 
 
@@ -182,6 +183,9 @@ def _cases() -> list[tuple[str, dict]]:
         ("a field that would touch Gate 2",
          _sign(_mutate(gate, body(body__plan__require_authorization=False)), OPERATOR)),
         ("an unknown top-level field", {**gate, "comment": "hi"}),
+        ("presence switched off", _sign(_mutate(gate, body(body__presence__ask_before_new_goal=False)), OPERATOR)),
+        ("a presence field that would silence the companion",
+         _sign(_mutate(gate, body(body__presence__never_ask=True)), OPERATOR)),
         # phrases and lists
         ("a phrase in upper case", _sign(_mutate(gate, body(
             body__instruction__revise_on=[{"phrases": ["Mass Register"], "reason": "r"}])), OPERATOR)),

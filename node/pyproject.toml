@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 # Assembly only: every piece comes from these packages.
-dependencies = ["secdogie-identity", "secdogie-transport", "secdogie-citadel", "secdogie-dialogue"]
+dependencies = ["secdogie-identity", "secdogie-transport", "secdogie-citadel", "secdogie-dialogue", "secdogie-policy"]
 
 [project.optional-dependencies]
 # The real agent loop (what a goal actually runs). Without it the node still

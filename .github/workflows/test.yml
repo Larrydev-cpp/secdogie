@@ -68,12 +68,14 @@ jobs:
             needs_transport: true
             needs_agent: true      # the end-to-end test drives the real agent loop
             needs_dialogue: true
+            needs_policy: true     # the node verifies injected policy bundles
           - dir: studio     # desktop app: first run, the node as a child, loopback link, the window offscreen
             extras: "[gui]"  # so the offscreen window test runs (not skip)
             needs_identity: true
             needs_citadel: true
             needs_transport: true
             needs_dialogue: true
+            needs_policy: true
             needs_node: true
             needs_qt: true
     runs-on: ubuntu-latest
@@ -157,7 +159,7 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -e identity -e transport -e citadel -e dialogue -e node -e "studio[gui]" pytest
+          pip install -e identity -e transport -e citadel -e policy -e dialogue -e node -e "studio[gui]" pytest
       - name: Test
         shell: bash
         env:
