@@ -264,24 +264,49 @@ Window {
                         id: bubble
                         visible: msg.who !== "note"
                         readonly property bool mine: msg.who === "you"
+                        // a letter (a refusal at length) or a question with its reasons: a heading, then paragraphs
+                        readonly property var parts: msg.words.split("\n\n")
+                        readonly property bool essay: !mine && parts.length > 1
                         x: mine ? msg.width - width : 0
-                        width: Math.min(said.implicitWidth + 32, msg.width * 0.78)
-                        height: said.implicitHeight + 20
+                        width: essay ? msg.width * 0.9
+                                    : Math.min(head.implicitWidth + 32, msg.width * 0.78)
+                        height: column.implicitHeight + (essay ? 32 : 20)
                         radius: 16
                         color: mine ? Theme.tinted(Theme.calm, 0.16) : Theme.panel
                         border.color: mine ? Theme.tinted(Theme.calm, 0.30) : Theme.hairline
                         Accessible.role: Accessible.StaticText
                         Accessible.name: (mine ? "你：" : "它：") + msg.words
-                        Text {
-                            id: said
-                            x: 16; y: 10
-                            width: bubble.width - 32
-                            text: msg.words
-                            textFormat: Text.PlainText
-                            wrapMode: Text.Wrap
-                            color: msg.tone === "warm" ? Theme.warm : Theme.text
-                            font.pixelSize: Theme.body
-                            lineHeight: 1.45
+                        Column {
+                            id: column
+                            x: bubble.essay ? 20 : 16
+                            y: bubble.essay ? 16 : 10
+                            width: bubble.width - 2 * x
+                            spacing: 10
+                            Text {
+                                id: head
+                                width: parent.width
+                                text: bubble.essay ? bubble.parts[0] : msg.words
+                                textFormat: Text.PlainText
+                                wrapMode: Text.Wrap
+                                color: msg.tone === "warm" || (bubble.essay && msg.tone === "letter") ? Theme.warm
+                                                                                                     : Theme.text
+                                font.pixelSize: bubble.essay ? Theme.lead : Theme.body
+                                font.weight: bubble.essay ? Font.Medium : Font.Normal
+                                lineHeight: 1.45
+                            }
+                            Repeater {
+                                model: bubble.essay ? bubble.parts.slice(1) : []
+                                Text {
+                                    required property string modelData
+                                    width: column.width
+                                    text: modelData
+                                    textFormat: Text.PlainText
+                                    wrapMode: Text.Wrap
+                                    color: Theme.soft
+                                    font.pixelSize: Theme.body
+                                    lineHeight: 1.6
+                                }
+                            }
                         }
                     }
                 }

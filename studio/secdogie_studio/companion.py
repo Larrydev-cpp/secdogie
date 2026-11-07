@@ -10,6 +10,8 @@ what the person does into what goes back:
                                        fields it commits to, the passphrase
   a memory the node would keep      -> a memory card: keep it, or not
   "note: ..." / "hold: ..." lines   -> whispers (calm / warm)
+  "letter: ..." (a refusal at length) -> its first paragraph as a warm whisper; the
+                                       whole letter in the home window's conversation
   everything else                   -> the inner log only
 
 Gate 2 is the operator's key, unlocked with the passphrase for one signature
@@ -25,7 +27,7 @@ import re
 import time
 
 import yaml
-from secdogie_citadel.decision import DecisionModel, say_reason
+from secdogie_citadel.decision import HOLD, DecisionModel
 from secdogie_citadel.rules import GateRules
 from secdogie_dialogue.app import AppController
 from secdogie_dialogue.guard import GuardRefusal
@@ -165,6 +167,12 @@ def line_from(entry, titles: dict[str, str]) -> dict | None:
         return line("you", entry.text)
     if entry.who == "app":
         return line("note", entry.text)
+    if entry.text.startswith("letter: "):
+        return line("it", entry.text[len("letter: "):], "letter")
+    if entry.text == "answer adopted":
+        return None
+    if entry.text.startswith("no answer in time"):
+        return line("note", "没等到你的回答，这件事先放着。")
     if entry.kind is DialogueType.SOCRATIC_QUESTION:
         return line("it", entry.text, "ask")
     for prefix, tone in (("note: ", "calm"), ("hold: ", "warm")):
@@ -188,6 +196,8 @@ def whisper_from(entry, index: int, now: float) -> Whisper | None:
     for prefix, tone in (("note: ", "calm"), ("hold: ", "warm")):
         if entry.text.startswith(prefix):
             return Whisper(f"w{index}", entry.text[len(prefix):], tone, now)
+    if entry.text.startswith("letter: "):  # the first paragraph in passing; the rest is read in the home window
+        return Whisper(f"w{index}", entry.text[len("letter: "):].split("\n\n", 1)[0], "warm", now)
     return None
 
 
@@ -397,13 +407,12 @@ def check_rules(body: dict, mesh: str) -> list[str]:
 def try_rules(body: dict, sample: str) -> str:
     """What Gate 1 would say to ``sample`` under the draft rules."""
     rules = GateRules.from_bodies([("draft", body)])
-    review = rules.review(sample)
-    involvement = DecisionModel(rules).intake(sample, review)
-    if review.accepted and not involvement.needs_person:
-        return "通过：我会直接开始做。"
-    extra = [say_reason(r) for r in review.reasons[1:]]
-    more = "（另外：" + "；".join(extra) + "）" if extra else ""
-    return f"我会先问你：「{involvement.says}」{more}"
+    involvement = DecisionModel(rules).intake(sample, rules.review(sample))
+    if involvement.disposition == HOLD:
+        return f"我不会做：「{involvement.says}」"
+    if involvement.needs_person:
+        return f"我会先问你：「{involvement.says}」"
+    return "通过：我会直接开始做。"
 
 
 __all__ = ["Companion", "FORGET", "KEEP", "RULES_TEMPLATE", "check_rules", "explain_errors", "line_from", "moments_from",

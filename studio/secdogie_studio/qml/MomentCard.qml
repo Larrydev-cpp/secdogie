@@ -25,18 +25,46 @@ Column {
     Accessible.role: Accessible.Grouping
     Accessible.name: c ? c.label : ""
 
+    // What it says: the first paragraph is the heading; a question with its
+    // reasons (the automatic Socratic gate's) goes on below it, in paragraphs.
+    readonly property var parts: (c ? c.says : "").split("\n\n")
+    property int restParagraphs: 0              // 0: all of them (the home window); the light keeps it short
+    readonly property var rest: parts.slice(1, restParagraphs > 0 ? 1 + restParagraphs : parts.length)
+    readonly property bool cut: rest.length < parts.length - 1
+    signal readAll                              // the rest did not fit: read it in the home window
     Text {
         width: parent.width
-        text: card.c ? card.c.says : ""
+        text: card.parts[0]
         textFormat: Text.PlainText
         wrapMode: Text.Wrap
-        maximumLineCount: 12
+        maximumLineCount: 6
         elide: Text.ElideRight
         color: Theme.text
         font.pixelSize: Theme.lead
         font.weight: Font.Medium
         lineHeight: 1.35
     }
+    Column {
+        visible: card.rest.length > 0
+        width: parent.width
+        spacing: 10
+        Repeater {
+            model: card.rest
+            Text {
+                required property string modelData
+                width: parent.width
+                text: modelData
+                textFormat: Text.PlainText
+                wrapMode: Text.Wrap
+                maximumLineCount: card.restParagraphs > 0 ? 8 : 1000
+                elide: Text.ElideRight
+                color: Theme.soft
+                font.pixelSize: Theme.body
+                lineHeight: 1.6
+            }
+        }
+    }
+    Link { visible: card.cut; text: "在主界面里看完整的"; onClicked: card.readAll() }
     Column {
         width: parent.width
         spacing: 8
@@ -116,7 +144,7 @@ Column {
         Field {
             id: free
             width: parent.width - reply.width - 12
-            hint: "或者直接告诉我……"
+            hint: card.c && card.c.options.length ? "或者直接告诉我……" : "直接告诉我……"
             onAccepted: if (text.trim().length) P.answer(card.c.id, text)
         }
         Pill { id: reply; text: "回答"; enabled: free.text.trim().length > 0

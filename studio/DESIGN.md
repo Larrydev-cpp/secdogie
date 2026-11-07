@@ -190,6 +190,19 @@ are quick.
     above the input line, with "还有 N 件在等你" when there are more. A
     question that is still waiting appears only in that card. Once it is
     answered, question and answer take their place in the conversation.
+  - **A refusal at length (a letter).** It sits on the left like any of the
+    companion's lines, but 90 % wide.
+    - Its first paragraph is the heading, at `lead` and medium weight, in
+      warm.
+    - The rest follows as paragraphs in `soft`, with line height 1.6 and
+      10 px between paragraphs.
+    - The automatic Socratic gate's own questions and answers read as
+      "问题——回答" lines.
+    - On the light, only the first paragraph is whispered.
+  - **A question in prose.** It has no buttons. Its card shows the same
+    heading-and-paragraphs, and the answer goes in the card's own line
+    ("直接告诉我……"). On the light the card shows at most three
+    paragraphs, then "在主界面里看完整的".
   - The input line is the window's first focus item. "交给我" is enabled
     once there is something to send.
 - **节点与网格.** Sections with headings and no boxes; the facts are

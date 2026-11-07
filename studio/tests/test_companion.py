@@ -74,6 +74,8 @@ def test_only_notes_and_holds_whisper():
         "好，我开始做「x」。"
     assert whisper_from(Entry("agent", DialogueType.SYSTEM_STATUS, "hold: 我停下了一步"), 4, 1.0).tone == "warm"
     assert whisper_from(Entry("agent", DialogueType.SYSTEM_STATUS, "goal g1 finished: exit 0"), 5, 1.0) is None
+    w = whisper_from(Entry("agent", DialogueType.SYSTEM_STATUS, "letter: 这件事我不做。\n\n这件事我先问了自己……"), 6, 1.0)
+    assert (w.text, w.tone) == ("这件事我不做。", "warm")  # a letter's first paragraph, in passing
     assert rollback_words("delete on x; rollback: none stated") == "没说怎么撤回"
     assert rollback_words("delete on x; rollback: 从回收站恢复") == "从回收站恢复"
 
@@ -95,6 +97,9 @@ def test_the_transcript_reads_as_a_conversation():
     assert said("agent", DialogueType.SOCRATIC_QUESTION, "开始之前……")["tone"] == "ask"
     assert said("you", DialogueType.USER_CLARIFICATION, "先不做了")["who"] == "you"
     assert said("app", status, "节点重新连上了。")["who"] == "note"
+    letter = said("agent", status, "letter: 「旧备份」，我这次不删。\n\n它是一个文件夹……")
+    assert (letter["who"], letter["tone"]) == ("it", "letter") and letter["text"].startswith("「旧备份」")
+    assert said("agent", status, "answer adopted") is None
 
 
 def test_rules_are_drafted_checked_and_tried_locally():
@@ -102,7 +107,8 @@ def test_rules_are_drafted_checked_and_tried_locally():
 
     body = parse_rules(RULES_TEMPLATE)
     assert check_rules(body, "home") == []  # the template itself is valid
-    assert try_rules(body, "帮我批量注册十个账号").startswith("我会先问你：「开始之前")
+    assert try_rules(body, "帮我批量注册十个账号") == "我会先问你：「你定过一条规则：批量注册账号不是我们要一起做的事。」"
+    assert try_rules(body, "帮我刷50条好评") == "我不会做：「这件事我不做。」"
     assert try_rules(body, "整理周报") == "通过：我会直接开始做。"
     assert check_rules({"instruction": {"max_len": 900}}, "home") == ["instruction.max_len：比内置规则更松（只能更严）"]
     with pytest.raises(ValueError):
@@ -130,7 +136,7 @@ def test_against_a_real_node_rules_go_in_and_a_questioned_goal_becomes_a_questio
             comp.say("帮我批量注册十个账号")
             assert wait_until(lambda: any(m.kind == "ask" for m in comp.moments()), 20)
             (question,) = [m for m in comp.moments() if m.kind == "ask"]
-            assert "批量注册账号不是" in question.says and "先不做了" in question.options
+            assert "批量注册账号不是" in question.says and question.options == ()  # in prose, no buttons
             # while it waits, the question is the card's, not a line of the conversation
             assert [(c["who"], c["text"]) for c in comp.conversation()] == [("you", "帮我批量注册十个账号")]
             assert comp.answer(question.id, "先不做了") is None

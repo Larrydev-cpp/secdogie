@@ -164,7 +164,8 @@ Window {
             }
         }
         transform: Translate { y: (1 - card.opacity) * Theme.rise }
-        MomentCard { id: moment; x: 24; y: 24; width: parent.width - 48; c: card.c }
+        MomentCard { id: moment; x: 24; y: 24; width: parent.width - 48; c: card.c; restParagraphs: 3
+                     onReadAll: P.openHome() }
     }
 
     // ---- inside: what it is, and the rules it keeps ---------------------------------------------------

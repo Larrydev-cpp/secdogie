@@ -24,8 +24,11 @@ While the home window is closed, the light behaves as follows.
   line fades in beside the light and fades out again.
 - **It speaks when the work needs you.** A card rises above the light, one at a
   time, for one of these:
-  - **A Socratic question (Gate 1).** Something about a goal is unclear or does
-    not hold up. You pick an option or answer in your own words.
+  - **A Socratic question (Gate 1).** The automatic Socratic gate
+    (`citadel/deliberate.py`) has already asked itself what it can: who is
+    asking, and whether what would be deleted is still in use. What only you
+    can settle is one question, in prose, and you answer it in your own
+    words. There are no buttons.
   - **A signature (Gate 2).** A step cannot be undone. The card shows what the
     signature commits to (action, target, rollback, node, expiry, fingerprint).
     "签名同意" stays disabled for its first 0.8 s. Your passphrase unlocks the
@@ -35,6 +38,16 @@ While the home window is closed, the light behaves as follows.
   - **The first meeting** (first run). It sets up its keys and your passphrase.
 
   The card fades away once you have answered.
+- **A refusal is a letter.** It is a short line in passing on the light, and
+  the whole letter in the home window's conversation. Two cases:
+  - **Fraud.** Fraud, and accounts in bulk from a history with fraud marks,
+    are refused for good.
+  - **Deleting something you still use.** The letter recounts how you used it
+    (how much is in it, since when, how often you opened it, what you said
+    about it), then offers ways that do not delete.
+
+  Something never used goes ahead, and its deletion is still signed at
+  Gate 2.
 - **It waits for a pause.** Attention comes from one coarse signal: the OS's own
   idle counter (`idle.py`). It never sees keys, windows or the screen. While
   you type without pausing, it holds what it has. A few seconds of quiet, or a
