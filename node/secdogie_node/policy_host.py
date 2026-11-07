@@ -163,16 +163,18 @@ class PolicyHost:
         mux.channel(POLICY_CHANNEL, handle)
 
 
-class PolicyClient:
-    """An App's side of ``policy/v1``: offer a bundle to one node and wait for
-    the verdict, re-sending (the channel is plain datagrams) until it answers."""
+class ChannelClient:
+    """An App's side of a request/reply channel to one node (``policy/v1``,
+    ``admin/v1``): send a request and wait for the answer naming it,
+    re-sending (the channel is plain datagrams) until it comes."""
 
-    def __init__(self, mux, node_did: str):
+    def __init__(self, mux, node_did: str, channel: str):
         self.mux = mux
         self.node_did = node_did
+        self.channel = channel
         self._cond = threading.Condition()
         self._replies: dict[str, dict] = {}
-        mux.channel(POLICY_CHANNEL, self._on_reply)
+        mux.channel(channel, self._on_reply)
 
     def _on_reply(self, sender: str, payload: bytes) -> None:
         if sender != self.node_did:
@@ -186,24 +188,29 @@ class PolicyClient:
                 self._replies[msg["req"]] = msg
                 self._cond.notify_all()
 
-    def request(self, op: str, *, bundle: dict | None = None, timeout: float = 10.0,
-                resend_every: float = 0.5) -> dict | None:
+    def request(self, op: str, *, timeout: float = 10.0, resend_every: float = 0.5, **fields) -> dict | None:
         req = secrets.token_hex(8)
-        msg = {"op": op, "req": req}
-        if bundle is not None:
-            msg["bundle"] = bundle
+        msg = {"op": op, "req": req, **{k: v for k, v in fields.items() if v is not None}}
         payload = json.dumps(msg, ensure_ascii=False).encode("utf-8")
         if len(payload) > MAX_MESSAGE:
-            raise ValueError("the bundle is too large for one datagram")
+            raise ValueError("the request is too large for one datagram")
         deadline = time.monotonic() + timeout
         with self._cond:
             while req not in self._replies:
                 left = deadline - time.monotonic()
                 if left <= 0:
                     return None
-                self.mux.send(self.node_did, POLICY_CHANNEL, payload)
+                self.mux.send(self.node_did, self.channel, payload)
                 self._cond.wait(min(left, resend_every))
             return self._replies.pop(req)
+
+
+class PolicyClient(ChannelClient):
+    """An App's side of ``policy/v1``: offer a bundle to one node and wait for
+    the verdict."""
+
+    def __init__(self, mux, node_did: str):
+        super().__init__(mux, node_did, POLICY_CHANNEL)
 
     def offer(self, bundle: dict, *, timeout: float = 10.0) -> dict | None:
         return self.request("offer", bundle=bundle, timeout=timeout)
@@ -212,4 +219,4 @@ class PolicyClient:
         return self.request("list", timeout=timeout)
 
 
-__all__ = ["APPLIED_KINDS", "POLICY_CHANNEL", "PolicyClient", "PolicyHost"]
+__all__ = ["APPLIED_KINDS", "POLICY_CHANNEL", "ChannelClient", "PolicyClient", "PolicyHost"]

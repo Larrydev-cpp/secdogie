@@ -235,6 +235,11 @@ class Supervisor:
             if e.get("kind") == "result" and (e.get("body") or {}).get("goal_id") == goal_id
         )
 
+    def goals(self) -> list:
+        """Every goal in the journal (``goals.Goal``: id, title, status), in the
+        order they were added."""
+        return list(self._tree().nodes.values())
+
     def pending_ready(self) -> list[str]:
         """Ready goals (pending, deps done) that are not paused or stopped.
         A stopped/paused goal stays pending but parked until it is resumed."""

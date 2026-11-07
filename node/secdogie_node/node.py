@@ -28,7 +28,8 @@ Control requests from the App are answered with a status line starting
 ended and offers any quarantined (S2) facts / preferences for confirmation.
 
 Rules arrive as signed policy bundles on ``policy/v1`` (``policy_host.py``) and
-take effect at once. Gate 1 meets every new goal at the door: the instruction
+take effect at once. The App may ask how the node is doing on ``admin/v1``
+(``admin.py``, read-only). Gate 1 meets every new goal at the door: the instruction
 review runs under the rules in force, and when it finds something, the
 companion's decision model turns the finding into one Socratic question. The
 goal waits for the answer and is queued only once it holds up. An unanswered
@@ -41,6 +42,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -67,6 +69,7 @@ from secdogie_transport import (
     UDPChannel,
 )
 
+from . import admin
 from .policy_host import PolicyHost
 
 log = logging.getLogger("secdogie_node")
@@ -127,6 +130,7 @@ class Node:
         self._stopping = threading.Event()
         self._worker: threading.Thread | None = None
         self._refused: set[str] = set()
+        self._started_at = 0.0
         self.channel = UDPChannel(*cfg.listen)
         try:
             self.transport = DirectUDPTransport(cfg.identity, self.channel, allowlist=self.apps,
@@ -145,6 +149,7 @@ class Node:
                                                    active=Endpoint("local", *self.channel.address)))
             self.router = SessionRouter(self.mux, accept=self._accept)
             self.policy.attach(self.mux, may_send=self.apps.contains)
+            admin.serve(self.mux, {"status": self.status}, may_send=self.apps.contains)
         except Exception:
             self.channel.close()
             raise
@@ -156,6 +161,7 @@ class Node:
     # -- lifecycle ------------------------------------------------------------------
 
     def start(self) -> None:
+        self._started_at = time.time()
         requeued = self.supervisor.recover()
         if requeued:
             log.info("resumed %d interrupted goal(s): %s", len(requeued), ", ".join(requeued))
@@ -188,6 +194,27 @@ class Node:
         if self.rendezvous is not None:
             self.rendezvous.close()
         self.channel.close()
+
+    def status(self) -> dict:
+        """What this node says about itself on ``admin/v1`` (see ``admin.py``)."""
+        goals = self.supervisor.goals()
+        with self._lock:
+            link = self._link
+        host, port = self.channel.address
+        return {
+            "node": self.identity.did,
+            "mesh": self.cfg.mesh,
+            "roles": list(self.cfg.roles),
+            "listen": f"{host}:{port}",
+            "carriers": [getattr(self.channel, "kind", "udp")],
+            "relays": len(self.cfg.relay_records),
+            "rendezvous": len(self.cfg.rendezvous_records),
+            "since": int(self._started_at),
+            "halted": self.supervisor.halted,
+            "app": None if link is None else {"did": link.session.peer_did, "connected": bool(link.session.alive)},
+            "goals": admin.goal_counts(goals),
+            "recent": admin.recent_goals(goals),
+        }
 
     # -- the App ----------------------------------------------------------------------
 
