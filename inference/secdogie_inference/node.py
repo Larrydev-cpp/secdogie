@@ -77,9 +77,11 @@ from .protocol import (
     make_fault,
     make_response,
     routed_through,
+    sealed_to,
 )
 from .router import Leg, NoRoute, Router, View
 from .safety import ACCEPTED, INTERCEPTED, SafetyLayer
+from .seal import open_input
 
 Backend = Callable[[str, str, str], str]  # (model, input, leased secret) -> output
 
@@ -197,7 +199,7 @@ class MeshNode(Carrier):
         if len(pins) < LOCKDOWN_QUORUM:
             return None, f"lockdown: pin at least {LOCKDOWN_QUORUM} model nodes"
         for provider, model in pins:
-            why = self._ineligible(provider, model, now)
+            why = self._ineligible(provider, model, now, request)
             if why:
                 return None, f"pinned model node not eligible ({why}): {provider}"
         for provider, _model in pins:
@@ -205,18 +207,24 @@ class MeshNode(Carrier):
                 self.connect(provider)  # the new P2P links straight to each pinned model node
         return [Leg(provider, model, (self.did, provider)) for provider, model in pins], None
 
-    def _ineligible(self, provider: str, model: str, now: float) -> str | None:
+    def _ineligible(self, provider: str, model: str, now: float, request: dict | None = None) -> str | None:
         if self.ledger.excludes_node(provider) or self.ledger.is_latched(model_target(model)):
             return "latched"
         if not any(p == provider and m == model for p, m, _ in self.leases.eligible([model], now)):
             return "no current lease"
+        readers = None if request is None else sealed_to(request)
+        if readers is not None and provider not in readers:
+            return "the input is not sealed to it"
         return None
 
     def _view(self, request: dict, now: float) -> View:
         excluded = self.excluded(now)
         adjacency = self.lsdb.adjacency(now, exclude=excluded)
+        readers = sealed_to(request)  # a sealed request can only go where it opens
         candidates = []
         for provider, model, _lease in self.leases.eligible(request["models"], now):
+            if readers is not None and provider not in readers:
+                continue
             if provider in adjacency and provider != self.did and provider not in excluded \
                     and not self.ledger.is_latched(model_target(model)) \
                     and self.breaker.available(node_target(provider), now) \
@@ -241,7 +249,7 @@ class MeshNode(Carrier):
         problems = decision_violations(body, p.request)
         if routed_through(body, self.excluded(now) | p.avoid):
             problems.append("excluded-hop")
-        if any(self._ineligible(leg.provider, leg.model, now) for leg in legs):
+        if any(self._ineligible(leg.provider, leg.model, now, p.request) for leg in legs):
             problems.append("ineligible-provider")
         return problems
 
@@ -452,8 +460,11 @@ class MeshNode(Carrier):
         self.send(leg["path"][hop - 1], "resp", decision=decision, response=response, leg=leg_i, hop=hop - 1)
 
     def _answer(self, request: dict, model: str, held: LeaseSecret) -> tuple[str, str, str]:
+        text, why = open_input(request, self.did, self._transport_key)
+        if why:
+            return STATUS_REFUSED, "", why  # the user's envelope, not mutiny: refuse and say why
         try:
-            output = self.backend(model, request["input"], held.secret)
+            output = self.backend(model, text, held.secret)
         except Exception as exc:  # noqa: BLE001 - a backend failure is a refusal, not a crash
             return STATUS_REFUSED, "", f"backend error: {type(exc).__name__}"
         if not isinstance(output, str):

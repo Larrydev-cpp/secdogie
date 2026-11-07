@@ -176,7 +176,7 @@ class KeyBroker(Participant):
     def _grant(self, did: str, assignment: Assignment, model: str, version: int, secret: str, fp: str) -> None:
         canary = new_canary()
         lease = make_lease(self.identity, did, model, key_version=version, canary=canary,
-                           ttl=self.config.lease_ttl, clock=self.clock)
+                           ttl=self.config.lease_ttl, seal_key=assignment.transport_public_key, clock=self.clock)
         sealed = seal_grant(lease, secret, canary, assignment.transport_public_key)
         self._issued[lease["lease_id"]] = lease
         self._granted_fp[lease["lease_id"]] = fp

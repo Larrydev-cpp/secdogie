@@ -42,7 +42,18 @@ from nacl.public import PrivateKey, PublicKey, SealedBox
 from secdogie_identity import sign_payload
 from secdogie_identity.signing import canonical
 
-from .protocol import MAX_REASON, digest, is_did, is_hex32, is_hex64, is_int, is_model, is_num, signed_by
+from .protocol import (
+    MAX_REASON,
+    digest,
+    is_did,
+    is_hex32,
+    is_hex64,
+    is_int,
+    is_model,
+    is_num,
+    is_x25519,
+    signed_by,
+)
 
 LEASE = "secdogie/inference/lease/v1"
 LEASE_REVOCATION = "secdogie/inference/lease-revocation/v1"
@@ -82,7 +93,9 @@ class LeaseSecret:
 # -- the public lease -----------------------------------------------------------
 
 def make_lease(broker, subject: str, model: str, *, key_version: int, canary: str,
-               ttl: float = DEFAULT_TTL, clock=time.time) -> dict:
+               ttl: float = DEFAULT_TTL, seal_key: str | None = None, clock=time.time) -> dict:
+    """``seal_key``: the subject's base64 X25519 key, from its verified DID
+    binding -- what a user seals a request's input to (``seal.py``)."""
     now = float(clock())
     body = {
         "type": LEASE,
@@ -94,6 +107,8 @@ def make_lease(broker, subject: str, model: str, *, key_version: int, canary: st
         "expires_at": now + float(ttl),
         "canary_hash": canary_hash(canary),
     }
+    if seal_key is not None:
+        body["seal_key"] = seal_key
     body["lease_id"] = digest(body)[:32]  # the random canary makes every lease distinct
     reason = lease_shape(body)
     if reason:
@@ -111,6 +126,8 @@ def lease_shape(obj: dict) -> str | None:
         return "bad validity window"
     if not is_hex64(obj.get("canary_hash")):
         return "bad canary_hash"
+    if "seal_key" in obj and not is_x25519(obj["seal_key"]):
+        return "bad seal_key"
     body = {k: v for k, v in obj.items() if k not in _ENVELOPE}
     if not is_hex32(obj.get("lease_id")) or obj["lease_id"] != digest(body)[:32]:
         return "lease_id does not commit to the lease"

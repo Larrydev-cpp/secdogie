@@ -17,6 +17,13 @@ distinct nodes, distinct models first, deterministic order -- signs a request
 with quorum two, and accepts only answers that agree. A pinned node that does
 not answer is dropped from the next try.
 
+**Sealed input.** By default the prompt is sealed (``seal.py``) to the model
+nodes that may answer -- every node with a current lease for one of the
+requested models, up to ``MAX_RECIPIENTS``; in lockdown, exactly the pins. The
+keys come from those nodes' broker-signed leases. With no node to seal to yet,
+the client fetches a directory and waits; it never falls back to sending the
+prompt in the clear. ``seal=False`` sends it in the clear on purpose.
+
 Evidence the client finds is signed as an incident and published through its
 attached nodes, like anyone's. Outcomes are final: ``accepted`` (with the
 output), ``intercepted`` (the answer was adversarial or the model nodes
@@ -35,9 +42,13 @@ from .mutiny import make_incident, model_target
 from .participant import Config, Participant
 from .protocol import (
     LOCKDOWN_QUORUM,
+    MAX_INPUT,
+    MAX_RECIPIENTS,
+    MAX_SEALED_INPUT,
     MODE_LOCKDOWN,
     MODE_NORMAL,
     digest,
+    is_x25519,
     make_request,
 )
 from .safety import ACCEPTED, INTERCEPTED, SafetyLayer, default_agree
@@ -84,10 +95,11 @@ class UserClient(Participant):
 
     def __init__(self, identity, wire, trust, *, entries, standby=(), fanout: int = 1, timeout: float = 15.0,
                  max_tries: int = 4, agree: Callable[[str, str], bool] = default_agree,
-                 config: Config | None = None, clock=time.time, ledger_store=None):
+                 config: Config | None = None, clock=time.time, ledger_store=None, seal: bool = True):
         super().__init__(identity, wire, trust, config=config, clock=clock, ledger_store=ledger_store)
         if not trust.users.contains(self.did):
             raise ValueError("a user client must be on the users list")
+        self.seal = seal
         self.entries = list(entries)
         self.standby = list(standby)
         self.fanout = max(1, int(fanout))
@@ -105,7 +117,15 @@ class UserClient(Participant):
     # -- the API ----------------------------------------------------------------------
 
     def ask(self, models, text: str, *, scopes=(), quorum: int = 1, ttl: float = 60.0) -> str:
-        """Start a request; returns a handle for ``outcome``."""
+        """Start a request; returns a handle for ``outcome``. Input that cannot
+        travel -- too long, or too many bytes to seal into one datagram -- is
+        refused here, before anything is sent: signing may happen later, once a
+        directory arrives, where a raise would land in a frame handler."""
+        if not isinstance(text, str) or len(text) > MAX_INPUT:
+            raise ValueError("input missing or too long")
+        if self.seal and len(text.encode("utf-8")) > MAX_SEALED_INPUT:
+            raise ValueError(f"input too long to seal into one datagram: {len(text.encode('utf-8'))} bytes, "
+                             f"at most {MAX_SEALED_INPUT}")
         with self._lock:
             handle = secrets.token_hex(8)
             self._asks[handle] = _Ask(tuple(models), text, tuple(scopes), int(quorum), float(ttl))
@@ -150,7 +170,14 @@ class UserClient(Participant):
             self._finish(handle, Outcome(OUTCOME_REFUSED, reasons=("no usable entry",), mode=MODE_NORMAL))
             return
         ask.mode = MODE_NORMAL
-        request = self._sign(handle, ask, quorum=ask.quorum)
+        seal_to = None
+        if self.seal:
+            seal_to = self.seal_targets(ask.models, now)
+            if not seal_to:
+                self._await_directory(handle, ask, now, fresh[:self.fanout])
+                return
+            ask.waiting_dir = False
+        request = self._sign(handle, ask, quorum=ask.quorum, seal_to=seal_to)
         ask.awaiting = set(fresh[:self.fanout])
         for entry in fresh[:self.fanout]:
             ask.tried.append(entry)
@@ -186,7 +213,11 @@ class UserClient(Participant):
             self.send(forwarder, "dir?")
             return
         ask.waiting_dir = False
-        request = self._sign(handle, ask, quorum=quorum, pins=pins)
+        seal_to = None
+        if self.seal:
+            keys = self._seal_keys(ask.models, now)
+            seal_to = [(p, keys[p]) for p, _m in pins]  # exactly the pins: pick_pins chose sealable ones
+        request = self._sign(handle, ask, quorum=quorum, pins=pins, seal_to=seal_to)
         ask.tried.append(forwarder)
         ask.awaiting = {forwarder}
         for incident in self.ledger.signed_incidents()[-2:]:
@@ -198,9 +229,11 @@ class UserClient(Participant):
         """Distinct model nodes holding a current lease, not latched, distinct
         models first; deterministic so the choice is auditable."""
         order = {m: i for i, m in enumerate(sorted(set(models)))}
+        sealable = self._seal_keys(models, now) if self.seal else None
         cands = sorted(((order[m], p, m) for p, m, _ in self.leases.eligible(models, now)
                         if p not in avoid and not self.ledger.excludes_node(p)
-                        and not self.ledger.is_latched(model_target(m))))
+                        and not self.ledger.is_latched(model_target(m))
+                        and (sealable is None or p in sealable)))
         pins: list[tuple[str, str]] = []
         for distinct in (True, False):
             for _i, p, m in cands:
@@ -210,6 +243,49 @@ class UserClient(Participant):
                     continue
                 pins.append((p, m))
         return pins
+
+    # -- sealing ----------------------------------------------------------------------
+
+    def _seal_keys(self, models, now: float) -> dict[str, str]:
+        """Model node -> the X25519 key its newest current lease names, for the
+        nodes that may answer ``models``: not latched, the model not latched."""
+        keys: dict[str, str] = {}
+        for p, m, lease in self.leases.eligible(models, now):  # newest key version first
+            if (p not in keys and is_x25519(lease.get("seal_key")) and not self.ledger.excludes_node(p)
+                    and not self.ledger.is_latched(model_target(m))):
+                keys[p] = lease["seal_key"]
+        return keys
+
+    def seal_targets(self, models, now: float) -> list[tuple[str, str]]:
+        """Whom a normal request is sealed to: every model node that may answer,
+        up to ``MAX_RECIPIENTS``, distinct models first, so the decider has a
+        choice of routes and of providers for a quorum."""
+        keys = self._seal_keys(models, now)
+        per_model: dict[str, list[str]] = {m: [] for m in sorted(set(models))}
+        for p, m, _ in sorted(self.leases.eligible(models, now), key=lambda x: (x[1], x[0])):
+            if p in keys and p not in per_model[m]:
+                per_model[m].append(p)
+        chosen: list[str] = []
+        while len(chosen) < MAX_RECIPIENTS and any(per_model.values()):
+            for queue in per_model.values():  # one node per model per round: every vendor gets a seat
+                if queue and len(chosen) < MAX_RECIPIENTS:
+                    p = queue.pop(0)
+                    if p not in chosen:
+                        chosen.append(p)
+        return [(p, keys[p]) for p in chosen]
+
+    def _await_directory(self, handle: str, ask: _Ask, now: float, entries) -> None:
+        """No model node to seal to yet: fetch a directory and try once more.
+        A second miss is a refusal -- never the prompt in the clear."""
+        if ask.waiting_dir:
+            self._finish(handle, Outcome(OUTCOME_REFUSED, mode=ask.mode,
+                                         reasons=("no model node to seal the input to",)))
+            return
+        ask.waiting_dir = True
+        ask.awaiting = set()  # a late refusal of an earlier try must not end this wait
+        ask.deadline = now + self.timeout
+        for entry in entries:
+            self.send(entry, "dir?")
 
     # -- answers ------------------------------------------------------------------------
 
@@ -275,7 +351,10 @@ class UserClient(Participant):
         now = float(self.clock())
         for handle, ask in list(self._asks.items()):
             if ask.waiting_dir and ask.outcome is None:
-                self._submit_lockdown(handle, ask, now)
+                if ask.mode == MODE_LOCKDOWN:
+                    self._submit_lockdown(handle, ask, now)
+                else:
+                    self._submit_normal(handle, ask, now)
 
     def on_incident(self, incident) -> None:
         now = float(self.clock())

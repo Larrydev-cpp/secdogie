@@ -18,10 +18,17 @@ JSON containers for those objects: the transport underneath already
 authenticates the neighbour (``ChannelMux`` hands over the verified sender DID),
 and nothing in a container is believed beyond what its signed contents prove.
 
+A request's input may travel **sealed** (``seal.py``): readable only by the
+model nodes it names, never by the deciders, forwarders or coordinator that
+carry it. This module only checks the sealed envelope's shape; the crypto lives
+in ``seal.py``.
+
 No new crypto, no obfuscation. Pure and deterministic given a clock.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import json
 import math
@@ -169,6 +176,69 @@ def is_hex32(v) -> bool:
     return isinstance(v, str) and bool(_HEX32.match(v))
 
 
+def b64_bytes(v) -> bytes | None:
+    """Strict standard base64 to bytes, or None."""
+    if not isinstance(v, str):
+        return None
+    try:
+        return base64.b64decode(v, validate=True)
+    except (binascii.Error, ValueError):
+        return None
+
+
+def is_x25519(v) -> bool:
+    """A base64 X25519 public key, as a DID binding or a lease's seal_key names it."""
+    raw = b64_bytes(v)
+    return raw is not None and len(raw) == 32
+
+
+# -- sealed input: the envelope's shape (the crypto is in seal.py) -------------
+
+SEALED_INPUT = "secdogie/inference/sealed-input/v1"  # domain of the AEAD associated data
+MAX_RECIPIENTS = 8
+SEAL_NONCE = 24         # XChaCha20-Poly1305
+SEAL_TAG = 16
+SEAL_WRAP = 80          # a 32-byte content key in a SealedBox
+# Sealed input is capped in UTF-8 *bytes* as well as characters. In the clear, a
+# character costs its UTF-8 bytes in the frame; sealed, its bytes cost a third
+# more again (base64 in JSON). With the largest decision, request and recipient
+# list a frame can carry, 20,786 bytes still fit one relayed datagram (relay
+# MAX_INNER); this keeps a margin. ASCII input reaches MAX_INPUT either way; CJK
+# input seals up to about 6,600 characters. tests/test_seal.py measures it.
+MAX_SEALED_INPUT = 20_000
+MAX_SEALED = MAX_SEALED_INPUT + SEAL_TAG
+
+
+def sealed_shape(obj) -> str | None:
+    if not isinstance(obj, dict) or set(obj) != {"v", "nonce", "ct", "to"} or obj["v"] != 1:
+        return "bad sealed input"
+    nonce, ct = b64_bytes(obj["nonce"]), b64_bytes(obj["ct"])
+    if nonce is None or len(nonce) != SEAL_NONCE:
+        return "bad sealed nonce"
+    if ct is None or not SEAL_TAG <= len(ct) <= MAX_SEALED:
+        return "bad sealed ciphertext"
+    to = obj["to"]
+    if not isinstance(to, list) or not 1 <= len(to) <= MAX_RECIPIENTS:
+        return f"sealed input names 1..{MAX_RECIPIENTS} model nodes"
+    for entry in to:
+        if not (isinstance(entry, list) and len(entry) == 2 and is_did(entry[0])):
+            return "bad sealed recipient"
+        wrap = b64_bytes(entry[1])
+        if wrap is None or len(wrap) != SEAL_WRAP:
+            return "bad sealed key"
+    dids = [entry[0] for entry in to]
+    if dids != sorted(set(dids)):
+        return "sealed recipients must be sorted and distinct"
+    return None
+
+
+def sealed_to(request: dict) -> frozenset[str] | None:
+    """The model nodes that can read a sealed request's input; None when the
+    input travels in the clear."""
+    sealed = request.get("sealed")
+    return None if sealed is None else frozenset(entry[0] for entry in sealed["to"])
+
+
 def _did_list(v, *, limit: int) -> bool:
     return (isinstance(v, list) and len(v) <= limit and all(is_did(d) for d in v)
             and sorted(set(v)) == v)
@@ -196,25 +266,39 @@ def signed_by(obj, type_: str, field: str, trust) -> str | None:
 # -- request: signed by the user -----------------------------------------------
 
 def make_request(identity, models, text: str, *, scopes=(), quorum: int = 1, pins=(), ttl: float = 60.0,
-                 clock=time.time) -> dict:
+                 seal_to=None, clock=time.time) -> dict:
     """A user's signed request. ``models`` are the models whose answer the user
     accepts; ``scopes`` the capability scopes an answer may act within (empty:
     the answer is text, nothing acts on it); ``quorum`` how many distinct model
     nodes must agree; ``pins`` -- ``(provider DID, model)`` pairs -- fix the
-    providers, as a user does in lockdown."""
+    providers, as a user does in lockdown.
+
+    ``seal_to`` -- ``(model node DID, base64 X25519 key)`` pairs, the keys
+    taken from those nodes' leases (``seal_key``) -- seals ``text`` so only
+    they can read it. Without it the input travels in the clear."""
     now = float(clock())
+    req_id = secrets.token_hex(16)
     body = {
         "type": REQUEST,
-        "req_id": secrets.token_hex(16),
+        "req_id": req_id,
         "user": identity.did,
         "models": sorted(set(models)),
-        "input": text,
         "scopes": sorted(set(scopes)),
         "quorum": quorum,
         "pins": [[p, m] for p, m in pins],
         "issued_at": now,
         "expires_at": now + float(ttl),
     }
+    if seal_to is None:
+        body["input"] = text
+    else:
+        if not isinstance(text, str) or len(text) > MAX_INPUT:
+            raise ValueError("input missing or too long")
+        size = len(text.encode("utf-8"))
+        if size > MAX_SEALED_INPUT:
+            raise ValueError(f"input too long to seal into one datagram: {size} bytes, at most {MAX_SEALED_INPUT}")
+        from .seal import seal_input  # the crypto stays out of this module
+        body["sealed"] = seal_input(text, user=identity.did, req_id=req_id, recipients=seal_to)
     reason = request_shape(body)
     if reason:
         raise ValueError(reason)
@@ -229,8 +313,15 @@ def request_shape(obj: dict) -> str | None:
         return f"a request names 1..{MAX_MODELS} models"
     if not all(is_model(m) for m in models) or sorted(set(models)) != models:
         return "bad model list"
-    if not isinstance(obj.get("input"), str) or len(obj["input"]) > MAX_INPUT:
-        return "input missing or too long"
+    if ("input" in obj) == ("sealed" in obj):
+        return "a request carries its input either in the clear or sealed, not both or neither"
+    if "input" in obj:
+        if not isinstance(obj["input"], str) or len(obj["input"]) > MAX_INPUT:
+            return "input missing or too long"
+    else:
+        reason = sealed_shape(obj["sealed"])
+        if reason:
+            return reason
     scopes = obj.get("scopes")
     if (not isinstance(scopes, list) or any(not isinstance(s, str) for s in scopes)
             or sorted(set(scopes)) != scopes):
@@ -252,6 +343,9 @@ def request_shape(obj: dict) -> str | None:
         pinned.add(pin[0])
     if pins and len(pins) < quorum:
         return "fewer pins than the quorum"
+    readers = sealed_to(obj)
+    if readers is not None and any(pin[0] not in readers for pin in pins):
+        return "a pinned model node cannot open the sealed input"
     iss, exp = obj.get("issued_at"), obj.get("expires_at")
     if not is_num(iss) or not is_num(exp) or not 0 < exp - iss <= MAX_TTL:
         return "bad validity window"

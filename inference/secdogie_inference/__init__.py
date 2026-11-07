@@ -40,6 +40,7 @@ from .protocol import (
 )
 from .router import Leg, NoRoute, Router, View
 from .safety import SafetyLayer, Verdict, default_agree
+from .seal import open_input, seal_input
 from .wire import MuxWire, Wire
 
 __version__ = "0.1.0"
@@ -82,6 +83,8 @@ __all__ = [
     "Wire",
     "MuxWire",
     "make_request",
+    "seal_input",
+    "open_input",
     "CHANNEL",
     "MODE_NORMAL",
     "MODE_DEGRADED",
