@@ -137,8 +137,9 @@ Window {
             maximumLineCount: 4
             elide: Text.ElideRight
             color: P.whisperTone === "warm" ? Theme.warm : Theme.text
-            font.pixelSize: Theme.body
-            lineHeight: 1.3
+            font.family: Theme.serif                     // a whisper is the companion's voice
+            font.pixelSize: Theme.voice - 1
+            lineHeight: 1.35
         }
     }
 

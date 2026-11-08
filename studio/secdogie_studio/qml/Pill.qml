@@ -8,7 +8,6 @@ Button {
     id: pill
     property bool primary: false
     property color tint: Theme.calm
-    property string trailing                    // an icon after the words ("arrow" for "go on")
     hoverEnabled: true
     implicitHeight: 40
     leftPadding: 20
@@ -19,29 +18,15 @@ Button {
     Keys.onReturnPressed: pill.animateClick()
     Keys.onEnterPressed: pill.animateClick()
     HoverHandler { cursorShape: Qt.PointingHandCursor }
-    contentItem: Item {
-        implicitWidth: words.implicitWidth + (pill.trailing ? 24 : 0)
-        implicitHeight: words.implicitHeight
+    contentItem: Text {
+        text: pill.text
+        textFormat: Text.PlainText
+        font: pill.font
+        color: pill.primary ? Qt.lighter(pill.tint, 1.12) : Theme.text
         opacity: pill.enabled ? 1 : 0.4
-        Row {
-            anchors.centerIn: parent
-            spacing: 8
-            Text {
-                id: words
-                text: pill.text
-                textFormat: Text.PlainText
-                font: pill.font
-                color: pill.primary ? Qt.lighter(pill.tint, 1.12) : Theme.text
-                anchors.verticalCenter: parent.verticalCenter
-            }
-            Icon {
-                visible: pill.trailing !== ""
-                name: pill.trailing
-                size: 16
-                color: words.color
-                anchors.verticalCenter: parent.verticalCenter
-            }
-        }
+        horizontalAlignment: Text.AlignHCenter
+        verticalAlignment: Text.AlignVCenter
+        elide: Text.ElideRight
     }
     background: Rectangle {
         radius: height / 2

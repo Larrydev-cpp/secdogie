@@ -1,5 +1,11 @@
 // The design tokens every window draws with (studio/DESIGN.md): colour, type,
 // motion. One instance for the whole app.
+//
+// The world is a night of correspondence. The ground is blue ink, not black.
+// Two lights share it:
+//   * lamp (warm) is the companion: its light, its mark, its voice;
+//   * frost (cool) is you: your words, your controls, where your keyboard is.
+// The companion writes in a serif, like a letter; the interface speaks sans.
 pragma Singleton
 import QtQuick
 
@@ -8,26 +14,27 @@ QtObject {
     // from the bridge (P.still) when it opens.
     property bool still: false
 
-    // ---- colour: night, soft light ----
-    readonly property color ground: "#0D0F14"                        // the home window
-    readonly property color sunk: "#0A0B0F"                          // its rail, a step below
-    readonly property color panel: "#151820"                         // a raised area inside it
-    readonly property color panelHi: "#1B1F29"                       // ... hovered, or raised again
-    readonly property color card: Qt.rgba(0.071, 0.078, 0.106, 0.96) // the light's sheets
-    readonly property color well: Qt.rgba(1, 1, 1, 0.04)             // an inset area: the rules editor
-    readonly property color hairline: Qt.rgba(1, 1, 1, 0.08)         // edges and dividers that carry nothing
-    readonly property color edge: Qt.rgba(1, 1, 1, 0.34)             // a control's boundary: 3:1 on any surface here
-    readonly property color wash: Qt.rgba(1, 1, 1, 0.06)             // a quiet control, hovered
-    readonly property color press: Qt.rgba(1, 1, 1, 0.11)            // ... and pressed, or the open page
-    // text, tinted warm rather than grey (4.5:1 or more on every surface above)
-    readonly property color text: "#ECE6DC"
-    readonly property color soft: "#BDB5AA"
-    readonly property color faint: "#948C82"
-    // moods; calm is also where the keyboard is
-    readonly property color calm: "#8FB6FF"
-    readonly property color think: "#B9A7FF"
-    readonly property color warm: "#F2C27F"
-    readonly property color sign: "#F3A983"
+    // ---- colour ----
+    readonly property color ground: "#0E1322"                        // night: the home window
+    readonly property color sunk: "#0A0E1A"                          // deeper night: its rail
+    readonly property color panel: "#172038"                         // letter paper: what is raised (the composer, a card)
+    readonly property color panelHi: "#1E2843"                       // ... raised again
+    readonly property color card: Qt.rgba(0.090, 0.125, 0.220, 0.97) // the light's sheets, on the desktop
+    readonly property color well: Qt.rgba(0.925, 0.906, 0.863, 0.035) // an inset area: the rules editor
+    readonly property color hairline: Qt.rgba(0.925, 0.906, 0.863, 0.09) // edges and dividers that carry nothing
+    readonly property color edge: Qt.rgba(0.925, 0.906, 0.863, 0.40)  // a control's boundary: 3:1 on every surface
+    readonly property color wash: Qt.rgba(0.925, 0.906, 0.863, 0.06)  // a quiet control, hovered
+    readonly property color press: Qt.rgba(0.925, 0.906, 0.863, 0.11) // ... and pressed
+    // text: moon-white, then mist and dim, tinted from the night (4.5:1 or more on every surface)
+    readonly property color text: "#ECE7DC"
+    readonly property color soft: "#AEB4C8"
+    readonly property color faint: "#8C93AC"
+    // the two lights, and the companion's moods
+    readonly property color lamp: "#F2CF86"                          // the companion, at rest
+    readonly property color calm: "#9FB8EE"                          // frost: you, your controls, the keyboard
+    readonly property color think: "#B9ABF0"                         // dusk: it is working
+    readonly property color warm: "#F0A955"                          // amber: it is waiting on you; a step it stopped
+    readonly property color sign: "#E8957A"                          // seal: a signature is needed
     readonly property color focus: calm
 
     function moodColor(mood) {
@@ -35,17 +42,21 @@ QtObject {
         case "thinking": return think
         case "waiting": return warm
         case "signing": return sign
-        default: return calm
+        default: return lamp
         }
     }
     function tinted(c, a) { return Qt.rgba(c.r, c.g, c.b, a) }
 
-    // ---- type: five steps on a 1.2 scale ----
+    // ---- type: the companion writes in a serif; the interface is the platform's sans ----
+    readonly property string serif: Qt.platform.os === "osx" ? "Songti SC"
+                                    : (Qt.platform.os === "windows" ? "SimSun" : "Noto Serif CJK SC")
+    // a classical scale (The Elements of Typographic Style): 12 14 16 18 24 36
     readonly property int meta: 12
     readonly property int body: 14
-    readonly property int lead: 17
-    readonly property int title: 20
-    readonly property int display: 28        // the first meeting's headings
+    readonly property int voice: 16          // what the companion says, in the serif
+    readonly property int lead: 18
+    readonly property int title: 24
+    readonly property int display: 36        // the first meeting's greeting
 
     // ---- motion ----
     readonly property int enter: still ? 120 : 240

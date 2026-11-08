@@ -13,6 +13,10 @@ Item {
     property int held: 0                        // things waiting for the person: a warm mark
     property bool lit: false                    // hovered or focused: fully bright at rest
     property bool breathing: true
+    property bool sphere: true                  // false: glow only (the faint light the work sits in)
+    // A small mark (beside a line of the conversation) is drawn with plain rectangles: they clip
+    // inside a scrolling list on every renderer, where a Shape may not on the software one.
+    readonly property bool small: size <= 32
     implicitWidth: size
     implicitHeight: size
     Accessible.ignored: true
@@ -32,7 +36,32 @@ Item {
     opacity: mood === "rest" ? (lit ? 1 : 0.66 + 0.22 * b) : 1
     Behavior on opacity { NumberAnimation { duration: 400 } }
 
+    Repeater {                                  // the small mark: a few soft rings and a core
+        model: orb.small ? [0.06, 0.12, 0.22, 0.4] : []
+        Rectangle {
+            required property real modelData
+            required property int index
+            anchors.centerIn: parent
+            width: orb.size * (1 - index * 0.2)
+            height: width
+            radius: width / 2
+            color: Theme.tinted(orb.tint, modelData)
+        }
+    }
+    Rectangle {
+        visible: orb.small && orb.sphere
+        anchors.centerIn: parent
+        width: Math.max(6, orb.size * 0.3)
+        height: width
+        radius: width / 2
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: Qt.lighter(orb.tint, 1.6) }
+            GradientStop { position: 1.0; color: orb.tint }
+        }
+    }
+
     Shape {                                     // the glow
+        visible: !orb.small
         anchors.centerIn: parent
         width: orb.size
         height: orb.size
@@ -55,6 +84,8 @@ Item {
         }
     }
     Shape {                                     // the core: a small sphere, lit from the upper left
+        id: core
+        visible: orb.sphere && !orb.small
         readonly property real d: Math.max(7, orb.size * (0.21 + 0.02 * orb.b))
         anchors.centerIn: parent
         width: d
@@ -63,13 +94,13 @@ Item {
         ShapePath {
             strokeColor: "transparent"
             fillGradient: RadialGradient {
-                centerX: parent.d / 2; centerY: parent.d / 2; centerRadius: parent.d / 2
-                focalX: parent.d * 0.38; focalY: parent.d * 0.34
+                centerX: core.d / 2; centerY: core.d / 2; centerRadius: core.d / 2
+                focalX: core.d * 0.38; focalY: core.d * 0.34
                 GradientStop { position: 0.0; color: Qt.lighter(orb.tint, 1.75) }
                 GradientStop { position: 0.55; color: Qt.lighter(orb.tint, 1.2) }
                 GradientStop { position: 1.0; color: orb.tint }
             }
-            PathAngleArc { centerX: parent.d / 2; centerY: parent.d / 2; radiusX: parent.d / 2; radiusY: parent.d / 2
+            PathAngleArc { centerX: core.d / 2; centerY: core.d / 2; radiusX: core.d / 2; radiusY: core.d / 2
                            startAngle: 0; sweepAngle: 360 }
         }
     }

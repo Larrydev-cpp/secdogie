@@ -73,7 +73,7 @@ def duration_words(seconds: float) -> str:
 
 def work_words(goals: dict) -> str:
     parts = [f"{GOAL_WORDS[k]} {goals[k]} 件" for k in ("active", "pending", "done", "failed") if goals.get(k)]
-    return " · ".join(parts) if parts else "还没有交给我的事。"
+    return "，".join(parts) if parts else "还没有交给我的事。"
 
 
 def greeting(now: float) -> str:
@@ -213,12 +213,14 @@ class Presence:
         st = status or {}
         app = st.get("app") or {}
         relays, rendezvous = st.get("relays", 0), st.get("rendezvous", 0)
-        carriers = " · ".join([*(c.upper() for c in st.get("carriers", ["udp"])),
-                               *([f"中继 {relays} 个"] if relays else []),
-                               *([f"会合点 {rendezvous} 个"] if rendezvous else [])])
+        carriers = "、".join(c.upper() for c in st.get("carriers", ["udp"]))
+        extra = [f"{relays} 个中继"] if relays else []
+        extra += [f"{rendezvous} 个会合点"] if rendezvous else []
+        if extra:
+            carriers += "，另有 " + "、".join(extra)
         rules = [{"name": KIND_WORDS.get(a.get("kind"), a.get("kind", "")), "version": a.get("version", 0),
                   "applied": bool(a.get("applied")),
-                  "words": f"第 {a.get('version', 0)} 版 · " + ("生效中" if a.get("applied") else "已记录，节点还没启用")}
+                  "words": f"第 {a.get('version', 0)} 版" + ("，生效中" if a.get("applied") else "（已记录，节点还没启用）")}
                  for a in active]
         return {
             "state": snap.node_state,

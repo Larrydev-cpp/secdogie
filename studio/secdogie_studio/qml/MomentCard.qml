@@ -32,7 +32,7 @@ Column {
     readonly property var rest: parts.slice(1, restParagraphs > 0 ? 1 + restParagraphs : parts.length)
     readonly property bool cut: rest.length < parts.length - 1
     signal readAll                              // the rest did not fit: read it in the home window
-    Text {
+    Text {                                      // the companion's own words: its serif
         width: parent.width
         text: card.parts[0]
         textFormat: Text.PlainText
@@ -40,9 +40,10 @@ Column {
         maximumLineCount: 6
         elide: Text.ElideRight
         color: Theme.text
+        font.family: Theme.serif
         font.pixelSize: Theme.lead
-        font.weight: Font.Medium
-        lineHeight: 1.35
+        font.weight: Font.DemiBold
+        lineHeight: 1.45
     }
     Column {
         visible: card.rest.length > 0
@@ -59,8 +60,9 @@ Column {
                 maximumLineCount: card.restParagraphs > 0 ? 8 : 1000
                 elide: Text.ElideRight
                 color: Theme.soft
-                font.pixelSize: Theme.body
-                lineHeight: 1.6
+                font.family: Theme.serif
+                font.pixelSize: Theme.voice - 1
+                lineHeight: 1.7
             }
         }
     }
