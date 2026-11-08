@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os
+
+# The tests read Studio's Chinese words; English is tested on purpose where it matters.
+os.environ.setdefault("SECDOGIE_LANG", "zh")
+
 import pytest
 from secdogie_studio.profile import create_profile
 

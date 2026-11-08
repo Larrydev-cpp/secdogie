@@ -77,7 +77,7 @@ Column {
                 id: detail
                 required property var modelData
                 readonly property bool plain: modelData[0] === ""
-                readonly property bool refusal: modelData[0] === "不能签" || modelData[0] === "不能记"
+                readonly property bool refusal: ["不能签", "不能记", "Can't sign", "Can't keep"].indexOf(modelData[0]) >= 0
                 width: card.width
                 spacing: 12
                 Text {
