@@ -50,8 +50,10 @@ All tokens live in `Theme.qml`, a singleton both windows share.
 
 | Token | Value | Use | On the card |
 | --- | --- | --- | --- |
-| `ground` | `#0E1015` | the home window | n/a |
-| `panel` | `#161922` | a raised area in the home window: chat bubbles, the waiting card | n/a |
+| `sunk` | `#0A0B0F` | the home window's rail, a step below | n/a |
+| `ground` | `#0D0F14` | the home window | n/a |
+| `panel` | `#151820` | a raised area in the home window: panels, chat bubbles, the composer, the waiting card | n/a |
+| `panelHi` | `#1B1F29` | the open page in the rail | n/a |
 | `card` | rgba(0.071, 0.078, 0.106, 0.96) | the light's sheets and the whisper | n/a |
 | `text` | `#ECE6DC` | primary text | 14.7 : 1 |
 | `soft` | `#BDB5AA` | secondary text, explanations, the log | 9.0 : 1 (8.6 on `panel`) |
@@ -69,8 +71,9 @@ clears 4.5 : 1 on the card, and every control boundary clears 3 : 1.
 
 ### Type
 
-The scale has four steps at a ratio of about 1.2: `meta` 12, `body` 14,
-`lead` 17, `title` 20 (a home page's title).
+The scale has five steps at a ratio of about 1.2: `meta` 12, `body` 14,
+`lead` 17, `title` 20 (a home page's title), `display` 28 (the first
+meeting's headings).
 
 - What the companion says, which is the heading of a card, is `lead` at
   medium weight.
@@ -115,6 +118,23 @@ light stops breathing, sheets cross-fade without travelling, and mood changes
 are quick.
 
 ## Components
+
+- **Icons (`Icon.qml`).** Drawn, never glyphs: one small set authored on a
+  24 px grid (conversation, mesh, power, send, eye, check, shield, key,
+  arrow), one 1.6 px stroke with round caps. They are decorative; the
+  control around them carries the accessible name.
+- **The light (`Orb.qml`).** A soft radial glow around a small sphere lit
+  from the upper left, drawn with Qt Quick Shapes gradients.
+  - Large and breathing as the companion itself.
+  - Still and small (26–56 px) as its mark beside what it says, or as a
+    node's state.
+  - Huge and faint (7–16 %) as the light the work sits in.
+- **IconButton, StatusPill, Panel.**
+  - IconButton: a round button around one icon, used for send and show
+    passphrase.
+  - StatusPill: a tinted label for a state that is always also written in
+    words (排队中, 正在做, 做完了, 生效中).
+  - Panel: a raised group on `panel` with a hairline and a faint top light.
 
 - **Light (orb).**
   - Glow rings and a core, tinted by mood, with a warm dot when something is
@@ -165,29 +185,74 @@ are quick.
     `tests/test_purity.py`). The home window's input line is just its first
     focus item, in a window the person opened.
 
+## The first meeting (sign-up)
+
+Before there is a profile, the home window is the first meeting
+(`Onboarding.qml`).
+
+- **Layout.** One centred column, at most 460 px wide. Above it sits a huge,
+  faint light. At the top are four marks for the steps; the current one is
+  drawn long.
+- **The steps.**
+  1. **你好.** Who it is, in three promises, each with a drawn icon:
+     everything stays on this computer; only your signature counts; it asks
+     in prose when unsure.
+  2. **怎么称呼你.** An optional name, kept in the profile (`name`, at most
+     24 characters, one line). It is used in the greeting, on the rail and
+     in the empty conversation.
+  3. **签名口令.** The passphrase and its confirmation:
+     - the passphrase can be shown while typing (eye button);
+     - a four-mark strength meter with a word (太短了 / 还可以 / 不错 /
+       很好);
+     - two checks drawn as icons (at least 8 characters; both the same);
+     - "生成我的钥匙" is enabled only once both checks hold.
+  4. **正在生成.** The light thinks while the keys are made.
+  5. **好了.** The three keys (the node's, the App's, your signing key),
+     each copyable, then "开始吧".
+- **Motion.** Steps cross-fade and slide 24 px (no slide when reduced
+  motion). The bridge says when the keys are being made and when they are
+  ready (`onboarding`: form / making / ready). The steps before that live in
+  the QML.
+- **The light.** If the window is closed during the first meeting, the
+  light offers the same hello as a card.
+
 ## The home window
 
-- **Shape.** It is a normal, decorated window: 980 × 680, and never smaller
-  than 760 × 540. It is drawn on `ground`.
+- **Shape.** It is a normal, decorated window: 1040 × 720, and never
+  smaller than 820 × 580. Pages cross-fade. It is drawn on `ground`.
 - **Closing.** Closing it never quits. It leaves the light, and "让我休息"
   in the rail is what quits (window and node together).
-- **Rail (216 px).**
-  - The companion's light at 48 px, its name, and its mood in words
-    ("醒着", "正在做事", "有事等你", "等你签名").
+- **Rail (236 px, on `sunk`).**
+  - The companion's light at 40 px, its name, and a state dot with its mood
+    in words ("醒着", "正在做事", "有事等你", "等你签名").
+  - Each page has a drawn icon. The open page sits on `panelHi` with a
+    hairline; there is no side stripe.
+  - At the foot: you (an initial in a calm circle, your name, "签名钥匙在这台
+    电脑上"), then "让我休息" and "关掉窗口，我就在屏幕角落。"
   - Two pages, switched by click, Tab and Enter, or Ctrl+1 / Ctrl+2. The page
     you are on is filled with `press`. When you are on the other page,
     "对话" shows how many things wait on you (a warm count).
-  - At the bottom: "关掉窗口，我就在屏幕角落。" and "让我休息".
 - **对话.**
   - A readable column, at most 720 px wide.
+  - A title, and under it a greeting by the time of day and your name
+    ("晚上好，小王。").
   - The person's lines sit on the right in a calm-tinted bubble; the
-    companion's lines sit on the left on `panel`. A step it stopped is
-    written in warm, and quiet notes are centred in `faint`.
+    companion's lines sit on the left on `panel`.
+    - Lines from the same speaker run together (6 px apart, 18 px between
+      speakers).
+    - The first line of a run has a sharper corner toward its speaker, and
+      the companion's run opens with its small light.
+    - A step it stopped is written in warm. Quiet notes sit centred in a
+      faint chip.
+  - Before the first word: the light, "想让我做点什么？", and three
+    suggestions that fill the composer (they never take the focus).
+  - The composer is a rounded box on `panel` whose border lights calm while
+    you type. Inside it are the line and a round send button.
   - A short conversation sits just above the input line. The list keeps the
     newest line in view unless you scrolled up, and lines are appended by a
     stable key, so the list never jumps.
-  - What waits on the person shows as one card (`MomentCard` on `panel`)
-    above the input line, with "还有 N 件在等你" when there are more. A
+  - What waits on the person shows as one card (`MomentCard` on `panel`, its
+    kind a line of light along the top edge) above the composer, with "还有 N 件在等你" when there are more. A
     question that is still waiting appears only in that card. Once it is
     answered, question and answer take their place in the conversation.
   - **A refusal at length (a letter).** It sits on the left like any of the
@@ -205,14 +270,16 @@ are quick.
     paragraphs, then "在主界面里看完整的".
   - The input line is the window's first focus item. "交给我" is enabled
     once there is something to send.
-- **节点与网格.** Sections with headings and no boxes; the facts are
-  label/value rows, and DIDs copy on click.
-  - **This node:** its state (dot and words), how long it has been awake,
+- **节点与网格.** Four panels. The facts are label/value rows, and DIDs
+  copy on click.
+  - **This node:** its state (a light and words), how long it has been awake,
     DID, roles, listen address, how it connects, and whether Studio is
     connected.
-  - **Its work:** a one-line count, then the latest goals with their state.
-  - **The mesh:** the operator's signing key and the App. The other nodes
-    have an honest empty state: there are none yet, and invitations, LAN
+  - **Its work:** a one-line count, then the latest goals, each with a
+    status pill.
+  - **The mesh:** a small drawing of this node with dashed empty places
+    around it, the operator's signing key and the App. The other nodes have
+    an honest empty state: there are none yet, and invitations, LAN
     discovery and WebRTC are still being built.
   - **The gate rules:** which bundles are in force and which are only
     recorded. "编辑规则" opens the same editor the light uses, inline (no
@@ -220,8 +287,6 @@ are quick.
   - The node itself supplies this, over `admin/v1` (read-only, every 3 s
     while the window is open). The controller and `policy/v1` supply the
     rest.
-- **The first hello.** Before there is a node, the whole window is the light
-  (96 px) above the welcome card.
 
 ## The light's window
 

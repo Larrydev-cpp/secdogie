@@ -9,8 +9,10 @@ QtObject {
     property bool still: false
 
     // ---- colour: night, soft light ----
-    readonly property color ground: "#0E1015"                        // the home window
-    readonly property color panel: "#161922"                         // a raised area inside it
+    readonly property color ground: "#0D0F14"                        // the home window
+    readonly property color sunk: "#0A0B0F"                          // its rail, a step below
+    readonly property color panel: "#151820"                         // a raised area inside it
+    readonly property color panelHi: "#1B1F29"                       // ... hovered, or raised again
     readonly property color card: Qt.rgba(0.071, 0.078, 0.106, 0.96) // the light's sheets
     readonly property color well: Qt.rgba(1, 1, 1, 0.04)             // an inset area: the rules editor
     readonly property color hairline: Qt.rgba(1, 1, 1, 0.08)         // edges and dividers that carry nothing
@@ -38,11 +40,12 @@ QtObject {
     }
     function tinted(c, a) { return Qt.rgba(c.r, c.g, c.b, a) }
 
-    // ---- type: four steps on a 1.2 scale ----
+    // ---- type: five steps on a 1.2 scale ----
     readonly property int meta: 12
     readonly property int body: 14
     readonly property int lead: 17
     readonly property int title: 20
+    readonly property int display: 28        // the first meeting's headings
 
     // ---- motion ----
     readonly property int enter: still ? 120 : 240

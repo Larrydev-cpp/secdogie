@@ -35,7 +35,14 @@ While the home window is closed, the light behaves as follows.
     operator key for that one signature.
   - **A memory.** The companion would like to remember something you told it.
     Keep it or not.
-  - **The first meeting** (first run). It sets up its keys and your passphrase.
+  - **The first meeting** (first run). In the home window this is a sign-up
+    in steps:
+    1. who it is;
+    2. what to call you (optional);
+    3. your signing passphrase, with a strength meter and a show/hide
+       button;
+    4. the keys being made;
+    5. your three keys.
 
   The card fades away once you have answered.
 - **A refusal is a letter.** It is a short line in passing on the light, and

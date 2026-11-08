@@ -39,6 +39,7 @@ DEFAULT_ROLES = ("forward",)
 DEFAULT_LISTEN = "127.0.0.1:0"
 DEFAULT_MESH = "home"
 MIN_PASSPHRASE = 8
+MAX_NAME = 24  # characters of the name the person asked to be called
 
 _FILES = ("node.key", "app.key", "operator.keystore", "apps.allow", "operators.allow", "nodes.allow",
           "issuers.allow", "studio.json")
@@ -116,6 +117,14 @@ class Profile:
             raise ProfileError(f"{self.settings_path}: not a version {SETTINGS_VERSION} Studio profile")
         return data
 
+    def name(self) -> str:
+        """What the person asked to be called (optional; set at the first meeting)."""
+        try:
+            value = self.settings().get("name", "")
+        except ProfileError:
+            return ""
+        return value if isinstance(value, str) else ""
+
     def node_did(self) -> str:
         return Identity.load(self.node_key).did
 
@@ -151,8 +160,14 @@ def _write_allow(path: Path, did: str, what: str) -> None:
                     encoding="utf-8")
 
 
+def clean_name(name: str) -> str:
+    """A name to be called by: one line, no control characters, at most MAX_NAME characters."""
+    text = "".join(c for c in str(name or "") if c.isprintable()).strip()
+    return text[:MAX_NAME]
+
+
 def create_profile(root: str | os.PathLike, passphrase: bytes, *, roles=DEFAULT_ROLES,
-                   listen: str = DEFAULT_LISTEN, kdf: str = "moderate", clock=time.time) -> Profile:
+                   listen: str = DEFAULT_LISTEN, kdf: str = "moderate", name: str = "", clock=time.time) -> Profile:
     """Create a complete profile at ``root``. Refuses to touch a directory that
     already holds any profile file, so a key is never overwritten -- not even
     one left by an interrupted first run."""
@@ -183,7 +198,7 @@ def create_profile(root: str | os.PathLike, passphrase: bytes, *, roles=DEFAULT_
     _write_allow(root / "issuers.allow", operator.did, "who may grant this node capabilities")
     settings = {"version": SETTINGS_VERSION, "roles": sorted(roles), "listen": listen, "mesh": DEFAULT_MESH,
                 "mdns": False,
-                "keep_node_after_close": False, "created_at": int(clock())}
+                "keep_node_after_close": False, "created_at": int(clock()), "name": clean_name(name)}
     tmp = root / "studio.json.tmp"
     tmp.write_text(json.dumps(settings, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     os.replace(tmp, root / "studio.json")

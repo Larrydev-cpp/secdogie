@@ -13,3 +13,8 @@ Fact 1.0 Fact.qml
 Orb 1.0 Orb.qml
 MomentCard 1.0 MomentCard.qml
 RulesEditor 1.0 RulesEditor.qml
+Icon 1.0 Icon.qml
+IconButton 1.0 IconButton.qml
+StatusPill 1.0 StatusPill.qml
+Panel 1.0 Panel.qml
+Onboarding 1.0 Onboarding.qml

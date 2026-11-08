@@ -31,6 +31,16 @@ def test_settings_are_safe_by_default(profile):
     s = profile.settings()
     assert s["roles"] == ["forward"] and s["listen"] == "127.0.0.1:0"
     assert s["mdns"] is False and s["keep_node_after_close"] is False
+    assert profile.name() == ""  # no name unless one was given
+
+
+def test_a_name_is_one_clean_line(tmp_path):
+    from secdogie_studio.profile import MAX_NAME, clean_name, create_profile
+
+    assert clean_name("  小王\n") == "小王" and clean_name("a\x00b") == "ab"
+    assert len(clean_name("长" * 100)) == MAX_NAME
+    made = create_profile(tmp_path / "p", PASS, kdf="min", name="小王")
+    assert made.name() == "小王"
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX permissions")

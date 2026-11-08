@@ -5,30 +5,32 @@
 // corner of the screen (Presence.qml); clicking the light brings this window
 // back. While it is open, what waits on you (one question, one signature, one
 // memory) shows here, above the line you type into, one at a time. Before
-// there is a node at all, the whole window is the first hello.
+// there is a profile, the whole window is the first meeting (Onboarding.qml).
 //
 // The design system is in studio/DESIGN.md; all state comes from the bridge
 // `P` (secdogie_studio/app.py).
 import QtQuick
 import QtQuick.Window
 import QtQuick.Controls
+import QtQuick.Shapes
 import "."
 
 Window {
     id: home
     title: "secdogie"
-    width: 980
-    height: 680
-    minimumWidth: 760
-    minimumHeight: 540
+    width: 1040
+    height: 720
+    minimumWidth: 820
+    minimumHeight: 580
     color: Theme.ground
     visible: P.homeOpen
     onClosing: (close) => { close.accepted = false; P.closeHome() }   // closing leaves the light
 
     property int page: 0                                   // 0: the conversation, 1: the node and its mesh
-    readonly property bool first: !!P.homeCard && P.homeCard.kind === "welcome"
+    readonly property bool first: (P.onboarding || "") !== ""
     readonly property int waitingCount: P.homeCard ? 1 + P.waiting : 0
     readonly property var node: P.node || ({})
+    readonly property string you: P.you || ""
     property bool editingRules: false
 
     function moodWords(mood) {
@@ -45,6 +47,14 @@ Window {
         case "running": return Theme.calm
         case "starting": return Theme.think
         case "exited": return Theme.warm
+        default: return Theme.faint
+        }
+    }
+    function goalTint(status) {
+        switch (status) {
+        case "active": return Theme.think
+        case "done": return Theme.calm
+        case "failed": return Theme.warm
         default: return Theme.faint
         }
     }
@@ -91,6 +101,7 @@ Window {
         id: item
         property bool current: false
         property int badge: 0
+        property string symbol
         hoverEnabled: true
         implicitHeight: 40
         leftPadding: 12
@@ -103,13 +114,19 @@ Window {
         Keys.onEnterPressed: item.animateClick()
         HoverHandler { cursorShape: Qt.PointingHandCursor }
         contentItem: Item {
-            Text {
+            Row {
                 anchors.verticalCenter: parent.verticalCenter
-                text: item.text
-                textFormat: Text.PlainText
-                font.pixelSize: item.font.pixelSize
-                font.weight: item.current ? Font.Medium : Font.Normal
-                color: item.current || item.hovered ? Theme.text : Theme.soft
+                spacing: 12
+                Icon { name: item.symbol; size: 18; anchors.verticalCenter: parent.verticalCenter
+                       color: item.current ? Theme.calm : (item.hovered ? Theme.text : Theme.soft) }
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: item.text
+                    textFormat: Text.PlainText
+                    font.pixelSize: item.font.pixelSize
+                    font.weight: item.current ? Font.Medium : Font.Normal
+                    color: item.current || item.hovered ? Theme.text : Theme.soft
+                }
             }
             Rectangle {                                   // how many things wait on this page
                 visible: item.badge > 0
@@ -131,7 +148,8 @@ Window {
         }
         background: Rectangle {
             radius: 10
-            color: item.current || item.down ? Theme.press : (item.hovered ? Theme.wash : "transparent")
+            color: item.current ? Theme.panelHi : (item.down ? Theme.press : (item.hovered ? Theme.wash : "transparent"))
+            border.color: item.current ? Theme.hairline : "transparent"
             Behavior on color { ColorAnimation { duration: Theme.touch } }
             Ring { visible: item.visualFocus; round: 10 }
         }
@@ -144,65 +162,116 @@ Window {
         font.weight: Font.Medium
     }
 
-    // ---- the first hello: before there is a node, the window is one card -------------------------------
-    Item {
-        anchors.fill: parent
-        visible: home.first
-        Column {
-            anchors.centerIn: parent
-            width: 460
-            spacing: 32
-            Orb { anchors.horizontalCenter: parent.horizontalCenter; size: 96; mood: P.mood; lit: true }
-            Sheet {
-                width: parent.width
-                height: hello.implicitHeight + 48
-                color: Theme.panel
-                MomentCard { id: hello; x: 24; y: 24; width: parent.width - 48; c: home.first ? P.homeCard : null }
-            }
-        }
+    component PageTitle: Column {
+        id: titled
+        property string title
+        property string sub
+        spacing: 4
+        Text { text: titled.title; color: Theme.text; font.pixelSize: Theme.title; font.weight: Font.Medium
+               textFormat: Text.PlainText }
+        Text { visible: titled.sub !== ""; text: titled.sub; color: Theme.soft; font.pixelSize: Theme.body
+               textFormat: Text.PlainText }
     }
 
-    // ---- the rail: who it is, and where you are --------------------------------------------------------
+    component Page: Item {
+        id: pageItem
+        property int index
+        readonly property bool here: home.page === index
+        opacity: here ? 1 : 0
+        visible: opacity > 0.01
+        enabled: here
+        Behavior on opacity { NumberAnimation { duration: pageItem.here ? Theme.enter : Theme.exit } }
+        transform: Translate { y: (1 - pageItem.opacity) * (Theme.still ? 0 : 8) }
+    }
+
+    // ---- the first meeting: before there is a profile, the window is the meeting ----------------------
+    Onboarding { objectName: "onboarding"; anchors.fill: parent; visible: home.first }
+
+    // ---- the night around the work: a faint light that follows the companion's mood -------------------
     Item {
+        visible: !home.first
+        x: home.width - 460
+        y: -420
+        width: 820
+        height: 820
+        Orb { anchors.fill: parent; size: 820; mood: P.mood; breathing: false; opacity: 0.07 }
+    }
+
+    // ---- the rail: who it is, where you are, and who you are --------------------------------------------
+    Rectangle {
         id: rail
         visible: !home.first
-        width: 216
+        width: 236
         anchors.top: parent.top
         anchors.bottom: parent.bottom
         anchors.left: parent.left
+        color: Theme.sunk
         Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: Theme.hairline }
+
         Row {
-            id: who
-            x: 20; y: 24
+            id: brand
+            x: 20; y: 22
             spacing: 12
-            Orb { size: 48; mood: P.mood; anchors.verticalCenter: parent.verticalCenter }
+            Orb { size: 40; mood: P.mood; anchors.verticalCenter: parent.verticalCenter }
             Column {
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 2
-                Text { text: "secdogie"; color: Theme.text; font.pixelSize: Theme.body; font.weight: Font.Medium }
-                Text { text: home.moodWords(P.mood); textFormat: Text.PlainText; color: Theme.soft
-                       font.pixelSize: Theme.meta }
+                spacing: 3
+                Text { text: "secdogie"; color: Theme.text; font.pixelSize: 15; font.weight: Font.DemiBold
+                       font.letterSpacing: 0.3 }
+                Row {
+                    spacing: 6
+                    Rectangle { width: 6; height: 6; radius: 3; anchors.verticalCenter: parent.verticalCenter
+                                color: home.stateColor(home.node.state || "") }
+                    Text { text: home.moodWords(P.mood); textFormat: Text.PlainText; color: Theme.soft
+                           font.pixelSize: Theme.meta }
+                }
             }
         }
         Column {
-            anchors.top: who.bottom
-            anchors.topMargin: 28
+            anchors.top: brand.bottom
+            anchors.topMargin: 30
             x: 12
             width: parent.width - 24
             spacing: 4
-            NavItem { width: parent.width; text: "对话"; current: home.page === 0
+            NavItem { width: parent.width; text: "对话"; symbol: "chat"; current: home.page === 0
                       badge: home.page !== 0 ? home.waitingCount : 0; onClicked: home.page = 0 }
-            NavItem { width: parent.width; text: "节点与网格"; current: home.page === 1; onClicked: home.page = 1 }
+            NavItem { width: parent.width; text: "节点与网格"; symbol: "mesh"; current: home.page === 1
+                      onClicked: home.page = 1 }
         }
-        Column {
-            x: 20
-            width: parent.width - 40
+
+        Column {                                           // you, at the foot of the rail
+            x: 16
+            width: parent.width - 32
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 16
-            spacing: 4
-            Text { width: parent.width; text: "关掉窗口，我就在屏幕角落。"; wrapMode: Text.Wrap
-                   color: Theme.faint; font.pixelSize: Theme.meta; lineHeight: 1.4 }
-            Link { text: "让我休息"; size: Theme.meta; onClicked: P.rest() }
+            spacing: 12
+            Rectangle { width: parent.width; height: 1; color: Theme.hairline }
+            Row {
+                spacing: 12
+                Rectangle {
+                    width: 34; height: 34; radius: 17
+                    color: Theme.tinted(Theme.calm, 0.14)
+                    border.color: Theme.tinted(Theme.calm, 0.3)
+                    Text { anchors.centerIn: parent; text: home.you ? home.you.charAt(0) : "你"
+                           color: Qt.lighter(Theme.calm, 1.15); font.pixelSize: Theme.body; font.weight: Font.Medium }
+                }
+                Column {
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 2
+                    Text { text: home.you || "你"; color: Theme.text; font.pixelSize: Theme.body
+                           textFormat: Text.PlainText; elide: Text.ElideRight; width: 150 }
+                    Text { text: "签名钥匙在这台电脑上"; color: Theme.faint; font.pixelSize: Theme.meta }
+                }
+            }
+            Column {
+                spacing: 0
+                Row {
+                    spacing: 6
+                    Icon { name: "power"; size: 14; color: Theme.soft; anchors.verticalCenter: parent.verticalCenter }
+                    Link { text: "让我休息"; size: Theme.meta; onClicked: P.rest() }
+                }
+                Text { text: "关掉窗口，我就在屏幕角落。"; color: Theme.faint; font.pixelSize: Theme.meta }
+            }
         }
     }
 
@@ -215,25 +284,28 @@ Window {
         anchors.bottom: parent.bottom
 
         // ---- the conversation ------------------------------------------------------------------------
-        Item {
+        Page {
             id: talk
+            index: 0
             anchors.fill: parent
-            visible: home.page === 0
-            readonly property real measure: Math.min(width - 64, 720)     // a readable column
+            readonly property real measure: Math.min(width - 72, 740)     // a readable column
             readonly property real inset: (width - measure) / 2
 
-            Text { id: talkTitle; x: talk.inset; y: 24; text: "对话"; color: Theme.text
-                   font.pixelSize: Theme.title; font.weight: Font.Medium }
+            PageTitle {
+                id: talkTitle
+                x: talk.inset; y: 26
+                title: "对话"
+                sub: P.greeting ? P.greeting + (home.you ? "，" + home.you : "") + "。" : ""
+            }
             ListView {
                 id: chat
                 x: talk.inset
                 width: talk.measure
                 anchors.top: talkTitle.bottom
-                anchors.topMargin: 16
+                anchors.topMargin: 18
                 anchors.bottom: dock.top
-                anchors.bottomMargin: 16
+                anchors.bottomMargin: 18
                 clip: true
-                spacing: 12
                 model: convo
                 boundsBehavior: Flickable.StopAtBounds
                 ScrollBar.vertical: Bar {}
@@ -244,42 +316,67 @@ Window {
                 onHeightChanged: if (stick) Qt.callLater(() => chat.positionViewAtEnd())
                 delegate: Item {
                     id: msg
+                    required property int index
                     required property string who
                     required property string words
                     required property string tone
+                    readonly property string before: index > 0 ? convo.get(index - 1).who : ""
+                    readonly property bool opens: who !== before          // the first line of a run
+                    readonly property real gap: index === 0 ? 0 : (opens ? 18 : 6)
+                    readonly property bool mine: who === "you"
                     width: chat.width - 12                 // the scrollbar's lane
-                    height: who === "note" ? note.implicitHeight + 4 : bubble.height
-                    Text {
-                        id: note
+                    height: gap + (who === "note" ? noteChip.height : bubble.height)
+
+                    Rectangle {                            // a quiet note, centred
+                        id: noteChip
                         visible: msg.who === "note"
-                        width: parent.width
-                        horizontalAlignment: Text.AlignHCenter
-                        text: msg.words
-                        textFormat: Text.PlainText
-                        wrapMode: Text.Wrap
-                        color: Theme.faint
-                        font.pixelSize: Theme.meta
+                        y: msg.gap
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        width: Math.min(noteText.implicitWidth + 24, msg.width * 0.8)
+                        height: noteText.implicitHeight + 10
+                        radius: height / 2
+                        color: Theme.wash
+                        Text {
+                            id: noteText
+                            anchors.centerIn: parent
+                            width: Math.min(implicitWidth, msg.width * 0.8 - 24)
+                            horizontalAlignment: Text.AlignHCenter
+                            text: msg.words
+                            textFormat: Text.PlainText
+                            wrapMode: Text.Wrap
+                            color: Theme.faint
+                            font.pixelSize: Theme.meta
+                        }
+                    }
+                    Orb {                                  // the companion's mark, at the start of what it says
+                        visible: msg.who === "it" && msg.opens
+                        y: msg.gap - 2
+                        size: 26
+                        breathing: false
+                        lit: true
                     }
                     Rectangle {
                         id: bubble
                         visible: msg.who !== "note"
-                        readonly property bool mine: msg.who === "you"
+                        y: msg.gap
                         // a letter (a refusal at length) or a question with its reasons: a heading, then paragraphs
                         readonly property var parts: msg.words.split("\n\n")
-                        readonly property bool essay: !mine && parts.length > 1
-                        x: mine ? msg.width - width : 0
-                        width: essay ? msg.width * 0.9
-                                    : Math.min(head.implicitWidth + 32, msg.width * 0.78)
-                        height: column.implicitHeight + (essay ? 32 : 20)
+                        readonly property bool essay: !msg.mine && parts.length > 1
+                        readonly property real room: msg.width - 36
+                        x: msg.mine ? msg.width - width : 36
+                        width: essay ? room * 0.94 : Math.min(head.implicitWidth + 32, room * 0.8)
+                        height: column.implicitHeight + (essay ? 34 : 22)
                         radius: 16
-                        color: mine ? Theme.tinted(Theme.calm, 0.16) : Theme.panel
-                        border.color: mine ? Theme.tinted(Theme.calm, 0.30) : Theme.hairline
+                        topLeftRadius: !msg.mine && msg.opens ? 6 : 16
+                        topRightRadius: msg.mine && msg.opens ? 6 : 16
+                        color: msg.mine ? Theme.tinted(Theme.calm, 0.15) : Theme.panel
+                        border.color: msg.mine ? Theme.tinted(Theme.calm, 0.28) : Theme.hairline
                         Accessible.role: Accessible.StaticText
-                        Accessible.name: (mine ? "你：" : "它：") + msg.words
+                        Accessible.name: (msg.mine ? "你：" : "它：") + msg.words
                         Column {
                             id: column
                             x: bubble.essay ? 20 : 16
-                            y: bubble.essay ? 16 : 10
+                            y: bubble.essay ? 17 : 11
                             width: bubble.width - 2 * x
                             spacing: 10
                             Text {
@@ -314,186 +411,286 @@ Window {
             Column {                                       // before the first word
                 visible: convo.count === 0
                 anchors.centerIn: chat
-                width: Math.min(chat.width, 380)
-                spacing: 8
-                Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; text: "我们还没说过话。"
-                       color: Theme.text; font.pixelSize: Theme.lead }
+                width: Math.min(chat.width, 460)
+                spacing: 14
+                Orb { anchors.horizontalCenter: parent.horizontalCenter; size: 84; mood: P.mood }
+                Text { width: parent.width; horizontalAlignment: Text.AlignHCenter
+                       text: home.you ? home.you + "，想让我做点什么？" : "想让我做点什么？"
+                       color: Theme.text; font.pixelSize: Theme.title; font.weight: Font.Medium }
                 Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.Wrap
-                       text: "告诉我你想做什么。拿不准的地方我会先问你；\n改不回来的事，一定等你签名。"
+                       text: "拿不准的地方我会先问你；改不回来的事，一定等你签名。"
                        color: Theme.soft; font.pixelSize: Theme.body; lineHeight: 1.5 }
+                Item { width: 1; height: 4 }
+                Flow {
+                    width: parent.width
+                    spacing: 8
+                    layoutDirection: Qt.LeftToRight
+                    Repeater {
+                        model: ["整理一下下载文件夹", "写这周的周报", "看看磁盘还剩多少空间"]
+                        Pill { required property string modelData; text: modelData; focusPolicy: Qt.TabFocus
+                               onClicked: say.text = modelData }
+                    }
+                }
             }
             Column {
                 id: dock
                 x: talk.inset
                 width: talk.measure
                 anchors.bottom: parent.bottom
-                anchors.bottomMargin: 24
-                spacing: 16
-                Sheet {                                    // what waits on you, one at a time
+                anchors.bottomMargin: 20
+                spacing: 12
+                Rectangle {                                // what waits on you, one at a time
                     id: waiting
                     visible: !!P.homeCard && !home.first
                     width: parent.width
                     height: waitingCard.implicitHeight + 48 + (more.visible ? more.implicitHeight + 16 : 0)
+                    radius: 18
                     color: Theme.panel
+                    border.color: Theme.hairline
                     readonly property string key: P.homeCardKey
+                    readonly property color tint: waitingCard.tint
                     onKeyChanged: { waitingCard.reset(); if (key !== "") appear.restart() }
                     NumberAnimation { id: appear; target: waiting; property: "opacity"; from: 0; to: 1
                                       duration: Theme.enter; easing.type: Easing.OutExpo }
+                    Rectangle {                            // its kind, as a line of light along the top edge
+                        x: 24; width: parent.width - 48; height: 1
+                        gradient: Gradient {
+                            orientation: Gradient.Horizontal
+                            GradientStop { position: 0.0; color: Theme.tinted(waiting.tint, 0) }
+                            GradientStop { position: 0.5; color: Theme.tinted(waiting.tint, 0.8) }
+                            GradientStop { position: 1.0; color: Theme.tinted(waiting.tint, 0) }
+                        }
+                    }
                     MomentCard { id: waitingCard; x: 24; y: 24; width: parent.width - 48
                                  c: home.first ? null : P.homeCard }
                     Text { id: more; visible: P.waiting > 0; x: 24; anchors.bottom: parent.bottom
                            anchors.bottomMargin: 20; text: "答完这件，还有 " + P.waiting + " 件在等你。"
                            color: Theme.faint; font.pixelSize: Theme.meta }
                 }
-                Row {
+                Rectangle {                                // the composer
                     width: parent.width
-                    spacing: 12
-                    Field { id: say; focus: true; width: parent.width - hand.width - 12
-                            hint: "比如：帮我整理这周的周报"; onAccepted: home.send() }
-                    Pill { id: hand; text: "交给我"; primary: true; enabled: say.text.trim().length > 0
-                           onClicked: home.send() }
+                    height: 56
+                    radius: 18
+                    color: Theme.panel
+                    border.color: say.focused ? Theme.tinted(Theme.calm, 0.5) : Theme.hairline
+                    Behavior on border.color { ColorAnimation { duration: Theme.touch } }
+                    Field {
+                        id: say
+                        focus: true
+                        bare: true
+                        x: 20
+                        width: parent.width - 20 - hand.width - 20
+                        anchors.verticalCenter: parent.verticalCenter
+                        hint: "告诉我你想做什么……"
+                        size: 15
+                        onAccepted: home.send()
+                    }
+                    IconButton {
+                        id: hand
+                        anchors.right: parent.right
+                        anchors.rightMargin: 9
+                        anchors.verticalCenter: parent.verticalCenter
+                        diameter: 38
+                        symbol: "send"
+                        primary: true
+                        text: "交给我"
+                        enabled: say.text.trim().length > 0
+                        onClicked: home.send()
+                    }
                 }
+                Text { anchors.horizontalCenter: parent.horizontalCenter; text: "回车交给我"
+                       color: Theme.faint; font.pixelSize: Theme.meta }
             }
         }
 
         // ---- this node, and its mesh -----------------------------------------------------------------
-        Flickable {
-            id: nodePage
-            objectName: "nodePage"
+        Page {
+            index: 1
             anchors.fill: parent
-            visible: home.page === 1
-            contentWidth: width
-            contentHeight: nodeBody.implicitHeight + 56
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-            ScrollBar.vertical: Bar {}
-            Column {
-                id: nodeBody
-                readonly property real measure: Math.min(nodePage.width - 64, 720)
-                x: (nodePage.width - measure) / 2
-                y: 24
-                width: measure
-                spacing: 36
+            Flickable {
+                id: nodePage
+                objectName: "nodePage"
+                anchors.fill: parent
+                contentWidth: width
+                contentHeight: nodeBody.implicitHeight + 56
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                ScrollBar.vertical: Bar {}
+                Column {
+                    id: nodeBody
+                    readonly property real measure: Math.min(nodePage.width - 72, 760)
+                    x: (nodePage.width - measure) / 2
+                    y: 26
+                    width: measure
+                    spacing: 16
 
-                Text { text: "节点与网格"; color: Theme.text; font.pixelSize: Theme.title; font.weight: Font.Medium }
+                    PageTitle { title: "节点与网格"; sub: "这台电脑上的我，和我们的网格。" }
+                    Item { width: 1; height: 4 }
 
-                Column {                                   // this node
-                    width: parent.width
-                    spacing: 12
-                    Row {
-                        spacing: 10
-                        Rectangle { width: 10; height: 10; radius: 5; anchors.verticalCenter: parent.verticalCenter
-                                    color: home.stateColor(home.node.state || "") }
-                        Heading { id: stateHead; text: home.node.stateWords || "" }
-                        Text { anchors.baseline: stateHead.baseline; text: home.node.since || ""
-                               textFormat: Text.PlainText; color: Theme.soft; font.pixelSize: Theme.body }
-                    }
-                    Column {
+                    Panel {                                // this node
                         width: parent.width
-                        Fact { width: parent.width; label: "这台节点"; value: home.node.did || "" }
-                        Fact { width: parent.width; label: "角色"; value: home.node.roles || "" }
-                        Fact { width: parent.width; label: "监听"; value: home.node.listen || "" }
-                        Fact { width: parent.width; label: "连接方式"; value: home.node.carriers || "" }
-                        Fact { width: parent.width; label: "和 Studio"
-                               value: home.node.appConnected ? "已连上" : (home.node.answered ? "没连上" : "正在问它……")
-                               tone: home.node.appConnected ? Theme.text : Theme.soft }
+                        Row {
+                            width: parent.width
+                            spacing: 16
+                            Orb { size: 56; anchors.verticalCenter: parent.verticalCenter
+                                  mood: home.node.state === "exited" ? "waiting"
+                                        : (home.node.state === "starting" ? "thinking" : "rest")
+                                  lit: home.node.state === "running" }
+                            Column {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width - 72 - linkPill.width - 16
+                                spacing: 3
+                                Text { text: home.node.stateWords || ""; color: Theme.text; font.pixelSize: Theme.title
+                                       font.weight: Font.Medium; textFormat: Text.PlainText }
+                                Text { text: home.node.since || "正在问它……"; color: Theme.soft
+                                       font.pixelSize: Theme.body; textFormat: Text.PlainText }
+                            }
+                            StatusPill {
+                                id: linkPill
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: home.node.appConnected ? "和 Studio 连着" : (home.node.answered ? "没连上" : "正在连")
+                                tint: home.node.appConnected ? Theme.calm : Theme.warm
+                            }
+                        }
+                        Rectangle { width: parent.width; height: 1; color: Theme.hairline }
+                        Column {
+                            width: parent.width
+                            Fact { width: parent.width; label: "这台节点"; value: home.node.did || "" }
+                            Fact { width: parent.width; label: "角色"; value: home.node.roles || "" }
+                            Fact { width: parent.width; label: "监听"; value: home.node.listen || "" }
+                            Fact { width: parent.width; label: "连接方式"; value: home.node.carriers || "" }
+                        }
+                        Text { visible: !!home.node.halted; width: parent.width; wrapMode: Text.Wrap; color: Theme.warm
+                               font.pixelSize: Theme.body; text: "它被叫停了：不会再开始新的事，直到你重启它。" }
                     }
-                    Text { visible: !!home.node.halted; width: parent.width; wrapMode: Text.Wrap; color: Theme.warm
-                           font.pixelSize: Theme.body; text: "它被叫停了：不会再开始新的事，直到你重启它。" }
-                }
 
-                Column {                                   // its work
-                    width: parent.width
-                    spacing: 12
-                    Heading { text: "在做的事" }
-                    Text { width: parent.width; text: home.node.work || ""; textFormat: Text.PlainText
-                           color: Theme.soft; font.pixelSize: Theme.body; wrapMode: Text.Wrap }
-                    Column {
+                    Panel {                                // its work
                         width: parent.width
-                        Repeater {
-                            model: home.node.recent || []
-                            Row {
-                                id: goal
-                                required property var modelData
-                                width: parent.width
-                                height: 32
-                                spacing: 10
-                                Rectangle {
-                                    width: 6; height: 6; radius: 3; anchors.verticalCenter: parent.verticalCenter
-                                    color: goal.modelData.status === "failed" ? Theme.warm
-                                           : (goal.modelData.status === "active" ? Theme.think
-                                           : (goal.modelData.status === "done" ? Theme.calm : Theme.faint))
+                        Row {
+                            width: parent.width
+                            Heading { id: workHead; text: "在做的事" }
+                            Text { width: parent.width - workHead.width; horizontalAlignment: Text.AlignRight
+                                   anchors.baseline: workHead.baseline; text: home.node.work || ""
+                                   textFormat: Text.PlainText; color: Theme.soft; font.pixelSize: Theme.body
+                                   elide: Text.ElideLeft }
+                        }
+                        Column {
+                            width: parent.width
+                            visible: (home.node.recent || []).length > 0
+                            Repeater {
+                                model: home.node.recent || []
+                                Item {
+                                    id: goal
+                                    required property var modelData
+                                    required property int index
+                                    width: parent.width
+                                    height: 44
+                                    Rectangle { visible: goal.index > 0; width: parent.width; height: 1
+                                                color: Theme.hairline }
+                                    Text { anchors.left: parent.left; anchors.right: goalState.left
+                                           anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter
+                                           text: goal.modelData.title; textFormat: Text.PlainText
+                                           elide: Text.ElideRight; color: Theme.text; font.pixelSize: Theme.body }
+                                    StatusPill { id: goalState; anchors.right: parent.right
+                                                 anchors.verticalCenter: parent.verticalCenter
+                                                 text: goal.modelData.words; tint: home.goalTint(goal.modelData.status) }
                                 }
-                                Text { width: parent.width - 16 - goalWords.width - 10; height: parent.height
-                                       verticalAlignment: Text.AlignVCenter; text: goal.modelData.title
-                                       textFormat: Text.PlainText; elide: Text.ElideRight; color: Theme.text
-                                       font.pixelSize: Theme.body }
-                                Text { id: goalWords; height: parent.height; verticalAlignment: Text.AlignVCenter
-                                       text: goal.modelData.words; color: Theme.soft; font.pixelSize: Theme.meta }
                             }
                         }
                     }
-                }
 
-                Column {                                   // the mesh
-                    width: parent.width
-                    spacing: 12
-                    Heading { text: "网格「" + (home.node.mesh || "home") + "」" }
-                    Column {
+                    Panel {                                // the mesh
                         width: parent.width
-                        Fact { width: parent.width; label: "你的签名钥匙"; value: home.node.operator || "" }
-                        Fact { width: parent.width; label: "你的 App"; value: home.node.app || "" }
-                    }
-                    Rectangle {                            // the other nodes: none yet, and why
-                        width: parent.width
-                        height: others.implicitHeight + 32
-                        radius: 12
-                        color: Theme.well
-                        border.color: Theme.hairline
-                        Column {
-                            id: others
-                            x: 16; y: 16
-                            width: parent.width - 32
-                            spacing: 6
-                            Text { text: "还没有别的节点。"; color: Theme.text; font.pixelSize: Theme.body }
-                            Text { width: parent.width; wrapMode: Text.Wrap; lineHeight: 1.45
-                                   color: Theme.soft; font.pixelSize: Theme.meta
-                                   text: "另一台电脑上的节点要用你签发的邀请码加进来。邀请码、局域网发现和 WebRTC 连接还在做，做好后，它们会出现在这里。" }
-                        }
-                    }
-                }
-
-                Column {                                   // the rules it keeps
-                    width: parent.width
-                    spacing: 12
-                    Heading { text: "门的规则" }
-                    Text { visible: (home.node.rules || []).length === 0; width: parent.width; wrapMode: Text.Wrap
-                           text: "还没有注入过规则，用的是内置的门。"; color: Theme.soft; font.pixelSize: Theme.body }
-                    Repeater {
-                        model: home.node.rules || []
+                        Heading { text: "网格「" + (home.node.mesh || "home") + "」" }
                         Row {
-                            id: rule
-                            required property var modelData
-                            height: 28
-                            spacing: 10
-                            Rectangle { width: 6; height: 6; radius: 3; anchors.verticalCenter: parent.verticalCenter
-                                        color: rule.modelData.applied ? Theme.calm : Theme.faint }
-                            Text { height: parent.height; verticalAlignment: Text.AlignVCenter
-                                   text: rule.modelData.name; color: Theme.text; font.pixelSize: Theme.body }
-                            Text { height: parent.height; verticalAlignment: Text.AlignVCenter
-                                   text: rule.modelData.words; color: Theme.soft; font.pixelSize: Theme.meta
-                                   font.features: ({ "tnum": 1 }) }
+                            width: parent.width
+                            spacing: 24
+                            Item {                         // this node, and the places other nodes will take
+                                width: 200
+                                height: 150
+                                Shape {
+                                    anchors.fill: parent
+                                    antialiasing: true
+                                    ShapePath {
+                                        strokeColor: Theme.tinted(Theme.text, 0.22)
+                                        strokeWidth: 1
+                                        strokeStyle: ShapePath.DashLine
+                                        dashPattern: [3, 4]
+                                        fillColor: "transparent"
+                                        PathMove { x: 100; y: 64 } PathLine { x: 40; y: 30 }
+                                        PathMove { x: 100; y: 64 } PathLine { x: 160; y: 30 }
+                                        PathMove { x: 100; y: 64 } PathLine { x: 100; y: 124 }
+                                        PathAngleArc { centerX: 28; centerY: 22; radiusX: 13; radiusY: 13
+                                                       startAngle: 0; sweepAngle: 360 }
+                                        PathAngleArc { centerX: 172; centerY: 22; radiusX: 13; radiusY: 13
+                                                       startAngle: 0; sweepAngle: 360 }
+                                        PathAngleArc { centerX: 100; centerY: 134; radiusX: 13; radiusY: 13
+                                                       startAngle: 0; sweepAngle: 360 }
+                                    }
+                                }
+                                Orb { x: 100 - 26; y: 64 - 26; size: 52; mood: "rest"; lit: true }
+                                Text { x: 112; y: 56; text: "这台"; color: Theme.soft; font.pixelSize: Theme.meta }
+                            }
+                            Column {
+                                width: parent.width - 224
+                                spacing: 8
+                                anchors.verticalCenter: parent.verticalCenter
+                                Text { text: "现在只有这台电脑上的我。"; color: Theme.text; font.pixelSize: Theme.body
+                                       font.weight: Font.Medium }
+                                Text { width: parent.width; wrapMode: Text.Wrap; lineHeight: 1.5
+                                       color: Theme.soft; font.pixelSize: 13
+                                       text: "另一台电脑上的节点要用你签发的邀请码加进来。邀请码、局域网发现和 WebRTC 连接还在做，做好后，它们会出现在这些空位上。" }
+                            }
+                        }
+                        Rectangle { width: parent.width; height: 1; color: Theme.hairline }
+                        Column {
+                            width: parent.width
+                            Fact { width: parent.width; label: "你的签名钥匙"; value: home.node.operator || "" }
+                            Fact { width: parent.width; label: "你的 App"; value: home.node.app || "" }
                         }
                     }
-                    Link {
-                        text: home.editingRules ? "收起" : "编辑规则"
-                        onClicked: {
-                            if (!home.editingRules) { P.openRules(); rulesEditor.load() }
-                            home.editingRules = !home.editingRules
+
+                    Panel {                                // the rules it keeps
+                        width: parent.width
+                        Row {
+                            width: parent.width
+                            Heading { id: rulesHead; text: "门的规则" }
+                            Item { width: parent.width - rulesHead.width - editLink.width; height: 1 }
+                            Link {
+                                id: editLink
+                                anchors.verticalCenter: rulesHead.verticalCenter
+                                text: home.editingRules ? "收起" : "编辑规则"
+                                onClicked: {
+                                    if (!home.editingRules) { P.openRules(); rulesEditor.load() }
+                                    home.editingRules = !home.editingRules
+                                }
+                            }
                         }
+                        Text { visible: (home.node.rules || []).length === 0; width: parent.width; wrapMode: Text.Wrap
+                               text: "还没有注入过规则，用的是内置的门。"; color: Theme.soft; font.pixelSize: Theme.body }
+                        Column {
+                            width: parent.width
+                            Repeater {
+                                model: home.node.rules || []
+                                Item {
+                                    id: rule
+                                    required property var modelData
+                                    required property int index
+                                    width: parent.width
+                                    height: 44
+                                    Rectangle { visible: rule.index > 0; width: parent.width; height: 1
+                                                color: Theme.hairline }
+                                    Text { anchors.verticalCenter: parent.verticalCenter; text: rule.modelData.name
+                                           color: Theme.text; font.pixelSize: Theme.body }
+                                    StatusPill { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                                                 text: rule.modelData.words
+                                                 tint: rule.modelData.applied ? Theme.calm : Theme.faint }
+                                }
+                            }
+                        }
+                        RulesEditor { id: rulesEditor; visible: home.editingRules; width: parent.width; showInForce: false
+                                      editorHeight: 240 }
                     }
-                    RulesEditor { id: rulesEditor; visible: home.editingRules; width: parent.width; showInForce: false
-                                  editorHeight: 240 }
                 }
             }
         }

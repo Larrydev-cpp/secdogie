@@ -33,6 +33,7 @@ from .controller import EXITED, RUNNING, StudioController
 from .idle import idle_seconds
 from .motion import reduce_motion
 from .presence import Attention, Moment, Stage, Whisper
+from .profile import clean_name
 
 QML_DIR = Path(__file__).resolve().parent / "qml"
 POLL_EVERY = 3.0  # seconds between asking the node how it is, while the home window is open
@@ -75,6 +76,19 @@ def work_words(goals: dict) -> str:
     return " · ".join(parts) if parts else "还没有交给我的事。"
 
 
+def greeting(now: float) -> str:
+    hour = time.localtime(now).tm_hour
+    if 5 <= hour < 11:
+        return "早上好"
+    if 11 <= hour < 13:
+        return "中午好"
+    if 13 <= hour < 18:
+        return "下午好"
+    if 18 <= hour < 23:
+        return "晚上好"
+    return "夜深了"
+
+
 def first_moment(moments: list[Moment], now: float) -> Moment | None:
     """What the home window shows first: the same order the light uses."""
     live = [m for m in moments if m.expires is None or m.expires > now]
@@ -108,6 +122,11 @@ class Presence:
         self._active: list[dict] = []  # the policy bundles in force, as the node listed them
         self._polled = float("-inf")
         self._polling = False
+        # The first meeting, in the home window: "form" (hello, a name, a passphrase),
+        # "making" (the keys), "ready" (here they are), then "" for good.
+        self._met_here = False  # this session began before there was a profile
+        self._onboarded = False
+        self._name = ""  # the name given at the first meeting, until the profile holds it
 
     # -- the tick ----------------------------------------------------------------------
 
@@ -116,6 +135,7 @@ class Presence:
         snap = self.controller.snapshot()
         moments: list[Moment] = []
         if not snap.initialized:
+            self._met_here = True
             moments = [WELCOME]
         else:
             if snap.node_state != RUNNING and not self._started and not snap.busy:
@@ -144,6 +164,11 @@ class Presence:
             feedback, rules_note, in_force, working = self._feedback, self._rules_note, self._in_force, self._busy_with
         home_card = first_moment(moments, now)
         return {
+            "onboarding": self._onboarding(snap),
+            "you": self._you(snap),
+            "greeting": greeting(now),
+            "keys": {"node": snap.node_did, "app": snap.app_did, "operator": snap.operator_did}
+                    if snap.initialized else {},
             "homeOpen": self.home_open,
             "homeCard": card_dict(home_card),
             "homeCardKey": home_card.id if home_card is not None else "",
@@ -165,6 +190,18 @@ class Presence:
             "rulesNote": rules_note,
             "inForce": in_force,
         }
+
+    def _onboarding(self, snap) -> str:
+        if not snap.initialized:
+            return "making" if snap.busy else "form"
+        return "ready" if self._met_here and not self._onboarded else ""
+
+    def _you(self, snap) -> str:
+        if snap.initialized:
+            profile = getattr(self.controller, "profile", None)
+            name = profile.name() if profile is not None and hasattr(profile, "name") else ""
+            return name or self._name
+        return self._name
 
     def _node_view(self, snap, now: float) -> dict:
         """The home window's node and mesh page: the controller's view of this
@@ -265,14 +302,18 @@ class Presence:
     def hover(self) -> None:
         self.attention.touch(self.clock())
 
-    def welcome(self, passphrase: str, confirm: str) -> None:
+    def welcome(self, passphrase: str, confirm: str, name: str = "") -> None:
         if len(passphrase) < 8:
             self._set_feedback("口令至少要 8 位，再长一点。")
         elif passphrase != confirm:
             self._set_feedback("两次输入的不一样，再输一次。")
         else:
             self._set_feedback("")
-            self.controller.create_profile(passphrase)
+            self._name = clean_name(name)
+            self.controller.create_profile(passphrase, name=self._name)
+
+    def finish_onboarding(self) -> None:
+        self._onboarded = True
 
     def answer(self, moment_id: str, text: str) -> None:
         if self.companion is not None:
@@ -393,7 +434,7 @@ def bridge_class():
     from PySide6.QtCore import Property, QObject, Signal, Slot
     from PySide6.QtGui import QGuiApplication
 
-    names = ("homeOpen", "homeCard", "homeCardKey", "waiting", "conversation", "node", "mood",
+    names = ("onboarding", "you", "greeting", "keys", "homeOpen", "homeCard", "homeCardKey", "waiting", "conversation", "node", "mood",
              "card", "cardKey",
              "whisper", "whisperTone", "held", "feedback", "working", "innerOpen", "statusRows", "logText",
              "rulesText", "rulesNote", "inForce")
@@ -423,7 +464,8 @@ def bridge_class():
     # The person asked their computer for less motion: a still light, plain fades.
     ns["still"] = Property(bool, lambda self: self._still, constant=True)
     slots = {
-        "hover": ((), Presence.hover), "welcome": ((str, str), Presence.welcome),
+        "hover": ((), Presence.hover), "welcome": ((str, str, str), Presence.welcome),
+        "finishOnboarding": ((), Presence.finish_onboarding),
         "answer": ((str, str), Presence.answer), "approve": ((str, str), Presence.approve),
         "deny": ((str,), Presence.deny), "remember": ((str, bool), Presence.remember),
         "say": ((str,), Presence.say), "openHome": ((), Presence.open_home),

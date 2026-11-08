@@ -116,7 +116,7 @@ Column {
         visible: card.kind === "welcome"
         label: "再输一次"
         hint: "和上面一样"
-        onAccepted: if (!P.working) P.welcome(pass1.text, pass2.text)
+        onAccepted: if (!P.working) P.welcome(pass1.text, pass2.text, "")
     }
     Flow {
         width: parent.width
@@ -135,7 +135,7 @@ Column {
                enabled: !!card.c && card.c.canApprove; onClicked: P.remember(card.c.id, true) }
         Pill { visible: card.kind === "memory"; text: "别记"; onClicked: P.remember(card.c.id, false) }
         Pill { visible: card.kind === "welcome"; text: "生成钥匙"; primary: true; enabled: !P.working
-               onClicked: P.welcome(pass1.text, pass2.text) }
+               onClicked: P.welcome(pass1.text, pass2.text, "") }
     }
     Row {                                       // or say it in your own words
         width: parent.width

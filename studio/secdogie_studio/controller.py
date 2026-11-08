@@ -80,11 +80,11 @@ class StudioController:
     def needs_first_run(self) -> bool:
         return not self.profile.initialized
 
-    def create_profile(self, passphrase: str, *, roles=DEFAULT_ROLES) -> bool:
+    def create_profile(self, passphrase: str, *, roles=DEFAULT_ROLES, name: str = "") -> bool:
         """Start creating the profile on a worker (Argon2id takes a moment)."""
         secret = passphrase.encode("utf-8")
         return self._run("creating keys", lambda: create_profile(self.profile.root, secret, roles=roles,
-                                                                 kdf=self._kdf))
+                                                                 kdf=self._kdf, name=name))
 
     # -- the node ---------------------------------------------------------------
 

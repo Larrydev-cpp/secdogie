@@ -33,12 +33,19 @@ def test_first_meeting_waking_and_rules_without_qt(tmp_path):
     try:
         s = presence.tick()
         assert s["card"]["kind"] == "welcome" and s["mood"] == "speaking"
+        assert s["onboarding"] == "form" and s["keys"] == {} and s["greeting"]
         presence.welcome("short", "short")
         assert presence.tick()["feedback"] == "口令至少要 8 位，再长一点。"
         presence.welcome(PASS, PASS + "x")
         assert presence.tick()["feedback"] == "两次输入的不一样，再输一次。"
-        presence.welcome(PASS, PASS)
+        presence.welcome(PASS, PASS, "  小王\n")
+        assert presence.tick()["onboarding"] in ("making", "ready")  # the keys are being made
         presence.controller.wait_idle()
+        s = _until(presence, lambda s: s["onboarding"] == "ready")
+        assert s["you"] == "小王" and presence.controller.profile.name() == "小王"
+        assert s["keys"]["operator"].startswith("did:key:") and s["keys"]["node"] == s["node"]["did"]
+        presence.finish_onboarding()
+        assert presence.tick()["onboarding"] == ""  # for good
         s = _until(presence, lambda s: s["whisper"] == "我在。")
         assert s["card"] is None and s["statusRows"][0] == ["状态", "醒着"]
         assert s["homeOpen"] and s["homeCard"] is None and s["conversation"] == []
