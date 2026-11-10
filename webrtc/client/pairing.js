@@ -130,6 +130,7 @@ export async function identityFromKeyPair(pair) {
   const raw = new Uint8Array(await subtle.exportKey('raw', pair.publicKey));
   return {
     did: didFromPublicKey(raw),
+    keyPair: pair, // kept so a page can store it (IndexedDB clones CryptoKeys without exporting them)
     sign: async (bytes) => new Uint8Array(await subtle.sign('Ed25519', pair.privateKey, bytes)),
   };
 }

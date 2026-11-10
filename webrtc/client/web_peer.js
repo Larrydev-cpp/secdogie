@@ -130,6 +130,20 @@ export function onStateChange(callback) {
   return subscribe(stateListeners, callback);
 }
 
+/**
+ * The SDP of the current connection, local and remote, or null until both are
+ * set. Read-only: pairing takes the DTLS fingerprints from it, because the
+ * browser refuses a DTLS certificate that does not match the remote SDP's
+ * fingerprint. A rebuilt connection has new certificates, so new fingerprints;
+ * an ICE recovery keeps the same ones.
+ */
+export function currentDescriptions() {
+  const pc = session?.link?.pc;
+  const local = pc?.localDescription?.sdp;
+  const remote = pc?.remoteDescription?.sdp;
+  return local && remote ? { local, remote } : null;
+}
+
 // --- signaling --------------------------------------------------------------
 
 function signalingEndpoint(signalingUrl, room) {
