@@ -32,14 +32,42 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _ensure_stdio() -> None:
+    """A windowed (no-console) frozen build can start with sys.stdin/stdout set
+    to None even when its parent handed it pipes. The node child talks to Studio
+    over exactly those pipes, so bind them back to the inherited descriptors."""
+    for name, fd, mode in (("stdin", 0, "r"), ("stdout", 1, "w"), ("stderr", 2, "w")):
+        if getattr(sys, name) is not None:
+            continue
+        try:
+            setattr(sys, name, open(fd, mode, encoding="utf-8", buffering=1 if mode == "w" else -1, closefd=False))
+        except OSError:
+            if sys.platform != "win32":
+                continue
+            import ctypes
+            import msvcrt
+
+            handle = ctypes.windll.kernel32.GetStdHandle((-10, -11, -12)[fd])
+            if handle in (0, -1):
+                continue
+            flags = os.O_RDONLY if mode == "r" else os.O_WRONLY
+            with_fd = msvcrt.open_osfhandle(handle, flags)
+            setattr(sys, name, open(with_fd, mode, encoding="utf-8", buffering=1 if mode == "w" else -1,
+                                    closefd=False))
+
+
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv[:1] == ["--node-child"]:
+        if getattr(sys, "frozen", False):
+            _ensure_stdio()
         from secdogie_node.cli import main as node_main
 
         return node_main(argv[1:])
     args = build_parser().parse_args(argv)
     if args.self_test:
+        if getattr(sys, "frozen", False):
+            _ensure_stdio()  # so a windowed build's result lines still reach a log
         from .selftest import run_self_test
 
         return run_self_test()

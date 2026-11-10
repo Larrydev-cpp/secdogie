@@ -70,6 +70,85 @@ jobs:
           name: ${{ matrix.asset }}
           path: staging/*
 
+  # --- Studio: the desktop companion, one folder (an .app on macOS) per OS -----
+  # The same binary is the window, --self-test and the node child, so each build
+  # proves itself with --self-test (profile, node, link, stop) before it ships.
+  build-studio:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: studio-linux-x86_64
+          - os: windows-latest
+            asset: studio-windows-x86_64
+          - os: macos-latest
+            asset: studio-macos-arm64
+            python_arch: arm64
+          - os: macos-latest
+            asset: studio-macos-x86_64
+            python_arch: x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: ${{ matrix.python_arch || 'x64' }}
+
+      # Qt's xcb platform plugin needs these at run time; with them present on the
+      # build machine PyInstaller carries them inside the bundle.
+      - name: Qt system libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libdbus-1-3 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xkb1 \
+            libxcb-util1 libxcb-shape0 libxcb-xinerama0
+
+      - name: Build
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          # not editable: PyInstaller's analysis cannot see through editable installs
+          pip install ./identity ./transport ./citadel ./policy ./dialogue ./node "./studio[gui]" pyinstaller==6.22.3
+          cd studio
+          pyinstaller packaging/secdogie-studio.spec --distpath ./dist --workpath ./build --noconfirm
+
+      - name: Self-test the built app
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            "studio/dist/secdogie Studio.app/Contents/MacOS/secdogie-studio" --self-test
+          elif [ "${{ runner.os }}" = "Windows" ]; then
+            studio/dist/secdogie-studio/secdogie-studio.exe --self-test
+          else
+            studio/dist/secdogie-studio/secdogie-studio --self-test
+          fi
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          mkdir -p staging
+          cd studio/dist
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            # ditto keeps the Qt frameworks' symlinks and the bundle's layout intact
+            ditto -c -k --keepParent "secdogie Studio.app" "../../staging/${{ matrix.asset }}.zip"
+          elif [ "${{ runner.os }}" = "Windows" ]; then
+            7z a -tzip "../../staging/${{ matrix.asset }}.zip" secdogie-studio > /dev/null
+          else
+            zip -qry "../../staging/${{ matrix.asset }}.zip" secdogie-studio
+          fi
+          ls -la ../../staging
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: staging/*
+
   build-tunnel:
     runs-on: ubuntu-latest
     steps:
@@ -198,7 +277,7 @@ jobs:
           path: staging/*
 
   publish:
-    needs: [build-agent, build-tunnel, build-atlas, build-atlas-universal]
+    needs: [build-agent, build-studio, build-tunnel, build-atlas, build-atlas-universal]
     runs-on: ubuntu-latest
     # Publish even if one arch failed (Intel Python on ARM can flake). A
     # cancelled run still skips. Manual dispatch (no tag) still skips.
@@ -282,6 +361,13 @@ jobs:
             (cd pkg && zip -r "../release/${name}.zip" "${name}")
             cp "$inspect" "release/${name}-${inner_inspect}"
             [ -x "$inspect" ] && chmod +x "release/${name}-${inner_inspect}" || true
+          done
+
+          # Studio: one zip per OS (a folder on Linux / Windows, the .app on macOS),
+          # already self-tested on its build machine.
+          for f in downloaded/studio-*/*.zip; do
+            platform="$(basename "$f" .zip)"; platform="${platform#studio-}"
+            cp "$f" "release/secdogie-studio-${platform}-${version}.zip"
           done
 
           # Tunnel binary (Linux only).

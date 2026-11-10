@@ -120,6 +120,23 @@ Support/secdogie-studio` on macOS, `%APPDATA%\secdogie-studio` on Windows,
 `$XDG_DATA_HOME/secdogie-studio` on Linux. A transparent window needs a
 compositor on Linux.
 
+## Release builds
+
+Each GitHub release carries `secdogie-studio-<platform>-<version>.zip` for
+Linux, Windows and macOS. They are built by `.github/workflows/release.yml`
+from [`packaging/secdogie-studio.spec`](packaging/secdogie-studio.spec):
+- one folder (an `.app` on macOS) with Python, Qt and the node inside;
+- the same binary is the window, `--self-test` and the node child (`--node-child`);
+- every build runs `--self-test` before it ships.
+
+To build one locally:
+
+```sh
+pip install ../identity ../transport ../citadel ../policy ../dialogue ../node '.[gui]' pyinstaller
+pyinstaller packaging/secdogie-studio.spec --noconfirm
+dist/secdogie-studio/secdogie-studio --self-test
+```
+
 ## Tests
 
 ```sh
@@ -156,4 +173,5 @@ QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software pytest tests -q
   pages of the home window, never on the light itself.
 - Keeping the node after the window closes (tray). Decided in the plan, not
   built yet.
-- Installers and signed builds (K1–K3).
+- Installers and signed builds (K2–K3). Unsigned folder / `.app` builds ship
+  with every release (K1).
