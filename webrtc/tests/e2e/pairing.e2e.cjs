@@ -18,61 +18,13 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const http = require('node:http');
 const path = require('node:path');
 const { chromium } = require('playwright');
 
-const ROOT = path.resolve(__dirname, '..', '..');
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json' };
+const { phase, relay, serve, watchConsole } = require('./harness.cjs');
+
 const shotsAt = process.argv.includes('--shots') ? process.argv[process.argv.indexOf('--shots') + 1] : null;
 
-function serve() {
-  const server = http.createServer((req, res) => {
-    const url = new URL(req.url, 'http://x');
-    const file = path.join(ROOT, path.normalize(decodeURIComponent(url.pathname)).replace(/^([/\\])+/, ''));
-    if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
-      res.writeHead(404).end();
-      return;
-    }
-    res.writeHead(200, { 'content-type': TYPES[path.extname(file)] ?? 'application/octet-stream' });
-    fs.createReadStream(file).pipe(res);
-  });
-  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
-}
-
-/** The gateway's protocol, played by the test: rooms of two, welcome / peer-joined / relay with `from`. */
-function relay() {
-  const rooms = new Map();
-  const opened = new Map(); // page -> sockets opened
-  let n = 0;
-  async function attach(page) {
-    opened.set(page, 0);
-    await page.routeWebSocket(/\/ws/, (ws) => {
-      opened.set(page, opened.get(page) + 1);
-      const room = new URL(ws.url()).searchParams.get('room');
-      const peers = rooms.get(room) ?? new Map();
-      rooms.set(room, peers);
-      const id = `p${++n}`;
-      const others = [...peers.keys()];
-      peers.set(id, ws);
-      ws.send(JSON.stringify({ type: 'welcome', peerId: id, peers: others }));
-      for (const o of others) peers.get(o).send(JSON.stringify({ type: 'peer-joined', peerId: id }));
-      ws.onMessage((raw) => {
-        const m = JSON.parse(raw);
-        if (m.type === 'ping') return;
-        peers.get(m.to)?.send(JSON.stringify({ type: m.type, from: id, payload: m.payload }));
-      });
-      ws.onClose(() => {
-        peers.delete(id);
-        for (const o of peers.values()) o.send(JSON.stringify({ type: 'peer-left', peerId: id }));
-      });
-    });
-  }
-  return { attach, opened: (page) => opened.get(page) };
-}
-
-const phase = (page, want, timeout = 20_000) =>
-  page.waitForFunction((w) => document.body.dataset.phase === w, want, { timeout });
 const code = (page) => page.$eval('#code', (el) => el.textContent.replace(/\D/g, ''));
 
 async function shot(page, name) {
@@ -88,10 +40,13 @@ async function shot(page, name) {
   const browser = await chromium.launch({ args: ['--host-resolver-rules=MAP lan.test 127.0.0.1'] });
   const net = relay();
   const pageErrors = [];
+  const pages = [];
   const device = async (viewport, { locale = 'zh-CN', colorScheme = 'dark' } = {}) => {
     const context = await browser.newContext({ locale, viewport, colorScheme });
     const page = await context.newPage();
     page.on('pageerror', (err) => pageErrors.push(`${err.message}`));
+    watchConsole(page, `device ${pages.length + 1}`);
+    pages.push(page);
     await net.attach(page);
     return page;
   };
@@ -99,14 +54,14 @@ async function shot(page, name) {
   try {
     // ---- the inviting device writes an invitation --------------------------------------
     const owner = await device({ width: 1280, height: 900 });
-    await owner.goto(`${origin}/pair.html?signal=${encodeURIComponent(origin.replace('http', 'ws'))}/ws`);
+    await owner.goto(`${origin}/pair.html?debug&signal=${encodeURIComponent(origin.replace('http', 'ws'))}/ws`);
     await phase(owner, 'form');
     await shot(owner, 'owner-1-form');
     await owner.fill('#owner-name', '书房的电脑');
     await owner.click('#write');
     await phase(owner, 'waiting');
     const link = await owner.inputValue('#link');
-    assert.match(link, /\/pair\.html#invite=[A-Za-z0-9_-]+$/);
+    assert.match(link, /\/pair\.html(\?debug)?#invite=[A-Za-z0-9_-]+$/);
     await shot(owner, 'owner-2-waiting');
 
     // ---- the phone opens it: nothing on the network until it agrees ---------------------
@@ -199,6 +154,7 @@ async function shot(page, name) {
   } catch (err) {
     failed = true;
     console.error(err);
+    for (const p of pages) if (!p.isClosed()) console.error(await p.diagnose());
   } finally {
     await browser.close();
     server.close();

@@ -192,6 +192,8 @@ const WORDS = {
 };
 
 const $ = (id) => document.getElementById(id);
+// `?debug` in the page address writes the connection's steps to the console (for tests and bug reports).
+const debugLog = new URLSearchParams(location.search).has('debug') ? (line) => console.debug(`[pair] ${line}`) : () => {};
 const store = {
   get(key) { try { return globalThis.localStorage?.getItem(key) ?? null; } catch { return null; } },
   set(key, value) { try { globalThis.localStorage?.setItem(key, value); } catch { /* not kept; fine */ } },
@@ -242,8 +244,32 @@ const ctx = {
 function fresh() {
   return {
     invite: null, fps: null, nonce: null, myBind: null, theirBind: null, pendingBind: null, code: '',
-    admission: null, finished: false,
+    admission: null, finished: false, peerHasMine: false,
   };
+}
+
+// A browser can drop a message sent the instant a data channel opens (seen about once in fifty
+// links, also with bare RTCPeerConnections). So each side resends its bind, saying whether it has
+// the other's (`got`), until the other side says it has ours.
+const RESEND_MS = 600;
+const RESEND_MAX = 40;
+let resendTimer = null;
+
+function sendBind() {
+  if (!ctx.myBind) return;
+  sendData({ t: 'pair/bind', bind: ctx.myBind, got: Boolean(ctx.theirBind) }).catch(() => {});
+}
+
+function keepSendingBind() {
+  clearInterval(resendTimer);
+  let left = RESEND_MAX;
+  resendTimer = setInterval(() => {
+    if (ctx.finished || (ctx.peerHasMine && ctx.theirBind) || --left < 0) {
+      clearInterval(resendTimer);
+      return;
+    }
+    sendBind();
+  }, RESEND_MS);
 }
 
 const myRole = () => (ctx.mode === 'owner' ? INVITER : DEVICE);
@@ -396,6 +422,7 @@ async function paintMine() {
 function finish(phase, statusKey, params = {}, tone = '') {
   ctx.finished = true;
   clearInterval(ctx.clock);
+  clearInterval(resendTimer);
   closePeerConnection();
   setPhase(phase);
   setStatus(statusKey, params, tone);
@@ -416,6 +443,7 @@ onStateChange((state, detail) => {
 
 /** The data channel is open: sign what we see of it. */
 async function connected() {
+  debugLog('channel open');
   const d = currentDescriptions();
   const fps = d && { local: fingerprintFromSdp(d.local), remote: fingerprintFromSdp(d.remote) };
   if (!fps?.local || !fps?.remote) throw new Error('no DTLS fingerprints in the session description');
@@ -433,12 +461,15 @@ async function connected() {
   ctx.fps = fps;
   ctx.nonce = randomHex32();
   ctx.myBind = null;
+  ctx.peerHasMine = false;
   const bind = await createBind(ctx.me, {
     inviteId: ctx.invite.invite_id, role: myRole(), nonce: ctx.nonce, localFp: fps.local, remoteFp: fps.remote,
     name: ctx.name,
   });
   ctx.myBind = bind;
-  await sendData({ t: 'pair/bind', bind });
+  await sendData({ t: 'pair/bind', bind, got: Boolean(ctx.theirBind) });
+  keepSendingBind();
+  debugLog('our bind is out');
   const pending = ctx.pendingBind;
   ctx.pendingBind = null;
   if (pending) await receivedBind(pending);
@@ -446,18 +477,21 @@ async function connected() {
 
 async function receivedBind(bind) {
   if (!ctx.myBind) {
+    debugLog('their bind came before ours went out; held');
     ctx.pendingBind = bind; // it overtook our own signing; take it once ours is out
     return;
   }
   const checked = await verifyBind(bind, {
     invite: ctx.invite, expectRole: theirRole(), myLocalFp: ctx.fps.local, myRemoteFp: ctx.fps.remote,
   });
+  debugLog(`their bind: ${checked.ok ? 'checks out' : checked.reason}`);
   if (!checked.ok) {
     finish('ended', null);
     setReason(checked.reason);
     return;
   }
   ctx.theirBind = checked.value;
+  sendBind(); // now with got: true, so they stop resending theirs
   const [inviterBind, deviceBind] = ctx.mode === 'owner' ? [ctx.myBind, ctx.theirBind] : [ctx.theirBind, ctx.myBind];
   ctx.code = await checkCode(ctx.invite.invite_id, inviterBind, deviceBind);
   setPhase('compare');
@@ -465,6 +499,7 @@ async function receivedBind(bind) {
 }
 
 onMessage(async (raw) => {
+  debugLog(`message ${typeof raw === 'string' ? raw.slice(0, 24) : typeof raw}${ctx.finished ? ' (finished; ignored)' : ''}`);
   if (ctx.finished || typeof raw !== 'string' || raw.length > 16384) return;
   let msg;
   try {
@@ -473,6 +508,11 @@ onMessage(async (raw) => {
     return;
   }
   if (msg?.t === 'pair/bind') {
+    if (msg.got === true) ctx.peerHasMine = true;
+    if (ctx.theirBind && msg.bind?.sig === ctx.theirBind.sig) {
+      if (msg.got !== true) sendBind(); // a resend: they still lack ours, so say it again
+      return;
+    }
     await receivedBind(msg.bind);
   } else if (msg?.t === 'pair/cancel') {
     finish('ended', 'st.cancelled.them', {}, 'warn');
@@ -496,7 +536,8 @@ async function receivedAdmission(admission) {
   try {
     await sendData({ t: 'pair/received' });
   } catch { /* the inviter closes on its own after a while */ }
-  setTimeout(() => finish('done', null), 300);
+  const attempt = ctx.invite;
+  setTimeout(() => { if (ctx.invite === attempt && !ctx.finished) finish('done', null); }, 300);
   setPhase('done');
   setStatus(null);
 }
@@ -524,7 +565,7 @@ $('invite-form').addEventListener('submit', async (event) => {
   closePeerConnection();
   Object.assign(ctx, fresh());
   const room = `pair-${randomHex32()}`;
-  const joined = startPeerConnection({ signalingUrl: signal, room, log: () => {} });
+  const joined = startPeerConnection({ signalingUrl: signal, room, log: debugLog });
   joined.catch(() => {}); // awaited below; this only keeps an early failure from going unhandled
   $('write').disabled = true;
   try {
@@ -539,7 +580,7 @@ $('invite-form').addEventListener('submit', async (event) => {
     return setStatus('st.failed', { detail: err.message }, 'warn');
   }
   const base = new URL('pair.html', location.href);
-  base.search = '';
+  base.search = new URLSearchParams(location.search).has('debug') ? '?debug' : ''; // the invite itself is in the hash
   base.hash = `invite=${encodeInvite(ctx.invite)}`;
   $('link').value = base.href;
   ctx.clock = setInterval(() => {
@@ -579,7 +620,9 @@ $('admit').addEventListener('click', async () => {
     setPhase('done');
     setStatus(null);
     // the device says when it has the admission; close then, or after a while regardless
-    setTimeout(() => { if (!ctx.finished) finish('done', null); }, 8000);
+    // only this attempt: by then the person may already be writing the next invitation
+    const attempt = ctx.invite;
+    setTimeout(() => { if (ctx.invite === attempt && !ctx.finished) finish('done', null); }, 8000);
   } catch (err) {
     finish('ended', 'st.failed', { detail: err.message }, 'warn');
   }
@@ -638,7 +681,7 @@ $('agree-form').addEventListener('submit', async (event) => {
   }
   ctx.name = cleanName($('device-name').value);
   store.set('secdogie.device-name', ctx.name);
-  const joined = startPeerConnection({ signalingUrl: ctx.invite.signal, room: ctx.invite.room, log: () => {} });
+  const joined = startPeerConnection({ signalingUrl: ctx.invite.signal, room: ctx.invite.room, log: debugLog });
   joined.catch(() => {});
   setPhase('joining');
   $('agree').disabled = true;

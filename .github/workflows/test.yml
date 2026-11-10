@@ -188,7 +188,11 @@ jobs:
           node --check client/web_peer.js
           node --check client/pairing.js
           node --check client/keystore.js
+          node --check client/meshlink.js
+          node --check client/frames.js
+          node --check client/mesh.js
           node --check pair.js
+          node --check mesh-page.js
 
       - name: Test (gateway, and pairing against the Python golden vectors)
         working-directory: webrtc
@@ -210,7 +214,7 @@ jobs:
           npm install --no-save playwright@1.63.0
           npx playwright install --with-deps chromium
 
-      - name: Pair two devices over WebRTC
+      - name: Pair devices, then bring three online as one mesh, over WebRTC
         working-directory: webrtc
         run: npm run e2e
 

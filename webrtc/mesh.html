@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>secdogie · 我的设备</title>
+<link rel="stylesheet" href="./ink.css">
+<style>
+  .me { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  .me .who { font-size: 1.15rem; font-weight: 600; }
+  .badge { display: inline-block; margin-left: 8px; padding: 1px 8px; border: 1px solid var(--ash); border-radius: 999px;
+           font-size: 12px; font-weight: 400; color: var(--smoke); vertical-align: 2px; }
+  .badge.owner { border-color: var(--gold); color: var(--gold); }
+  .switch { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 16px; }
+  select { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--ash); background: var(--deep); color: var(--paper); font: inherit; font-size: 15px; }
+
+  .list { list-style: none; margin: 0; padding: 0; }
+  .list li { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 12px; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--rule); }
+  .list li:last-child { border-bottom: 0; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--ash); grid-row: span 2; }
+  li[data-state="online"] .dot { background: var(--celadon); border-color: var(--celadon); }
+  li[data-state="connecting"] .dot { border-color: var(--apricot); animation: ember 1.6s ease-in-out infinite; }
+  li[data-state="refused"] .dot { border-color: var(--apricot); }
+  .list .name { font-size: 1.05rem; }
+  .list .state { text-align: right; font-size: 14px; color: var(--ash); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  li[data-state="online"] .state { color: var(--celadon); }
+  li[data-state="connecting"] .state, li[data-state="refused"] .state { color: var(--apricot); }
+  .list .did { grid-column: 2 / 4; }
+  li[data-state="refused"] .why { grid-column: 2 / 4; font-size: 13px; color: var(--apricot); }
+
+  .say { display: flex; gap: 10px; margin-top: 4px; }
+  .say input { flex: 1; min-width: 0; }
+  .notes { list-style: none; margin: 16px 0 0; padding: 0; }
+  .notes li { padding: 10px 0; border-top: 1px solid var(--rule); }
+  .notes .from { font-size: 13px; color: var(--ash); margin-bottom: 2px; font-variant-numeric: tabular-nums; }
+  .notes li.mine .from { color: var(--gold); }
+  .section-gap { margin-top: 20px; }
+  @media (max-width: 520px) { .say { flex-direction: column; } .say button { width: 100%; } }
+</style>
+</head>
+<body data-phase="loading">
+<svg class="hills" viewBox="0 0 1200 240" preserveAspectRatio="none" aria-hidden="true">
+  <defs>
+    <linearGradient id="fade-far" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" style="stop-color: var(--hill-far)"/><stop offset="1" style="stop-color: var(--ground)"/>
+    </linearGradient>
+    <linearGradient id="fade-near" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" style="stop-color: var(--hill-near)"/><stop offset="1" style="stop-color: var(--ground)"/>
+    </linearGradient>
+  </defs>
+  <path d="M0 150 C 70 132 120 96 190 108 S 300 70 372 92 S 470 50 548 84 S 650 124 720 98 S 842 58 918 90 S 1060 128 1200 104 L1200 240 L0 240 Z" fill="url(#fade-far)"/>
+  <path d="M0 196 C 110 176 170 146 262 166 S 408 140 488 162 S 640 196 728 166 S 896 150 980 172 S 1110 168 1200 150 L1200 240 L0 240 Z" fill="url(#fade-near)"/>
+</svg>
+<div class="moon" aria-hidden="true"></div>
+<div class="page">
+  <header class="top">
+    <a class="brand" href="./mesh.html">secdogie</a>
+    <div class="lang" role="group" aria-label="Language / 语言">
+      <button type="button" data-lang="zh" aria-pressed="true">中</button>
+      <button type="button" data-lang="en" aria-pressed="false">EN</button>
+    </div>
+  </header>
+  <p class="inscription" aria-hidden="true">器各一方　声息相通</p>
+
+  <main>
+    <h1 id="title"></h1>
+    <p class="lede" id="lede"></p>
+
+    <!-- not in any mesh yet -->
+    <section id="empty" class="sheet section-gap" hidden>
+      <h2 data-t="empty.title"></h2>
+      <p class="sub" data-t="empty.text"></p>
+      <div class="actions"><a class="act" href="./pair.html" id="to-pair" data-t="empty.pair"></a></div>
+    </section>
+
+    <!-- this device -->
+    <section id="here" class="sheet section-gap" hidden>
+      <div class="me">
+        <div class="who"><span id="me-name"></span><span class="badge" id="me-role"></span></div>
+        <span class="did" id="me-did"></span>
+      </div>
+      <div class="switch" id="mesh-switch" hidden>
+        <label for="mesh-select" class="fine" data-t="here.mesh"></label>
+        <select id="mesh-select"></select>
+      </div>
+      <div class="field section-gap">
+        <label for="signal" data-t="here.signal"></label>
+        <input id="signal" type="url" autocomplete="off" spellcheck="false" inputmode="url">
+      </div>
+      <div class="actions">
+        <button class="act" id="online" type="button"></button>
+        <a class="text" id="invite" href="./pair.html" data-t="here.invite" hidden></a>
+      </div>
+    </section>
+
+    <!-- the other devices -->
+    <section id="others" class="section-gap" hidden>
+      <h2 data-t="others.title"></h2>
+      <ul class="list" id="devices"></ul>
+      <p class="empty" id="devices-empty" data-t="others.empty" hidden></p>
+    </section>
+
+    <!-- a line to every device online -->
+    <section id="talk" class="sheet section-gap" hidden>
+      <h2 data-t="talk.title"></h2>
+      <form class="say" id="say-form" novalidate>
+        <input id="say" type="text" maxlength="500" autocomplete="off" data-ph="talk.ph">
+        <button class="act" id="send" type="submit" data-t="talk.send"></button>
+      </form>
+      <ul class="notes" id="notes"></ul>
+    </section>
+
+    <p class="status" id="status" role="status" aria-live="polite"></p>
+  </main>
+
+  <footer><p data-t="foot"></p></footer>
+</div>
+<script type="module" src="./mesh-page.js"></script>
+</body>
+</html>

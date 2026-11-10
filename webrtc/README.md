@@ -21,10 +21,17 @@ WebSocket 信令网关。两个浏览器标签页（或两台机器）经网关�
 | [`pair.html`](pair.html) · [`pair.js`](pair.js) | 配对页：写请帖 / 同意 / 对码 / 接纳，中英双语 |
 | [`client/pairing.js`](client/pairing.js) | 配对协议的浏览器实现，与 `transport/secdogie_transport/pairing.py` 逐字节一致 |
 | [`client/keystore.js`](client/keystore.js) | 设备钥匙（不可导出的 `CryptoKey`）与接纳书存在 IndexedDB |
+| [`mesh.html`](mesh.html) · [`mesh-page.js`](mesh-page.js) | 「我的设备」：上线 / 下线，其他设备的在线状态与时延，说一句 |
+| [`client/mesh.js`](client/mesh.js) | 浏览器设备的网格运行时：每对设备一条链路、`link-hello`、名册互传、重连 |
+| [`client/meshlink.js`](client/meshlink.js) | 会合房间、名册、`link-hello/v1`，与 `transport/secdogie_transport/meshlink.py` 逐字节一致 |
+| [`client/frames.js`](client/frames.js) | 与 Python 相同的签名帧 `secdogie/direct/v1`、通道复用和防重放窗口 |
+| [`ink.css`](ink.css) | 两个页面共用的样式（夜色墨蓝、宣纸色字、泥金） |
 | [`wrangler.toml`](wrangler.toml) | Worker / Durable Object 配置 |
 | [`tests/worker.test.js`](tests/worker.test.js) | 网关的 headless 单测（假 socket + 假时钟，纯 Node） |
 | [`tests/pairing.test.js`](tests/pairing.test.js) | 配对协议对照 Python 金向量（`fixtures/vectors/pairing.json`） |
-| [`tests/e2e/pairing.e2e.cjs`](tests/e2e/pairing.e2e.cjs) | 两个真实 Chromium 经真实数据通道配对（`npm run e2e`） |
+| [`tests/meshlink.test.js`](tests/meshlink.test.js) | 网格协议与签名帧对照 Python 金向量（`fixtures/vectors/meshlink.json`） |
+| [`tests/e2e/pairing.e2e.cjs`](tests/e2e/pairing.e2e.cjs) | 两个真实 Chromium 经真实数据通道配对 |
+| [`tests/e2e/mesh.e2e.cjs`](tests/e2e/mesh.e2e.cjs) | 三个真实 Chromium 上线组成网格（`npm run e2e` 两个都跑） |
 
 ## 本地跑通（两个标签页互发）
 
@@ -81,6 +88,23 @@ python3 -m http.server 8080      # 终端 2：配对页   -> http://localhost:80
 **节点怎么认这台设备。** 邀请方页面显示「这台设备的主人身份」（一个 DID）。把它加进各节点的
 主人名单后，`own_devices(接纳书, owners=…, mesh=…)` 得出这个网格的设备，交给
 `PeerBook(own=…)`。地址簿默认只收你自己的设备，公开层要 `public=True` 才开。
+
+## 上线：我的设备（`mesh.html`）
+
+配对之后，每台设备打开 `mesh.html`，点「上线」：
+
+- 这台设备为名册里的每台设备各开一条链路，各在自己的会合房间里（由网格名和两个 DID 算出，网关不用改）。
+- 数据通道打开后，两边先互发 `link-hello/v1`：签名覆盖自己的 DID、接纳书和这条连接的两张 DTLS 证书
+  指纹。对方必须是这条链路对应的那台设备、是主人或持有主人签的接纳书，指纹必须交叉对上。在此之前
+  什么都不读。
+- 之后链路上只有 DID 签名的帧（与 UDP 上的 `secdogie/direct/v1` 相同），通道 `mesh/v1` 里传名册、
+  一句话和测时延的 ping。新配对的手机只认识主人；连上主人后拿到名册，就自己去连其他在线的设备。
+- 点「下线」或关掉页面，所有链路立刻关闭；没有后台。
+
+架构和后续切片见 [`docs/PLAN-OWN-DEVICES.zh.md`](../docs/PLAN-OWN-DEVICES.zh.md)。目前的限制：
+- 知道两个 DID 的人可以抢先占住它们的会合房间，只能让它们暂时连不上，冒充不了（S10 改成 DID 认证信箱后解决）；
+- 还没有撤销（S6）；
+- Python 节点还不走 WebRTC（S8）。
 
 ## 部署网关
 
@@ -158,6 +182,7 @@ closePeerConnection();              // 幂等，随时可调
 | `sendData(payload)` | 经数据通道发送；通道未打开时 reject；超过 SCTP 单消息上限时抛 `RangeError`；发送缓冲超过 1 MiB 时等待排空 |
 | `onMessage(cb)` / `onStateChange(cb)` | 注册监听，返回取消函数 |
 | `currentDescriptions()` | 当前连接的本地与对端 SDP（只读），配对页从中取 DTLS 指纹；两者都没有时为 `null` |
+| `createPeerLink()` | 另一个独立的对端（自己的信令 socket、房间、链路和监听），方法同上：`start` / `close` / `send` / `onMessage` / `onStateChange` / `currentDescriptions`。网格每条链路一个 |
 
 状态：`idle` → `signaling` → `waiting` → `negotiating` → `connected`，以及
 `disconnected`（ICE 暂失）和 `failed`（放弃；可重新 `startPeerConnection()`）。
@@ -205,7 +230,11 @@ cd webrtc && npm run e2e         # 需要 playwright 包和 Chromium
 端到端测试用两个独立的浏览器上下文（各自的 IndexedDB 和钥匙），测试自己扮演信令网关，数据
 通道走本机回环。它断言：点「同意」之前新设备没有任何连接；两块屏幕的六位数一致；接纳后新设备
 持有的接纳书能核验；任何一边点「不一样」都不接纳；被改过的请帖在离线时就被拒绝；在纯 http 的
-局域网地址上页面说明原因。CI 的 `webrtc-e2e` 每次推送都跑。
+局域网地址上页面说明原因。
+
+网格的端到端测试用三个浏览器上下文（主人、手机、平板），先经配对页配好，再各自打开「我的设备」。它断言：
+点「上线」之前没有任何连接；手机经主人的名册找到平板并直连，三台组成全互连；一台设备说的话另两台都
+收到；下线或关掉页面的设备在其他设备上显示为不在线。CI 的 `webrtc-e2e` 每次推送都跑两个测试。
 
 浏览器侧接真网关（真 `wrangler dev` + 两个标签页）的链路按上面「本地跑通」的步骤手动验证。
 
