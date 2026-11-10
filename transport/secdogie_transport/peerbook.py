@@ -52,6 +52,8 @@ import random
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from secdogie_identity import ALLOW_ANY, Allowlist
+
 from .membership import PeerRecord, verify_record
 
 PUZZLE_DOMAIN = "secdogie/id-puzzle/v1"
@@ -133,7 +135,8 @@ class PeerBook:
         nonce). Returns the tier it was admitted to, or None with nothing
         changed: unverifiable, our own record, an unsolved puzzle, an older
         record than the one held, or no room under the admission rules."""
-        rec = verify_record(obj, allowlist=None, now=now)
+        # Whom the book trusts: your own devices, plus anyone only with the public tier on.
+        rec = verify_record(obj, allowlist=ALLOW_ANY if self.public else Allowlist(set(self.own)), now=now)
         if rec is None or rec.did == self.own_did:
             return None
         tier = OWN if rec.did in self.own else PUBLIC

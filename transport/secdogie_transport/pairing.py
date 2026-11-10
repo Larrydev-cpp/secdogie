@@ -38,7 +38,7 @@ import re
 import time
 from dataclasses import dataclass
 
-from secdogie_identity import Allowlist, Identity, pubkey_from_did, sign_payload, verify_payload
+from secdogie_identity import ALLOW_ANY, Allowlist, Identity, pubkey_from_did, sign_payload, verify_payload
 from secdogie_identity.signing import canonical
 
 INVITE_TYPE = "secdogie/device-invite/v1"
@@ -126,7 +126,9 @@ def verify_invite(obj, *, now: float | None = None, clock=time.time) -> Checked:
     names, carries the id of its own content, and has not expired."""
     if not isinstance(obj, dict) or obj.get("type") != INVITE_TYPE:
         return Checked(False, "not an invite")
-    ok, signer = verify_payload(obj, None)
+    # An invite names its own signer: the person trusts it by opening a link from
+    # their own device, and the signature must then be that inviter's.
+    ok, signer = verify_payload(obj, ALLOW_ANY)
     if not ok or obj.get("inviter") != signer:
         return Checked(False, "the signature is not the inviter's")
     mesh, room, signal, exp = obj.get("mesh"), obj.get("room"), obj.get("signal"), obj.get("expires_at")
@@ -172,14 +174,18 @@ def verify_bind(obj, *, invite: dict, expect_role: str, my_local_fp: str, my_rem
     as remote is ours. A mismatch means someone is between the two devices."""
     if not isinstance(obj, dict) or obj.get("type") != BIND_TYPE:
         return Checked(False, "not a bind")
-    ok, signer = verify_payload(obj, None)
-    if not ok or obj.get("did") != signer:
+    # The inviting side must be the invite's inviter. The device's key is new by
+    # design; what binds it is the fingerprints, and then the six digits.
+    inviter = invite.get("inviter") if isinstance(invite, dict) else None
+    trust = Allowlist({inviter}) if expect_role == INVITER and isinstance(inviter, str) else ALLOW_ANY
+    ok, signer = verify_payload(obj, trust)  # (False, did): a valid signature from someone not trusted
+    if signer is None or obj.get("did") != signer:
         return Checked(False, "the signature is not the sender's")
     if obj.get("invite_id") != invite.get("invite_id"):
         return Checked(False, "the bind is for another invite")
     if obj.get("role") != expect_role:
         return Checked(False, "the wrong side sent this bind")
-    if expect_role == INVITER and signer != invite.get("inviter"):
+    if expect_role == INVITER and (not ok or signer != invite.get("inviter")):
         return Checked(False, "the other side is not the inviter")
     if expect_role == DEVICE and signer == invite.get("inviter"):
         return Checked(False, "a device cannot pair with itself")
