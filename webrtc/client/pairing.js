@@ -56,6 +56,7 @@ export function canonical(value) {
     if (!Number.isSafeInteger(value)) throw new TypeError('only safe integers have a canonical form here');
     return String(value);
   }
+  if (typeof value === 'bigint') return value.toString(); // a frame counter is a time_ns() value
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
   if (typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
     const keys = Object.keys(value).sort(byCodePoint);
@@ -68,12 +69,24 @@ export function canonical(value) {
 
 const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 const unhex = (text) => Uint8Array.from(text.match(/../g) ?? [], (h) => parseInt(h, 16));
-const b64 = (bytes) => btoa(String.fromCharCode(...bytes));
+const b64 = (bytes) => {
+  let text = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(text);
+};
 const unb64 = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 
 async function sha256(bytes) {
   return new Uint8Array(await subtle.digest('SHA-256', bytes));
 }
+
+/** Lower-case hex SHA-256 of `bytes` (or of a string's UTF-8). */
+export async function sha256Hex(data) {
+  return hex(await sha256(typeof data === 'string' ? utf8.encode(data) : data));
+}
+
+export const bytesToBase64 = (bytes) => b64(bytes);
+export const base64ToBytes = (text) => unb64(text);
 
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 

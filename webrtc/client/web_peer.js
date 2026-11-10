@@ -11,6 +11,12 @@
  *   sendData(payload) -> Promise<void>
  *   onMessage(callback) -> unsubscribe        callback(data: string | ArrayBuffer)
  *   onStateChange(callback) -> unsubscribe    callback(state: PeerState, detail: string)
+ *   currentDescriptions() -> {local, remote} | null
+ *
+ * Those drive one peer per page. createPeerLink() makes further, independent
+ * peers with the same methods (start / close / send / onMessage /
+ * onStateChange / currentDescriptions), for a page that keeps several links
+ * at once: one per pair of your own devices (mesh.js).
  *
  * A room pairs two peers. The one that joins second makes the offer; the other
  * answers. Only the offerer ever re-offers after a lost link, so the two sides
@@ -39,11 +45,13 @@ const RENEGOTIATION_BACKOFF_MS = 1_000; // ...waiting 1 s, 2 s, 4 s
 const BUFFER_HIGH_WATER = 1024 * 1024; // sendData() waits above this...
 const BUFFER_LOW_WATER = 256 * 1024; // ...until the send buffer drains below this
 
-const messageListeners = new Set();
-const stateListeners = new Set();
-let state = PeerState.IDLE;
-/** The running session, or null. At most one per page. */
-let session = null;
+/** One peer: its running session (or null), its state and its listeners. */
+function newPeer() {
+  return { session: null, state: PeerState.IDLE, messageListeners: new Set(), stateListeners: new Set() };
+}
+
+/** The peer the module-level functions drive. */
+const defaultPeer = newPeer();
 
 /**
  * Joins `room` on the signaling gateway and brings up a direct data channel
@@ -51,23 +59,32 @@ let session = null;
  * Resolves once the gateway has admitted this peer; watch onStateChange() for
  * the P2P link itself ('connected').
  */
-export async function startPeerConnection({
+export function startPeerConnection(options = {}) {
+  const { consented, ...rest } = options; // the default peer always asks for its own gesture
+  return startOn(defaultPeer, rest);
+}
+
+async function startOn(peer, {
   signalingUrl,
   room = 'default',
   iceServers = DEFAULT_ICE_SERVERS,
   log = (line) => console.debug('[web_peer]', line),
+  consented = false,
 } = {}) {
   // Explicit consent: a page cannot bring the peer up silently on load. Browsers
   // without the UserActivation API cannot be checked; the demo page still only
-  // calls this from a click handler.
+  // calls this from a click handler. `consented` is for a caller that already
+  // took the person's click for this whole session (mesh.js: 「上线」), and
+  // reconnects its links while that session lasts.
   const activation = globalThis.navigator?.userActivation;
-  if (activation && !activation.isActive) {
+  if (!consented && activation && !activation.isActive) {
     throw new Error('startPeerConnection() must be called from a user gesture, e.g. a button click');
   }
-  if (session) throw new Error('peer is already running; call closePeerConnection() first');
+  if (peer.session) throw new Error('peer is already running; call closePeerConnection() first');
   if (typeof RTCPeerConnection !== 'function') throw new Error('this browser does not support WebRTC');
 
   const s = {
+    peer,
     url: signalingEndpoint(signalingUrl, room),
     room,
     iceServers,
@@ -84,8 +101,8 @@ export async function startPeerConnection({
   const joined = new Promise((resolve, reject) => {
     s.settle = { resolve, reject };
   });
-  session = s;
-  setState(PeerState.SIGNALING, `connecting to ${s.url.host}`);
+  peer.session = s;
+  setState(s.peer, PeerState.SIGNALING, `connecting to ${s.url.host}`);
   try {
     openSignaling(s);
   } catch (err) {
@@ -96,7 +113,11 @@ export async function startPeerConnection({
 
 /** Closes the data channel, the peer connection and the signaling socket. Safe to call at any time. */
 export function closePeerConnection() {
-  if (session) endSession(session, PeerState.IDLE, 'closed by user');
+  closeOn(defaultPeer);
+}
+
+function closeOn(peer) {
+  if (peer.session) endSession(peer.session, PeerState.IDLE, 'closed by user');
 }
 
 /**
@@ -104,8 +125,12 @@ export function closePeerConnection() {
  * (ArrayBuffer, typed arrays, Blob) go as-is; any other value is sent as JSON
  * text. Waits while the channel's send buffer is above the high-water mark.
  */
-export async function sendData(payload) {
-  const link = session?.link;
+export function sendData(payload) {
+  return sendOn(defaultPeer, payload);
+}
+
+async function sendOn(peer, payload) {
+  const link = peer.session?.link;
   const channel = link?.channel;
   if (channel?.readyState !== 'open') throw new Error('no open data channel; wait for the "connected" state');
 
@@ -122,12 +147,12 @@ export async function sendData(payload) {
 
 /** Registers a listener for incoming data-channel messages; returns an unsubscribe function. */
 export function onMessage(callback) {
-  return subscribe(messageListeners, callback);
+  return subscribe(defaultPeer.messageListeners, callback);
 }
 
 /** Registers a listener for PeerState transitions; returns an unsubscribe function. */
 export function onStateChange(callback) {
-  return subscribe(stateListeners, callback);
+  return subscribe(defaultPeer.stateListeners, callback);
 }
 
 /**
@@ -138,7 +163,30 @@ export function onStateChange(callback) {
  * an ICE recovery keeps the same ones.
  */
 export function currentDescriptions() {
-  const pc = session?.link?.pc;
+  return descriptionsOf(defaultPeer);
+}
+
+/**
+ * Another peer, independent of the default one and of each other: its own
+ * signaling socket, room, link and listeners.
+ */
+export function createPeerLink() {
+  const peer = newPeer();
+  return Object.freeze({
+    start: (options) => startOn(peer, options),
+    close: () => closeOn(peer),
+    send: (payload) => sendOn(peer, payload),
+    onMessage: (callback) => subscribe(peer.messageListeners, callback),
+    onStateChange: (callback) => subscribe(peer.stateListeners, callback),
+    currentDescriptions: () => descriptionsOf(peer),
+    get state() {
+      return peer.state;
+    },
+  });
+}
+
+function descriptionsOf(peer) {
+  const pc = peer.session?.link?.pc;
   const local = pc?.localDescription?.sdp;
   const remote = pc?.remoteDescription?.sdp;
   return local && remote ? { local, remote } : null;
@@ -159,12 +207,12 @@ function openSignaling(s) {
   const ws = new WebSocket(s.url);
   s.ws = ws;
   ws.onopen = () => {
-    if (s !== session) return;
+    if (s !== s.peer.session) return;
     s.log('signaling connected');
     s.pingTimer = setInterval(() => signal(s, { type: 'ping' }), PING_INTERVAL_MS);
   };
   ws.onmessage = (event) => {
-    if (s !== session) return;
+    if (s !== s.peer.session) return;
     let msg;
     try {
       msg = JSON.parse(event.data);
@@ -175,10 +223,10 @@ function openSignaling(s) {
     handleSignal(s, msg);
   };
   ws.onerror = () => {
-    if (s === session) s.log('signaling socket error');
+    if (s === s.peer.session) s.log('signaling socket error');
   };
   ws.onclose = (event) => {
-    if (s !== session) return;
+    if (s !== s.peer.session) return;
     clearInterval(s.pingTimer);
     const why = `signaling closed (${event.code}${event.reason ? `: ${event.reason}` : ''})`;
     // An established P2P link does not need the gateway any more.
@@ -199,7 +247,7 @@ function handleSignal(s, msg) {
         s.remotePeerId = remote; // we joined second, so we make the offer
         startOffer(s);
       } else {
-        setState(PeerState.WAITING, 'waiting for a second peer to join the room');
+        setState(s.peer, PeerState.WAITING, 'waiting for a second peer to join the room');
       }
       break;
     }
@@ -207,7 +255,7 @@ function handleSignal(s, msg) {
       s.remotePeerId = msg.peerId;
       s.retries = 0;
       s.log(`peer ${short(msg.peerId)} joined; waiting for its offer`);
-      if (!s.link) setState(PeerState.WAITING, 'peer joined; waiting for its offer');
+      if (!s.link) setState(s.peer, PeerState.WAITING, 'peer joined; waiting for its offer');
       break;
     case 'peer-left':
       if (msg.peerId !== s.remotePeerId) break;
@@ -217,7 +265,7 @@ function handleSignal(s, msg) {
         s.log(`peer ${short(msg.peerId)} left signaling; the direct link stays up until ICE reports otherwise`);
       } else {
         dropLink(s);
-        setState(PeerState.WAITING, 'the other peer left the room');
+        setState(s.peer, PeerState.WAITING, 'the other peer left the room');
       }
       break;
     case 'offer':
@@ -281,7 +329,7 @@ function createLink(s, remoteId, role) {
     attachChannel(s, link, channel);
   };
   link.negotiationTimer = setTimeout(() => linkLost(s, link, 'negotiation timed out'), NEGOTIATION_TIMEOUT_MS);
-  setState(PeerState.NEGOTIATING, `${role === 'offerer' ? 'offering to' : 'answering'} ${short(remoteId)}`);
+  setState(s.peer, PeerState.NEGOTIATING, `${role === 'offerer' ? 'offering to' : 'answering'} ${short(remoteId)}`);
   return link;
 }
 
@@ -363,7 +411,7 @@ function onIceStateChange(s, link) {
         clearTimeout(link.graceTimer);
         link.graceTimer = null;
         const open = link.channel?.readyState === 'open';
-        setState(open ? PeerState.CONNECTED : PeerState.NEGOTIATING, 'ICE connectivity recovered');
+        setState(s.peer, open ? PeerState.CONNECTED : PeerState.NEGOTIATING, 'ICE connectivity recovered');
       }
       break;
     case 'disconnected':
@@ -375,7 +423,7 @@ function onIceStateChange(s, link) {
       // Otherwise often transient (Wi-Fi hiccup, NAT rebinding): give ICE a
       // grace period to recover on its own before declaring the link lost.
       if (!link.graceTimer) {
-        setState(PeerState.DISCONNECTED, 'ICE connectivity lost; waiting for it to recover');
+        setState(s.peer, PeerState.DISCONNECTED, 'ICE connectivity lost; waiting for it to recover');
         link.graceTimer = setTimeout(() => linkLost(s, link, 'ICE did not recover in time'), DISCONNECT_GRACE_MS);
       }
       break;
@@ -395,7 +443,7 @@ function attachChannel(s, link, channel) {
     if (!isCurrent(s, link)) return;
     clearTimeout(link.negotiationTimer);
     s.retries = 0;
-    setState(PeerState.CONNECTED, `direct data channel open with ${short(link.remoteId)}`);
+    setState(s.peer, PeerState.CONNECTED, `direct data channel open with ${short(link.remoteId)}`);
   };
   channel.onclose = () => {
     if (isCurrent(s, link)) linkLost(s, link, 'data channel closed');
@@ -404,7 +452,7 @@ function attachChannel(s, link, channel) {
     if (isCurrent(s, link)) s.log(`data channel error: ${event.error?.message ?? 'unknown'}`);
   };
   channel.onmessage = (event) => {
-    if (isCurrent(s, link)) emit(messageListeners, event.data);
+    if (isCurrent(s, link)) emit(s.peer.messageListeners, event.data);
   };
 }
 
@@ -416,13 +464,13 @@ function linkLost(s, link, reason) {
     endSession(s, PeerState.FAILED, `${reason}; signaling is gone, so the link cannot be rebuilt`);
     return;
   }
-  setState(PeerState.WAITING, reason);
+  setState(s.peer, PeerState.WAITING, reason);
   if (link.role === 'offerer' && s.remotePeerId === link.remoteId && s.retries < MAX_RENEGOTIATIONS) {
     const delay = RENEGOTIATION_BACKOFF_MS * 2 ** s.retries;
     s.retries += 1;
     s.log(`re-offering in ${delay} ms (attempt ${s.retries}/${MAX_RENEGOTIATIONS})`);
     s.retryTimer = setTimeout(() => {
-      if (s === session && !s.link && s.remotePeerId) startOffer(s);
+      if (s === s.peer.session && !s.link && s.remotePeerId) startOffer(s);
     }, delay);
   }
 }
@@ -438,27 +486,27 @@ function dropLink(s) {
 }
 
 function endSession(s, finalState, reason) {
-  if (s !== session) return;
-  session = null;
+  if (s !== s.peer.session) return;
+  s.peer.session = null;
   clearInterval(s.pingTimer);
   clearTimeout(s.retryTimer);
   dropLink(s);
   if (s.ws && s.ws.readyState <= WebSocket.OPEN) s.ws.close(1000, 'peer closed');
   s.settle?.reject(new Error(reason));
   s.settle = null;
-  setState(finalState, reason);
+  setState(s.peer, finalState, reason);
 }
 
 // --- helpers ----------------------------------------------------------------
 
 function isCurrent(s, link) {
-  return s === session && s.link === link;
+  return s === s.peer.session && s.link === link;
 }
 
-function setState(next, detail) {
-  if (next === state) return;
-  state = next;
-  emit(stateListeners, next, detail);
+function setState(peer, next, detail) {
+  if (next === peer.state) return;
+  peer.state = next;
+  emit(peer.stateListeners, next, detail);
 }
 
 function subscribe(listeners, callback) {

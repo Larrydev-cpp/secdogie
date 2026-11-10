@@ -1,0 +1,161 @@
+{
+  "keys": {
+    "owner": {
+      "seed_hex": "6ec636eb79a905588e62967feee3a6a6ae70e473e23a364c09a611e44f04b144",
+      "did": "did:key:z6MktT4opSq9VAMN7VDDZkpo5ZhvL7SabacZ2Wt6W5fjNbcm"
+    },
+    "phone": {
+      "seed_hex": "edfd6c56505eb9e74d4ae007f17359ee145e327b87dfa7820945e4ab46f6ef93",
+      "did": "did:key:z6MknD1LJEAyNZ1YXDXtFvuKNX2DgfFFmiFfFR2wEFpmMzWh"
+    },
+    "tablet": {
+      "seed_hex": "dc9cca1d93da6f0b17f9865948b53edfbd5d4f919c209f646dd43271c9c42e7b",
+      "did": "did:key:z6MkneJE3zmJz4PAJBLJ1UHxjxcwB14DSbPt4LgT3GYV6SeX"
+    }
+  },
+  "mesh": "home",
+  "now": 1800000101,
+  "rooms": {
+    "owner_phone": "l-471681f7a167a416f457f638d028df926cc524a6",
+    "phone_tablet": "l-65d7b12b0c5dba53e24b57c0e2c09f203a82c835"
+  },
+  "admissions": {
+    "phone": {
+      "type": "secdogie/device-admission/v1",
+      "mesh": "home",
+      "device": "did:key:z6MknD1LJEAyNZ1YXDXtFvuKNX2DgfFFmiFfFR2wEFpmMzWh",
+      "name": "我的手机",
+      "roles": [
+        "forward"
+      ],
+      "invite_id": "373fe8b6891ef5c01a3c65c541edd7e5",
+      "admitted_at": 1800000000,
+      "signer": "did:key:z6MktT4opSq9VAMN7VDDZkpo5ZhvL7SabacZ2Wt6W5fjNbcm",
+      "sig": "oQwRhow10Sc+jCDVOBcCw10t8CCzzJ63zgNINqftcYJANFQ5BU5H6UD60Xit04q75YD3YUVuxoC1VPBsENZ7BQ=="
+    },
+    "tablet": {
+      "type": "secdogie/device-admission/v1",
+      "mesh": "home",
+      "device": "did:key:z6MkneJE3zmJz4PAJBLJ1UHxjxcwB14DSbPt4LgT3GYV6SeX",
+      "name": "平板",
+      "roles": [
+        "forward"
+      ],
+      "invite_id": "6cda69b446fcea1ba94acfbf97ffe6c2",
+      "admitted_at": 1800000060,
+      "signer": "did:key:z6MktT4opSq9VAMN7VDDZkpo5ZhvL7SabacZ2Wt6W5fjNbcm",
+      "sig": "N3Nvn0yy+o3Oh5Fb8aeD/GJDJLE+0nkjlEbBR4X8kpG9TD4vRszDuyCpieceW7GGBkhNabD+Sa571JESAPQCCw=="
+    }
+  },
+  "roster": {
+    "wire": {
+      "mesh": "home",
+      "admissions": [
+        {
+          "type": "secdogie/device-admission/v1",
+          "mesh": "home",
+          "device": "did:key:z6MknD1LJEAyNZ1YXDXtFvuKNX2DgfFFmiFfFR2wEFpmMzWh",
+          "name": "我的手机",
+          "roles": [
+            "forward"
+          ],
+          "invite_id": "373fe8b6891ef5c01a3c65c541edd7e5",
+          "admitted_at": 1800000000,
+          "signer": "did:key:z6MktT4opSq9VAMN7VDDZkpo5ZhvL7SabacZ2Wt6W5fjNbcm",
+          "sig": "oQwRhow10Sc+jCDVOBcCw10t8CCzzJ63zgNINqftcYJANFQ5BU5H6UD60Xit04q75YD3YUVuxoC1VPBsENZ7BQ=="
+        },
+        {
+          "type": "secdogie/device-admission/v1",
+          "mesh": "home",
+          "device": "did:key:z6MkneJE3zmJz4PAJBLJ1UHxjxcwB14DSbPt4LgT3GYV6SeX",
+          "name": "平板",
+          "roles": [
+            "forward"
+          ],
+          "invite_id": "6cda69b446fcea1ba94acfbf97ffe6c2",
+          "admitted_at": 1800000060,
+          "signer": "did:key:z6MktT4opSq9VAMN7VDDZkpo5ZhvL7SabacZ2Wt6W5fjNbcm",
+          "sig": "N3Nvn0yy+o3Oh5Fb8aeD/GJDJLE+0nkjlEbBR4X8kpG9TD4vRszDuyCpieceW7GGBkhNabD+Sa571JESAPQCCw=="
+        }
+      ]
+    },
+    "digest": "5ddb387b8bb39ba5",
+    "phone_only_digest": "acb5ef733241bfe7",
+    "devices": [
+      "did:key:z6MknD1LJEAyNZ1YXDXtFvuKNX2DgfFFmiFfFR2wEFpmMzWh",
+      "did:key:z6MkneJE3zmJz4PAJBLJ1UHxjxcwB14DSbPt4LgT3GYV6SeX",
+      "did:key:z6MktT4opSq9VAMN7VDDZkpo5ZhvL7SabacZ2Wt6W5fjNbcm"
+    ]
+  },
+  "hellos": {
+    "phone": {
+      "args": {
+        "nonce": "bb24dd46ca564b0b66ca821583ed6f91",
+        "local_fp": "bcd7972ed207b3bd22b321d00570352563592da601eda4e6cc13dabc3348577a",
+        "remote_fp": "158079e2c9960babcf37741cf79234593028f0108c835eff1f9b657fc65bd6a4",
+        "name": "我的手机",
+        "roster": "acb5ef733241bfe7",
+        "clock": 1800000100
+      },
+      "signed": {
+        "type": "secdogie/link-hello/v1",
+        "mesh": "home",
+        "did": "did:key:z6MknD1LJEAyNZ1YXDXtFvuKNX2DgfFFmiFfFR2wEFpmMzWh",
+        "nonce": "bb24dd46ca564b0b66ca821583ed6f91",
+        "local_fp": "bcd7972ed207b3bd22b321d00570352563592da601eda4e6cc13dabc3348577a",
+        "remote_fp": "158079e2c9960babcf37741cf79234593028f0108c835eff1f9b657fc65bd6a4",
+        "name": "我的手机",
+        "roster": "acb5ef733241bfe7",
+        "admission": {
+          "type": "secdogie/device-admission/v1",
+          "mesh": "home",
+          "device": "did:key:z6MknD1LJEAyNZ1YXDXtFvuKNX2DgfFFmiFfFR2wEFpmMzWh",
+          "name": "我的手机",
+          "roles": [
+            "forward"
+          ],
+          "invite_id": "373fe8b6891ef5c01a3c65c541edd7e5",
+          "admitted_at": 1800000000,
+          "signer": "did:key:z6MktT4opSq9VAMN7VDDZkpo5ZhvL7SabacZ2Wt6W5fjNbcm",
+          "sig": "oQwRhow10Sc+jCDVOBcCw10t8CCzzJ63zgNINqftcYJANFQ5BU5H6UD60Xit04q75YD3YUVuxoC1VPBsENZ7BQ=="
+        },
+        "ts": 1800000100,
+        "signer": "did:key:z6MknD1LJEAyNZ1YXDXtFvuKNX2DgfFFmiFfFR2wEFpmMzWh",
+        "sig": "DdafXbksnzCi+IR0Q7EnBlzoKNppuPUhxlmkugRJXPCwN/OfHpOCsvijgXGet/M/EOeL0OJrubMB6/+ljNWsBg=="
+      }
+    },
+    "owner": {
+      "args": {
+        "nonce": "a8dec4e539e8c10b38da549a30f604a9",
+        "local_fp": "158079e2c9960babcf37741cf79234593028f0108c835eff1f9b657fc65bd6a4",
+        "remote_fp": "bcd7972ed207b3bd22b321d00570352563592da601eda4e6cc13dabc3348577a",
+        "name": "书房的电脑",
+        "roster": "5ddb387b8bb39ba5",
+        "clock": 1800000100
+      },
+      "signed": {
+        "type": "secdogie/link-hello/v1",
+        "mesh": "home",
+        "did": "did:key:z6MktT4opSq9VAMN7VDDZkpo5ZhvL7SabacZ2Wt6W5fjNbcm",
+        "nonce": "a8dec4e539e8c10b38da549a30f604a9",
+        "local_fp": "158079e2c9960babcf37741cf79234593028f0108c835eff1f9b657fc65bd6a4",
+        "remote_fp": "bcd7972ed207b3bd22b321d00570352563592da601eda4e6cc13dabc3348577a",
+        "name": "书房的电脑",
+        "roster": "5ddb387b8bb39ba5",
+        "admission": null,
+        "ts": 1800000100,
+        "signer": "did:key:z6MktT4opSq9VAMN7VDDZkpo5ZhvL7SabacZ2Wt6W5fjNbcm",
+        "sig": "BriTjd22CDxGEhPK/Wan7LK8MDPCUKk2YKuimFziG63me1g61reS5WV3t4+FCsI2UkPqMlVi1S0xU2/wywMbCA=="
+      }
+    }
+  },
+  "frame": {
+    "text": "{\"t\": \"secdogie/direct/v1\", \"from\": \"did:key:z6MktT4opSq9VAMN7VDDZkpo5ZhvL7SabacZ2Wt6W5fjNbcm\", \"to\": \"did:key:z6MknD1LJEAyNZ1YXDXtFvuKNX2DgfFFmiFfFR2wEFpmMzWh\", \"ctr\": 1800000000123456789, \"data\": \"B21lc2gvdjF7Im0iOiJub3RlIiwidGV4dCI6IuaZmuS4iuWlvSJ9\", \"signer\": \"did:key:z6MktT4opSq9VAMN7VDDZkpo5ZhvL7SabacZ2Wt6W5fjNbcm\", \"sig\": \"ECBuXBKzdeZ2gv4ByzAHYjtKHNDNsCGZZiO1swBDuodYh1IOLDAu4kZpCCHOSeT5qN6mfTeIhtgddZb7VIVJDA==\"}",
+    "from": "did:key:z6MktT4opSq9VAMN7VDDZkpo5ZhvL7SabacZ2Wt6W5fjNbcm",
+    "to": "did:key:z6MknD1LJEAyNZ1YXDXtFvuKNX2DgfFFmiFfFR2wEFpmMzWh",
+    "ctr": "1800000000123456789",
+    "channel": "mesh/v1",
+    "payload": "{\"m\":\"note\",\"text\":\"晚上好\"}",
+    "message_b64": "B21lc2gvdjF7Im0iOiJub3RlIiwidGV4dCI6IuaZmuS4iuWlvSJ9"
+  }
+}
