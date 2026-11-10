@@ -1,0 +1,103 @@
+{
+  "keys": {
+    "owner": {
+      "seed_hex": "26ca6f1df0c30d5b4c28c2992b20ee0ba6de0607ad9cb6fd848584104fa22f16",
+      "did": "did:key:z6MkvsREBERQ89QzoraEZkT3EUFZoApb5z2z3DjYjRfopNBH"
+    },
+    "phone": {
+      "seed_hex": "89915baa4d10935e2e5351670df9eb71a008c866a98861b21a9a7844f0f449e6",
+      "did": "did:key:z6MktoiXN5YSXh898fNRQ1torZoyhWvW5vjt2qrn7qvR2HKm"
+    }
+  },
+  "now": 1800000006,
+  "invite": {
+    "args": {
+      "mesh": "home",
+      "room": "pair-0123456789abcdef",
+      "signal": "wss://signal.example/ws",
+      "ttl": 600,
+      "clock": 1800000000
+    },
+    "signed": {
+      "type": "secdogie/device-invite/v1",
+      "mesh": "home",
+      "inviter": "did:key:z6MkvsREBERQ89QzoraEZkT3EUFZoApb5z2z3DjYjRfopNBH",
+      "room": "pair-0123456789abcdef",
+      "signal": "wss://signal.example/ws",
+      "expires_at": 1800000600,
+      "invite_id": "2529977ed79ac02220e87e22343ceb72",
+      "signer": "did:key:z6MkvsREBERQ89QzoraEZkT3EUFZoApb5z2z3DjYjRfopNBH",
+      "sig": "Z8E56YwNIKEKm9gmY+qCg1+18uv+UuqhEa3BO+6u4MbcFS7g8L0WfHAKTikZHQSLUdmcPtw3cFmAdtK8SiRXDA=="
+    },
+    "link": "eyJleHBpcmVzX2F0IjoxODAwMDAwNjAwLCJpbnZpdGVfaWQiOiIyNTI5OTc3ZWQ3OWFjMDIyMjBlODdlMjIzNDNjZWI3MiIsImludml0ZXIiOiJkaWQ6a2V5Ono2TWt2c1JFQkVSUTg5UXpvcmFFWmtUM0VVRlpvQXBiNXoyejNEallqUmZvcE5CSCIsIm1lc2giOiJob21lIiwicm9vbSI6InBhaXItMDEyMzQ1Njc4OWFiY2RlZiIsInNpZyI6Ilo4RTU2WXdOSUtFS205Z21ZK3FDZzErMTh1ditVdXFoRWEzQk8rNnU0TWJjRlM3ZzhMMFdmSEFLVGlrWkhRU0xVZG1jUHR3M2NGbUFkdEs4U2lSWERBPT0iLCJzaWduYWwiOiJ3c3M6Ly9zaWduYWwuZXhhbXBsZS93cyIsInNpZ25lciI6ImRpZDprZXk6ejZNa3ZzUkVCRVJRODlRem9yYUVaa1QzRVVGWm9BcGI1ejJ6M0RqWWpSZm9wTkJIIiwidHlwZSI6InNlY2RvZ2llL2RldmljZS1pbnZpdGUvdjEifQ"
+  },
+  "binds": {
+    "owner": {
+      "args": {
+        "nonce": "8b68bcedbf34cf263f681ea7a9f90b4a",
+        "local_fp": "sha-256 F8:C3:B3:07:AB:73:9E:DC:97:83:C4:1F:FB:1F:FB:01:D1:FC:FF:17:14:AB:8A:B9:84:AD:2C:12:57:84:23:CA",
+        "remote_fp": "39392c44a03df11767428ad30ebc9c972ed026962627d53c899aff4e95560ac2",
+        "name": "书房的电脑",
+        "clock": 1800000005
+      },
+      "signed": {
+        "type": "secdogie/carrier-bind/v1",
+        "invite_id": "2529977ed79ac02220e87e22343ceb72",
+        "did": "did:key:z6MkvsREBERQ89QzoraEZkT3EUFZoApb5z2z3DjYjRfopNBH",
+        "role": "inviter",
+        "nonce": "8b68bcedbf34cf263f681ea7a9f90b4a",
+        "local_fp": "f8c3b307ab739edc9783c41ffb1ffb01d1fcff1714ab8ab984ad2c12578423ca",
+        "remote_fp": "39392c44a03df11767428ad30ebc9c972ed026962627d53c899aff4e95560ac2",
+        "name": "书房的电脑",
+        "ts": 1800000005,
+        "signer": "did:key:z6MkvsREBERQ89QzoraEZkT3EUFZoApb5z2z3DjYjRfopNBH",
+        "sig": "fYnjstpMbJvin0ZIjcEGZnWxCEQK+8r1Ioc8xhL7E7rVuxiv1qu7IQD5Vlc57j3oOQP6T7HLJZvffTGRktb6Dg=="
+      }
+    },
+    "phone": {
+      "args": {
+        "nonce": "bc715620ee07c284f242e8d95832d312",
+        "local_fp": "39392c44a03df11767428ad30ebc9c972ed026962627d53c899aff4e95560ac2",
+        "remote_fp": "f8c3b307ab739edc9783c41ffb1ffb01d1fcff1714ab8ab984ad2c12578423ca",
+        "name": "我的手机",
+        "clock": 1800000005
+      },
+      "signed": {
+        "type": "secdogie/carrier-bind/v1",
+        "invite_id": "2529977ed79ac02220e87e22343ceb72",
+        "did": "did:key:z6MktoiXN5YSXh898fNRQ1torZoyhWvW5vjt2qrn7qvR2HKm",
+        "role": "device",
+        "nonce": "bc715620ee07c284f242e8d95832d312",
+        "local_fp": "39392c44a03df11767428ad30ebc9c972ed026962627d53c899aff4e95560ac2",
+        "remote_fp": "f8c3b307ab739edc9783c41ffb1ffb01d1fcff1714ab8ab984ad2c12578423ca",
+        "name": "我的手机",
+        "ts": 1800000005,
+        "signer": "did:key:z6MktoiXN5YSXh898fNRQ1torZoyhWvW5vjt2qrn7qvR2HKm",
+        "sig": "kZMUE0I0a/cTOSwL14eVierJnKq9/n/ssUM88swTdYbXxcQsgelOtWJPU/VROZK6r/+ewobk2YZkeYoYReKIBQ=="
+      }
+    }
+  },
+  "check_code": "094533",
+  "admission": {
+    "args": {
+      "name": "我的手机",
+      "roles": [
+        "forward"
+      ],
+      "clock": 1800000030
+    },
+    "signed": {
+      "type": "secdogie/device-admission/v1",
+      "mesh": "home",
+      "device": "did:key:z6MktoiXN5YSXh898fNRQ1torZoyhWvW5vjt2qrn7qvR2HKm",
+      "name": "我的手机",
+      "roles": [
+        "forward"
+      ],
+      "invite_id": "2529977ed79ac02220e87e22343ceb72",
+      "admitted_at": 1800000030,
+      "signer": "did:key:z6MkvsREBERQ89QzoraEZkT3EUFZoApb5z2z3DjYjRfopNBH",
+      "sig": "mRfnX2tU0X2QijDj/88VtAHukEYmQcDuzqF16Yb5X8pzw4BOaDznqetcEx4GMMeLxycW+PbqY0QFkcVupjjFAg=="
+    }
+  }
+}

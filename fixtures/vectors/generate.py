@@ -1,6 +1,7 @@
-"""Golden vectors shared by the Python, Rust (graph/) and TypeScript (symbiont/)
-implementations of secdogie's canonical JSON, Gate 2 authorization, state-graph
-deltas, the Socratic instruction review and policy bundles.
+"""Golden vectors shared by the Python, Rust (graph/), TypeScript (symbiont/)
+and browser JavaScript (webrtc/) implementations of secdogie's canonical JSON,
+Gate 2 authorization, state-graph deltas, the Socratic instruction review,
+policy bundles and device pairing.
 
 Python is the reference: every expected value here is produced by the real
 production functions (``secdogie_identity.signing.canonical`` / ``sign_payload``,
@@ -43,6 +44,7 @@ from secdogie_dialogue.protocol import (
 from secdogie_identity import Identity, sign_payload
 from secdogie_identity.signing import canonical
 from secdogie_policy.vectors import build as policy_vectors
+from secdogie_transport import pairing
 
 HERE = Path(__file__).resolve().parent
 
@@ -335,6 +337,41 @@ def socratic_vectors() -> dict:
     return {"cases": cases}
 
 
+def pairing_vectors() -> dict:
+    """One whole pairing of a device, as webrtc/client/pairing.js must reproduce
+    it byte for byte (Ed25519 signatures are deterministic)."""
+    owner, owner_seed = _identity("pairing-owner")
+    phone, phone_seed = _identity("pairing-phone")
+    t0 = 1_800_000_000
+    fp_owner, fp_phone = _sha(b"owner dtls certificate"), _sha(b"phone dtls certificate")
+    invite = pairing.create_invite(owner, "home", room="pair-0123456789abcdef", signal="wss://signal.example/ws",
+                                   ttl=600, clock=lambda: t0)
+    nonce_owner, nonce_phone = _sha(b"owner nonce")[:32], _sha(b"phone nonce")[:32]
+    bind_owner = pairing.create_bind(owner, invite_id=invite["invite_id"], role=pairing.INVITER, nonce=nonce_owner,
+                                     local_fp=fp_owner, remote_fp=fp_phone, name="书房的电脑", clock=lambda: t0 + 5)
+    bind_phone = pairing.create_bind(phone, invite_id=invite["invite_id"], role=pairing.DEVICE, nonce=nonce_phone,
+                                     local_fp=fp_phone, remote_fp=fp_owner, name="我的手机", clock=lambda: t0 + 5)
+    admission = pairing.create_admission(owner, "home", phone.did, invite_id=invite["invite_id"], name="我的手机",
+                                         roles=("forward",), clock=lambda: t0 + 30)
+    return {
+        "keys": {"owner": {"seed_hex": owner_seed, "did": owner.did},
+                 "phone": {"seed_hex": phone_seed, "did": phone.did}},
+        "now": t0 + 6,
+        "invite": {"args": {"mesh": "home", "room": invite["room"], "signal": invite["signal"], "ttl": 600,
+                            "clock": t0},
+                   "signed": invite, "link": pairing.encode_invite(invite)},
+        "binds": {
+            "owner": {"args": {"nonce": nonce_owner, "local_fp": "sha-256 " + ":".join(
+                fp_owner[i:i + 2].upper() for i in range(0, 64, 2)), "remote_fp": fp_phone, "name": "书房的电脑",
+                "clock": t0 + 5}, "signed": bind_owner},
+            "phone": {"args": {"nonce": nonce_phone, "local_fp": fp_phone, "remote_fp": fp_owner, "name": "我的手机",
+                               "clock": t0 + 5}, "signed": bind_phone},
+        },
+        "check_code": pairing.check_code(invite["invite_id"], bind_owner, bind_phone),
+        "admission": {"args": {"name": "我的手机", "roles": ["forward"], "clock": t0 + 30}, "signed": admission},
+    }
+
+
 # ---- files ----------------------------------------------------------------------
 
 
@@ -345,6 +382,7 @@ def build_all() -> dict[str, str]:
         "graph_delta.json": graph_delta_vectors(),
         "socratic.json": socratic_vectors(),
         "policy.json": policy_vectors(),
+        "pairing.json": pairing_vectors(),
     }
     return {name: json.dumps(obj, indent=2, ensure_ascii=False) + "\n" for name, obj in files.items()}
 
