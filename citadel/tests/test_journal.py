@@ -133,3 +133,36 @@ def test_a_journal_needs_to_know_whose_events_it_accepts():
     src.append("goal", {"op": "add", "id": "g"})
     assert strict.merge(src.events()) == 0
 
+
+
+
+def test_reading_while_another_thread_appends_never_sees_a_half_written_row():
+    # The node reads its journal on its control thread (a new goal's standing)
+    # while the supervisor thread appends, all over one shared connection.
+    import threading
+
+    j = Journal(allowlist=ALLOW_ANY, identity=Identity.generate())
+    errors: list[str] = []
+    done = threading.Event()
+
+    def write():
+        for i in range(600):
+            j.append("tick", {"i": i, "pad": "x" * 200})
+        done.set()
+
+    def read():
+        try:
+            while not done.is_set():
+                for e in j.events():
+                    assert isinstance(e["seq"], int) and isinstance(e["body"], dict)
+                j.heads()
+        except Exception as e:  # noqa: BLE001 - collected and asserted below
+            errors.append(repr(e))
+
+    threads = [threading.Thread(target=write)] + [threading.Thread(target=read) for _ in range(3)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    assert errors == []
+    assert len(j.events()) == 600 and j.verify() == (True, None)

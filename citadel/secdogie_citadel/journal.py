@@ -66,7 +66,10 @@ class Journal:
         self.identity = identity
         self.allowlist = require_trust(allowlist, "Journal")
         self._clock = clock
-        self._lock = threading.Lock()
+        # One connection, shared by the node's threads: every use of it, reads
+        # included, holds this lock. A read interleaved with another thread's
+        # write on the same connection can see a reset statement (NULL columns).
+        self._lock = threading.RLock()
         self._conn = sqlite3.connect(path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._init_db()
@@ -206,28 +209,33 @@ class Journal:
 
     def heads(self) -> dict[str, int]:
         """{author: highest seq} -- the have-vector for anti-entropy."""
-        rows = self._conn.execute("SELECT author, MAX(seq) AS s FROM journal GROUP BY author").fetchall()
+        with self._lock:
+            rows = self._conn.execute("SELECT author, MAX(seq) AS s FROM journal GROUP BY author").fetchall()
         return {row["author"]: int(row["s"]) for row in rows}
 
     def since(self, author: str, after_seq: int) -> list[dict]:
         """This author's events with seq > after_seq, in seq order."""
-        rows = self._conn.execute(
-            "SELECT * FROM journal WHERE author = ? AND seq > ? ORDER BY seq", (author, after_seq)
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM journal WHERE author = ? AND seq > ? ORDER BY seq", (author, after_seq)
+            ).fetchall()
         return [self._row_to_event(r) for r in rows]
 
     def events(self) -> list[dict]:
         """All events in the deterministic total order (lamport, ts, author, seq)."""
-        rows = self._conn.execute(
-            "SELECT * FROM journal ORDER BY lamport, ts, author, seq"
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM journal ORDER BY lamport, ts, author, seq"
+            ).fetchall()
         return [self._row_to_event(r) for r in rows]
 
     def verify(self) -> tuple[bool, str | None]:
         """Re-derive every author's chain and re-check every signature.
         Returns (ok, reason); reason names the first broken event."""
         by_author: dict[str, list[sqlite3.Row]] = {}
-        for row in self._conn.execute("SELECT * FROM journal ORDER BY author, seq").fetchall():
+        with self._lock:
+            rows = self._conn.execute("SELECT * FROM journal ORDER BY author, seq").fetchall()
+        for row in rows:
             by_author.setdefault(row["author"], []).append(row)
         for author, rows in by_author.items():
             try:
@@ -253,4 +261,5 @@ class Journal:
         return True, None
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
