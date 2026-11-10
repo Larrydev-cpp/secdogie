@@ -1,150 +1,239 @@
-# secdogie · 云端生命体
+# secdogie · a cloud lifeform
 
-一个**去中心、经 DID 认证、受监督**的自主体（「云端生命体」），运行在**你自有 /
-已授权**的节点上：没有中心服务器，靠 P2P 存续；从**公开或已授权**的资源学习；用
-**两层苏格拉底门**审视每一步意图；最终**只在经认证的本地设备、在能力授权 + 人在环
-（HITL）下**采取现实动作。
+**English** · [中文](README.zh-CN.md)
 
-**感知以结构为主。** 目标是通过无障碍树（AX/UIA）+ 只读结构化 DIB 引用 + 已授权
-网页会话的 AX/文本来「看」，而不是屏幕像素。**现状（如实）**：macOS 上实时回路把 AX
-树渲染成结构图交给模型；Windows / Linux 上实时回路**仍在截屏**。改为结构化优先、
-截图只在机主显式开启时使用，见 [`ROADMAP.md`](ROADMAP.md) 的 Track D。
+A **decentralized, DID-authenticated, supervised** autonomous agent (a "cloud
+lifeform") that runs **only on nodes you own or have authorized**. There is no
+central server: it lives on by peer-to-peer. It learns from **public or
+authorized** sources, examines every step of intent with **two layers of
+Socratic gates**, and takes real-world action **only on an authenticated local
+device, under a capability grant and with a human in the loop (HITL)**.
 
-> 完整架构见 [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md)；总路线图见 [`ROADMAP.md`](ROADMAP.md)；
-> 深度源码审计与规范对齐见 [`docs/AUDIT-P2P-ALIGNMENT.zh.md`](docs/AUDIT-P2P-ALIGNMENT.zh.md)。
+**Perception is structural first.** The goal is to "see" through the
+accessibility tree (AX / UIA), read-only structured DIB references, and the
+AX / text of authorized web sessions, never through screen pixels.
 
----
+**Where that stands today:**
+- On macOS the live loop renders the AX tree as a structure graph for the model.
+- On Windows and Linux the live loop **still takes screenshots**.
+- Moving those to structure-first, with screenshots only when the owner
+  explicitly turns them on, is Track D in [`ROADMAP.md`](ROADMAP.md).
 
-## 四大支柱
-
-1. **分散式网络** —— DID（Ed25519 `did:key`）身份 + 会话/端点抽象 + 真 P2P UDP 传输，
-   经受认证的 rendezvous 发现彼此、直连升级 / relay 兜底、成员 gossip 反熵。hub 只作
-   bootstrap/relay，挂了整体仍在。
-2. **P2P 分布式获取信息与学习** —— 签名、哈希链、append-only 事件日志 + 其上的
-   `StateStore`；日志/状态经**双重认证**在 mesh 上反熵收敛：一个节点写入的、经签名的
-   「学到的证据」扩散到其余授权节点。
-3. **苏格拉底哲学系统** —— 两层门：**指令级**（意图审视）+ **动作计划级**
-   （`GateDecision`：allow / reject / rewrite / request_reobserve）。门**只判定不执行**。
-4. **受认证本地设备实战** —— 结构化观测融合（AX + DIB 按引用）、不透明目标 + 代际
-   修 TOCTOU；动作仍过安全边界 + 能力授权 + 人在环。
+> Full architecture: [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md). Roadmap: [`ROADMAP.md`](ROADMAP.md).
+> Source audit and spec alignment: [`docs/AUDIT-P2P-ALIGNMENT.zh.md`](docs/AUDIT-P2P-ALIGNMENT.zh.md).
 
 ---
 
-## 感知以结构为主（设计与现状）
+## Download
 
-目标形态：截屏 / 屏幕像素抓取不是本项目的感知方式。`agent/observation.py`
-只融合两种**结构化**的「感官」，并且**从不静默用一种覆盖另一种**——分歧被记成
-`ObservationConflict`、拉低融合置信度、上交给动作门要求重观测：
+Every release on the [Releases page](https://github.com/Larrydev-cpp/secdogie/releases) carries ready-to-run builds:
 
-| 感官 | 是什么 | 角色 |
+| Package | What it is |
+| --- | --- |
+| `secdogie-studio-<platform>-<version>.zip` | **Studio**, the desktop companion. It sits as a soft light on your desktop and comes forward only when something needs you: a question, a signature, a memory to confirm. Windows, macOS and Linux. |
+| `secdogie-agent-<platform>-<version>` | The agent as a single executable. |
+| `secdogie-atlas-<platform>-<version>.zip` | Native read-only structure tools (`atlas_inspect`, `atlas_mct`, `atlas_target`). |
+| `secdogie-tunnel-linux-x86_64-<version>` | The encrypted C tunnel. |
+
+Studio builds are not code-signed yet:
+- on macOS, right-click the app and choose **Open** the first time;
+- on Windows, choose **More info → Run anyway** in SmartScreen.
+
+---
+
+## Four pillars
+
+1. **A decentralized network.**
+   - Identity is a DID (Ed25519 `did:key`); the session and endpoint layers are abstractions over real P2P UDP.
+   - Peers find each other through authenticated rendezvous, upgrade to a direct path or fall back to a relay, and converge membership by gossip anti-entropy.
+   - A hub only bootstraps and relays: if it goes down, the mesh lives on.
+2. **P2P, distributed learning.**
+   - A signed, hash-chained, append-only event journal with a `StateStore` on top.
+   - Journal and state converge across the mesh by anti-entropy with **two layers of authentication**, so signed "learned evidence" written on one node spreads to the other authorized nodes.
+3. **A Socratic philosophy system.** Two layers of gates:
+   - **instruction level** (examining intent);
+   - **action-plan level** (`GateDecision`: allow / reject / rewrite / request_reobserve).
+
+   The gates **only judge; they never execute**.
+4. **Action on authenticated local devices.**
+   - Structured observation fusion (AX + DIB by reference).
+   - Opaque targets with generations to close TOCTOU gaps.
+   - Every action still passes the safety boundary, a capability grant and a human in the loop.
+
+---
+
+## Your own devices, connected in the browser
+
+The mesh runs **only on devices you own**. There are no public nodes and no
+seed nodes. Adding a device happens in the browser.
+
+1. **Pair.** Open [`webrtc/pair.html`](webrtc/pair.html) on a device already in your mesh and write an invitation. Open the link on the new device and click **Agree**.
+   - The two devices connect directly over a WebRTC data channel.
+   - Each signs the DTLS certificate fingerprints it sees, so anyone in the middle of the signaling is caught.
+   - Both screens show the same six digits. You confirm on the inviting device, which signs an admission for the new one.
+2. **Go online.** Open [`webrtc/mesh.html`](webrtc/mesh.html) on each device and click **Go online**.
+   - Every device links directly to every other online device.
+   - Both ends of each link sign a `link-hello` before anything else is read.
+   - A newly paired phone learns the rest of the mesh from the owner's roster.
+   - Close the page and that device goes offline: nothing runs in the background.
+
+The signaling server only helps two devices find each other; it never sees what
+they say. Design and next steps: [`docs/PLAN-OWN-DEVICES.zh.md`](docs/PLAN-OWN-DEVICES.zh.md)
+and [`webrtc/README.md`](webrtc/README.md).
+
+---
+
+## Perception is structural (design and status)
+
+The target design: screenshots and screen-pixel capture are not how this project
+perceives. `agent/observation.py` fuses exactly two **structured** senses.
+It **never silently lets one override the other**. A disagreement:
+- is recorded as an `ObservationConflict`;
+- lowers the fused confidence;
+- is handed to the action gate, which asks for a re-observation.
+
+| Sense | What it is | Role |
 | --- | --- | --- |
-| `ax` | 无障碍树（macOS AX / Windows UIA）：role / name / automation_id | **主**：目标与门推理所依赖的语义身份 |
-| `dib` | native `atlas` 从进程内存**只读重建**的位图，**按引用**携带（身份/哈希，绝不带像素） | **验证**：证明「AX 说的位置」确实画了对的形状。这是结构化内存读，**不是**屏幕截图 |
+| `ax` | The accessibility tree (macOS AX / Windows UIA): role / name / automation_id | **Primary**: the semantic identity that targets and gate reasoning rely on |
+| `dib` | A bitmap that native `atlas` **rebuilds read-only** from process memory, carried **by reference** (identity and hash, never pixels) | **Verification**: proves that what AX says is at a position really drew the right shape. This is a structured memory read, **not** a screenshot |
 
-融合层（`observation.py`）里没有 `pixel` / 屏幕捕获这一路。大视觉数据永远
-**按内容哈希引用**，不进 Python 堆、不进事件日志。
+There is no `pixel` or screen-capture path in the fusion layer
+(`observation.py`). Large visual data is always **referenced by content hash**;
+it never enters the Python heap or the event journal.
 
-**现状**：`observation.py` 的融合与 `target.py` 的代际（TOCTOU）检查目前只在测试中
-使用，尚未接入实时回路（Track D1）；实时回路在 macOS 上用 AX 结构图，在 Windows /
-Linux 上仍截屏（Track D2 改为结构化优先、截图显式开启）。
+**Status:**
+- Fusion in `observation.py` and the generation (TOCTOU) checks in `target.py` are so far used only in tests; they are not yet wired into the live loop (Track D1).
+- The live loop uses the AX structure graph on macOS and still takes screenshots on Windows and Linux (Track D2 moves them to structure-first, with screenshots only when explicitly enabled).
 
 ---
 
-## 一条端到端的认证链路
+## One authenticated chain, end to end
 
 ```
-DID 身份  →  认证会话  →  签名状态  →  苏格拉底门  →  (能力 + HITL) 现实动作
-identity/    transport/    citadel/     citadel/       agent/ + 安全边界
+DID identity  →  authenticated session  →  signed state  →  Socratic gates  →  (capability + HITL) real action
+identity/        transport/                citadel/          citadel/            agent/ + safety boundary
 ```
 
-**没有认证身份就没有会话；没有会话就没有复制；没有过门的计划就没有执行；没有能力
-授权 + 人在环就没有现实动作。** 每一步都可验证、全部 headless / loopback 可测。
-完整时序图见 [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md)。
+**No authenticated identity, no session. No session, no replication. No plan
+through the gates, no execution. No capability grant and human in the loop, no
+real-world action.** Every step is verifiable, and all of it is testable
+headless over loopback. The full sequence diagram is in
+[`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md).
 
 ---
 
-## 现状（诚实盘点）
+## Status (an honest inventory)
 
-以真实代码为准，已建成并推送：
+What is built and pushed, judged by the real code:
 
-| 层 | 包 / 模块 | 状态 |
+| Layer | Package / module | Status |
 | --- | --- | --- |
-| 身份 | `identity/`（DID、规范化签名、Allowlist）+ `binding.py`（DID↔传输密钥） | ✅ |
-| 网络 | `transport/`（peer/session/endpoint、`udp.py` 真 P2P、`rendezvous.py`、`upgrade.py`、`membership.py`、`relay.py` 任一白名单节点兼任 relay） | ✅ |
-| 状态 | `citadel/`（`journal.py` 签名日志、`state.py` StateStore、`sync.py` 反熵、`replication.py` 传输上收敛） | ✅ |
-| 心智 | `citadel/socratic.py`（指令门）+ `action_gate.py`（计划门：意图契约、已知失败、能力）+ `authz.py`（Gate 2 操作员签名）+ `supervisor.py`（受监督节点）；两道门已接入实时 agent 回路 | ✅ |
-| 记忆 | `citadel/episodes.py` / `lessons.py` / `consolidate.py`：阶段式记忆 S1 情节 → S2 隔离区 → S3 巩固；事实须操作员签名确认，只让门更严 | ✅ |
-| 对话 | `dialogue/`（`secdogie-dialogue`）：操作员的 Dialogue App——追问与回答、结构化视界（无像素）、Gate 2 签名台、记忆确认；丢包 / 乱序下的会话层 | ✅ |
-| 节点 | `node/`（`secdogie-node`）：常驻节点，组装传输、对话、签名日志与受监督回路；真实 UDP 端到端测试 | ✅ |
-| 策略包 | `policy/`（`secdogie-policy`）：门规则 / 决策模型 / 采集限额 / allowlist 的签名声明式包，只能更严；TS 镜像由金向量锁住；从本地注入节点并立即生效（`node/policy_host.py`），网格内传播待做 | 🔨 |
-| 伙伴 | `studio/`（`secdogie-studio`）：桌面上的浮动伙伴，平时淡出，需要你时才浮出一张卡片（提问 / 签名 / 记忆）；`citadel/decision.py` 决定何时找你，注意力只看系统空闲时长 | 🔨 |
-| 推理网格 | `inference/`：三态路由——常态经网格到租约模型节点；节点失效时绕行、隔离与中央兜底；叛变锁定（自证证据、密钥轮换、双模型交叉验证、操作员签名解除） | ✅ |
-| 感知/动作 | `agent/observation.py`（AX + DIB 按引用融合）+ `target.py`（TOCTOU）+ AX/safety；`native/atlas`（只读、DIB 重建） | 🔨 构件已建成，observation/target 尚未接入实时回路 |
-| 设备/会话 | `desktop/`（聊天式原生窗口 + `websession.py` 复用**已授权**浏览器会话，只读导航 + 读结构） | ✅ |
-| 承载/运维 | `tunnel/`（C 加密隧道，机密性）、`fleet/`、`console/` | ✅ |
-| 浏览器 P2P | `webrtc/`（WebRTC 数据通道客户端 + Cloudflare Worker 信令网关；仅用户点击后启动） | ✅ |
-| 自己的设备 | 网格只跑在你自己的设备上：`webrtc/pair.html` 在浏览器里配对（打开请帖 → 点同意 → WebRTC 直连 → 两屏对六位数 → 邀请方签接纳书），`transport/pairing.py` 是参考实现；地址簿默认只收自己的设备（`transport/peerbook.py`，公开层搁置） | 🔨 节点自动读取接纳书待做 |
-| 浏览器运行时 | `symbiont/`（TS：双重苏格拉底门、内联签名气泡、注意力调度、沙箱抓取）+ `graph/`（Rust-WASM：只追加状态图、have/want、词法路由适配器）；与 Python 逐字节兼容，见 `fixtures/vectors/` | 🔨 与 Python 节点的传输桥接待做 |
+| Identity | `identity/` (DID, canonical signing, Allowlist) + `binding.py` (DID ↔ transport key) | ✅ |
+| Network | `transport/`: peer/session/endpoint, real P2P over `udp.py`, `rendezvous.py`, `upgrade.py`, `membership.py`, and `relay.py` (any allowlisted node can relay) | ✅ |
+| State | `citadel/`: `journal.py` signed journal, `state.py` StateStore, `sync.py` anti-entropy, `replication.py` convergence over transport | ✅ |
+| Mind | `citadel/socratic.py` (instruction gate) + `action_gate.py` (plan gate: intent contract, known failures, capabilities) + `authz.py` (Gate 2 operator signature) + `supervisor.py` (supervised node); both gates are in the live agent loop. An automatic Socratic gate (`deliberate.py`) weighs every new goal against what it knows of you | ✅ |
+| Memory | `citadel/episodes.py` / `lessons.py` / `consolidate.py`: staged memory, from S1 episodes to S2 quarantine to S3 consolidation; facts need an operator-signed confirmation and can only make the gates stricter | ✅ |
+| Dialogue | `dialogue/` (`secdogie-dialogue`): the operator's Dialogue App. It covers follow-up questions and answers, a structured view (no pixels), the Gate 2 signing desk and memory confirmation, over a session layer that survives loss and reordering | ✅ |
+| Node | `node/` (`secdogie-node`): the resident node, assembling transport, dialogue, the signed journal and the supervised loop; real end-to-end UDP tests | ✅ |
+| Policy | `policy/` (`secdogie-policy`): signed, declarative bundles for gate rules, decision models, ingestion limits and allowlists, which can only tighten. A TS mirror is locked to it by golden vectors. Bundles are injected locally into a node and take effect at once (`node/policy_host.py`); spreading them across the mesh is still to do | 🔨 |
+| Companion | `studio/` (`secdogie-studio`): the floating desktop companion, faded until it needs you, then a single card (question / signature / memory); `citadel/decision.py` decides when to reach you, and attention reads only the system idle time | 🔨 |
+| Inference mesh | `inference/`, which routes in three modes:<br>· **normal:** over the mesh to leased model nodes;<br>· **a node fails:** detour, quarantine and a central fallback;<br>· **a node turns against you:** lockdown, with self-proving evidence, key rotation, cross-checks by two models, and release only by an operator signature | ✅ |
+| Perception / action | `agent/observation.py` (AX + DIB fused by reference) + `target.py` (TOCTOU) + AX/safety; `native/atlas` (read-only DIB reconstruction) | 🔨 building blocks done; observation/target not yet in the live loop |
+| Devices / sessions | `desktop/` (a chat-style native window, plus `websession.py`, which reuses **authorized** browser sessions for read-only navigation and reading structure) | ✅ |
+| Carrier / ops | `tunnel/` (encrypted C tunnel, confidentiality), `fleet/`, `console/` | ✅ |
+| Browser P2P | `webrtc/` (WebRTC data-channel client + Cloudflare Worker signaling gateway; starts only after a click) | ✅ |
+| Your own devices | The mesh runs only on your own devices:<br>· `webrtc/pair.html` pairs a device in the browser (invite → agree → direct WebRTC → six digits on both screens → admission);<br>· on `webrtc/mesh.html`, devices that go online form a full WebRTC mesh: both ends of each link sign a `link-hello`, and rosters spread by themselves;<br>· reference implementations are `transport/pairing.py` and `meshlink.py`;<br>· the address book keeps only your own devices by default (the public tier is shelved) | 🔨 revocation and Python nodes on WebRTC still to do |
+| Browser runtime | `symbiont/` (TS: two Socratic gates, inline signing prompts, attention scheduling, sandboxed fetch) + `graph/` (Rust-WASM: append-only state graph, have/want, lexical routing adapter); byte-compatible with Python, see `fixtures/vectors/` | 🔨 transport bridge to Python nodes still to do |
 
-**第二阶段（可运行闭环）已完成**：k-of-n 撤销、零信任默认（见 [`docs/ZERO-TRUST-MIGRATION.md`](docs/ZERO-TRUST-MIGRATION.md)）、
-两道门与阶段式记忆接入实时回路、Dialogue App、`secdogie-node` 与端到端测试。
+**Phase two (a runnable closed loop) is done**, including:
+- k-of-n revocation;
+- zero-trust defaults (see [`docs/ZERO-TRUST-MIGRATION.md`](docs/ZERO-TRUST-MIGRATION.md));
+- both gates and staged memory in the live loop;
+- the Dialogue App;
+- `secdogie-node` with end-to-end tests.
 
-**第三阶段待做**（按 [`ROADMAP.md`](ROADMAP.md)）：
-- 网格运行时：rendezvous 上 UDP（T3）、线上 gossip（T4）、撤销经日志的持久传播（T6）；
-- 设备类别与无头隔离（T7）；fleet / console / desktop 的审批通路；
-- C + libsodium 隧道加固（T9）：v2 握手（Noise IK）、rekey、端到端中继、本地控制 socket；
-- 多节点纵切演示、安全复审、实机验证；
-- 感知入环与结构化优先（机主推进）。
-
----
-
-## 安全边界（严禁清单 — 逐字保留）
-
-**严禁**引入：进程内存写、远程线程注入、内核 HID、EDR/反检测、隐蔽持久化、提权、
-绕过用户授权或 macOS Accessibility / Screen Recording 权限、把 HITL 改成默认自动批准、
-隐蔽嵌入第三方服务、流量混淆、打洞式反检测。
-
-**保持**：memory = 只读、execution = 受监督、high-risk = fail-closed 且在任何模式、
-任何入口都必须人工确认（没有开关可以关闭）、physical action = 显式 capability。能力模型**永不**包含 `process.memory.write` /
-内核 HID / 反检测 / 提权。
-
-`websession.py` 只**复用你自己在别处正规登录后保存的已授权会话**去只读导航 + 读页面
-结构——**不输入凭据、不创建/窃取会话、不绕过认证/验证码/反爬**；站点若拒绝自动化，
-尊重之。每个切片提交前都会 grep 回归确认无上述原语。完整信任模型见 [`SECURITY.md`](SECURITY.md)。
+**Phase three, still to do** (per [`ROADMAP.md`](ROADMAP.md)):
+- mesh runtime: UDP over rendezvous (T3), live gossip (T4), durable revocation spread through the journal (T6);
+- device classes and headless isolation (T7);
+- approval paths for fleet / console / desktop;
+- C + libsodium tunnel hardening (T9): v2 handshake (Noise IK), rekeying, end-to-end relaying, a local control socket;
+- a multi-node vertical demo, a security re-review, verification on real machines;
+- perception in the loop, structure first (driven by the owner).
 
 ---
 
-## 快速开始（headless 可测）
+## Safety boundary (forbidden list)
 
-每个包纯逻辑 / loopback 可测，无需桌面、无需屏幕：
+> The authoritative wording is the Chinese list in [`README.zh-CN.md`](README.zh-CN.md), kept verbatim. This is a faithful English rendering.
+
+**Never** introduce:
+- process memory writes or remote thread injection;
+- kernel HID;
+- EDR or anti-detection;
+- covert persistence or privilege escalation;
+- bypassing user authorization or the macOS Accessibility / Screen Recording permissions;
+- turning HITL into default auto-approval;
+- covertly embedding third-party services;
+- traffic obfuscation, or hole-punching used as anti-detection.
+
+**Keep:**
+- memory = read-only;
+- execution = supervised;
+- high-risk = fail-closed, and **always** confirmed by a human, in every mode and at every entry point (there is no switch to turn it off);
+- physical action = an explicit capability.
+
+The capability model **never** contains `process.memory.write`, kernel HID,
+anti-detection or privilege escalation.
+
+`websession.py` only **reuses authorized sessions that you saved after logging
+in properly elsewhere**, for read-only navigation and reading page structure.
+- It **never** types credentials, creates or steals sessions, or bypasses authentication, CAPTCHAs or anti-bot measures.
+- If a site refuses automation, that is respected.
+
+Before every slice is committed, a grep regression confirms none of these
+primitives appear. The full trust model is in [`SECURITY.md`](SECURITY.md).
+
+---
+
+## Quick start (headless, testable)
+
+Every package is pure logic or loopback-testable; no desktop or screen needed:
 
 ```sh
 pip install ruff
-ruff check .                                   # 根 lint（ruff.toml）
+ruff check .                                   # root lint (ruff.toml)
 
-python -m pytest identity/tests  -q            # DID、签名、绑定
-python -m pytest transport/tests -q            # 会话、UDP、rendezvous、升级、成员
-python -m pytest citadel/tests   -q            # 日志、状态、反熵、复制、门、监督
-cd agent && python -m pytest tests/test_observation.py tests/test_target.py -q   # 结构化感知、目标
+python -m pytest identity/tests  -q            # DID, signing, binding
+python -m pytest transport/tests -q            # sessions, UDP, rendezvous, upgrade, membership, pairing, mesh links
+python -m pytest citadel/tests   -q            # journal, state, anti-entropy, replication, gates, supervision
+cd agent && python -m pytest tests/test_observation.py tests/test_target.py -q   # structured perception, targets
+cd webrtc && npm test && npm run e2e           # browser pairing and mesh (e2e needs Playwright + Chromium)
 ```
 
-CI（[`.github/workflows/test.yml`](.github/workflows/test.yml)）对每个包跑 headless
-`pytest`、C 隧道跑 `ctest`、并对全部 Python 跑一遍 `ruff`。
+CI ([`.github/workflows/test.yml`](.github/workflows/test.yml)) runs:
+- headless `pytest` for every package;
+- `ctest` for the C tunnel;
+- `ruff` over all Python;
+- the browser end-to-end tests over real WebRTC.
 
 ---
 
-## 关于旧的截屏工具（已移除）
+## About the old screenshot tools (removed)
 
-本仓库更早的、基于视觉 LLM + 屏幕截图的独立工具（`android/`、`ios/`、`scene3d/`、多窗口
-`open/`、以及游戏栈 `aim/`/`commander/`/`handoff/`/`gta/`）**已从主线删除**——项目的感知是
-结构化的，不需要屏幕截图。它们仍留在 git 历史中可供查阅。`agent/` 作为共享引擎保留（云端
-生命体的结构化感知栈就住在里面）。
+The earlier standalone tools in this repository, built on vision LLMs and
+screenshots, **have been removed from the main line**. That covers `android/`,
+`ios/`, `scene3d/`, the multi-window `open/`, and the game stack
+`aim/` / `commander/` / `handoff/` / `gta/`. The project perceives structurally
+and does not need screenshots. They remain in git history for reference.
+`agent/` stays as the shared engine; the cloud lifeform's structured perception
+stack lives there.
 
 ---
 
-## 深入阅读
+## Further reading
 
-- [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md) —— 四大支柱、端到端认证链路、组件表、安全边界、路线图。
-- [`ROADMAP.md`](ROADMAP.md) —— 总实现目标与里程碑。
-- [`docs/AUDIT-P2P-ALIGNMENT.zh.md`](docs/AUDIT-P2P-ALIGNMENT.zh.md) —— 深度源码审计与冲突记录。
-- [`SECURITY.md`](SECURITY.md) —— 信任模型与漏洞上报。
+- [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md): the four pillars, the authenticated chain, the component table, the safety boundary, the roadmap.
+- [`ROADMAP.md`](ROADMAP.md): implementation goals and milestones.
+- [`docs/PLAN-OWN-DEVICES.zh.md`](docs/PLAN-OWN-DEVICES.zh.md): the mesh of your own devices over WebRTC.
+- [`docs/AUDIT-P2P-ALIGNMENT.zh.md`](docs/AUDIT-P2P-ALIGNMENT.zh.md): source audit and conflict log.
+- [`SECURITY.md`](SECURITY.md): trust model and vulnerability reporting.
