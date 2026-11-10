@@ -38,7 +38,7 @@ import re
 import time
 from dataclasses import dataclass
 
-from secdogie_identity import Identity, pubkey_from_did, sign_payload, verify_payload
+from secdogie_identity import Allowlist, Identity, pubkey_from_did, sign_payload, verify_payload
 from secdogie_identity.signing import canonical
 
 INVITE_TYPE = "secdogie/device-invite/v1"
@@ -252,6 +252,20 @@ def verify_admission(obj, *, owners, mesh: str | None = None, device: str | None
     return Checked(True, None, obj)
 
 
+def own_devices(admissions, *, owners, mesh: str) -> frozenset[str]:
+    """The devices of ``mesh``: the device DIDs of the admissions that one of
+    its ``owners`` signed. This is what makes a paired device one of *your*
+    nodes, e.g. ``PeerBook(me.did, own=own_devices(...))``; an admission that
+    does not verify is skipped."""
+    allow = owners if isinstance(owners, Allowlist) else Allowlist(set(owners or ()))
+    found = set()
+    for obj in admissions or ():
+        checked = verify_admission(obj, owners=allow, mesh=mesh)
+        if checked.ok:
+            found.add(checked.value["device"])
+    return frozenset(found)
+
+
 __all__ = ["ADMISSION_TYPE", "BIND_TYPE", "DEVICE", "INVITER", "INVITE_TYPE", "SAS_TYPE", "Checked", "check_code",
            "create_admission", "create_bind", "create_invite", "decode_invite", "encode_invite",
-           "normalize_fingerprint", "verify_admission", "verify_bind", "verify_invite"]
+           "normalize_fingerprint", "own_devices", "verify_admission", "verify_bind", "verify_invite"]

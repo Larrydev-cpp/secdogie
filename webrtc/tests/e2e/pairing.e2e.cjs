@@ -12,7 +12,8 @@
 //   * both screens show the same six digits;
 //   * after 接纳 the device holds an admission any node would verify;
 //   * 不一样 admits nothing;
-//   * a link whose invitation was altered is refused, with no agree button.
+//   * a link whose invitation was altered is refused, with no agree button;
+//   * opened on a plain-http LAN address, the page says why it cannot work.
 'use strict';
 
 const assert = require('node:assert/strict');
@@ -83,7 +84,8 @@ async function shot(page, name) {
 (async () => {
   const server = await serve();
   const origin = `http://127.0.0.1:${server.address().port}`;
-  const browser = await chromium.launch();
+  // lan.test plays a LAN address over plain http: not a secure context, unlike 127.0.0.1
+  const browser = await chromium.launch({ args: ['--host-resolver-rules=MAP lan.test 127.0.0.1'] });
   const net = relay();
   const pageErrors = [];
   const device = async (viewport, { locale = 'zh-CN', colorScheme = 'dark' } = {}) => {
@@ -183,6 +185,16 @@ async function shot(page, name) {
     assert.equal(net.opened(stranger), 0);
     await shot(stranger, 'stranger-invalid');
     console.log('ok  an altered invitation is refused offline, with no agree button');
+
+    // ---- a plain-http LAN address: no keys in the browser, and the page says so -------
+    const lan = await device({ width: 390, height: 844 });
+    await lan.goto(`http://lan.test:${server.address().port}/pair.html#invite=${token}`);
+    await phase(lan, 'invalid');
+    assert.match(await lan.textContent('#invalid-reason'), /https:\/\/ 或 localhost/);
+    assert.equal(net.opened(lan), 0);
+    await shot(lan, 'lan-insecure');
+    console.log('ok  on a plain-http LAN address the page explains it needs https or localhost');
+
     assert.deepEqual(pageErrors, [], 'a page threw');
   } catch (err) {
     failed = true;

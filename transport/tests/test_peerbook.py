@@ -31,7 +31,16 @@ def _public(host, t=100.0):
 
 
 def _book(**kw):
-    return PeerBook(ME.did, own={MINE.did}, difficulty=D, **kw)
+    return PeerBook(ME.did, own={MINE.did}, public=True, difficulty=D, **kw)
+
+
+def test_by_default_the_book_keeps_only_your_own_devices():
+    book = PeerBook(ME.did, own={MINE.did}, difficulty=D)
+    _, rec, n = _public("198.51.100.7")
+    assert book.admit(rec, nonce=n) is None  # a solved puzzle is not enough: strangers are not kept
+    assert book.admit(_record(MINE, "10.0.0.2")) == OWN
+    assert book.merge([{"record": rec, "nonce": n}]) == 0
+    assert book.dids() == [MINE.did]
 
 
 def test_the_identity_puzzle_costs_work_and_is_bound_to_its_did():
@@ -82,7 +91,7 @@ def test_room_goes_by_behaviour_then_age():
 
 
 def test_peer_exchange_spreads_the_mesh_and_never_reveals_your_own_nodes():
-    alice, bob = _book(), PeerBook(Identity.generate().did, difficulty=D)
+    alice, bob = _book(), PeerBook(Identity.generate().did, public=True, difficulty=D)
     for i in range(3):
         _, rec, n = _public(f"198.51.{i}.10")
         alice.admit(rec, nonce=n)

@@ -1,4 +1,8 @@
-"""The address book: how an open mesh grows without seed nodes.
+"""The address book: how the mesh grows without seed nodes.
+
+By default the book holds only your own nodes: the devices you paired
+(``pairing.py``, ``own_devices``). The public tier below is shelved and
+opt-in (``public=True``); nothing else changes when it is off.
 
 There are no seed nodes. A new node needs exactly one first contact, and any
 member can be it:
@@ -100,10 +104,11 @@ class Entry:
 
 
 class PeerBook:
-    def __init__(self, own_did: str, *, own=frozenset(), difficulty: int = DEFAULT_DIFFICULTY,
+    def __init__(self, own_did: str, *, own=frozenset(), public: bool = False, difficulty: int = DEFAULT_DIFFICULTY,
                  capacity: int = 512, per_prefix: int = 2, max_failures: int = 5):
         self.own_did = own_did
-        self.own = frozenset(own)  # DIDs on your allowlist
+        self.own = frozenset(own)  # DIDs on your allowlist: the devices you paired
+        self.public = bool(public)  # off: only your own nodes are ever admitted
         self.difficulty = int(difficulty)
         self.capacity = int(capacity)
         self.per_prefix = int(per_prefix)
@@ -132,6 +137,8 @@ class PeerBook:
         if rec is None or rec.did == self.own_did:
             return None
         tier = OWN if rec.did in self.own else PUBLIC
+        if tier == PUBLIC and not self.public:
+            return None  # an own-devices mesh: strangers are not kept, however they arrive
         if tier == PUBLIC and not puzzle_ok(rec.did, nonce, self.difficulty):
             return None
         held = self._entries.get(rec.did)

@@ -5,6 +5,10 @@ WebSocket 信令网关。两个浏览器标签页（或两台机器）经网关�
 `ice-candidate` 后，数据走 **DTLS 加密的 RTCDataChannel 直连**，网关看不到、也不经手
 业务数据。
 
+**网格只跑在你自己的设备上。** 加一台设备就在浏览器里完成：在已有的设备上写一封请帖，
+到新设备上打开、点「同意」，两边经 WebRTC 直连，两块屏幕对一下六位数，在邀请的那边点
+「接纳」。见下面的[配对你自己的设备](#配对你自己的设备pairhtml)。
+
 **只在用户显式操作时启动。** 模块导入时不开 socket、不建 `RTCPeerConnection`、不起
 定时器；`startPeerConnection()` 在没有用户手势（点击）时直接拒绝，页面无法在加载时
 静默联网。关掉页面或点「关闭节点」即全部拆除，没有任何后台常驻逻辑。
@@ -14,8 +18,13 @@ WebSocket 信令网关。两个浏览器标签页（或两台机器）经网关�
 | [`signaling/worker.js`](signaling/worker.js) | 信令网关：Worker 入口 + `SignalingRoom` Durable Object |
 | [`client/web_peer.js`](client/web_peer.js) | 浏览器端 ES 模块：协商、数据通道、断线检测 |
 | [`index.html`](index.html) | 极简测试页：「启动节点」按钮 + 收发文本 + 日志 |
+| [`pair.html`](pair.html) · [`pair.js`](pair.js) | 配对页：写请帖 / 同意 / 对码 / 接纳，中英双语 |
+| [`client/pairing.js`](client/pairing.js) | 配对协议的浏览器实现，与 `transport/secdogie_transport/pairing.py` 逐字节一致 |
+| [`client/keystore.js`](client/keystore.js) | 设备钥匙（不可导出的 `CryptoKey`）与接纳书存在 IndexedDB |
 | [`wrangler.toml`](wrangler.toml) | Worker / Durable Object 配置 |
 | [`tests/worker.test.js`](tests/worker.test.js) | 网关的 headless 单测（假 socket + 假时钟，纯 Node） |
+| [`tests/pairing.test.js`](tests/pairing.test.js) | 配对协议对照 Python 金向量（`fixtures/vectors/pairing.json`） |
+| [`tests/e2e/pairing.e2e.cjs`](tests/e2e/pairing.e2e.cjs) | 两个真实 Chromium 经真实数据通道配对（`npm run e2e`） |
 
 ## 本地跑通（两个标签页互发）
 
@@ -35,6 +44,43 @@ python3 -m http.server 8080      # 终端 2：测试页   -> http://localhost:80
 测试页的信令地址和房间也可以用查询参数预填：
 `index.html?signal=wss://<worker>.workers.dev/ws&room=my-room`。ES 模块不能从
 `file://` 加载，所以测试页必须经 HTTP 打开（`localhost` 算安全上下文，WebRTC 可用）。
+
+## 配对你自己的设备（`pair.html`）
+
+```sh
+cd webrtc
+npx wrangler dev                 # 终端 1：信令网关 -> ws://localhost:8787/ws
+python3 -m http.server 8080      # 终端 2：配对页   -> http://localhost:8080/pair.html
+```
+
+1. **写请帖**（已在网格里的设备）：填网格名、这台设备的名字和信令地址，点「写请帖」。这台
+   浏览器生成网格的主人钥匙（第一次时），签一封十分钟有效的请帖，并在一个一次性的信令房间
+   里等着。把链接 `pair.html#invite=…` 发到新设备上。
+2. **同意**（新设备）：打开链接，页面**离线**核验请帖，显示谁邀请、哪个网格、何时过期。
+   点「同意加入」之前不联网；点了才生成这台设备自己的钥匙，并连上邀请方。
+3. **对码**：数据通道打开后，两边各签一份 `carrier-bind/v1`，写明自己看到的两张 DTLS 证书指纹；
+   两块屏幕显示同样的六位数。
+4. **接纳**：在邀请的那边确认数字一样，点「一样，接纳」。它签一份 `device-admission/v1` 交给
+   新设备；新设备核验后存下，也可以「保存接纳书」成文件。
+
+**页面要在 `https://` 或 `localhost` 下打开。** 浏览器只在安全环境里提供签名用的 WebCrypto。
+两台真设备之间用时，把 `pair.html`、`pair.js`、`client/` 放到任意 HTTPS 静态托管上（页面是
+纯静态的，请帖在 URL 的 `#` 之后，托管方收不到），信令网关部署成 `wss://`（见下一节）。
+在纯 http 的局域网地址上打开时，页面会直接说明原因。
+
+**信令看得到什么。** 一次性房间名、两边的 SDP 与 ICE 候选（含 IP 地址）。看不到请帖、
+钥匙、设备名和通道里的任何数据。
+
+**为什么要对六位数。** 新设备的钥匙是刚生成的，邀请方事先不认识它：
+- 新设备这一侧，请帖里写着邀请方的 DID，对方的 bind 必须由它签名，且指纹必须与自己看到的
+  连接对上。信令中间人伪造不了，冒名的一方会被直接断开；
+- 邀请方这一侧，一个在信令中间的人可以用自己的新钥匙冒充「新设备」。它和邀请方之间的
+  六位数与真设备屏幕上的六位数不同，只有人眼对一下才能发现。所以接纳只在邀请方点，并且只在
+  两边数字一致时点。
+
+**节点怎么认这台设备。** 邀请方页面显示「这台设备的主人身份」（一个 DID）。把它加进各节点的
+主人名单后，`own_devices(接纳书, owners=…, mesh=…)` 得出这个网格的设备，交给
+`PeerBook(own=…)`。地址簿默认只收你自己的设备，公开层要 `public=True` 才开。
 
 ## 部署网关
 
@@ -111,6 +157,7 @@ closePeerConnection();              // 幂等，随时可调
 | `closePeerConnection()` | 关闭数据通道、`RTCPeerConnection` 和信令 socket，状态回到 `idle` |
 | `sendData(payload)` | 经数据通道发送；通道未打开时 reject；超过 SCTP 单消息上限时抛 `RangeError`；发送缓冲超过 1 MiB 时等待排空 |
 | `onMessage(cb)` / `onStateChange(cb)` | 注册监听，返回取消函数 |
+| `currentDescriptions()` | 当前连接的本地与对端 SDP（只读），配对页从中取 DTLS 指纹；两者都没有时为 `null` |
 
 状态：`idle` → `signaling` → `waiting` → `negotiating` → `connected`，以及
 `disconnected`（ICE 暂失）和 `failed`（放弃；可重新 `startPeerConnection()`）。
@@ -148,16 +195,28 @@ cd webrtc && npm test            # = node --test，无需安装依赖
 速率限制、满房、断开通知、闲置清扫、以及入口的 health / upgrade / origin / 房间名校验。
 CI（`.github/workflows/test.yml` 的 `webrtc-tests`）每次推送都跑。
 
-浏览器侧的端到端链路（真 `wrangler dev` + 两个 Chromium 标签页）按上面「本地跑通」的
-步骤手动验证。
+配对协议的单测对照 Python 签出的金向量：Python 签的每份声明在浏览器里都能核验，同样的输入
+签出同样的字节，中间人、过期、篡改、改投各有各的失败原因。
+
+```sh
+cd webrtc && npm run e2e         # 需要 playwright 包和 Chromium
+```
+
+端到端测试用两个独立的浏览器上下文（各自的 IndexedDB 和钥匙），测试自己扮演信令网关，数据
+通道走本机回环。它断言：点「同意」之前新设备没有任何连接；两块屏幕的六位数一致；接纳后新设备
+持有的接纳书能核验；任何一边点「不一样」都不接纳；被改过的请帖在离线时就被拒绝；在纯 http 的
+局域网地址上页面说明原因。CI 的 `webrtc-e2e` 每次推送都跑。
+
+浏览器侧接真网关（真 `wrangler dev` + 两个标签页）的链路按上面「本地跑通」的步骤手动验证。
 
 ## 已知边界
 
 - **房间名就是唯一的门槛。** 网关不做身份认证，知道房间名的人都能占位（先到先得，满两
   人即拒）。公网部署时用难猜的随机房间名，或在 Worker 前面加 Cloudflare Access。
-- **对端身份依赖信令的诚实。** DTLS 保证链路机密，但证书指纹是经网关交换的；一个恶意的
-  信令服务器可以做中间人。需要端到端身份时，应在数据通道之上再做一层基于 DID 的认证
-  （见 `identity/`）。
+- **对端身份依赖信令的诚实（`web_peer.js` 本身）。** DTLS 保证链路机密，但证书指纹是经网关
+  交换的；一个恶意的信令服务器可以做中间人。配对页在数据通道之上补了这一层：双方签名的
+  bind 覆盖两张证书指纹，再加上人眼对六位数（见上文）。其他用法要端到端身份时，照此在通道
+  之上做基于 DID 的认证。
 - **没有默认 TURN。** 默认只配公共 STUN，双方都在对称 NAT 后面时可能打不通；需要时通过
   `iceServers` 传入自己的 TURN。
 - **一对一。** 一个房间只配对两个节点；多方需要多个房间或 mesh 扩展。

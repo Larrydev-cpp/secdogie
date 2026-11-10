@@ -83,6 +83,7 @@ identity/    transport/    citadel/     citadel/       agent/ + 安全边界
 | 设备/会话 | `desktop/`（聊天式原生窗口 + `websession.py` 复用**已授权**浏览器会话，只读导航 + 读结构） | ✅ |
 | 承载/运维 | `tunnel/`（C 加密隧道，机密性）、`fleet/`、`console/` | ✅ |
 | 浏览器 P2P | `webrtc/`（WebRTC 数据通道客户端 + Cloudflare Worker 信令网关；仅用户点击后启动） | ✅ |
+| 自己的设备 | 网格只跑在你自己的设备上：`webrtc/pair.html` 在浏览器里配对（打开请帖 → 点同意 → WebRTC 直连 → 两屏对六位数 → 邀请方签接纳书），`transport/pairing.py` 是参考实现；地址簿默认只收自己的设备（`transport/peerbook.py`，公开层搁置） | 🔨 节点自动读取接纳书待做 |
 | 浏览器运行时 | `symbiont/`（TS：双重苏格拉底门、内联签名气泡、注意力调度、沙箱抓取）+ `graph/`（Rust-WASM：只追加状态图、have/want、词法路由适配器）；与 Python 逐字节兼容，见 `fixtures/vectors/` | 🔨 与 Python 节点的传输桥接待做 |
 
 **第二阶段（可运行闭环）已完成**：k-of-n 撤销、零信任默认（见 [`docs/ZERO-TRUST-MIGRATION.md`](docs/ZERO-TRUST-MIGRATION.md)）、

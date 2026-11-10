@@ -53,6 +53,9 @@ const WORDS = {
     'card.offline': '同意后，这台设备会生成自己的钥匙（钥匙不离开这个浏览器），再经信令和邀请者直连。',
     'invalid.title': '这封请帖用不了',
     'invalid.next': '请在邀请你的设备上重新写一封，再打开新的链接。',
+    'insecure.title': '要在安全的地址下打开',
+    'insecure.reason': '浏览器只在 https:// 或 localhost 下提供签名用的密钥功能，这里是 {origin}。',
+    'insecure.next': '把这个页面放到任何 https 静态托管上，或在本机用 localhost 打开，再打开请帖链接。',
     'compare.title': '两块屏幕上的数字一样吗？',
     'compare.sub.owner': '一样就接纳；不一样说明有人在两台设备之间，取消即可。',
     'compare.sub.device': '对照另一块屏幕上的六位数，在那边确认。',
@@ -131,6 +134,9 @@ const WORDS = {
     'card.offline': 'When you agree, this device makes its own key (the key never leaves this browser) and connects to the inviting device directly.',
     'invalid.title': 'This invitation can’t be used',
     'invalid.next': 'Write a new one on the inviting device and open the new link.',
+    'insecure.title': 'Open this over a secure address',
+    'insecure.reason': 'Browsers only provide the signing keys on https:// or localhost. This page is on {origin}.',
+    'insecure.next': 'Put this page on any HTTPS static host, or open it on localhost on this machine, then open the invitation link again.',
     'compare.title': 'Do both screens show the same number?',
     'compare.sub.owner': 'If they match, admit it. If they don’t, someone is between the two devices: cancel.',
     'compare.sub.device': 'Compare with the six digits on the other screen, and confirm there.',
@@ -229,6 +235,7 @@ const ctx = {
   finished: false,
   clock: null,
   forgetArmed: false,
+  insecure: false, // no WebCrypto here: not https and not localhost
 };
 
 /** What one pairing attempt holds; reset before the next. */
@@ -303,7 +310,15 @@ function paint() {
       .toLocaleString(html.lang, { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' });
     $('card-signal').textContent = new URL(ctx.invite.signal.replace(/^ws/, 'http')).host;
   }
-  if (ctx.inviteError) $('invalid-reason').textContent = why(ctx.inviteError);
+  if (ctx.insecure) {
+    $('invalid-title').textContent = t('insecure.title');
+    $('invalid-reason').textContent = t('insecure.reason', { origin: location.origin });
+    $('invalid-next').textContent = t('insecure.next');
+  } else {
+    $('invalid-title').textContent = t('invalid.title');
+    $('invalid-reason').textContent = ctx.inviteError ? why(ctx.inviteError) : '';
+    $('invalid-next').textContent = t('invalid.next');
+  }
 
   if (ctx.code) {
     const code = $('code');
@@ -651,6 +666,12 @@ for (const b of document.querySelectorAll('.lang button')) {
 async function start() {
   const fragment = new URLSearchParams(location.hash.slice(1));
   const link = fragment.get('invite');
+  if (!globalThis.isSecureContext || !globalThis.crypto?.subtle) {
+    ctx.mode = link === null ? 'owner' : 'device';
+    ctx.insecure = true;
+    setPhase('invalid');
+    return;
+  }
   if (link === null) {
     ctx.mode = 'owner';
     $('mesh').value = store.get('secdogie.mesh') || 'home';

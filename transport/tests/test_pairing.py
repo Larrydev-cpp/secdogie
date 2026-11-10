@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import pytest
 from secdogie_identity import Allowlist, Identity
+from secdogie_transport.endpoint import Endpoint
+from secdogie_transport.membership import sign_record
 from secdogie_transport.pairing import (
     DEVICE,
     INVITER,
@@ -20,10 +22,12 @@ from secdogie_transport.pairing import (
     decode_invite,
     encode_invite,
     normalize_fingerprint,
+    own_devices,
     verify_admission,
     verify_bind,
     verify_invite,
 )
+from secdogie_transport.peerbook import OWN, PeerBook
 
 OWNER, PHONE, STRANGER = (Identity.generate() for _ in range(3))
 T0 = 1_800_000_000
@@ -119,6 +123,21 @@ def test_only_an_owner_admits_and_only_for_its_mesh_and_device():
         create_admission(OWNER, "home", OWNER.did, invite_id=inv["invite_id"])
     with pytest.raises(ValueError):
         create_admission(OWNER, "home", PHONE.did, invite_id=inv["invite_id"], roles=("admin",))
+
+
+def test_admissions_decide_which_nodes_are_your_own():
+    inv = _invite()
+    phone = create_admission(OWNER, "home", PHONE.did, invite_id=inv["invite_id"], clock=lambda: T0)
+    elsewhere = create_admission(OWNER, "office", STRANGER.did, invite_id=inv["invite_id"], clock=lambda: T0)
+    forged = create_admission(STRANGER, "home", OWNER.did, invite_id=inv["invite_id"], clock=lambda: T0)
+    found = own_devices([phone, elsewhere, forged, "junk", {**phone, "name": "x"}], owners=[OWNER.did], mesh="home")
+    assert found == {PHONE.did}
+    assert own_devices([phone], owners=Allowlist({OWNER.did}), mesh="home") == {PHONE.did}
+    assert own_devices([phone], owners=None, mesh="home") == frozenset()
+    # and the address book then keeps the phone as one of your own nodes
+    book = PeerBook(OWNER.did, own=found)
+    assert book.admit(sign_record(PHONE, [Endpoint("local", "192.168.1.20", 7400)], last_seen=1.0)) == OWN
+    assert book.admit(sign_record(STRANGER, [Endpoint("public", "203.0.113.9", 7400)], last_seen=1.0)) is None
 
 
 def test_fingerprints_and_inputs_are_strict():

@@ -181,15 +181,38 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Syntax check (gateway + browser client)
+      - name: Syntax check (gateway + browser client + pairing page)
         working-directory: webrtc
         run: |
           node --check signaling/worker.js
           node --check client/web_peer.js
+          node --check client/pairing.js
+          node --check client/keystore.js
+          node --check pair.js
 
-      - name: Test
+      - name: Test (gateway, and pairing against the Python golden vectors)
         working-directory: webrtc
         run: npm test
+
+  # --- Browser pairing end to end: two real Chromium contexts, a real data channel
+  webrtc-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Playwright + Chromium
+        working-directory: webrtc
+        run: |
+          npm install --no-save playwright@1.63.0
+          npx playwright install --with-deps chromium
+
+      - name: Pair two devices over WebRTC
+        working-directory: webrtc
+        run: npm run e2e
 
   # --- Browser runtime: Rust-WASM state graph + TypeScript dual gates ---------
   # graph/ is tested natively and linted for wasm32; symbiont/ then builds the
