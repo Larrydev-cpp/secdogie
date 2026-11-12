@@ -1,0 +1,4 @@
+#!/bin/sh
+# AppImage entry point: run the bundled Studio (window, --self-test, or the node child).
+HERE="$(dirname "$(readlink -f "$0")")"
+exec "$HERE/usr/lib/secdogie-studio/secdogie-studio" "$@"

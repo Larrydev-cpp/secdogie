@@ -13,7 +13,8 @@ license = { text = "MIT" }
 # operator App over the dialogue (secdogie-dialogue) and the transport.
 dependencies = [
     "secdogie-identity",
-    "secdogie-transport",
+    "secdogie-transport[webrtc]",  # pairing and "My devices" over WebRTC
+    "segno>=1.6",  # the invitation's QR code (pure Python)
     "secdogie-citadel",
     "secdogie-policy",
     "secdogie-dialogue",

@@ -31,10 +31,18 @@ datas = collect_data_files("secdogie_studio", includes=["qml/*.qml", "qml/qmldir
 hidden = (
     collect_submodules("secdogie_studio")
     + collect_submodules("secdogie_node")
+    + collect_submodules("secdogie_transport")
     # PyNaCl (keys, sealing) loads its C bindings through cffi, which static analysis does not see
     + collect_submodules("nacl")
     + ["_cffi_backend"]
+    # WebRTC with your other devices: aiortc and its ICE / SCTP / DTLS stack import lazily
+    + collect_submodules("aiortc")
+    + collect_submodules("aioice")
+    + collect_submodules("websockets")
 )
+datas += collect_data_files("aiortc")
+ICON_DIR = os.path.join(SPECPATH, "icons")
+ICON = os.path.join(ICON_DIR, "secdogie-studio.ico" if sys.platform == "win32" else "secdogie-studio.png")
 
 a = Analysis(
     ["entry.py"],
@@ -63,6 +71,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=not WINDOWED,
+    icon=ICON,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -76,6 +85,7 @@ if sys.platform == "darwin":
     app = BUNDLE(
         coll,
         name="secdogie Studio.app",
+        icon=ICON,  # PyInstaller turns the PNG into .icns (needs Pillow)
         bundle_identifier="dev.secdogie.studio",
         info_plist={
             "CFBundleName": "secdogie Studio",

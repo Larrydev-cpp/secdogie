@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=secdogie Studio
+GenericName=Companion
+Comment=Your companion and the mesh of your own devices
+Exec=secdogie-studio
+Icon=secdogie-studio
+Terminal=false
+Categories=Utility;
+StartupWMClass=secdogie-studio

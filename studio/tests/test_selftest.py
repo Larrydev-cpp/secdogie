@@ -14,7 +14,7 @@ def test_the_self_test_passes_every_step():
     out = io.StringIO()
     assert run_self_test(out=out) == 0
     lines = [json.loads(x) for x in out.getvalue().splitlines()]
-    assert [x.get("step") for x in lines[:-1]] == ["profile", "node", "link", "stop"]
+    assert [x.get("step") for x in lines[:-1]] == ["profile", "node", "link", "stop", "webrtc"]
     assert all(x["ok"] for x in lines[:-1]) and lines[-1] == {"self_test": "passed"}
 
 
