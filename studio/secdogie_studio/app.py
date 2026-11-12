@@ -34,12 +34,20 @@ from .idle import idle_seconds
 from .motion import reduce_motion
 from .presence import Attention, Moment, Stage, Whisper
 from .profile import clean_name
-from .words import LANGS, pick
+from .words import LANGS, get_ui, pick, set_ui
 from .words import load as load_lang
 from .words import save as save_lang
 
 QML_DIR = Path(__file__).resolve().parent / "qml"
 POLL_EVERY = 3.0  # seconds between asking the node how it is, while the home window is open
+THEMES = ("dark", "light")  # 墨 (ink) and 宣纸 (rice paper)
+BUCKET, BUCKETS = 300, 24  # presence in 5-minute columns, over the last two hours
+
+
+def shichen_of(t: float) -> int:
+    """The 时辰 (0 = 子, 23:00-01:00, ... 11 = 亥) that local time `t` falls in."""
+    hour = time.localtime(t).tm_hour
+    return ((hour + 1) % 24) // 2
 
 STATE_WORDS = {"zh": {"running": "醒着", "starting": "正在醒来", "stopped": "在休息", "exited": "停下了"},
                "en": {"running": "awake", "starting": "waking up", "stopped": "resting", "exited": "stopped"}}
@@ -157,6 +165,13 @@ class Presence:
         self._name = ""  # the name given at the first meeting, until the profile holds it
         root = getattr(getattr(controller, "profile", None), "root", None)
         self.lang = lang if lang in LANGS else (load_lang(root) if root is not None else load_lang(Path(".")))
+        theme = get_ui(root).get("theme") if root is not None else None
+        self.theme = theme if theme in THEMES else "dark"
+        self.devices = None  # pairing and "My devices" (devices.py), once there is a profile
+        self._present: tuple[str, set[int]] = ("", set())  # today's date, and the 时辰 you were here in
+        self._here_today = 0.0  # seconds at this computer today
+        self._buckets: dict[int, float] = {}  # 5-minute bucket -> seconds at this computer in it
+        self._last_tick: float | None = None
 
     # -- the tick ----------------------------------------------------------------------
 
@@ -192,7 +207,13 @@ class Presence:
                                         w(f"我没能醒来（代码 {snap.returncode}）。右键点我，看看里面的记录。",
                                           f"I couldn't wake up (code {snap.returncode}). Right-click me to see the log."),
                                         "warm", now))
-        self.attention.sample(self.idle(), now)
+        idle_s = self.idle()
+        self.attention.sample(idle_s, now)
+        self._note_presence(idle_s, now)
+        if snap.initialized and self.devices is None and getattr(self.controller, "profile", None) is not None:
+            from .devices import Devices
+
+            self.devices = Devices(self.controller.profile, lang=lambda: self.lang, clock=self.clock)
         busy = self.companion.busy() if self.companion is not None else bool(snap.busy)
         view = self.stage.update(moments, self.attention.mode(now), now, busy=busy)
         self._maybe_poll(now)
@@ -226,7 +247,36 @@ class Presence:
             "rulesText": self.rules_text,
             "rulesNote": rules_note,
             "inForce": in_force,
+            "theme": self.theme,
+            "devices": self.devices.snapshot() if self.devices is not None else {},
+            "present": sorted(self._present[1]),
+            "shichen": shichen_of(now),
+            "clock": time.strftime("%H:%M", time.localtime(now)),
+            "hereToday": int(self._here_today),
+            "hereBars": self._bars(now),
         }
+
+    def _note_presence(self, idle_s, now: float) -> None:
+        """Which 时辰 (the twelve two-hour periods) of today you were at this
+        computer in: only from the idle time the system reports, nothing else."""
+        day = time.strftime("%Y-%m-%d", time.localtime(now))
+        if self._present[0] != day:
+            self._present = (day, set())
+            self._here_today = 0.0
+        step = 0.0 if self._last_tick is None else min(5.0, max(0.0, now - self._last_tick))
+        self._last_tick = now
+        if idle_s is not None and idle_s < 120:
+            self._present[1].add(shichen_of(now))
+            self._here_today += step
+            bucket = int(now // BUCKET)
+            self._buckets[bucket] = self._buckets.get(bucket, 0.0) + step
+            for old in [b for b in self._buckets if b < bucket - BUCKETS]:
+                del self._buckets[old]
+
+    def _bars(self, now: float) -> list[float]:
+        """Your presence over the last two hours, in 5-minute columns (0..1)."""
+        last = int(now // BUCKET)
+        return [round(min(1.0, self._buckets.get(b, 0.0) / BUCKET), 3) for b in range(last - BUCKETS + 1, last + 1)]
 
     def _onboarding(self, snap) -> str:
         if not snap.initialized:
@@ -288,6 +338,8 @@ class Presence:
                         "words": goals.get(g.get("status", ""), "")} for g in st.get("recent", [])],
             "rules": rules,
             "halted": bool(st.get("halted")),
+            "uptime": int(now - st["since"]) if st.get("since") and snap.node_state == RUNNING else 0,
+            "goalsDone": sum(1 for g in st.get("recent", []) if g.get("status") == "done"),
         }
 
     def _maybe_poll(self, now: float) -> None:
@@ -491,7 +543,59 @@ class Presence:
 
         self._work(pick(self.lang, "正在注入规则", "Injecting the rules"), push)
 
+    # -- look, and your own devices -------------------------------------------------------
+
+    def set_theme(self, theme: str) -> None:
+        if theme not in THEMES:
+            return
+        self.theme = theme
+        root = getattr(getattr(self.controller, "profile", None), "root", None)
+        if root is not None:  # before there is a profile, the choice holds for this session
+            set_ui(root, theme=theme)
+
+    def _devices(self, method: str, *args) -> None:
+        devices = self.devices
+        if devices is None:
+            return
+        if method in ("write_invite", "agree", "go_online"):  # these touch keys or the network: off the UI thread
+            threading.Thread(target=getattr(devices, method), args=args, daemon=True,
+                             name=f"studio-{method}").start()
+        else:
+            getattr(devices, method)(*args)
+
+    def write_invite(self, passphrase: str, signal: str, page: str) -> None:
+        self._devices("write_invite", passphrase, signal, page)
+
+    def decide_pairing(self, admit: bool) -> None:
+        self._devices("decide", admit)
+
+    def withdraw_invite(self) -> None:
+        self._devices("withdraw")
+
+    def read_invite(self, text: str) -> None:
+        self._devices("read_invite", text)
+
+    def agree_invite(self) -> None:
+        self._devices("agree")
+
+    def reset_join(self) -> None:
+        self._devices("reset_join")
+
+    def go_online(self, signal: str) -> None:
+        self._devices("go_online", signal)
+
+    def go_offline(self) -> None:
+        self._devices("go_offline")
+
+    def say_to_devices(self, text: str) -> None:
+        self._devices("say", text)
+
+    def set_device_name(self, name: str) -> None:
+        self._devices("set_device_name", name)
+
     def shutdown(self) -> None:
+        if self.devices is not None:
+            self.devices.close()
         if self.companion is not None:
             self.companion.close()
             self.companion = None
@@ -507,7 +611,7 @@ def bridge_class():
     names = ("lang", "onboarding", "you", "greeting", "keys", "homeOpen", "homeCard", "homeCardKey", "waiting", "conversation", "node", "mood",
              "card", "cardKey",
              "whisper", "whisperTone", "held", "feedback", "working", "innerOpen", "statusRows", "logText",
-             "rulesText", "rulesNote", "inForce")
+             "rulesText", "rulesNote", "inForce", "theme", "devices", "present", "shichen", "clock", "hereToday", "hereBars")
     changed = Signal()
 
     def init(self, presence: Presence, still: bool = False):
@@ -542,10 +646,17 @@ def bridge_class():
         "closeHome": ((), Presence.close_home), "openRules": ((), Presence.open_rules),
         "toggleInner": ((), Presence.toggle_inner), "tryRules": ((str, str), Presence.try_rules),
         "pushRules": ((str, str), Presence.push_rules),
+        "setTheme": ((str,), Presence.set_theme), "writeInvite": ((str, str, str), Presence.write_invite),
+        "decidePairing": ((bool,), Presence.decide_pairing), "withdrawInvite": ((), Presence.withdraw_invite),
+        "readInvite": ((str,), Presence.read_invite), "agreeInvite": ((), Presence.agree_invite),
+        "resetJoin": ((), Presence.reset_join), "goOnline": ((str,), Presence.go_online),
+        "goOffline": ((), Presence.go_offline), "sayToDevices": ((str,), Presence.say_to_devices),
+        "setDeviceName": ((str,), Presence.set_device_name),
     }
     for name, (types, fn) in slots.items():
         ns[name] = Slot(*types, name=name)(act(fn))
     ns["rest"] = Slot(name="rest")(lambda self: QGuiApplication.quit())
+    ns["copy"] = Slot(str, name="copy")(lambda self, text: QGuiApplication.clipboard().setText(text))
     return type("Bridge", (QObject,), ns)
 
 

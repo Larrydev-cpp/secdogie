@@ -1,11 +1,15 @@
 // The design tokens every window draws with (studio/DESIGN.md): colour, type,
-// motion. One instance for the whole app.
+// motion, and Studio's own words in Chinese and English.
 //
-// The world is a night of correspondence. The ground is blue ink, not black.
-// Two lights share it:
-//   * lamp (warm) is the companion: its light, its mark, its voice;
-//   * frost (cool) is you: your words, your controls, where your keyboard is.
-// The companion writes in a serif, like a letter; the interface speaks sans.
+// Two worlds, one switch:
+//   * 墨 (ink): the night. The ground is ink, the text is rice paper, gold
+//     leaf (泥金) marks the companion, celadon (青瓷) marks you.
+//   * 宣纸 (rice paper): the day. The same, the other way round: paper ground,
+//     ink text, a deeper gold and an ink-blue for you.
+// Cinnabar (朱砂) is the seal: signatures, and the one card that asks for you,
+// the same in both. The inverse card (ink on paper, paper on ink) carries
+// what the gates hold. Every text colour is 4.5:1 or more on the surfaces
+// it sits on, in both worlds.
 pragma Singleton
 import QtQuick
 
@@ -13,29 +17,47 @@ QtObject {
     // The person asked their computer for less motion; each window sets this
     // from the bridge (P.still) when it opens.
     property bool still: false
+    // 墨 or 宣纸: bound to the bridge's P.theme by the home window.
+    property bool dark: true
+    // Studio's language: bound to P.lang.
+    property string lang: "zh"
+    function t(zh, en) { return lang === "en" ? en : zh }
 
     // ---- colour ----
-    readonly property color ground: "#0E1322"                        // night: the home window
-    readonly property color sunk: "#0A0E1A"                          // deeper night: its rail
-    readonly property color panel: "#172038"                         // letter paper: what is raised (the composer, a card)
-    readonly property color panelHi: "#1E2843"                       // ... raised again
-    readonly property color card: Qt.rgba(0.090, 0.125, 0.220, 0.97) // the light's sheets, on the desktop
-    readonly property color well: Qt.rgba(0.925, 0.906, 0.863, 0.035) // an inset area: the rules editor
-    readonly property color hairline: Qt.rgba(0.925, 0.906, 0.863, 0.09) // edges and dividers that carry nothing
-    readonly property color edge: Qt.rgba(0.925, 0.906, 0.863, 0.40)  // a control's boundary: 3:1 on every surface
-    readonly property color wash: Qt.rgba(0.925, 0.906, 0.863, 0.06)  // a quiet control, hovered
-    readonly property color press: Qt.rgba(0.925, 0.906, 0.863, 0.11) // ... and pressed
-    // text: moon-white, then mist and dim, tinted from the night (4.5:1 or more on every surface)
-    readonly property color text: "#ECE7DC"
-    readonly property color soft: "#AEB4C8"
-    readonly property color faint: "#8C93AC"
-    // the two lights, and the companion's moods
-    readonly property color lamp: "#F2CF86"                          // the companion, at rest
-    readonly property color calm: "#9FB8EE"                          // frost: you, your controls, the keyboard
-    readonly property color think: "#B9ABF0"                         // dusk: it is working
-    readonly property color warm: "#F0A955"                          // amber: it is waiting on you; a step it stopped
-    readonly property color sign: "#E8957A"                          // seal: a signature is needed
+    readonly property color ground: dark ? "#12151D" : "#E8E0CD"     // the window
+    readonly property color sunk: dark ? "#0E1118" : "#DED5C0"       // deeper: a well, the rail
+    readonly property color panel: dark ? "#1B202B" : "#F5EFE2"      // a card
+    readonly property color panelHi: dark ? "#232938" : "#FBF7EE"    // ... raised again
+    readonly property color card: dark ? Qt.rgba(0.106, 0.125, 0.169, 0.97)      // the light's sheets, on the desktop
+                                       : Qt.rgba(0.961, 0.937, 0.886, 0.97)
+    readonly property color inkOn: dark ? "#F0E7D3" : "#1E2230"      // what text is drawn in
+    readonly property color well: tinted(inkOn, dark ? 0.035 : 0.04)
+    readonly property color hairline: tinted(inkOn, dark ? 0.09 : 0.11)
+    readonly property color edge: tinted(inkOn, dark ? 0.40 : 0.42)  // a control's boundary: 3:1 on every surface
+    readonly property color wash: tinted(inkOn, dark ? 0.06 : 0.05)
+    readonly property color press: tinted(inkOn, dark ? 0.11 : 0.09)
+    readonly property color text: inkOn
+    readonly property color soft: dark ? "#BCB3A0" : "#4A4436"
+    readonly property color faint: dark ? "#978F80" : "#685F4E"
+    // the companion's lights, and you
+    readonly property color lamp: dark ? "#D9B46C" : "#86590C"       // 泥金: the companion
+    readonly property color calm: dark ? "#8EBBA8" : "#2F5D8A"       // 青瓷 / 靛: you, your controls, the keyboard
+    readonly property color think: dark ? "#BAA3CC" : "#5E4590"      // 藕荷: it is working
+    readonly property color warm: dark ? "#E2A65A" : "#8E4C14"       // 杏黄: it waits on you
+    readonly property color sign: dark ? "#E8826A" : "#A93624"       // 朱砂 as text: a signature
     readonly property color focus: calm
+    // the seal card (asks for you) and the inverse card (what the gates hold)
+    readonly property color seal: "#B23E27"
+    readonly property color sealText: "#FBF3E6"
+    readonly property color sealSoft: Qt.rgba(0.984, 0.953, 0.902, 0.78)
+    readonly property color inverse: dark ? "#F0E7D3" : "#1C212D"
+    readonly property color inverseText: dark ? "#1E2230" : "#F0E7D3"
+    readonly property color inverseSoft: dark ? "#4A4436" : "#BCB3A0"
+    readonly property color gold: dark ? "#D9B46C" : "#B7832A"       // a lit tick on the dial
+    // dot-matrix numerals: lit and unlit dots
+    readonly property color dotOn: text
+    readonly property color dotOff: tinted(inkOn, dark ? 0.10 : 0.12)
+    readonly property color shadow: dark ? Qt.rgba(0, 0, 0, 0.45) : Qt.rgba(0.29, 0.22, 0.12, 0.16)
 
     function moodColor(mood) {
         switch (mood) {
@@ -57,6 +79,10 @@ QtObject {
     readonly property int lead: 18
     readonly property int title: 24
     readonly property int display: 36        // the first meeting's greeting
+
+    // ---- shape ----
+    readonly property int round: 22          // a card's corners
+    readonly property int gap: 16            // between cards
 
     // ---- motion ----
     readonly property int enter: still ? 120 : 240

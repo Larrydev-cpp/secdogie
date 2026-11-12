@@ -6,6 +6,7 @@ closed."""
 from __future__ import annotations
 
 import os
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -257,3 +258,52 @@ def test_a_still_light_for_someone_who_asked_for_less_motion(qt):
     assert _pump(qt, bridge, lambda: home.isVisible() and home.property("first"))
     assert _qml_problems(messages) == []
     del engine
+
+
+def test_the_ink_switch_changes_the_world_and_back(qt):
+    """墨 / 宣纸: the switch floods the window and the theme flips under it
+    (for someone who asked for less motion, a short fade)."""
+    from PySide6.QtCore import QMetaObject, QObject
+
+    _, messages = qt
+    messages.clear()
+    presence = Presence(FakeController(), idle=lambda: 10.0, companion_factory=lambda profile, ready: FakeCompanion())
+    engine, bridge, (light, home) = _windows(qt, presence, still=True)
+    assert _pump(qt, bridge, lambda: home.isVisible())
+    switch = home.findChild(QObject, "themeSwitch")
+    assert presence.tick()["theme"] == "dark"
+    flood = home.findChild(QObject, "inkFlood")
+    QMetaObject.invokeMethod(switch, "click")
+    assert _pump(qt, bridge, lambda: presence.tick()["theme"] == "light")
+    QMetaObject.invokeMethod(switch, "click")            # while the ink still lifts: ignored
+    assert _pump(qt, bridge, lambda: not flood.property("running"))
+    assert presence.tick()["theme"] == "light"
+    QMetaObject.invokeMethod(switch, "click")
+    assert _pump(qt, bridge, lambda: presence.tick()["theme"] == "dark")
+    for page in range(5):                                # every page draws in both worlds
+        home.setProperty("page", page)
+        _pump(qt, bridge, lambda: True, timeout=0.2)
+    assert _qml_problems(messages) == []
+    del engine
+
+
+def test_presence_is_told_from_the_idle_time_only():
+    from secdogie_studio.app import BUCKET, shichen_of
+
+    assert shichen_of(time.mktime((2026, 11, 12, 23, 30, 0, 0, 0, -1))) == 0   # 子
+    assert shichen_of(time.mktime((2026, 11, 12, 0, 30, 0, 0, 0, -1))) == 0
+    assert shichen_of(time.mktime((2026, 11, 12, 14, 37, 0, 0, 0, -1))) == 7   # 未
+    idle = [10.0]
+    clock = [time.mktime((2026, 11, 12, 14, 0, 0, 0, 0, -1))]
+    presence = Presence(FakeController(), idle=lambda: idle[0], clock=lambda: clock[0],
+                        companion_factory=lambda profile, ready: FakeCompanion())
+    for _ in range(60):                                   # a minute here...
+        presence.tick()
+        clock[0] += 1
+    idle[0] = 900.0                                       # ...then away
+    for _ in range(60):
+        presence.tick()
+        clock[0] += 1
+    s = presence.tick()
+    assert 55 <= s["hereToday"] <= 61 and s["present"] == [7]
+    assert len(s["hereBars"]) == 24 and 0 < sum(s["hereBars"]) * BUCKET <= 61
