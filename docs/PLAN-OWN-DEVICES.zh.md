@@ -173,16 +173,23 @@ sequenceDiagram
 | **S5** ✅ | 浏览器设备上线：按对房间建链 + `link-hello/v1` + 名册 + 签名帧 + `mesh.html` | 三个真实浏览器（主人、手机、平板）：手机连上主人后拿到名册，自动连上平板；名册外的设备、指纹不符的设备被拒；关掉一个标签页，其他两台看到它下线 |
 | S6 | 撤销 + 名册传播 | 撤销后被撤销设备的链路当场断开，且再也连不上；名册在三台之间收敛 |
 | S7 | 经网格转交信令 | 网关断开后，已在线的设备之间仍能建新链路 |
-| S8 | Python `webrtc` 载体（aiortc）+ 节点入网 + `secdogie-node pair` | 一个 Python 节点和两个浏览器组成网格；对话通道经 WebRTC 跑通 `node/tests/test_e2e.py` 的同一场景 |
+| S8 ◐ | Python `webrtc` 载体（aiortc）+ 节点入网 + `secdogie-node pair` | 一个 Python 节点和两个浏览器组成网格；对话通道经 WebRTC 跑通 `node/tests/test_e2e.py` 的同一场景 |
 | S9 | 经常在线设备转发 | 模拟两台设备之间不能直连：消息经台式机转发，台式机改不了也读不了（封装时） |
 | S10 | 网关 DID 认证信箱（W1） | 一条 socket；未签名、重放、冒名的连接被拒；只收名册内 DID 的消息 |
-| S11 | Studio「我的设备」页 | 节点页显示网格里的设备、在线状态和路径 |
+| S11 ✅ | Studio「我的设备」页 | 节点页显示网格里的设备、在线状态和路径 |
 
 **S5 落地记录（2026-11）：**
 - 协议：`meshlink.py` / `meshlink.js`，签名帧 `frames.js`，金向量 `fixtures/vectors/meshlink.json`；
 - 运行时与页面：`webrtc/client/mesh.js`、`webrtc/mesh.html`；`web_peer.js` 新增 `createPeerLink()`，原有 API 不变；
 - 测试：`webrtc/tests/e2e/mesh.e2e.cjs` 用三个真实浏览器验证上面的判据。
 - 「名册外的设备、指纹不符的设备被拒」由协议单测覆盖（Python 与 JS 两边），端到端测试覆盖其余几条。
+
+**S8 前半与 S11 落地记录（2026-11）：**
+- Python 端 WebRTC：`rtc.py`（aiortc 的 `RtcPeer`）、`signal_server.py`（与浏览器网关同一协议的本地网关，`secdogie-signal`）、`pairing_session.py`（发请帖 / 凭请帖加入）、`mesh_rtc.py`（Python 设备在网格里：`link-hello`、签名帧、名册、留言）。
+  - Chromium 只认远端 SDP 里最强的那条指纹，所以 Python 发出的 SDP 只留 `sha-256` 一条，也就是双方签名绑定的那条。
+- Studio「设备」页（S11）：在应用里写请帖（二维码、链接、倒计时）→ 比对六位数 → 盖「纳」；凭请帖加入；上线 / 下线、各设备状态、留言。总览页「我的设备」卡片显示同一份状态。
+- 测试：`webrtc/tests/e2e/python.e2e.cjs` 两个方向都是真实浏览器对 Python：Studio 邀请手机、浏览器邀请 Studio，配对后上线成网格，留言双向到达；`studio/tests/test_devices.py` 覆盖应用里的整套流程。
+- 还没做（S8 后半）：节点的对话通道走 WebRTC、`secdogie-node pair` 命令行。
 
 ## 8. 待定问题（需要机主拍板）
 

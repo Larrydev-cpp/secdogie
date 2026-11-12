@@ -17,6 +17,22 @@
 
 ---
 
+## 下载
+
+[Releases 页](https://github.com/Larrydev-cpp/secdogie/releases)的每个版本都带现成的安装包。**Studio** 是桌面应用：白天宣纸、夜里墨色的一页卡片，显示伙伴、等你的事、今天的时辰和你自己的设备；配对新设备也在应用里完成。
+
+| 文件 | 是什么 |
+| --- | --- |
+| `secdogie-studio-windows-x86_64-<版本>-setup.exe` | Windows 安装程序：只装给当前用户（不需要管理员），加开始菜单项，开机不自启 |
+| `secdogie-studio-macos-<arch>-<版本>.dmg` | macOS（`arm64` / `x86_64`）：把 **secdogie Studio** 拖进「应用程序」 |
+| `secdogie-studio-linux-x86_64-<版本>.AppImage` | Linux：`chmod +x` 后直接运行 |
+| `secdogie-studio-<平台>-<版本>-portable.zip` | 同一个应用的免安装版 |
+| `secdogie-agent-<平台>-<版本>` / `secdogie-atlas-…zip` / `secdogie-tunnel-…` | 代理单文件、只读结构工具、加密隧道 |
+
+每个 Studio 包都能自检：带 `--self-test` 运行，会用一个临时档案走一遍档案、节点、链路和 WebRTC 回环。安装包还没有代码签名：macOS 第一次请右键 →「打开」；Windows 在 SmartScreen 里点「更多信息 → 仍要运行」。
+
+---
+
 ## 四大支柱
 
 1. **分散式网络** —— DID（Ed25519 `did:key`）身份 + 会话/端点抽象 + 真 P2P UDP 传输，
@@ -79,7 +95,7 @@ identity/    transport/    citadel/     citadel/       agent/ + 安全边界
 | 对话 | `dialogue/`（`secdogie-dialogue`）：操作员的 Dialogue App——追问与回答、结构化视界（无像素）、Gate 2 签名台、记忆确认；丢包 / 乱序下的会话层 | ✅ |
 | 节点 | `node/`（`secdogie-node`）：常驻节点，组装传输、对话、签名日志与受监督回路；真实 UDP 端到端测试 | ✅ |
 | 策略包 | `policy/`（`secdogie-policy`）：门规则 / 决策模型 / 采集限额 / allowlist 的签名声明式包，只能更严；TS 镜像由金向量锁住；从本地注入节点并立即生效（`node/policy_host.py`），网格内传播待做 | 🔨 |
-| 伙伴 | `studio/`（`secdogie-studio`）：桌面上的浮动伙伴，平时淡出，需要你时才浮出一张卡片（提问 / 签名 / 记忆）；`citadel/decision.py` 决定何时找你，注意力只看系统空闲时长 | 🔨 |
+| 伙伴 | `studio/`（`secdogie-studio`）：桌面应用。浮动伙伴平时淡出，需要你时才浮出一张卡片（提问 / 签名 / 记忆）。主窗口是一页宣纸 / 墨色卡片，包括对话、我的设备（含配对）、规则和介绍。有 Windows / macOS / Linux 安装包；`citadel/decision.py` 决定何时找你，注意力只看系统空闲时长 | 🔨 |
 | 推理网格 | `inference/`：三态路由——常态经网格到租约模型节点；节点失效时绕行、隔离与中央兜底；叛变锁定（自证证据、密钥轮换、双模型交叉验证、操作员签名解除） | ✅ |
 | 感知/动作 | `agent/observation.py`（AX + DIB 按引用融合）+ `target.py`（TOCTOU）+ AX/safety；`native/atlas`（只读、DIB 重建） | 🔨 构件已建成，observation/target 尚未接入实时回路 |
 | 设备/会话 | `desktop/`（聊天式原生窗口 + `websession.py` 复用**已授权**浏览器会话，只读导航 + 读结构） | ✅ |

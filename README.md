@@ -28,12 +28,22 @@ AX / text of authorized web sessions, never through screen pixels.
 
 Every release on the [Releases page](https://github.com/Larrydev-cpp/secdogie/releases) carries ready-to-run builds:
 
+**Studio** is the desktop app: a window of cards in rice paper by day and ink
+by night. It shows your companion, what waits on you, the 时辰 of your day and
+your own devices, and you pair a new device from inside it.
+
 | Package | What it is |
 | --- | --- |
-| `secdogie-studio-<platform>-<version>.zip` | **Studio**, the desktop companion. It sits as a soft light on your desktop and comes forward only when something needs you: a question, a signature, a memory to confirm. Windows, macOS and Linux. |
+| `secdogie-studio-windows-x86_64-<version>-setup.exe` | Studio installer for Windows. It installs for you only (no administrator), adds a Start menu entry, and starts nothing at login. |
+| `secdogie-studio-macos-<arch>-<version>.dmg` | Studio for macOS (`arm64` or `x86_64`): drag **secdogie Studio** to Applications. |
+| `secdogie-studio-linux-x86_64-<version>.AppImage` | Studio for Linux: `chmod +x` it and run it. |
+| `secdogie-studio-<platform>-<version>-portable.zip` | The same app unpacked, with nothing installed. |
 | `secdogie-agent-<platform>-<version>` | The agent as a single executable. |
 | `secdogie-atlas-<platform>-<version>.zip` | Native read-only structure tools (`atlas_inspect`, `atlas_mct`, `atlas_target`). |
 | `secdogie-tunnel-linux-x86_64-<version>` | The encrypted C tunnel. |
+
+Every Studio build checks itself: run it with `--self-test` and it walks through
+a throwaway profile, a node, a link and a WebRTC loopback, then prints the result.
 
 Studio builds are not code-signed yet:
 - on macOS, right-click the app and choose **Open** the first time;
@@ -62,10 +72,12 @@ Studio builds are not code-signed yet:
 
 ---
 
-## Your own devices, connected in the browser
+## Your own devices, in Studio and in the browser
 
 The mesh runs **only on devices you own**. There are no public nodes and no
-seed nodes. Adding a device happens in the browser.
+seed nodes. Adding a device happens in Studio's **Devices** page or in the
+browser; the two speak the same protocol, so a phone's browser and the Studio
+on your desk pair with each other directly.
 
 1. **Pair.** Open [`webrtc/pair.html`](webrtc/pair.html) on a device already in your mesh and write an invitation. Open the link on the new device and click **Agree**.
    - The two devices connect directly over a WebRTC data channel.
@@ -136,7 +148,7 @@ What is built and pushed, judged by the real code:
 | Dialogue | `dialogue/` (`secdogie-dialogue`): the operator's Dialogue App. It covers follow-up questions and answers, a structured view (no pixels), the Gate 2 signing desk and memory confirmation, over a session layer that survives loss and reordering | ✅ |
 | Node | `node/` (`secdogie-node`): the resident node, assembling transport, dialogue, the signed journal and the supervised loop; real end-to-end UDP tests | ✅ |
 | Policy | `policy/` (`secdogie-policy`): signed, declarative bundles for gate rules, decision models, ingestion limits and allowlists, which can only tighten. A TS mirror is locked to it by golden vectors. Bundles are injected locally into a node and take effect at once (`node/policy_host.py`); spreading them across the mesh is still to do | 🔨 |
-| Companion | `studio/` (`secdogie-studio`): the floating desktop companion, faded until it needs you, then a single card (question / signature / memory); `citadel/decision.py` decides when to reach you, and attention reads only the system idle time | 🔨 |
+| Companion | `studio/` (`secdogie-studio`): the desktop app. A floating companion stays faded until it needs you, then shows a single card (question / signature / memory). A home window of cards in rice paper / ink holds the conversation, your devices (pairing included), the rules and an introduction. Installers for Windows, macOS and Linux; `citadel/decision.py` decides when to reach you, and attention reads only the system idle time | 🔨 |
 | Inference mesh | `inference/`, which routes in three modes:<br>· **normal:** over the mesh to leased model nodes;<br>· **a node fails:** detour, quarantine and a central fallback;<br>· **a node turns against you:** lockdown, with self-proving evidence, key rotation, cross-checks by two models, and release only by an operator signature | ✅ |
 | Perception / action | `agent/observation.py` (AX + DIB fused by reference) + `target.py` (TOCTOU) + AX/safety; `native/atlas` (read-only DIB reconstruction) | 🔨 building blocks done; observation/target not yet in the live loop |
 | Devices / sessions | `desktop/` (a chat-style native window, plus `websession.py`, which reuses **authorized** browser sessions for read-only navigation and reading structure) | ✅ |
