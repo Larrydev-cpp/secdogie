@@ -242,6 +242,8 @@ def verify_admission(obj, *, owners, mesh: str | None = None, device: str | None
         return Checked(False, "not an admission")
     if owners is None:
         return Checked(False, "no owners configured")
+    if not hasattr(owners, "contains"):  # a list or set of DIDs, as the browser side takes
+        owners = Allowlist(set(owners))
     ok, signer = verify_payload(obj, owners)
     if not ok:
         return Checked(False, "not signed by an owner of this mesh" if signer else "invalid or missing signature")

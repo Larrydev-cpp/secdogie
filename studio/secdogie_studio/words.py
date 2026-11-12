@@ -55,12 +55,32 @@ def load(root: Path, env=None) -> str:
 def save(root: Path, lang: str) -> None:
     if lang not in LANGS:
         raise ValueError(f"unknown language {lang!r}")
+    set_ui(root, lang=lang)
+
+
+def get_ui(root: Path) -> dict:
+    """Every preference in ui.json (language, theme, the signaling address, the
+    pairing page's address); {} when there is none yet."""
+    try:
+        data = json.loads((Path(root) / UI_FILE).read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def set_ui(root: Path, **prefs) -> None:
+    """Merge preferences into ui.json. A preference that cannot be kept still
+    holds for this session."""
     root = Path(root)
+    data = get_ui(root)
+    data.update(prefs)
     try:
         root.mkdir(parents=True, exist_ok=True)
-        (root / UI_FILE).write_text(json.dumps({"lang": lang}) + "\n", encoding="utf-8")
+        tmp = root / (UI_FILE + ".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+        tmp.replace(root / UI_FILE)
     except OSError:
-        pass  # a preference: if it cannot be kept, the choice still holds for this session
+        pass
 
 
-__all__ = ["DEFAULT", "LANGS", "UI_FILE", "detect", "load", "pick", "save"]
+__all__ = ["DEFAULT", "LANGS", "UI_FILE", "detect", "get_ui", "load", "pick", "save", "set_ui"]
