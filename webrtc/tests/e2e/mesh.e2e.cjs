@@ -68,7 +68,11 @@ async function shot(page, name) {
     }
     await owner.waitForTimeout(500);
     for (const p of [owner, phone, tablet]) assert.equal(net.opened(p), opened.get(p), 'a page connected before 上线');
-    assert.equal(await phone.$$eval('#devices li', (els) => els.length), 1, 'a new phone knows only the owner');
+    // the phone was paired first, so the roster it got then names no other device; the owner key
+    // is listed once it has been seen online
+    assert.equal(await phone.$$eval('#devices li', (els) => els.length), 0, 'a new phone knows no other device yet');
+    // the tablet, paired second, got the roster with the phone in it
+    assert.equal(await tablet.$$eval('#devices li', (els) => els.length), 1, 'the tablet knows the phone from pairing');
     assert.equal(await owner.$$eval('#devices li', (els) => els.length), 2);
     await shot(phone, 'phone-1-offline');
 

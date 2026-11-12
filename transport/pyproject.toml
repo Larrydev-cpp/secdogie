@@ -12,8 +12,14 @@ license = { text = "MIT" }
 # Peer identity comes from a verified DID<->transport binding.
 dependencies = ["secdogie-identity"]
 
+[project.optional-dependencies]
+# WebRTC between your own devices (rtc.py, pairing_session.py, mesh_rtc.py) and
+# the signaling gateway you can run yourself (signal_server.py).
+webrtc = ["aiortc>=1.9", "websockets>=13"]
+
 [project.scripts]
 secdogie-relay = "secdogie_transport.relay_node:main"
+secdogie-signal = "secdogie_transport.signal_server:main"
 
 [tool.setuptools.packages.find]
 include = ["secdogie_transport*"]

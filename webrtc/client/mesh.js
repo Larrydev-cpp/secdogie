@@ -51,6 +51,11 @@ export async function createMesh({
   const roster = new Roster(mesh, owners);
   for (const a of [admission, ...admissions]) if (a) await roster.admit(a);
   const links = new Map(); // did -> link entry
+  // An owner key is not always a device: when Studio owns the mesh, its operator
+  // key signs admissions but never goes online (Studio links as its node). So an
+  // owner with no admission of its own is listed once it has been seen online.
+  const seenOnline = new Set();
+  const listed = (did) => did !== me.did && (roster.admission(did) || !roster.owners.has(did) || seenOnline.has(did));
   const changeListeners = new Set();
   const noteListeners = new Set();
   const nextCtr = newCounter();
@@ -74,7 +79,7 @@ export async function createMesh({
       online,
       mesh,
       me: { did: me.did, name: cleanName(name), owner: roster.owners.has(me.did) },
-      devices: roster.devices().filter((d) => d !== me.did).map((did) => {
+      devices: roster.devices().filter(listed).map((did) => {
         const l = links.get(did);
         return {
           did,
@@ -270,6 +275,7 @@ export async function createMesh({
       return;
     }
     entry.authed = true;
+    seenOnline.add(entry.did);
     entry.theirHelloSig = checked.value.sig;
     if (checked.value.admission) await roster.admit(checked.value.admission);
     entry.name = checked.value.name || roster.name(entry.did);

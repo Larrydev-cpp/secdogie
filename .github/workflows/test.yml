@@ -39,6 +39,7 @@ jobs:
             needs_identity: true
             needs_agent: true      # so the real-loop M3 wiring tests run (not skip)
           - dir: transport  # P2P-ready peer/session/endpoint model
+            extras: "[webrtc]"  # so the WebRTC pairing / mesh tests run (not skip)
             needs_identity: true
           - dir: fleet      # protocol/coordinator are pure; a node needs the agent it drives
             needs_agent: true
@@ -213,6 +214,17 @@ jobs:
         run: |
           npm install --no-save playwright@1.63.0
           npx playwright install --with-deps chromium
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Python side (Studio's WebRTC)
+        run: pip install -e identity -e "transport[webrtc]"
+
+      - name: A browser and Python pair and form one mesh, both ways round
+        working-directory: webrtc
+        run: node tests/e2e/python.e2e.cjs python
 
       - name: Pair devices, then bring three online as one mesh, over WebRTC
         working-directory: webrtc

@@ -20,6 +20,7 @@ import {
 } from './client/pairing.js';
 import {
   existingIdentity, forgetIdentity, listDevices, listMemberships, loadOrCreateIdentity, saveDevice, saveMembership,
+  saveRoster,
 } from './client/keystore.js';
 import {
   PeerState, closePeerConnection, currentDescriptions, onMessage, onStateChange, sendData, startPeerConnection,
@@ -244,7 +245,7 @@ const ctx = {
 function fresh() {
   return {
     invite: null, fps: null, nonce: null, myBind: null, theirBind: null, pendingBind: null, code: '',
-    admission: null, finished: false, peerHasMine: false,
+    admission: null, finished: false, peerHasMine: false, pendingRoster: null,
   };
 }
 
@@ -516,6 +517,8 @@ onMessage(async (raw) => {
     await receivedBind(msg.bind);
   } else if (msg?.t === 'pair/cancel') {
     finish('ended', 'st.cancelled.them', {}, 'warn');
+  } else if (msg?.t === 'pair/roster' && ctx.mode === 'device' && msg.roster?.mesh === ctx.invite?.mesh) {
+    ctx.pendingRoster = msg.roster; // kept once the admission that follows checks out
   } else if (msg?.t === 'pair/admission' && ctx.mode === 'device' && ctx.theirBind) {
     await receivedAdmission(msg.admission);
   } else if (msg?.t === 'pair/received' && ctx.mode === 'owner' && ctx.phase === 'done') {
@@ -533,6 +536,7 @@ async function receivedAdmission(admission) {
   }
   ctx.admission = checked.value;
   await saveMembership(ctx.admission);
+  if (ctx.pendingRoster && Array.isArray(ctx.pendingRoster.admissions)) await saveRoster(ctx.pendingRoster);
   try {
     await sendData({ t: 'pair/received' });
   } catch { /* the inviter closes on its own after a while */ }
@@ -613,6 +617,9 @@ $('admit').addEventListener('click', async () => {
     const admission = await createAdmission(ctx.me, ctx.invite.mesh, ctx.theirBind.did, {
       inviteId: ctx.invite.invite_id, name: ctx.theirBind.name,
     });
+    // the devices admitted so far, so the new one can find them; then its own admission
+    const known = (await listDevices()).filter((a) => a.mesh === ctx.invite.mesh);
+    await sendData({ t: 'pair/roster', roster: { mesh: ctx.invite.mesh, admissions: known } });
     await sendData({ t: 'pair/admission', admission });
     await saveDevice(admission);
     ctx.admission = admission;

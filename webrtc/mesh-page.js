@@ -5,7 +5,7 @@
 // this browser (keystore.js): the owner key and the devices it admitted, or
 // this device's key and its admission.
 
-import { existingIdentity, listDevices, listMemberships } from './client/keystore.js';
+import { existingIdentity, listDevices, listMemberships, rosterOf } from './client/keystore.js';
 import { LinkState, createMesh } from './client/mesh.js';
 
 const WORDS = {
@@ -193,7 +193,7 @@ async function choices() {
       if (a.device !== device.did) continue;
       out.push({
         key: `member:${a.mesh}:${a.signer}`, mesh: a.mesh, slot: 'device', me: device, owners: [a.signer],
-        admission: a, admissions: [], name: a.name,
+        admission: a, admissions: (await rosterOf(a.mesh))?.admissions ?? [], name: a.name,
       });
     }
   }

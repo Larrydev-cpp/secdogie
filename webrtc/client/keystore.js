@@ -131,3 +131,16 @@ export function saveMembership(admission) {
 export function listMemberships() {
   return entries('membership:');
 }
+
+/**
+ * The other devices of a mesh this device joined, as the inviter handed them
+ * over at pairing (a Roster.wire()). Only hints: mesh.js admits each again,
+ * and keeps only what an owner signed.
+ */
+export function saveRoster(wire) {
+  return put(`roster:${wire.mesh}`, wire);
+}
+
+export async function rosterOf(mesh) {
+  return (await get(`roster:${mesh}`)) ?? null;
+}
