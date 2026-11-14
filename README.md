@@ -1,251 +1,131 @@
-# secdogie · a cloud lifeform
+# secdogie
 
-**English** · [中文](README.zh-CN.md)
+A companion that runs only on your own devices.
 
-A **decentralized, DID-authenticated, supervised** autonomous agent (a "cloud
-lifeform") that runs **only on nodes you own or have authorized**. There is no
-central server: it lives on by peer-to-peer. It learns from **public or
-authorized** sources, examines every step of intent with **two layers of
-Socratic gates**, and takes real-world action **only on an authenticated local
-device, under a capability grant and with a human in the loop (HITL)**.
+- **It asks before it acts.** Every goal passes two Socratic gates. High-risk
+  steps always wait for your signature: no mode or switch turns that off.
+- **Your devices are one mesh.** Pair a phone, a tablet or another computer
+  over WebRTC: compare six digits, sign an admission. There is no central
+  server and no public node.
+- **It reads structure, not pixels.** It sees the accessibility tree; the
+  desktop app never captures the screen.
 
-**Perception is structural first.** The goal is to "see" through the
-accessibility tree (AX / UIA), read-only structured DIB references, and the
-AX / text of authorized web sessions, never through screen pixels.
-
-**Where that stands today:**
-- On macOS the live loop renders the AX tree as a structure graph for the model.
-- On Windows and Linux the live loop **still takes screenshots**.
-- Moving those to structure-first, with screenshots only when the owner
-  explicitly turns them on, is Track D in [`ROADMAP.md`](ROADMAP.md).
-
-> Full architecture: [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md). Roadmap: [`ROADMAP.md`](ROADMAP.md).
-> Source audit and spec alignment: [`docs/AUDIT-P2P-ALIGNMENT.zh.md`](docs/AUDIT-P2P-ALIGNMENT.zh.md).
-
----
+The plan, the decisions and what comes next are in [`PLAN.md`](PLAN.md).
 
 ## Download
 
-Every release on the [Releases page](https://github.com/Larrydev-cpp/secdogie/releases) carries ready-to-run builds:
+Each [release](https://github.com/Larrydev-cpp/secdogie/releases) carries:
 
-**Studio** is the desktop app: a window of cards in rice paper by day and ink
-by night. It shows your companion, what waits on you, the 时辰 of your day and
-your own devices, and you pair a new device from inside it.
-
-| Package | What it is |
+| File | What it is |
 | --- | --- |
-| `secdogie-studio-windows-x86_64-<version>-setup.exe` | Studio installer for Windows. It installs for you only (no administrator), adds a Start menu entry, and starts nothing at login. |
-| `secdogie-studio-macos-<arch>-<version>.dmg` | Studio for macOS (`arm64` or `x86_64`): drag **secdogie Studio** to Applications. |
-| `secdogie-studio-linux-x86_64-<version>.AppImage` | Studio for Linux: `chmod +x` it and run it. |
-| `secdogie-studio-<platform>-<version>-portable.zip` | The same app unpacked, with nothing installed. |
-| `secdogie-agent-<platform>-<version>` | The agent as a single executable. |
-| `secdogie-atlas-<platform>-<version>.zip` | Native read-only structure tools (`atlas_inspect`, `atlas_mct`, `atlas_target`). |
-| `secdogie-tunnel-linux-x86_64-<version>` | The encrypted C tunnel. |
+| `secdogie-studio-windows-x86_64-<version>-setup.exe` | Studio for Windows. It installs for you only (no administrator) and starts nothing at login. |
+| `secdogie-studio-macos-<arch>-<version>.dmg` | Studio for macOS, `arm64` or `x86_64`. |
+| `secdogie-studio-linux-x86_64-<version>.AppImage` | Studio for Linux: `chmod +x`, then run it. |
+| `secdogie-studio-<platform>-<version>-portable.zip` | The same app, without installing. |
+| `secdogie-agent-…`, `secdogie-atlas-…`, `secdogie-tunnel-…` | The agent as one executable, the read-only structure tools, and the encrypted tunnel. |
 
-Every Studio build checks itself: run it with `--self-test` and it walks through
-a throwaway profile, a node, a link and a WebRTC loopback, then prints the result.
+Builds are not code-signed yet:
+- **macOS:** right-click the app and choose **Open**.
+- **Windows:** choose **More info → Run anyway**.
 
-Studio builds are not code-signed yet:
-- on macOS, right-click the app and choose **Open** the first time;
-- on Windows, choose **More info → Run anyway** in SmartScreen.
+Run any Studio build with `--self-test` to check it. It walks a throwaway
+profile, a node, a link and a WebRTC loopback.
 
----
+## Studio
 
-## Four pillars
+The desktop app is a wallet. This node, what waits on you, and each of your
+devices are cards; pick one to bring it forward and read what it holds.
 
-1. **A decentralized network.**
-   - Identity is a DID (Ed25519 `did:key`); the session and endpoint layers are abstractions over real P2P UDP.
-   - Peers find each other through authenticated rendezvous, upgrade to a direct path or fall back to a relay, and converge membership by gossip anti-entropy.
-   - A hub only bootstraps and relays: if it goes down, the mesh lives on.
-2. **P2P, distributed learning.**
-   - A signed, hash-chained, append-only event journal with a `StateStore` on top.
-   - Journal and state converge across the mesh by anti-entropy with **two layers of authentication**, so signed "learned evidence" written on one node spreads to the other authorized nodes.
-3. **A Socratic philosophy system.** Two layers of gates:
-   - **instruction level** (examining intent);
-   - **action-plan level** (`GateDecision`: allow / reject / rewrite / request_reobserve).
+- **Talk:** tell it what you want. It asks when unsure and asks you to sign
+  anything irreversible.
+- **Devices:** write an invitation (a QR code or a link). The other device
+  opens it and agrees; you admit it when both screens show the same six
+  digits. Go online to link every device directly.
+- **Rules:** tighten the gates with signed YAML rules. Rules can only make
+  the gates stricter.
+- **Ink and paper:** a night theme and a day theme, with a switch that floods
+  the window from one to the other. Chinese and English throughout.
 
-   The gates **only judge; they never execute**.
-4. **Action on authenticated local devices.**
-   - Structured observation fusion (AX + DIB by reference).
-   - Opaque targets with generations to close TOCTOU gaps.
-   - Every action still passes the safety boundary, a capability grant and a human in the loop.
+Closing the window leaves a small light in the corner of the screen. Quitting
+stops the node. Nothing runs at login.
 
----
+## What is inside
 
-## Your own devices, in Studio and in the browser
+| Part | What it does |
+| --- | --- |
+| `identity/` | DIDs (Ed25519 `did:key`), canonical signing, allowlists |
+| `transport/` | Signed sessions over UDP or WebRTC: rendezvous, relays, membership, pairing, mesh links |
+| `citadel/` | The signed journal and state, replication, both Socratic gates, staged memory, the decision model |
+| `node/` | `secdogie-node`: the resident node that assembles all of the above |
+| `studio/` | `secdogie-studio`: the desktop app, which runs the node as its child |
+| `policy/` | Signed, declarative rule bundles, which can only tighten |
+| `webrtc/` | Pairing and "My devices" in the browser, plus the signaling gateway |
+| `dialogue/`, `inference/`, `agent/`, `desktop/`, `native/atlas/` | The operator dialogue, the inference mesh, structured perception, and native read-only tools |
+| `tunnel/`, `fleet/`, `console/` | The encrypted C tunnel and operations tools |
 
-The mesh runs **only on devices you own**. There are no public nodes and no
-seed nodes. Adding a device happens in Studio's **Devices** page or in the
-browser; the two speak the same protocol, so a phone's browser and the Studio
-on your desk pair with each other directly.
+## Safety boundary
 
-1. **Pair.** Open [`webrtc/pair.html`](webrtc/pair.html) on a device already in your mesh and write an invitation. Open the link on the new device and click **Agree**.
-   - The two devices connect directly over a WebRTC data channel.
-   - Each signs the DTLS certificate fingerprints it sees, so anyone in the middle of the signaling is caught.
-   - Both screens show the same six digits. You confirm on the inviting device, which signs an admission for the new one.
-2. **Go online.** Open [`webrtc/mesh.html`](webrtc/mesh.html) on each device and click **Go online**.
-   - Every device links directly to every other online device.
-   - Both ends of each link sign a `link-hello` before anything else is read.
-   - A newly paired phone learns the rest of the mesh from the owner's roster.
-   - Close the page and that device goes offline: nothing runs in the background.
-
-The signaling server only helps two devices find each other; it never sees what
-they say. Design and next steps: [`docs/PLAN-OWN-DEVICES.zh.md`](docs/PLAN-OWN-DEVICES.zh.md)
-and [`webrtc/README.md`](webrtc/README.md).
-
----
-
-## Perception is structural (design and status)
-
-The target design: screenshots and screen-pixel capture are not how this project
-perceives. `agent/observation.py` fuses exactly two **structured** senses.
-It **never silently lets one override the other**. A disagreement:
-- is recorded as an `ObservationConflict`;
-- lowers the fused confidence;
-- is handed to the action gate, which asks for a re-observation.
-
-| Sense | What it is | Role |
-| --- | --- | --- |
-| `ax` | The accessibility tree (macOS AX / Windows UIA): role / name / automation_id | **Primary**: the semantic identity that targets and gate reasoning rely on |
-| `dib` | A bitmap that native `atlas` **rebuilds read-only** from process memory, carried **by reference** (identity and hash, never pixels) | **Verification**: proves that what AX says is at a position really drew the right shape. This is a structured memory read, **not** a screenshot |
-
-There is no `pixel` or screen-capture path in the fusion layer
-(`observation.py`). Large visual data is always **referenced by content hash**;
-it never enters the Python heap or the event journal.
-
-**Status:**
-- Fusion in `observation.py` and the generation (TOCTOU) checks in `target.py` are so far used only in tests; they are not yet wired into the live loop (Track D1).
-- The live loop uses the AX structure graph on macOS and still takes screenshots on Windows and Linux (Track D2 moves them to structure-first, with screenshots only when explicitly enabled).
-
----
-
-## One authenticated chain, end to end
-
-```
-DID identity  →  authenticated session  →  signed state  →  Socratic gates  →  (capability + HITL) real action
-identity/        transport/                citadel/          citadel/            agent/ + safety boundary
-```
-
-**No authenticated identity, no session. No session, no replication. No plan
-through the gates, no execution. No capability grant and human in the loop, no
-real-world action.** Every step is verifiable, and all of it is testable
-headless over loopback. The full sequence diagram is in
-[`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md).
-
----
-
-## Status (an honest inventory)
-
-What is built and pushed, judged by the real code:
-
-| Layer | Package / module | Status |
-| --- | --- | --- |
-| Identity | `identity/` (DID, canonical signing, Allowlist) + `binding.py` (DID ↔ transport key) | ✅ |
-| Network | `transport/`: peer/session/endpoint, real P2P over `udp.py`, `rendezvous.py`, `upgrade.py`, `membership.py`, and `relay.py` (any allowlisted node can relay) | ✅ |
-| State | `citadel/`: `journal.py` signed journal, `state.py` StateStore, `sync.py` anti-entropy, `replication.py` convergence over transport | ✅ |
-| Mind | `citadel/socratic.py` (instruction gate) + `action_gate.py` (plan gate: intent contract, known failures, capabilities) + `authz.py` (Gate 2 operator signature) + `supervisor.py` (supervised node); both gates are in the live agent loop. An automatic Socratic gate (`deliberate.py`) weighs every new goal against what it knows of you | ✅ |
-| Memory | `citadel/episodes.py` / `lessons.py` / `consolidate.py`: staged memory, from S1 episodes to S2 quarantine to S3 consolidation; facts need an operator-signed confirmation and can only make the gates stricter | ✅ |
-| Dialogue | `dialogue/` (`secdogie-dialogue`): the operator's Dialogue App. It covers follow-up questions and answers, a structured view (no pixels), the Gate 2 signing desk and memory confirmation, over a session layer that survives loss and reordering | ✅ |
-| Node | `node/` (`secdogie-node`): the resident node, assembling transport, dialogue, the signed journal and the supervised loop; real end-to-end UDP tests | ✅ |
-| Policy | `policy/` (`secdogie-policy`): signed, declarative bundles for gate rules, decision models, ingestion limits and allowlists, which can only tighten. A TS mirror is locked to it by golden vectors. Bundles are injected locally into a node and take effect at once (`node/policy_host.py`); spreading them across the mesh is still to do | 🔨 |
-| Companion | `studio/` (`secdogie-studio`): the desktop app. A floating companion stays faded until it needs you, then shows a single card (question / signature / memory). A home window of cards in rice paper / ink holds the conversation, your devices (pairing included), the rules and an introduction. Installers for Windows, macOS and Linux; `citadel/decision.py` decides when to reach you, and attention reads only the system idle time | 🔨 |
-| Inference mesh | `inference/`, which routes in three modes:<br>· **normal:** over the mesh to leased model nodes;<br>· **a node fails:** detour, quarantine and a central fallback;<br>· **a node turns against you:** lockdown, with self-proving evidence, key rotation, cross-checks by two models, and release only by an operator signature | ✅ |
-| Perception / action | `agent/observation.py` (AX + DIB fused by reference) + `target.py` (TOCTOU) + AX/safety; `native/atlas` (read-only DIB reconstruction) | 🔨 building blocks done; observation/target not yet in the live loop |
-| Devices / sessions | `desktop/` (a chat-style native window, plus `websession.py`, which reuses **authorized** browser sessions for read-only navigation and reading structure) | ✅ |
-| Carrier / ops | `tunnel/` (encrypted C tunnel, confidentiality), `fleet/`, `console/` | ✅ |
-| Browser P2P | `webrtc/` (WebRTC data-channel client + Cloudflare Worker signaling gateway; starts only after a click) | ✅ |
-| Your own devices | The mesh runs only on your own devices:<br>· `webrtc/pair.html` pairs a device in the browser (invite → agree → direct WebRTC → six digits on both screens → admission);<br>· on `webrtc/mesh.html`, devices that go online form a full WebRTC mesh: both ends of each link sign a `link-hello`, and rosters spread by themselves;<br>· reference implementations are `transport/pairing.py` and `meshlink.py`;<br>· the address book keeps only your own devices by default (the public tier is shelved) | 🔨 revocation and Python nodes on WebRTC still to do |
-| Browser runtime | `symbiont/` (TS: two Socratic gates, inline signing prompts, attention scheduling, sandboxed fetch) + `graph/` (Rust-WASM: append-only state graph, have/want, lexical routing adapter); byte-compatible with Python, see `fixtures/vectors/` | 🔨 transport bridge to Python nodes still to do |
-
-**Phase two (a runnable closed loop) is done**, including:
-- k-of-n revocation;
-- zero-trust defaults (see [`docs/ZERO-TRUST-MIGRATION.md`](docs/ZERO-TRUST-MIGRATION.md));
-- both gates and staged memory in the live loop;
-- the Dialogue App;
-- `secdogie-node` with end-to-end tests.
-
-**Phase three, still to do** (per [`ROADMAP.md`](ROADMAP.md)):
-- mesh runtime: UDP over rendezvous (T3), live gossip (T4), durable revocation spread through the journal (T6);
-- device classes and headless isolation (T7);
-- approval paths for fleet / console / desktop;
-- C + libsodium tunnel hardening (T9): v2 handshake (Noise IK), rekeying, end-to-end relaying, a local control socket;
-- a multi-node vertical demo, a security re-review, verification on real machines;
-- perception in the loop, structure first (driven by the owner).
-
----
-
-## Safety boundary (forbidden list)
-
-> The authoritative wording is the Chinese list in [`README.zh-CN.md`](README.zh-CN.md), kept verbatim. This is a faithful English rendering.
-
-**Never** introduce:
+These never enter the code:
 - process memory writes or remote thread injection;
 - kernel HID;
-- EDR or anti-detection;
+- EDR evasion or anti-detection;
 - covert persistence or privilege escalation;
-- bypassing user authorization or the macOS Accessibility / Screen Recording permissions;
-- turning HITL into default auto-approval;
+- bypassing user authorization or the OS permissions for accessibility and
+  screen recording;
+- turning human approval into default auto-approval;
 - covertly embedding third-party services;
-- traffic obfuscation, or hole-punching used as anti-detection.
+- traffic obfuscation, or hole punching used to evade detection.
 
-**Keep:**
-- memory = read-only;
-- execution = supervised;
-- high-risk = fail-closed, and **always** confirmed by a human, in every mode and at every entry point (there is no switch to turn it off);
-- physical action = an explicit capability.
+These always hold:
+- memory is read-only;
+- execution is supervised;
+- high-risk steps fail closed and are confirmed by a person at every entry
+  point;
+- physical action needs an explicit capability.
 
-The capability model **never** contains `process.memory.write`, kernel HID,
-anti-detection or privilege escalation.
+Saved web sessions are reused only for read-only browsing of sites you logged
+into yourself. Credentials are never typed, and logins, CAPTCHAs and
+anti-bot measures are never bypassed. Every change is checked against this
+list before it is committed.
 
-`websession.py` only **reuses authorized sessions that you saved after logging
-in properly elsewhere**, for read-only navigation and reading page structure.
-- It **never** types credentials, creates or steals sessions, or bypasses authentication, CAPTCHAs or anti-bot measures.
-- If a site refuses automation, that is respected.
+## Security
 
-Before every slice is committed, a grep regression confirms none of these
-primitives appear. The full trust model is in [`SECURITY.md`](SECURITY.md).
+Report vulnerabilities privately through a
+[GitHub security advisory](https://github.com/Larrydev-cpp/secdogie/security/advisories/new).
+Include the component, the commit and the steps to reproduce.
 
----
+`tunnel/` has not had an independent cryptographic audit. Where a real
+adversary is on the wire, use WireGuard or a named Cloudflare Tunnel.
 
-## Quick start (headless, testable)
-
-Every package is pure logic or loopback-testable; no desktop or screen needed:
+## Build and test
 
 ```sh
-pip install ruff
-ruff check .                                   # root lint (ruff.toml)
-
-python -m pytest identity/tests  -q            # DID, signing, binding
-python -m pytest transport/tests -q            # sessions, UDP, rendezvous, upgrade, membership, pairing, mesh links
-python -m pytest citadel/tests   -q            # journal, state, anti-entropy, replication, gates, supervision
-cd agent && python -m pytest tests/test_observation.py tests/test_target.py -q   # structured perception, targets
-cd webrtc && npm test && npm run e2e           # browser pairing and mesh (e2e needs Playwright + Chromium)
+pip install -e ./identity -e "./transport[webrtc]" -e ./citadel -e ./policy -e ./dialogue -e ./node -e "./studio[gui]"
+secdogie-studio                        # the desktop app
+python -m pytest transport/tests citadel/tests studio/tests -q
+ruff check .
+cd webrtc && npm test && npm run e2e   # browser pairing and mesh (needs Playwright and Chromium)
 ```
 
-CI ([`.github/workflows/test.yml`](.github/workflows/test.yml)) runs:
-- headless `pytest` for every package;
-- `ctest` for the C tunnel;
-- `ruff` over all Python;
-- the browser end-to-end tests over real WebRTC.
+CI runs every package's tests, the C tunnel's tests, the lint, and the
+browser end-to-end tests over real WebRTC.
 
----
+## Status
 
-## About the old screenshot tools (removed)
+- **Done:**
+  - identity, the P2P mesh, the signed journal and its replication;
+  - both gates and staged memory in the live loop;
+  - the node;
+  - Studio with pairing;
+  - browser pairing and the mesh.
+- **Under way:**
+  - spreading policy bundles across the mesh;
+  - revoking devices;
+  - the node's dialogue over WebRTC.
+- **Honest gap:** on Windows and Linux the agent's live loop still takes
+  screenshots. Moving it to structure first is in the plan.
 
-The earlier standalone tools in this repository, built on vision LLMs and
-screenshots, **have been removed from the main line**. That covers `android/`,
-`ios/`, `scene3d/`, the multi-window `open/`, and the game stack
-`aim/` / `commander/` / `handoff/` / `gta/`. The project perceives structurally
-and does not need screenshots. They remain in git history for reference.
-`agent/` stays as the shared engine; the cloud lifeform's structured perception
-stack lives there.
+## License
 
----
-
-## Further reading
-
-- [`ARCHITECTURE.zh.md`](ARCHITECTURE.zh.md): the four pillars, the authenticated chain, the component table, the safety boundary, the roadmap.
-- [`ROADMAP.md`](ROADMAP.md): implementation goals and milestones.
-- [`docs/PLAN-OWN-DEVICES.zh.md`](docs/PLAN-OWN-DEVICES.zh.md): the mesh of your own devices over WebRTC.
-- [`docs/AUDIT-P2P-ALIGNMENT.zh.md`](docs/AUDIT-P2P-ALIGNMENT.zh.md): source audit and conflict log.
-- [`SECURITY.md`](SECURITY.md): trust model and vulnerability reporting.
+See [`LICENSE`](LICENSE). Studio bundles Google Sans under the SIL Open Font
+License 1.1 (`studio/secdogie_studio/qml/fonts/OFL.txt`).

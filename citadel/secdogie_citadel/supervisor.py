@@ -31,7 +31,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class MemoryConfig:
-    """Staged memory for a supervised node (see MEMORY.zh.md).
+    """Staged memory for a supervised node (staged memory: S1 episodes, S2 quarantine, S3 consolidation).
 
     ``candidates_path``: the local S2 quarantine (SQLite). ``min_runs``: failing
     runs before a caution is promoted. ``confirmers``: the operator App session

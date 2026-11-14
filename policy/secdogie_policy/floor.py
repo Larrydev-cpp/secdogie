@@ -20,7 +20,7 @@ FLOOR: dict[str, int] = {
     "plan.poll_window": 3,
     # citadel/consolidate.py: DEFAULT_MIN_RUNS (failures before an action is "known failed")
     "plan.known_failure_min_runs": 3,
-    # Decision 5 in docs/PLAN-STUDIO-INGEST.zh.md: at most 1 request/s and 1 at a time per origin
+    # Decision 5 in PLAN.md: at most 1 request/s and 1 at a time per origin
     "ingest.rps_milli": 1000,
     "ingest.concurrency": 1,
     # symbiont/src/sandbox/policy.ts: HARD_MAX_BODY_BYTES, HARD_MAX_TIMEOUT_MS

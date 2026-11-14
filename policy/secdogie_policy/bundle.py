@@ -24,7 +24,7 @@ Every signature covers the same bytes: the canonical bundle without
 ``bundle_id`` and ``sigs``. ``bundle_id`` commits to those bytes, so it is the
 bundle's name in a version chain and in heartbeats.
 
-Who may sign is fixed per kind (docs/PLAN-STUDIO-INGEST.zh.md, decision 4):
+Who may sign is fixed per kind (PLAN.md, decision 4):
 
   * ``gate-rules`` and ``ingest``: one signature from an operator DID;
   * ``decision-model`` and ``allowlist``: ``threshold`` distinct signatures

@@ -3,7 +3,7 @@
 A PySide6 window that is one more operator App, not a new trust root. It
 creates this machine's keys on first run, runs ``secdogie-node`` as a child that
 stops with the window, and talks to it over the same DID-authenticated
-dialogue the Dialogue App uses. See docs/PLAN-STUDIO-INGEST.zh.md section 7.
+dialogue the Dialogue App uses. See PLAN.md (track G).
 """
 from __future__ import annotations
 

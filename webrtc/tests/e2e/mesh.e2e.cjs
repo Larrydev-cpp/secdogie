@@ -1,5 +1,5 @@
 // Three of your own devices go online and become one mesh, over real WebRTC
-// data channels between real browsers (S5, docs/PLAN-OWN-DEVICES.zh.md).
+// data channels between real browsers (S5 in PLAN.md).
 //
 //   node tests/e2e/mesh.e2e.cjs [--shots <dir>]
 //

@@ -1,6 +1,6 @@
 /* Direct unit tests for the SDTP crypto/handshake/data-channel logic,
  * independent of TUN/UDP/OS networking (which is exercised separately via a
- * real client/server run -- see tunnel/README.md). */
+ * real client/server run). */
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>

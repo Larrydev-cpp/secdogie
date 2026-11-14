@@ -9,8 +9,8 @@
     secdogie-fleet node --connect 192.168.56.1:47810 --label win11-vm-1 \
                         --identity node.key --authorized coordinators.allow
 
-See fleet/README.md for deployment and the honest limits (Windows edition
-licensing, per-guest resources, and the API quota a fleet multiplies).
+Honest limits: Windows edition licensing, per-guest resources, and the API
+quota a fleet multiplies.
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def _setup_logging(verbose: bool) -> logging.Logger:
 
 _INSECURE_REFUSAL = (
     "refusing to run without DID authentication: pass both --identity and --authorized "
-    "(see identity/README.md), or --insecure-dev for a throwaway local test"
+    "(make them with secdogie-identity), or --insecure-dev for a throwaway local test"
 )
 
 

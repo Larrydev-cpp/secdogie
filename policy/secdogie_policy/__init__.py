@@ -4,7 +4,7 @@ Operators "inject" Socratic gate rules, a decision-model configuration,
 ingestion limits and allowlist changes into a mesh as bundles: data with a
 closed schema, never code. A bundle can only make a gate stricter than the
 built-in floor; Gate 2, HITL for high-risk actions and the capability allowlist
-are not in any schema. See docs/PLAN-STUDIO-INGEST.zh.md section 5.
+are not in any schema. See PLAN.md, decisions 4 and 13.
 
 Bundles go to your own nodes. A node someone else runs never receives your
 rules: it gets a work permit (``permit.py``), which says what one task may

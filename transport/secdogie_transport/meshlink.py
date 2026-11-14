@@ -1,5 +1,5 @@
 """Your own devices as one mesh: where two of them meet, how each end of a link
-proves itself, and the roster of who belongs (docs/PLAN-OWN-DEVICES.zh.md).
+proves itself, and the roster of who belongs (PLAN.md, "Your own devices").
 
   room      each pair of devices meets in its own room on the signaling
             gateway, derived from the mesh and the two DIDs, so both ends can

@@ -6,7 +6,6 @@ build-backend = "setuptools.build_meta"
 name = "secdogie-node"
 version = "0.1.0"
 description = "The resident secdogie node: a DID-authenticated transport, the operator dialogue, a signed journal and the supervised agent loop with staged memory, in one foreground process."
-readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 # Assembly only: every piece comes from these packages.

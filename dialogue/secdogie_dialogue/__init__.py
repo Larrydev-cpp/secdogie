@@ -5,7 +5,7 @@ and clarifications), watch the same structural view of the screen (AX / UIA tree
 plus DIB metadata -- never pixels), and where a destructive action gets its
 Gate 2 operator signature. It is a consumer, a signer and a dialogue peer: it
 never captures the screen, never reads process memory, and never talks to a
-central server. See DESIGN.zh.md.
+central server.
 """
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
 // A browser device in your mesh: goes online when the person clicks, links
 // directly to each of your other devices that is online, and keeps the roster
-// in step with them (docs/PLAN-OWN-DEVICES.zh.md, S5).
+// in step with them (PLAN.md, "Your own devices", S5).
 //
 // One WebRTC link per pair of devices, each in its own signaling room
 // (meshlink.js linkRoom). On every new connection both ends sign a link-hello

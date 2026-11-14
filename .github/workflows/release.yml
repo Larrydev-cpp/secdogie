@@ -385,7 +385,7 @@ jobs:
               *)         inner="secdogie-agent";     launcher="agent/packaging/launchers/run.sh" ;;
             esac
             package "secdogie-agent-${platform}-${version}" "$f" "$inner" \
-              "$launcher" agent/README.md agent/packaging/README.md LICENSE
+              "$launcher" README.md LICENSE
           done
 
           # Native MCT (atlas_inspect + atlas_target) per OS/arch.
@@ -406,7 +406,7 @@ jobs:
             [ -f "$mct" ] && cp "$mct" "pkg/${name}/${inner_mct}" || true
             [ -f "$target" ] && cp "$target" "pkg/${name}/${inner_target}" || true
             chmod +x "pkg/${name}/"* 2>/dev/null || true
-            cp native/atlas/README.md native/atlas/PLATFORMS.md LICENSE "pkg/${name}/" 2>/dev/null || true
+            cp README.md LICENSE "pkg/${name}/" 2>/dev/null || true
             (cd pkg && zip -r "../release/${name}.zip" "${name}")
             cp "$inspect" "release/${name}-${inner_inspect}"
             [ -x "$inspect" ] && chmod +x "release/${name}-${inner_inspect}" || true
@@ -436,7 +436,7 @@ jobs:
           # Tunnel binary (Linux only).
           for f in downloaded/tunnel-*/*; do
             package "secdogie-tunnel-linux-x86_64-${version}" "$f" "secdogie-tunnel" \
-              tunnel/README.md tunnel/PROTOCOL.md LICENSE
+              README.md LICENSE
           done
 
           ls -la release

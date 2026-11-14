@@ -6,7 +6,6 @@ build-backend = "setuptools.build_meta"
 name = "secdogie-studio"
 version = "0.1.0"
 description = "secdogie Studio: the desktop app (Windows, macOS, Linux). Creates this machine's keys, runs the node as a child that stops with the window, and talks to it over the DID-authenticated operator dialogue."
-readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 # The node runs as a child process (secdogie-node); the window is one more

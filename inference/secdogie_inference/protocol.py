@@ -1,6 +1,6 @@
 """Wire objects of the inference mesh -- the "new arc".
 
-One protocol covers the three operating states (see PROTOCOL.md):
+One protocol covers the three operating states:
 
   1. normal   -- a user's request enters a serving node (the "P2P+S" of the
      diagram), whose decision layer routes it over the P2P mesh to one or more

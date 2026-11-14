@@ -9,7 +9,7 @@
 // again; right-click (or the Menu key) for its inner workings.
 //
 // While the home window is open, this window is hidden: what waits on you
-// shows there instead. The design system is in studio/DESIGN.md; all timing
+// shows there instead. The tokens are in Theme.qml; all timing
 // and state come from the bridge `P` (secdogie_studio/app.py).
 import QtQuick
 import QtQuick.Window

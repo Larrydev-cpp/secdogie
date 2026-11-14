@@ -12,7 +12,7 @@ are judged by a deterministic safety layer at the decider *and* at the user.
     pin two independent model nodes through a standby forwarder until an
     operator signs a reset.
 
-See README.md for the architecture and PROTOCOL.md for the wire.
+The wire is described in protocol.py.
 """
 from __future__ import annotations
 

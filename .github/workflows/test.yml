@@ -4,7 +4,7 @@ name: test
 # release.yml (which only builds/publishes binaries on a tag push or manual
 # dispatch), this is the gate that actually catches a regression before it
 # lands. All Python suites are written to run headless (mocked screen/input/
-# network/window-backend layers -- see each component's README), so a single
+# network/window-backend layers), so a single
 # ubuntu-latest runner covers all of them; the C tunnel gets its own job for
 # its own toolchain.
 

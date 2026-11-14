@@ -5,7 +5,7 @@
 // macOS is the exception: task_for_pid / mach_vm reads are SIP-gated (they need a
 // debugger entitlement + user authorization or root, which this project never
 // takes), and macOS apps do not lay out reconstructable bitmaps in the heap.
-// PLATFORMS.md therefore makes memory OPTIONAL on macOS -- the accessibility tree
+// Memory is therefore OPTIONAL on macOS -- the accessibility tree
 // is the perception path, and "SIP task_for_pid does not fail the inspect". So the
 // live-memory-read expectations below run in full on Linux/Windows (where memory
 // IS the real capability) and degrade to best-effort on Apple.
@@ -248,7 +248,7 @@ void RunMemoryInspectorTests() {
       }
 #if defined(__APPLE__)
       // macOS: mach_vm self-scanning is best-effort and the AX tree, not memory,
-      // is the perception path (see PLATFORMS.md). Not surfacing the planted heap
+      // is the perception path there. Not surfacing the planted heap
       // marker is an accepted outcome here, not a failure.
       (void)found;
       Expect(true, "heap marker scan is best-effort on macOS (AX is primary)",
@@ -285,7 +285,7 @@ void RunMemoryInspectorTests() {
 // root (which this project never takes), and on Apple Silicon a denied task_for_pid
 // can block rather than fail fast -- which once hung this job for ~6h. So this real
 // cross-process read is a Linux-only test; macOS perception is the AX tree, not
-// memory (see PLATFORMS.md).
+// memory.
 #if !defined(_WIN32) && !defined(__APPLE__)
   {
     const pid_t child = fork();
@@ -581,7 +581,7 @@ void RunMemoryInspectorTests() {
 #if defined(__APPLE__)
     // macOS: the memory-read fallback is best-effort (mach_vm is SIP-gated); the
     // loop still runs and the mode assertion below is the real check. Whether the
-    // marker is read is not a pass/fail gate on Apple (see PLATFORMS.md).
+    // marker is read is not a pass/fail gate on Apple.
     Expect(true, "hybrid loop memory read is best-effort on macOS (AX is primary)",
            StepStatusName(st.status));
 #else

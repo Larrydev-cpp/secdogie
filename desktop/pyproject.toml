@@ -6,7 +6,6 @@ build-backend = "setuptools.build_meta"
 name = "secdogie-desktop"
 version = "0.5.0"
 description = "A native desktop window (tkinter) to control a secdogie fleet: live nodes/tasks and submit/stop/pause/resume, with operator-DID-signed commands."
-readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 # tkinter ships with Python. The window reuses the console's control logic and

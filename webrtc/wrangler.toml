@@ -1,4 +1,4 @@
-# Signaling gateway for the browser P2P module (see README.md).
+# Signaling gateway for the browser P2P module (see the root README.md).
 #   npx wrangler dev      -> ws://localhost:8787/ws
 #   npx wrangler deploy   -> wss://secdogie-signaling.<account>.workers.dev/ws
 name = "secdogie-signaling"
