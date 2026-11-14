@@ -61,6 +61,7 @@ Code comments refer to these by number.
 | A · Network | DIDs, sessions, real P2P UDP, rendezvous, direct-path upgrade, relay, membership gossip, carriers (UDP, WebRTC) | ✅ |
 | B · State | Signed hash-chained journal, StateStore, anti-entropy replication across the mesh | ✅ |
 | C · Mind | Instruction gate and plan gate in the live loop, intent contracts, known failures, staged memory, automatic deliberation, the decision model | ✅ |
+| M · Inference mesh | Protocol v2: three modes (nominal, degraded with central fallback, lockdown) as an explicit state machine, bounded sessions, Merkle-DAG heartbeats (a fork isolates the node), a history-aware decision gate; only an operator signature leaves lockdown | ✅ |
 | D · Perception | Fused AX + DIB observation and TOCTOU-safe targets exist as building blocks; not yet in the live loop | 🔨 |
 | G · Studio | The desktop app: wallet overview, conversation, pairing and My devices, the rules editor, the first meeting, 墨 / 宣纸, 中 / EN | ✅ |
 | K · Packaging | PyInstaller builds and installers (setup.exe, .dmg, AppImage, portable zips), self-tested in CI | ✅ (unsigned) |
