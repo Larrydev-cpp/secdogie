@@ -27,7 +27,7 @@ REPO = os.path.dirname(ROOT)
 SOURCES = [os.path.join(REPO, d) for d in ("studio", "node", "dialogue", "citadel", "policy", "transport", "identity")]
 WINDOWED = sys.platform in ("win32", "darwin")  # no console window behind the app
 
-datas = collect_data_files("secdogie_studio", includes=["qml/*.qml", "qml/qmldir"])
+datas = collect_data_files("secdogie_studio", includes=["qml/*.qml", "qml/qmldir", "qml/*.png", "qml/fonts/*.ttf", "qml/fonts/OFL.txt"])
 hidden = (
     collect_submodules("secdogie_studio")
     + collect_submodules("secdogie_node")

@@ -1,5 +1,5 @@
-// The pages of the home window as one pill: the current page drawn in ink on
-// paper (paper on ink at night), the others as plain words.
+// The pages of the home window as one pill: the current page on a tonal
+// lozenge of the primary colour, the others as plain words.
 import QtQuick
 import QtQuick.Controls
 import "."
@@ -11,10 +11,10 @@ Rectangle {
     signal picked(int index)
 
     implicitWidth: row.implicitWidth + 8
-    implicitHeight: 40
+    implicitHeight: 44
     radius: height / 2
     color: Theme.panel
-    border.color: Theme.hairline
+    border.color: Theme.dark ? Theme.hairline : "transparent"
     Accessible.role: Accessible.PageTabList
 
     Row {
@@ -28,7 +28,7 @@ Rectangle {
                 required property var modelData
                 required property int index
                 readonly property bool here: nav.current === index
-                implicitHeight: 32
+                implicitHeight: 36
                 implicitWidth: label.implicitWidth + 32 + (badge.visible ? badge.width + 6 : 0)
                 hoverEnabled: true
                 focusPolicy: Qt.TabFocus
@@ -41,7 +41,7 @@ Rectangle {
                 onClicked: nav.picked(index)
                 background: Rectangle {
                     radius: height / 2
-                    color: tab.here ? Theme.inverse : (tab.hovered ? Theme.wash : "transparent")
+                    color: tab.here ? Theme.primaryContainer : (tab.hovered ? Theme.wash : "transparent")
                     border.color: tab.visualFocus ? Theme.focus : "transparent"
                     border.width: 2
                     Behavior on color { ColorAnimation { duration: Theme.touch } }
@@ -52,9 +52,9 @@ Rectangle {
                         anchors.centerIn: parent
                         anchors.horizontalCenterOffset: badge.visible ? -(badge.width + 6) / 2 : 0
                         text: tab.modelData.text
-                        color: tab.here ? Theme.inverseText : (tab.hovered ? Theme.text : Theme.soft)
-                        font.pixelSize: 13
-                        font.weight: tab.here ? Font.DemiBold : Font.Normal
+                        color: tab.here ? Theme.onPrimaryContainer : (tab.hovered ? Theme.text : Theme.soft)
+                        font.pixelSize: 14
+                        font.weight: Font.Medium
                         textFormat: Text.PlainText
                     }
                     Rectangle {

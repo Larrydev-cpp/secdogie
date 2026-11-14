@@ -1,13 +1,17 @@
-// Studio's home window: an overview of you, the companion and your devices on
-// cards; the conversation; pairing your devices; the gates' rules; and what
-// the project is. Two worlds: 墨 (ink) and 宣纸 (rice paper), changed by the
-// switch at the top right, with ink (or paper) flooding up the window.
+// Studio's home window. The overview is a wallet: this node, what waits on you
+// and each of your devices are cards, drawn like bank cards, with the chosen
+// card in front and the rest stacked behind it; beside the wallet, the page
+// is set the way Google sets its pages (Google Sans, a display greeting, flat
+// tonal sheets, pill buttons) and says what the front card holds. The other
+// pages: the conversation, pairing your devices, the gates' rules, and what
+// the project is. Two worlds, 墨 (ink) and 宣纸 (rice paper), changed by the
+// switch at the top right with ink (or paper) flooding up the window.
 //
 // Opening Studio opens it. Closing it leaves the companion as a light in the
 // corner of the screen (Presence.qml); clicking the light brings this window
 // back. Before there is a profile, the whole window is the first meeting
 // (Onboarding.qml). All state comes from the bridge `P` (secdogie_studio/app.py);
-// the design system is in studio/DESIGN.md.
+// the tokens are in Theme.qml.
 import QtQuick
 import QtQuick.Window
 import QtQuick.Controls
@@ -52,7 +56,7 @@ Window {
     }
     function stateColor(state) {
         switch (state) {
-        case "online": case "running": return Theme.calm
+        case "online": case "running": return Theme.good
         case "connecting": case "starting": return Theme.warm
         case "refused": case "exited": return Theme.sign
         default: return Theme.faint
@@ -65,6 +69,70 @@ Window {
         case "refused": return t("被拒绝", "Refused")
         default: return t("不在线", "Offline")
         }
+    }
+    readonly property string shichenNames: "子丑寅卯辰巳午未申酉戌亥"
+    function tail(did) { return did ? did.slice(-5) : "" }
+    function hm(s) {                           // 4h 23m
+        s = Math.max(0, s || 0)
+        const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60)
+        return h > 0 ? h + "h " + two(m) + "m" : m + "m"
+    }
+    function hereZh(s) {
+        s = Math.max(0, s || 0)
+        const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60)
+        return h > 0 ? h + " 小时 " + m + " 分钟" : m + " 分钟"
+    }
+    function stateShort(d) {
+        switch (d.state) {
+        case "online": return t("在线 · 直连", "Online · direct")
+        case "connecting": return t("连接中…", "Connecting…")
+        case "refused": return t("被拒绝", "Refused")
+        default: return t("不在线", "Offline")
+        }
+    }
+    readonly property int onlineCount: (dev.devices || []).filter(d => d.state === "online").length
+    // ---- the wallet: this node, what waits on you, each of your devices, an empty slot ----------
+    function deviceCard(d) {
+        return { what: "device", did: d.did, kind: "glaze", glaze: Theme.glazeFor(d.did), key: d.did, panel: true,
+                 title: d.name || t("未命名的设备", "Unnamed device"),
+                 figure: d.state === "online" && d.rtt !== null && d.rtt !== undefined ? d.rtt + " ms" : "",
+                 note: stateShort(d), live: d.state === "online", number: tail(d.did),
+                 label: d.owner ? t("主人", "Owner") : t("成员", "Member") }
+    }
+    readonly property var walletCards: {
+        const cards = [{ what: "node", kind: "dots", title: "secdogie", figure: hm(node.uptime || 0),
+                         number: tail(node.did), note: node.since || node.stateWords || "", live: node.state === "running",
+                         quarters: P.dayQuarters || [], now: P.quarterNow === undefined ? -1 : P.quarterNow },
+                       { what: "waiting", kind: "glaze", glaze: waitingCount > 0 ? "zhusha" : "dai", key: "waiting",
+                         title: t("等你", "Waiting on you"), figure: "" + waitingCount,
+                         note: waitingCount > 0 ? t(waitingCount + " 件事等你回答或签名",
+                                                    waitingCount === 1 ? "1 thing to answer or sign" : waitingCount + " things to answer or sign")
+                                                : t("现在没有事等你", "Nothing waits on you") }]
+        for (const d of (dev.devices || []))
+            cards.push(deviceCard(d))
+        if ((dev.role || "owner") === "owner")
+            cards.push({ what: "add", kind: "add", title: t("加一台设备", "Add a device"),
+                         note: t("写一封请帖，在另一台设备上打开", "Write an invitation; open it on the other device") })
+        return cards
+    }
+    property int walletPick: 0
+    property int devPick: 0
+    readonly property var picked: walletCards[Math.min(walletPick, walletCards.length - 1)] || ({})
+    readonly property var pickedDevice: picked.what === "device"
+                                        ? ((dev.devices || []).find(d => d.did === picked.did) || ({})) : ({})
+    readonly property var deviceCards: walletCards.filter(c => c.what === "device" || c.what === "add")
+    function summary() {
+        const n = (dev.devices || []).length
+        const hour = shichenNames.charAt(P.shichen || 0)
+        if (Theme.lang === "en") {
+            let s = "It's " + (P.clock || "") + ", the hour of " + hour + ". You've been at this computer " + hm(P.hereToday) + " today"
+            s += waitingCount > 0 ? "; " + waitingCount + (waitingCount === 1 ? " thing waits" : " things wait") + " on you"
+                                  : "; nothing waits on you"
+            return s + (n > 0 ? "; " + onlineCount + " of " + n + " devices are online." : ".")
+        }
+        let s = hour + "时，" + (P.clock || "") + "。今天你在电脑前 " + hereZh(P.hereToday)
+        s += waitingCount > 0 ? "，" + waitingCount + " 件事等你" : "，没有事等你"
+        return s + (n > 0 ? "；" + n + " 台设备里 " + onlineCount + " 台在线。" : "。")
     }
     function send() {
         if (say.text.trim().length === 0) return
@@ -116,72 +184,45 @@ Window {
         wrapMode: Text.Wrap
         lineHeight: 1.35
     }
-    component Lcd: Rectangle {                 // dot numerals on their own dark (or light) plate
-        property alias text: digits.text
-        property real pitch: 5.5
-        property color plate: Theme.inverse
-        property color lit: Theme.inverseText
-        width: digits.width + 22
-        height: digits.height + 18
-        radius: 10
-        color: plate
-        DotText { id: digits; anchors.centerIn: parent; pitch: parent.pitch; on: parent.lit
-                  off: Theme.tinted(parent.lit, 0.12) }
-    }
-    component Scene: Item {                    // an ink-wash landscape: hills, a moon, mist
-        id: scene
-        clip: true
-        property real drop: 0                  // push the hills down (0..0.3): room for words above them
-        Rectangle { anchors.fill: parent; radius: 14; color: Theme.dark ? "#262C3A" : "#E3DAC6" }
-        Rectangle { x: parent.width * 0.68; y: parent.height * 0.16; width: parent.height * 0.26; height: width
-                    radius: width / 2; color: Theme.dark ? "#E9D9B0" : "#C9573E"; opacity: 0.9 }
-        Shape {
-            anchors.fill: parent
-            ShapePath {
-                fillColor: Theme.dark ? "#3A4256" : "#B9AE97"; strokeColor: "transparent"
-                startX: 0; startY: scene.height * (0.62 + scene.drop)
-                PathCubic { x: scene.width * 0.45; y: scene.height * (0.38 + scene.drop)
-                            control1X: scene.width * 0.15; control1Y: scene.height * (0.34 + scene.drop)
-                            control2X: scene.width * 0.3; control2Y: scene.height * (0.46 + scene.drop) }
-                PathCubic { x: scene.width; y: scene.height * (0.5 + scene.drop)
-                            control1X: scene.width * 0.62; control1Y: scene.height * (0.28 + scene.drop)
-                            control2X: scene.width * 0.82; control2Y: scene.height * (0.56 + scene.drop) }
-                PathLine { x: scene.width; y: scene.height } PathLine { x: 0; y: scene.height }
-            }
-            ShapePath {
-                fillColor: Theme.dark ? "#141824" : "#3B3A3A"; strokeColor: "transparent"
-                startX: 0; startY: scene.height * (0.8 + scene.drop)
-                PathCubic { x: scene.width * 0.55; y: scene.height * (0.66 + scene.drop)
-                            control1X: scene.width * 0.2; control1Y: scene.height * (0.62 + scene.drop)
-                            control2X: scene.width * 0.38; control2Y: scene.height * (0.78 + scene.drop) }
-                PathCubic { x: scene.width; y: scene.height * (0.74 + scene.drop)
-                            control1X: scene.width * 0.72; control1Y: scene.height * (0.56 + scene.drop)
-                            control2X: scene.width * 0.86; control2Y: scene.height * (0.8 + scene.drop) }
-                PathLine { x: scene.width; y: scene.height } PathLine { x: 0; y: scene.height }
-            }
-        }
-    }
-    component Act: AbstractButton {           // a text button: primary (filled) or quiet (outlined)
+    component Act: AbstractButton {           // a pill: filled in the primary colour, or outlined
         id: act
         property bool primary: true
-        property bool onSeal: false            // on the cinnabar card
+        property bool onSeal: false            // on a cinnabar surface
         hoverEnabled: true
         focusPolicy: Qt.TabFocus
-        implicitHeight: 38
-        implicitWidth: actLabel.implicitWidth + 32
+        implicitHeight: 40
+        implicitWidth: actLabel.implicitWidth + 48
         HoverHandler { cursorShape: Qt.PointingHandCursor }
         Keys.onReturnPressed: act.animateClick()
         Keys.onSpacePressed: act.animateClick()
         Accessible.role: Accessible.Button
         Accessible.name: act.text
-        opacity: enabled ? 1 : 0.45
-        background: Rectangle {
-            radius: height / 2
-            color: act.onSeal ? (act.primary ? Theme.sealText : "transparent")
-                              : (act.primary ? Theme.inverse : (act.hovered ? Theme.wash : "transparent"))
-            border.color: act.visualFocus ? Theme.focus
-                          : (act.primary ? "transparent" : (act.onSeal ? Theme.sealSoft : Theme.edge))
-            border.width: act.visualFocus ? 2 : 1
+        opacity: enabled ? 1 : 0.4
+        background: Item {
+            Rectangle {                        // the keyboard's ring, just outside the pill
+                anchors.fill: parent
+                anchors.margins: -3
+                radius: height / 2
+                color: "transparent"
+                border.color: Theme.focus
+                border.width: 2
+                visible: act.visualFocus
+            }
+            Rectangle {
+                anchors.fill: parent
+                radius: height / 2
+                color: act.onSeal ? (act.primary ? Theme.sealText : "transparent")
+                                  : (act.primary ? Theme.primary : "transparent")
+                border.color: act.primary ? "transparent" : (act.onSeal ? Theme.sealSoft : Theme.edge)
+                border.width: 1
+                Rectangle {                    // the state layer: hover and press
+                    anchors.fill: parent
+                    radius: parent.radius
+                    color: act.primary && !act.onSeal ? Theme.onPrimary : Theme.primary
+                    opacity: act.pressed ? 0.14 : (act.hovered ? 0.08 : 0)
+                    Behavior on opacity { NumberAnimation { duration: Theme.touch } }
+                }
+            }
         }
         contentItem: Text {
             id: actLabel
@@ -189,12 +230,40 @@ Window {
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
             color: act.onSeal ? (act.primary ? Theme.seal : Theme.sealText)
-                              : (act.primary ? Theme.inverseText : Theme.text)
-            font.pixelSize: 13
-            font.weight: Font.DemiBold
+                              : (act.primary ? Theme.onPrimary : Theme.primary)
+            font.pixelSize: 14
+            font.weight: Font.Medium
             textFormat: Text.PlainText
         }
     }
+    component KV: Item {                       // a row of a list: what, and its value
+        id: kv
+        property string k
+        property string v
+        property bool mono: false
+        property bool last: false
+        width: parent ? parent.width : 300
+        height: 46
+        Text { anchors.verticalCenter: parent.verticalCenter; text: kv.k; color: Theme.soft; font.pixelSize: Theme.body
+               textFormat: Text.PlainText }
+        Text { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 132
+               horizontalAlignment: Text.AlignRight; text: kv.v; color: Theme.text
+               font.pixelSize: kv.mono ? 12.5 : Theme.body; font.family: kv.mono ? Theme.mono : Theme.sans
+               elide: Text.ElideMiddle; textFormat: Text.PlainText; font.features: ({ "tnum": 1 }) }
+        Rectangle { visible: !kv.last; anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.hairline }
+    }
+    component Surface: Rectangle {             // a page's surface: flat, tonal, generous corners
+        radius: 28
+        color: Theme.panel
+        border.color: Theme.dark ? Theme.hairline : "transparent"
+    }
+    component Heading: Text {                  // a sheet's or a section's title
+        color: Theme.text
+        font.pixelSize: Theme.title
+        textFormat: Text.PlainText
+        wrapMode: Text.Wrap
+    }
+    component Dot: Rectangle { width: 8; height: 8; radius: 4 }
 
     // ---- the first meeting -------------------------------------------------------------------
     Onboarding { objectName: "onboarding"; anchors.fill: parent; visible: home.first }
@@ -220,7 +289,7 @@ Window {
                 }
             }
             Text { anchors.verticalCenter: parent.verticalCenter; text: "secdogie"; color: Theme.text
-                   font.family: Theme.serif; font.pixelSize: Theme.lead; font.weight: Font.DemiBold }
+                   font.pixelSize: 22; font.weight: Font.Medium; font.letterSpacing: -0.3 }
         }
 
         NavPill {
@@ -241,8 +310,8 @@ Window {
             spacing: 10
             Rectangle {                                              // 中 / EN
                 anchors.verticalCenter: parent.verticalCenter
-                width: langRow.implicitWidth + 8; height: 36; radius: 18
-                color: Theme.panel; border.color: Theme.hairline
+                width: langRow.implicitWidth + 8; height: 40; radius: 20
+                color: Theme.panel; border.color: Theme.dark ? Theme.hairline : "transparent"
                 Row {
                     id: langRow
                     anchors.centerIn: parent
@@ -253,18 +322,19 @@ Window {
                             id: lb
                             required property var modelData
                             readonly property bool on: (P.lang || "zh") === modelData[0]
-                            width: 34; height: 28
+                            width: 36; height: 32
                             focusPolicy: Qt.TabFocus
                             Accessible.name: modelData[0] === "zh" ? "中文" : "English"
                             Accessible.role: Accessible.RadioButton
                             Accessible.checked: lb.on
                             onClicked: P.setLanguage(modelData[0])
                             HoverHandler { cursorShape: Qt.PointingHandCursor }
-                            background: Rectangle { radius: 14; color: lb.on ? Theme.inverse : "transparent"
+                            background: Rectangle { radius: 16; color: lb.on ? Theme.primaryContainer : "transparent"
                                                     border.color: lb.visualFocus ? Theme.focus : "transparent"; border.width: 2 }
                             contentItem: Text { text: lb.modelData[1]; horizontalAlignment: Text.AlignHCenter
-                                                verticalAlignment: Text.AlignVCenter; font.pixelSize: 12
-                                                color: lb.on ? Theme.inverseText : Theme.soft }
+                                                verticalAlignment: Text.AlignVCenter; font.pixelSize: 13
+                                                font.weight: Font.Medium
+                                                color: lb.on ? Theme.onPrimaryContainer : Theme.soft }
                         }
                     }
                 }
@@ -275,15 +345,15 @@ Window {
                 anchors.verticalCenter: parent.verticalCenter
                 onChosen: (dark, x, y) => {
                     home.nextTheme = dark ? "dark" : "light"
-                    flood.play(dark ? "#12151D" : "#E8E0CD", x, y)
+                    flood.play(dark ? "#111216" : "#F3F1EC", x, y)
                 }
             }
             Rectangle {                                              // you
                 anchors.verticalCenter: parent.verticalCenter
-                width: 36; height: 36; radius: 18
-                color: Theme.panel; border.color: Theme.hairline
+                width: 40; height: 40; radius: 20
+                color: Theme.primaryContainer
                 Text { anchors.centerIn: parent; text: home.you ? home.you.charAt(0) : home.t("你", "Y")
-                       color: Theme.text; font.pixelSize: 13; font.weight: Font.DemiBold }
+                       color: Theme.onPrimaryContainer; font.pixelSize: 16; font.weight: Font.Medium }
                 Accessible.role: Accessible.StaticText
                 Accessible.name: home.you || home.t("你", "You")
             }
@@ -299,7 +369,7 @@ Window {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
 
-        // ==== 总览: the cards ========================================================================
+        // ==== 总览: the wallet, and what its front card holds =========================================
         Page {
             index: 0
             anchors.fill: parent
@@ -307,224 +377,233 @@ Window {
                 id: overview
                 objectName: "overview"
                 anchors.fill: parent
-                contentHeight: grid.height + home.margin
+                contentHeight: Math.max(walletCol.y + walletCol.height + 40, side.y + side.height) + home.margin
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
                 ScrollBar.vertical: Bar {}
+                readonly property real cardW: Math.max(340, Math.min(460, (width - 2 * home.margin) * 0.37))
+
                 Item {
-                    id: grid
-                    x: home.margin
-                    y: 4
-                    width: overview.width - 2 * home.margin
-                    readonly property real gap: Theme.gap
-                    readonly property real col: (width - 3 * gap) / 4
-                    readonly property real rowA: Math.max(300, (overview.height - home.margin - gap - 4) * 0.56)
-                    readonly property real rowB: Math.max(240, overview.height - home.margin - gap - 4 - rowA)
-                    height: rowA + gap + rowB
-
-                    // -- you, here: time at this computer today, the last two hours in dots --
-                    Card {
-                        x: 0; width: grid.col; height: grid.rowA
-                        title: home.t("你在场", "You, here")
-                        chip: home.t("今天", "TODAY")
-                        Lcd { text: home.hereText(P.hereToday || 0) }
-                        Words { y: 66; width: parent.width; font.pixelSize: Theme.meta; color: Theme.faint
-                                text: home.t("在电脑前的时间，只看系统的空闲时长", "At this computer, from the system's idle time only") }
-                        DotBars { anchors.bottom: parent.bottom; anchors.bottomMargin: 30
-                                  anchors.horizontalCenter: parent.horizontalCenter
-                                  values: P.hereBars || []; pitch: Math.min(9, parent.width / 24); rows: 8 }
-                        Words { anchors.bottom: parent.bottom; text: home.t("过去两小时 · 每格五分钟", "Last two hours · five minutes a column")
-                                font.pixelSize: Theme.meta; color: Theme.faint }
+                    id: walletCol
+                    x: home.margin + 8
+                    y: 22
+                    width: overview.cardW
+                    height: homeWallet.height
+                    Wallet {
+                        id: homeWallet
+                        objectName: "homeWallet"
+                        width: parent.width
+                        height: implicitHeight
+                        cards: home.walletCards
+                        current: home.walletPick
+                        peek: Math.max(40, Math.min(58, (overview.height - 70 - width / Theme.cardRatio)
+                                                         / Math.max(1, home.walletCards.length - 1)))
+                        onPicked: (i) => home.walletPick = i
                     }
+                }
 
-                    // -- what it is doing now --
-                    Card {
-                        x: grid.col + grid.gap; width: grid.col; height: grid.rowA
-                        title: home.t("正在做", "Now")
-                        chip: (home.node.work || "").length > 0 ? home.t("进行中", "LIVE") : ""
-                        chipLive: true
-                        Scene { width: parent.width; height: parent.height * 0.46 }
+                Column {
+                    id: side
+                    x: walletCol.x + walletCol.width + 64
+                    y: 10
+                    width: overview.width - x - home.margin
+                    spacing: 0
+
+                    Text {                                                   // the greeting, as a page's display line
+                        width: parent.width
+                        text: (P.greeting || home.t("你好", "Hello")) + (home.you ? home.t("，", ", ") + home.you : "")
+                        textFormat: Text.PlainText
+                        color: Theme.text
+                        font.pixelSize: Theme.display
+                        font.letterSpacing: -0.6
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        width: parent.width
+                        topPadding: 12
+                        text: home.summary()
+                        textFormat: Text.PlainText
+                        wrapMode: Text.Wrap
+                        color: Theme.soft
+                        font.pixelSize: 16
+                        lineHeight: 1.45
+                    }
+                    Item { width: 1; height: 28 }
+
+                    Surface {
+                        id: detail
+                        width: parent.width
+                        height: detailBody.implicitHeight + 64
                         Column {
-                            y: parent.height * 0.46 + 14
-                            width: parent.width
-                            spacing: 6
-                            Text { width: parent.width; text: home.node.work || home.t("没有事在做", "Nothing under way")
-                                   color: Theme.text; font.family: Theme.serif; font.pixelSize: Theme.lead
-                                   font.weight: Font.DemiBold; elide: Text.ElideRight; textFormat: Text.PlainText }
-                            Repeater {
-                                model: (home.node.recent || []).slice(0, 3)
-                                Row {
-                                    required property var modelData
+                            id: detailBody
+                            x: 32; y: 30
+                            width: parent.width - 64
+
+                            // -- this node --
+                            Column {
+                                visible: home.picked.what === "node"
+                                width: parent.width
+                                Heading { width: parent.width; text: home.t("这台电脑上的节点", "The node on this computer") }
+                                Text { width: parent.width; topPadding: 8; wrapMode: Text.Wrap; textFormat: Text.PlainText
+                                       text: home.node.work || home.t("现在没有事在做。", "Nothing under way.")
+                                       color: Theme.soft; font.pixelSize: Theme.body; lineHeight: 1.4 }
+                                Column {
+                                    topPadding: 12
                                     spacing: 8
-                                    Rectangle { width: 6; height: 6; radius: 3; anchors.verticalCenter: parent.verticalCenter
-                                                color: modelData.status === "done" ? Theme.calm
-                                                       : (modelData.status === "failed" ? Theme.sign : Theme.warm) }
-                                    Text { text: modelData.title; color: Theme.soft; font.pixelSize: Theme.meta
-                                           elide: Text.ElideRight; width: grid.col - 60; textFormat: Text.PlainText }
-                                }
-                            }
-                        }
-                    }
-
-                    // -- the day in 时辰 --
-                    Card {
-                        x: 2 * (grid.col + grid.gap); width: grid.col; height: grid.rowA
-                        title: home.t("时辰", "The day")
-                        chip: home.t("十二时辰", "12 SHICHEN")
-                        Dial {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            width: Math.min(parent.width, parent.height - 34); height: width
-                            present: P.present || []
-                            now: P.shichen || 0
-                            time: P.clock || ""
-                        }
-                        Words { anchors.bottom: parent.bottom; width: parent.width; font.pixelSize: Theme.meta
-                                color: Theme.faint
-                                text: home.t("金色的时辰，你在电脑前", "Gold: the 时辰 you were at this computer") }
-                    }
-
-                    // -- what waits on you: the seal card --
-                    Card {
-                        id: waitCard
-                        x: 3 * (grid.col + grid.gap); width: grid.col; height: grid.rowA
-                        kind: "seal"
-                        title: home.t("等你", "Waiting on you")
-                        Lcd { text: home.two(home.waitingCount); plate: Qt.darker(Theme.seal, 1.25); lit: Theme.sealText
-                              pitch: 7 }
-                        Words { y: 86; color: Theme.sealSoft; font.pixelSize: Theme.meta
-                                text: home.waitingCount > 0 ? home.t("件事等你回答或签名", "to answer or sign")
-                                                            : home.t("现在没有事等你", "Nothing waits on you now") }
-                        Column {
-                            y: 120
-                            spacing: 8
-                            Repeater {
-                                model: [[home.t("提问", "Questions"), "ask"], [home.t("签名", "Signatures"), "sign"],
-                                        [home.t("记忆", "Memories"), "memory"]]
-                                Row {
-                                    required property var modelData
-                                    spacing: 8
-                                    Rectangle { width: 6; height: 6; radius: 3; anchors.verticalCenter: parent.verticalCenter
-                                                color: P.homeCard && P.homeCard.kind === modelData[1] ? Theme.sealText
-                                                                                                      : Theme.sealSoft
-                                                opacity: P.homeCard && P.homeCard.kind === modelData[1] ? 1 : 0.5 }
-                                    Text { text: modelData[0]; color: Theme.sealText; font.pixelSize: Theme.meta }
-                                }
-                            }
-                        }
-                        Act { anchors.bottom: parent.bottom; onSeal: true; primary: home.waitingCount > 0
-                              text: home.t("去对话", "Open the conversation"); onClicked: home.page = 1 }
-                    }
-
-                    // -- your devices --
-                    Card {
-                        y: grid.rowA + grid.gap; width: 2 * grid.col + grid.gap; height: grid.rowB
-                        title: home.t("我的设备", "My devices")
-                        chip: home.t("网格 ", "MESH ") + (home.dev.mesh || "home")
-                        Column {
-                            width: parent.width
-                            spacing: 0
-                            Repeater {
-                                model: (home.dev.devices || []).slice(0, 4)
-                                Item {
-                                    required property var modelData
-                                    required property int index
-                                    width: parent.width; height: 38
-                                    Rectangle { width: 22; height: 22; radius: 5; color: Theme.seal
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                Text { anchors.centerIn: parent; text: home.two(index + 1); color: Theme.sealText
-                                                       font.pixelSize: 11; font.weight: Font.DemiBold; font.features: ({ "tnum": 1 }) } }
-                                    Text { x: 34; anchors.verticalCenter: parent.verticalCenter; width: parent.width * 0.3
-                                           text: modelData.name || home.shortDid(modelData.did); color: Theme.text
-                                           font.pixelSize: Theme.body; elide: Text.ElideRight; textFormat: Text.PlainText }
-                                    Rectangle {
-                                        x: parent.width * 0.42; width: parent.width * 0.3; height: 3; radius: 1.5
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        color: Theme.hairline
-                                        Rectangle { height: parent.height; radius: 1.5; color: home.stateColor(modelData.state)
-                                                    width: modelData.state === "online"
-                                                           ? parent.width * Math.max(0.15, 1 - Math.min(1, (modelData.rtt || 0) / 300))
-                                                           : (modelData.state === "connecting" ? parent.width * 0.3 : 0) }
+                                    Repeater {
+                                        model: (home.node.recent || []).slice(0, 3)
+                                        Row {
+                                            required property var modelData
+                                            spacing: 10
+                                            Dot { anchors.verticalCenter: parent.verticalCenter
+                                                  color: modelData.status === "done" ? Theme.good
+                                                         : (modelData.status === "failed" ? Theme.sign : Theme.warm) }
+                                            Text { text: modelData.title; color: Theme.text; font.pixelSize: Theme.body
+                                                   elide: Text.ElideRight; width: detailBody.width - 30; textFormat: Text.PlainText }
+                                        }
                                     }
-                                    Text { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                                           text: home.stateWords(modelData); color: home.stateColor(modelData.state)
-                                           font.pixelSize: Theme.meta; font.features: ({ "tnum": 1 }) }
+                                }
+                                Item { width: 1; height: 14 }
+                                KV { k: home.t("状态", "State"); v: home.node.since || home.node.stateWords || "—" }
+                                KV { k: home.t("角色", "Roles"); v: home.node.roles || "—" }
+                                KV { k: home.t("连接", "Carriers"); v: home.node.carriers || "—" }
+                                KV { k: home.t("钥匙", "Key"); v: home.node.did || "—"; mono: true }
+                                KV { k: home.t("门的规则", "Gate rules"); last: true
+                                     v: (home.node.rules || []).length > 0
+                                        ? home.t((home.node.rules || []).length + " 份生效", (home.node.rules || []).length + " in force")
+                                        : home.t("内置的门", "The built-in gates") }
+                                Row {
+                                    topPadding: 12
+                                    spacing: 8
+                                    Repeater { model: ["#8FE3C7", "#F2D173", "#F49C7C"]
+                                               Dot { required property string modelData; color: modelData; width: 7; height: 7
+                                                     anchors.verticalCenter: parent.verticalCenter } }
+                                    Text { text: home.t("卡上亮着的点：今天你在电脑前的每一刻钟，颜色是那时的天色",
+                                                        "Lit dots on the card: each quarter-hour you were here today, in that hour's sky")
+                                           color: Theme.faint; font.pixelSize: Theme.meta; leftPadding: 4; textFormat: Text.PlainText
+                                           width: detailBody.width - 40; elide: Text.ElideRight }
+                                }
+                                Row {
+                                    topPadding: 22
+                                    spacing: 10
+                                    Act { text: home.t("去对话", "Open the conversation"); onClicked: home.page = 1 }
+                                    Act { primary: false; text: home.t("编辑规则", "Edit the rules"); onClicked: home.page = 3 }
+                                    Act { primary: false; text: home.t("复制钥匙", "Copy the key"); visible: !!home.node.did
+                                          onClicked: P.copy(home.node.did) }
                                 }
                             }
-                        }
-                        Words {
-                            visible: (home.dev.devices || []).length === 0
-                            width: parent.width
-                            text: home.t("还没有别的设备。到「设备」页写一封请帖，用手机或另一台电脑打开就能加进来。",
-                                         "No other devices yet. Write an invitation on the Devices page and open it on a phone or another computer.")
-                        }
-                        Act { anchors.bottom: parent.bottom; primary: false; text: home.t("管理设备", "Manage devices")
-                              onClicked: home.page = 2 }
-                    }
 
-                    // -- this node: the inverse card --
-                    Card {
-                        x: 2 * (grid.col + grid.gap); y: grid.rowA + grid.gap; width: grid.col; height: grid.rowB
-                        kind: "inverse"
-                        title: home.t("节点", "This node")
-                        chip: home.node.stateWords || ""
-                        DotText { text: home.uptimeText(home.node.uptime || 0); pitch: 6; on: Theme.inverseText
-                                  off: Theme.tinted(Theme.inverseText, 0.12) }
-                        Text { y: 52; text: home.node.since || home.t("还没醒", "Not awake yet"); color: Theme.inverseSoft
-                               font.pixelSize: Theme.meta; textFormat: Text.PlainText }
-                        Row {                                                // roles, carriers, rules: three segments
-                            y: 84; width: parent.width; spacing: 4
-                            Rectangle { width: parent.width * 0.5; height: 6; radius: 3; color: Theme.inverseText }
-                            Rectangle { width: parent.width * 0.3; height: 6; radius: 3; color: Theme.seal }
-                            Rectangle { width: parent.width * 0.2 - 8; height: 6; radius: 3; color: Theme.gold }
-                        }
-                        Column {
-                            anchors.bottom: parent.bottom
-                            width: parent.width
-                            spacing: 6
-                            Repeater {
-                                model: [[home.t("角色", "Roles"), home.node.roles || "—"],
-                                        [home.t("连接", "Carriers"), home.node.carriers || "—"],
-                                        [home.t("钥匙", "Key"), home.shortDid(home.node.did)]]
-                                Item {
-                                    required property var modelData
-                                    width: parent.width; height: 18
-                                    Text { text: modelData[0]; color: Theme.inverseSoft; font.pixelSize: Theme.meta }
-                                    Text { anchors.right: parent.right; width: parent.width - 60; horizontalAlignment: Text.AlignRight
-                                           text: modelData[1]; color: Theme.inverseText; font.pixelSize: Theme.meta
-                                           elide: Text.ElideMiddle; textFormat: Text.PlainText }
+                            // -- what waits on you --
+                            Column {
+                                visible: home.picked.what === "waiting"
+                                width: parent.width
+                                Heading { width: parent.width; text: home.t("等你", "Waiting on you") }
+                                Item { width: 1; height: 12; visible: !!P.homeCard }
+                                Rectangle {
+                                    visible: !!P.homeCard
+                                    width: kindText.implicitWidth + 20; height: 26; radius: 8
+                                    color: Theme.tinted(Theme.seal, Theme.dark ? 0.28 : 0.12)
+                                    Text { id: kindText; anchors.centerIn: parent; text: P.homeCard ? P.homeCard.label : ""
+                                           color: Theme.sign; font.pixelSize: Theme.meta; font.weight: Font.Medium }
+                                }
+                                Text { width: parent.width; topPadding: 14; wrapMode: Text.Wrap; textFormat: Text.PlainText
+                                       text: P.homeCard ? P.homeCard.says
+                                                        : home.t("现在没有事等你。要你回答或签名的事一来，这张卡就变成朱砂色。",
+                                                                 "Nothing waits on you now. When something needs your answer or your signature, this card turns cinnabar.")
+                                       color: P.homeCard ? Theme.text : Theme.soft
+                                       font.family: P.homeCard ? Theme.serif : Theme.sans
+                                       font.pixelSize: P.homeCard ? Theme.lead : Theme.body; lineHeight: 1.55 }
+                                Item { width: 1; height: 10; visible: !!P.homeCard && (P.homeCard.details || []).length > 0 }
+                                Repeater {
+                                    model: P.homeCard ? P.homeCard.details || [] : []
+                                    KV { required property var modelData; required property int index
+                                         k: modelData[0]; v: modelData[1]; mono: /^[~\/]|:\/\//.test(modelData[1])
+                                         last: index === (P.homeCard.details || []).length - 1 }
+                                }
+                                Text { visible: P.waiting > 0; topPadding: 10; textFormat: Text.PlainText
+                                       text: home.t("答完这件，还有 " + P.waiting + " 件。", P.waiting + " more after this one.")
+                                       color: Theme.faint; font.pixelSize: Theme.meta }
+                                Row {
+                                    topPadding: 22
+                                    spacing: 10
+                                    Act { text: P.homeCard ? home.t("去回答", "Answer it") : home.t("去对话", "Open the conversation")
+                                          onClicked: home.page = 1 }
                                 }
                             }
-                        }
-                    }
 
-                    // -- the gates' rules --
-                    Card {
-                        x: 3 * (grid.col + grid.gap); y: grid.rowA + grid.gap; width: grid.col; height: grid.rowB
-                        title: home.t("门的规则", "The gates")
-                        chip: (home.node.rules || []).length + home.t(" 份", " IN FORCE")
-                        Column {
-                            width: parent.width
-                            spacing: 10
-                            Repeater {
-                                model: (home.node.rules || []).slice(0, 4)
-                                Item {
-                                    required property var modelData
-                                    width: parent.width; height: 26
-                                    Text { text: modelData.name; color: Theme.text; font.pixelSize: Theme.body
-                                           textFormat: Text.PlainText }
-                                    Text { anchors.right: parent.right; text: "v" + modelData.version; color: Theme.soft
-                                           font.pixelSize: Theme.meta; font.features: ({ "tnum": 1 }) }
-                                    Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 2; color: Theme.hairline
-                                                Rectangle { height: 2; width: parent.width * (modelData.applied ? 1 : 0.4)
-                                                            color: modelData.applied ? Theme.lamp : Theme.faint } }
+                            // -- one of your devices --
+                            Column {
+                                visible: home.picked.what === "device"
+                                width: parent.width
+                                Heading { width: parent.width; text: home.pickedDevice.name || home.t("未命名的设备", "Unnamed device") }
+                                Text { topPadding: 6; text: home.stateWords(home.pickedDevice); color: home.stateColor(home.pickedDevice.state)
+                                       font.pixelSize: Theme.body; textFormat: Text.PlainText }
+                                Item { width: 1; height: 14 }
+                                KV { k: home.t("身份", "Standing")
+                                     v: home.pickedDevice.owner ? home.t("主人：能接纳新设备", "Owner: can admit devices")
+                                                                : home.t("成员：由主人接纳", "Member: admitted by the owner") }
+                                KV { k: home.t("路径", "Path")
+                                     v: home.pickedDevice.state === "online" ? home.t("WebRTC 直连，逐条签名", "Direct over WebRTC, every message signed") : "—" }
+                                KV { k: home.t("钥匙", "Key"); v: home.pickedDevice.did || "—"; mono: true; last: true }
+                                Column {
+                                    width: parent.width
+                                    topPadding: 12
+                                    spacing: 6
+                                    Repeater {
+                                        model: (home.dev.notes || []).filter(n => n.from === home.pickedDevice.did).slice(0, 3)
+                                        Text { required property var modelData; width: detailBody.width; wrapMode: Text.Wrap
+                                               text: "“" + modelData.text + "”"; color: Theme.soft; font.family: Theme.serif
+                                               font.pixelSize: Theme.voice - 1; textFormat: Text.PlainText }
+                                    }
+                                }
+                                Row {
+                                    topPadding: 18
+                                    spacing: 10
+                                    Act { text: home.dev.online ? home.t("下线", "Go offline") : home.t("上线", "Go online")
+                                          primary: !home.dev.online
+                                          enabled: !!home.dev.ready && (home.dev.online || (home.dev.signal || "").length > 0)
+                                          onClicked: home.dev.online ? P.goOffline() : P.goOnline(home.dev.signal) }
+                                    Act { primary: false; text: home.t("管理设备", "Manage devices"); onClicked: home.page = 2 }
+                                    Act { primary: false; text: home.t("复制钥匙", "Copy the key"); visible: !!home.pickedDevice.did
+                                          onClicked: P.copy(home.pickedDevice.did) }
+                                }
+                            }
+
+                            // -- an empty slot --
+                            Column {
+                                visible: home.picked.what === "add"
+                                width: parent.width
+                                spacing: 0
+                                Heading { width: parent.width; text: home.t("加一台设备", "Add a device") }
+                                Text { width: parent.width; topPadding: 8; wrapMode: Text.Wrap; textFormat: Text.PlainText
+                                       color: Theme.soft; font.pixelSize: Theme.body; lineHeight: 1.45
+                                       text: home.t("手机、平板、另一台电脑都可以。它只认你签过名的设备，不会有陌生人进来。",
+                                                    "A phone, a tablet or another computer. Only devices you sign for get in; no stranger can.") }
+                                Column {
+                                    topPadding: 16
+                                    spacing: 14
+                                    Repeater {
+                                        model: [home.t("写一封请帖（要你的签名口令）", "Write an invitation (it takes your signing passphrase)"),
+                                                home.t("在另一台设备上打开它，点同意", "Open it on the other device and agree"),
+                                                home.t("两边的六位数一样，就接纳", "If both show the same six digits, admit it")]
+                                        Row {
+                                            required property string modelData
+                                            required property int index
+                                            spacing: 14
+                                            Rectangle { width: 28; height: 28; radius: 14; color: Theme.primaryContainer
+                                                        Text { anchors.centerIn: parent; text: index + 1; color: Theme.onPrimaryContainer
+                                                               font.pixelSize: 13; font.weight: Font.Medium } }
+                                            Text { anchors.verticalCenter: parent.verticalCenter; text: modelData; color: Theme.text
+                                                   font.pixelSize: Theme.body; textFormat: Text.PlainText }
+                                        }
+                                    }
+                                }
+                                Row {
+                                    topPadding: 22
+                                    Act { text: home.t("写请帖", "Write an invitation"); onClicked: home.page = 2 }
                                 }
                             }
                         }
-                        Words { visible: (home.node.rules || []).length === 0; width: parent.width
-                                text: home.t("还没有注入过规则，用的是内置的门：更严可以，放宽不行。",
-                                             "No rules injected yet; the built-in gates apply. Rules can only make them stricter.") }
-                        Act { anchors.bottom: parent.bottom; primary: false; text: home.t("编辑规则", "Edit the rules")
-                              onClicked: home.page = 3 }
                     }
                 }
             }
@@ -545,9 +624,8 @@ Window {
                 text: (P.greeting || home.t("你好", "Hello")) + (home.you ? home.t("，", ", ") + home.you : "") + home.t("。", ".")
                 textFormat: Text.PlainText
                 color: Theme.text
-                font.family: Theme.serif
-                font.pixelSize: Theme.title
-                font.weight: Font.DemiBold
+                font.pixelSize: Theme.headline
+                font.letterSpacing: -0.3
             }
             ListView {
                 id: chat
@@ -628,9 +706,9 @@ Window {
                         y: msg.gap
                         width: parent.width - 30
                         height: letterBody.implicitHeight + 48
-                        radius: 16
+                        radius: 20
                         color: Theme.panel
-                        border.color: Theme.hairline
+                        border.color: Theme.dark ? Theme.hairline : "transparent"
                         Accessible.role: Accessible.StaticText
                         Accessible.name: home.t("它：", "It: ") + msg.words
                         Column {
@@ -672,9 +750,9 @@ Window {
                         x: msg.width - width
                         width: Math.min(mineText.implicitWidth + 30, msg.width * 0.75)
                         height: mineText.implicitHeight + 18
-                        radius: 16
-                        topRightRadius: msg.opens ? 4 : 16
-                        color: Theme.inverse
+                        radius: 20
+                        topRightRadius: msg.opens ? 6 : 20
+                        color: Theme.primaryContainer
                         Accessible.role: Accessible.StaticText
                         Accessible.name: home.t("你：", "You: ") + msg.words
                         Text {
@@ -684,7 +762,7 @@ Window {
                             text: msg.words
                             textFormat: Text.PlainText
                             wrapMode: Text.Wrap
-                            color: Theme.inverseText
+                            color: Theme.onPrimaryContainer
                             font.pixelSize: Theme.body
                             lineHeight: 1.45
                         }
@@ -729,9 +807,9 @@ Window {
                     visible: !!P.homeCard && !home.first
                     width: parent.width
                     height: waitingCard.implicitHeight + 52 + (more.visible ? more.implicitHeight + 16 : 0)
-                    radius: 18
+                    radius: 24
                     color: Theme.panel
-                    border.color: Theme.hairline
+                    border.color: Theme.dark ? Theme.hairline : "transparent"
                     readonly property string key: P.homeCardKey
                     onKeyChanged: { waitingCard.reset(); if (key !== "") appear.restart() }
                     NumberAnimation { id: appear; target: waiting; property: "opacity"; from: 0; to: 1
@@ -750,7 +828,7 @@ Window {
                     height: 56
                     radius: 28
                     color: Theme.panel
-                    border.color: say.focused ? Theme.tinted(Theme.calm, 0.6) : Theme.hairline
+                    border.color: say.focused ? Theme.primary : (Theme.dark ? Theme.hairline : "transparent")
                     Behavior on border.color { ColorAnimation { duration: Theme.touch } }
                     Field {
                         id: say
@@ -787,32 +865,32 @@ Window {
                 id: devPage
                 objectName: "devicesPage"
                 anchors.fill: parent
-                contentHeight: devBody.height + home.margin
+                contentHeight: devBody.height + home.margin + 8
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
                 ScrollBar.vertical: Bar {}
                 Item {
                     id: devBody
                     x: home.margin
-                    y: 4
+                    y: 10
                     width: devPage.width - 2 * home.margin
-                    readonly property real colW: (width - Theme.gap) / 2
+                    readonly property real colW: (width - 24) / 2
                     height: Math.max(leftCol.height, rightCol.height)
 
                     Column {
                         id: leftCol
                         width: devBody.colW
-                        spacing: Theme.gap
+                        spacing: 24
 
                         // -- invite a device --
                         Card {
                             id: inviteCard
                             width: parent.width
                             visible: (home.dev.role || "owner") === "owner"
-                            height: 108 + inviteBody.height
+                            height: 92 + inviteBody.height
                             title: home.t("请一台设备进来", "Bring in a device")
                             chip: home.pair.phase === "waiting" ? home.t("还剩 ", "") + Math.floor((home.pair.left || 0) / 60) + ":"
-                                                                  + home.two((home.pair.left || 0) % 60) + home.t("", " LEFT") : ""
+                                                                  + home.two((home.pair.left || 0) % 60) + home.t("", " left") : ""
                             Column {
                                 id: inviteBody
                                 width: parent.width
@@ -821,7 +899,7 @@ Window {
                                 Column {
                                     visible: ["idle", "ended", undefined].indexOf(home.pair.phase) >= 0
                                     width: parent.width
-                                    spacing: 10
+                                    spacing: 12
                                     Words { width: parent.width
                                             text: home.t("写一封请帖，在另一台设备上打开（手机扫二维码，或另一台 Studio 粘贴）。两边显示同样的六位数，你在这里接纳它。写请帖要你的签名口令。",
                                                          "Write an invitation and open it on the other device (a phone scans the QR code; another Studio pastes it). Both show the same six digits, and you admit it here. Writing it takes your signing passphrase.") }
@@ -844,21 +922,21 @@ Window {
                                 Row {
                                     visible: home.pair.phase === "waiting"
                                     width: parent.width
-                                    spacing: 18
+                                    spacing: 20
                                     QrCode { visible: (home.pair.qr || []).length > 0; rows: home.pair.qr || []; width: 180; height: 180 }
                                     Column {
-                                        width: parent.width - ((home.pair.qr || []).length > 0 ? 198 : 0)
-                                        spacing: 10
+                                        width: parent.width - ((home.pair.qr || []).length > 0 ? 200 : 0)
+                                        spacing: 12
                                         Words { width: parent.width
                                                 text: (home.pair.qr || []).length > 0
                                                       ? home.t("用另一台设备扫这个二维码，或打开下面的链接。", "Scan this with the other device, or open the link below.")
                                                       : home.t("在另一台 Studio 的「用请帖加入」里粘贴这段请帖。", "Paste this invitation into \"Join with an invitation\" on the other Studio.") }
                                         Rectangle {
-                                            width: parent.width; height: 64; radius: 10; color: Theme.well
+                                            width: parent.width; height: 64; radius: 12; color: Theme.well
                                             Text { anchors.fill: parent; anchors.margins: 10; wrapMode: Text.WrapAnywhere
                                                    text: home.pair.link || home.pair.code_text || ""; color: Theme.soft
                                                    font.pixelSize: 11; elide: Text.ElideRight; maximumLineCount: 3
-                                                   font.family: Qt.platform.os === "windows" ? "Consolas" : "monospace" }
+                                                   font.family: Theme.mono }
                                         }
                                         Row {
                                             spacing: 10
@@ -867,23 +945,27 @@ Window {
                                         }
                                         Row {
                                             spacing: 8
-                                            Rectangle { width: 7; height: 7; radius: 3.5; color: Theme.warm; anchors.verticalCenter: parent.verticalCenter }
+                                            Dot { color: Theme.warm; anchors.verticalCenter: parent.verticalCenter }
                                             Words { text: home.t("等对方打开并点同意…", "Waiting for the other device to open it and agree…") }
                                         }
                                     }
                                 }
-                                // comparing the codes
+                                // comparing the codes: the card being issued
                                 Column {
                                     visible: home.pair.phase === "compare" || home.pair.phase === "admitting"
                                     width: parent.width
-                                    spacing: 12
+                                    spacing: 18
                                     Words { width: parent.width; color: Theme.text
                                             text: home.t("两块屏幕上的数字一样吗？一样就接纳；不一样说明有人在两台设备之间，取消即可。",
                                                          "Do both screens show the same number? If they match, admit it; if not, someone is between the two devices: cancel.") }
-                                    Lcd { text: (home.pair.code || "").slice(0, 3) + " " + (home.pair.code || "").slice(3); pitch: 7 }
-                                    Words { width: parent.width
-                                            text: home.t("请求加入的是「", "Asking to join: \"") + (home.pair.name || home.t("未命名", "unnamed"))
-                                                  + home.t("」 · ", "\" · ") + home.shortDid(home.pair.did) }
+                                    WalletCard {
+                                        width: Math.min(parent.width, 380); height: width / Theme.cardRatio
+                                        focusPolicy: Qt.NoFocus; enabled: false
+                                        glaze: Theme.glazeFor(home.pair.did || "new"); key: home.pair.did || "new"; panel: true
+                                        title: home.pair.name || home.t("新设备", "New device")
+                                        code: (home.pair.code || "").slice(0, 3) + " " + (home.pair.code || "").slice(3)
+                                        number: home.tail(home.pair.did); label: home.t("待接纳", "Pending")
+                                    }
                                     Row {
                                         spacing: 10
                                         Act { text: home.t("一样，接纳", "They match, admit"); enabled: home.pair.phase === "compare"
@@ -892,19 +974,19 @@ Window {
                                               enabled: home.pair.phase === "compare"; onClicked: P.decidePairing(false) }
                                     }
                                 }
-                                // done
-                                Row {
+                                // done: the seal on the new card
+                                Column {
                                     visible: home.pair.phase === "done"
-                                    spacing: 16
-                                    Rectangle { width: 52; height: 52; radius: 6; color: Theme.seal; rotation: -4
-                                                Text { anchors.centerIn: parent; text: "纳"; color: Theme.sealText; font.pixelSize: 26
-                                                       font.family: Theme.serif; font.weight: Font.Bold } }
-                                    Column {
-                                        spacing: 8
-                                        Text { text: home.t("已接纳「", "Admitted \"") + (home.pair.name || "") + home.t("」", "\"")
-                                               color: Theme.text; font.pixelSize: Theme.lead; font.weight: Font.DemiBold }
-                                        Act { primary: false; text: home.t("再请一台", "Invite another"); onClicked: P.withdrawInvite() }
+                                    width: parent.width
+                                    spacing: 18
+                                    WalletCard {
+                                        width: Math.min(parent.width, 380); height: width / Theme.cardRatio
+                                        focusPolicy: Qt.NoFocus; enabled: false
+                                        glaze: Theme.glazeFor(home.pair.did || "new"); key: home.pair.did || "new"; panel: true
+                                        title: home.pair.name || home.t("新设备", "New device"); stamped: true
+                                        note: home.t("已接纳", "Admitted"); number: home.tail(home.pair.did); label: home.t("成员", "Member")
                                     }
+                                    Act { primary: false; text: home.t("再请一台", "Invite another"); onClicked: P.withdrawInvite() }
                                 }
                             }
                         }
@@ -912,7 +994,7 @@ Window {
                         // -- join with an invitation --
                         Card {
                             width: parent.width
-                            height: 108 + joinBody.height
+                            height: 92 + joinBody.height
                             title: home.t("用请帖加入", "Join with an invitation")
                             Column {
                                 id: joinBody
@@ -921,7 +1003,7 @@ Window {
                                 Column {
                                     visible: ["idle", "ended", undefined].indexOf(home.join.phase) >= 0
                                     width: parent.width
-                                    spacing: 10
+                                    spacing: 12
                                     Words { width: parent.width
                                             text: home.t("把另一台设备给你的请帖（链接或那段字）粘贴在这里。看过之后点同意才会联网。",
                                                          "Paste the invitation another device gave you (the link or the code). Nothing connects until you agree.") }
@@ -941,6 +1023,7 @@ Window {
                                                   + home.t("」", "\"") }
                                     Words { width: parent.width; text: home.t("邀请者 ", "From ") + home.shortDid(home.join.inviter) }
                                     Row {
+                                        topPadding: 6
                                         spacing: 10
                                         Act { text: home.join.phase === "joining" ? home.t("正在连接…", "Connecting…") : home.t("同意加入", "Agree and join")
                                               enabled: home.join.phase === "card"; onClicked: P.agreeInvite() }
@@ -950,72 +1033,67 @@ Window {
                                 Column {
                                     visible: home.join.phase === "compare"
                                     width: parent.width
-                                    spacing: 10
+                                    spacing: 16
                                     Words { width: parent.width; color: Theme.text
                                             text: home.t("对照另一块屏幕上的六位数，在那边确认。", "Compare with the six digits on the other screen, and confirm there.") }
-                                    Lcd { text: (home.join.code || "").slice(0, 3) + " " + (home.join.code || "").slice(3); pitch: 7 }
+                                    WalletCard {
+                                        width: Math.min(parent.width, 380); height: width / Theme.cardRatio
+                                        focusPolicy: Qt.NoFocus; enabled: false
+                                        glaze: Theme.glazeFor(home.node.did || "me"); key: home.node.did || "me"; panel: true
+                                        title: home.dev.deviceName || home.t("这台电脑", "This computer")
+                                        code: (home.join.code || "").slice(0, 3) + " " + (home.join.code || "").slice(3)
+                                        number: home.tail(home.node.did); label: home.t("等接纳", "Awaiting")
+                                    }
                                 }
                                 Words {
                                     visible: home.join.phase === "done"
-                                    width: parent.width; color: Theme.calm
+                                    width: parent.width; color: Theme.good
                                     text: home.t("已加入「", "Joined \"") + (home.join.mesh || "") + home.t("」。在右边上线，就能见到你的其他设备。", "\". Go online on the right to meet your other devices.")
                                 }
                             }
                         }
                     }
 
+                    // -- my devices: the same wallet --
                     Column {
                         id: rightCol
-                        x: devBody.colW + Theme.gap
+                        x: devBody.colW + 24
                         width: devBody.colW
-                        spacing: Theme.gap
-
+                        spacing: 24
                         Card {
                             width: parent.width
-                            height: devCol.implicitHeight + 76
+                            height: devCol.implicitHeight + 92
                             title: home.t("我的设备", "My devices")
-                            chip: home.dev.online ? home.t("在线", "ONLINE") : home.t("不在线", "OFFLINE")
+                            chip: home.dev.online ? home.t("在线", "Online") : home.t("不在线", "Offline")
                             chipLive: !!home.dev.online
                             Column {
                                 id: devCol
                                 width: parent.width
-                                spacing: 12
+                                spacing: 18
                                 Words { width: parent.width
                                         text: !home.dev.ready ? home.t("这台电脑还不在网格里：先写一封请帖，或用请帖加入。",
                                                                       "This computer is not in a mesh yet: write an invitation, or join with one.")
                                                              : home.t("上线后，这台电脑和你其他在线的设备经 WebRTC 直连；每条消息都由发送的设备签名。关掉 Studio 就下线。",
                                                                       "Online, this computer links directly to your other online devices over WebRTC; every message is signed by the device that sent it. Close Studio and it goes offline.") }
-                                Row {
-                                    spacing: 10
-                                    Act { text: home.dev.online ? home.t("下线", "Go offline") : home.t("上线", "Go online")
-                                          primary: !home.dev.online
-                                          enabled: !!home.dev.ready && (home.dev.online || (home.dev.signal || sigUrl.text).length > 0)
-                                          onClicked: home.dev.online ? P.goOffline() : P.goOnline(home.dev.signal || sigUrl.text) }
-                                }
-                                Column {
-                                    id: devList
+                                Act { text: home.dev.online ? home.t("下线", "Go offline") : home.t("上线", "Go online")
+                                      primary: !home.dev.online
+                                      enabled: !!home.dev.ready && (home.dev.online || (home.dev.signal || sigUrl.text).length > 0)
+                                      onClicked: home.dev.online ? P.goOffline() : P.goOnline(home.dev.signal || sigUrl.text) }
+                                Item {
                                     width: parent.width
-                                    Repeater {
-                                        model: home.dev.devices || []
-                                        Item {
-                                            required property var modelData
-                                            width: devList.width; height: 54
-                                            Rectangle { width: 10; height: 10; radius: 5; y: 10
-                                                        color: modelData.state === "online" ? Theme.calm : "transparent"
-                                                        border.color: home.stateColor(modelData.state); border.width: 1.5 }
-                                            Column {
-                                                x: 22; y: 4
-                                                spacing: 2
-                                                Text { text: (modelData.name || home.t("未命名的设备", "Unnamed device"))
-                                                             + (modelData.owner ? home.t("  · 主人", "  · owner") : "")
-                                                       color: Theme.text; font.pixelSize: Theme.body; textFormat: Text.PlainText }
-                                                Text { text: home.shortDid(modelData.did); color: Theme.faint; font.pixelSize: 11
-                                                       font.family: Qt.platform.os === "windows" ? "Consolas" : "monospace" }
-                                            }
-                                            Text { anchors.right: parent.right; y: 6; text: home.stateWords(modelData)
-                                                   color: home.stateColor(modelData.state); font.pixelSize: Theme.meta }
-                                            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.hairline }
-                                        }
+                                    height: devWallet.height + 26
+                                    visible: home.deviceCards.length > 0
+                                    Wallet {
+                                        id: devWallet
+                                        objectName: "devicesWallet"
+                                        y: 8
+                                        x: (parent.width - width) / 2
+                                        width: Math.min(parent.width - 24, 400)
+                                        height: implicitHeight
+                                        cards: home.deviceCards
+                                        current: home.devPick
+                                        peek: 52
+                                        onPicked: (i) => home.devPick = i
                                     }
                                 }
                                 Column {
@@ -1029,7 +1107,7 @@ Window {
                                         model: (home.dev.notes || []).slice(0, 6)
                                         Text { required property var modelData; width: talkBox.width; wrapMode: Text.Wrap
                                                text: (modelData.mine ? home.t("这台电脑", "This computer") : (modelData.name || home.shortDid(modelData.from)))
-                                                     + "：" + modelData.text
+                                                     + home.t("：", ": ") + modelData.text
                                                color: modelData.mine ? Theme.lamp : Theme.soft; font.pixelSize: Theme.body
                                                textFormat: Text.PlainText }
                                     }
@@ -1087,39 +1165,73 @@ Window {
                 Column {
                     id: aboutBody
                     x: home.margin
-                    y: 4
+                    y: 10
                     width: about.width - 2 * home.margin
-                    spacing: Theme.gap
-                    Item {                                                    // the hero: ink-wash hills, an inscription
+                    spacing: 0
+
+                    Surface {                                                 // the hero: words at the left, a hand of cards
                         width: parent.width
-                        height: 320
-                        Scene { anchors.fill: parent; drop: 0.17 }
-                        Text {
-                            x: parent.width - 70; y: 26
-                            text: home.t("吾之器物\n自成一网", "")
-                            visible: Theme.lang !== "en"
-                            color: Theme.dark ? "#F0E7D3" : "#1E2230"; opacity: 0.85
-                            font.family: Theme.serif; font.pixelSize: 18; lineHeight: 1.0
-                            width: 24; wrapMode: Text.WrapAnywhere
-                        }
+                        height: 380
                         Column {
-                            x: 36; y: 40
-                            width: parent.width * 0.6
-                            spacing: 12
-                            Text { width: parent.width; wrapMode: Text.Wrap; color: Theme.dark ? "#F0E7D3" : "#1E2230"
-                                   font.family: Theme.serif; font.pixelSize: 34; font.weight: Font.DemiBold; lineHeight: 1.2
-                                   text: home.t("你的设备，自成一网；\n你的伙伴，先问后做。", "Your devices, one mesh.\nYour companion asks before it acts.") }
-                            Text { width: parent.width; wrapMode: Text.Wrap; color: Theme.dark ? "#D6CCB6" : "#3A3428"
-                                   font.pixelSize: Theme.body; lineHeight: 1.5
-                                   text: home.t("secdogie 是一个只跑在你自己设备上的伙伴：没有中心服务器，每一步先过两道苏格拉底门，改不回来的事一定等你签名。",
-                                                "secdogie is a companion that runs only on your own devices: no central server, every step through two Socratic gates, and nothing irreversible without your signature.") }
+                            x: 52; y: 60
+                            width: parent.width * 0.47
+                            spacing: 18
+                            Text { width: parent.width; wrapMode: Text.Wrap; color: Theme.text; textFormat: Text.PlainText
+                                   font.pixelSize: 40; font.letterSpacing: -0.6; lineHeight: 1.12
+                                   text: home.t("你的设备，自成一网。\n你的伙伴，先问后做。", "Your devices, one mesh.\nA companion that asks first.") }
+                            Text { width: parent.width; wrapMode: Text.Wrap; color: Theme.soft; textFormat: Text.PlainText
+                                   font.pixelSize: 16; lineHeight: 1.5
+                                   text: home.t("secdogie 只跑在你自己的设备上：没有中心服务器，每一步先过两道苏格拉底门，改不回来的事一定等你签名。",
+                                                "secdogie runs only on your own devices: no central server, every step through two Socratic gates, and nothing irreversible without your signature.") }
+                            Row {
+                                topPadding: 8
+                                spacing: 10
+                                Act { text: home.t("开始对话", "Start a conversation"); onClicked: home.page = 1 }
+                                Act { primary: false; text: home.t("加一台设备", "Add a device"); onClicked: home.page = 2 }
+                            }
+                        }
+                        Item {                                                // three cards, fanned like a hand
+                            id: fan
+                            x: parent.width * 0.55
+                            y: 56
+                            width: parent.width * 0.38
+                            height: 280
+                            readonly property real cw: Math.min(300, width * 0.86)
+                            WalletCard { x: 0; y: 66; width: fan.cw; height: width / Theme.cardRatio; rotation: -11
+                                         enabled: false; focusPolicy: Qt.NoFocus; front: false
+                                         glaze: "qingci"; key: "tablet"; panel: true; title: home.t("平板", "Tablet")
+                                         number: "J7hZ1"; label: home.t("成员", "Member"); note: home.t("在线 · 直连", "Online · direct"); live: true }
+                            WalletCard { x: fan.width * 0.12; y: 30; width: fan.cw; height: width / Theme.cardRatio; rotation: -3
+                                         enabled: false; focusPolicy: Qt.NoFocus; front: false
+                                         glaze: "jilan"; key: "phone"; panel: true; title: home.t("手机", "Phone")
+                                         number: "8Q3vN"; label: home.t("成员", "Member"); figure: "38 ms" }
+                            WalletCard { x: fan.width * 0.24; y: 0; width: fan.cw; height: width / Theme.cardRatio; rotation: 6
+                                         enabled: false; focusPolicy: Qt.NoFocus
+                                         kind: "dots"; title: "secdogie"; figure: home.hm(home.node.uptime || 0)
+                                         number: home.tail(home.node.did); quarters: P.dayQuarters || []; now: P.quarterNow === undefined ? -1 : P.quarterNow }
+                        }
+                        Text {                                                // the inscription, read top to bottom
+                            visible: Theme.lang !== "en"
+                            anchors.right: parent.right
+                            anchors.rightMargin: 30
+                            y: 40
+                            width: 20
+                            text: "吾之器物　自成一网"
+                            wrapMode: Text.WrapAnywhere
+                            color: Theme.faint
+                            font.family: Theme.serif
+                            font.pixelSize: 15
+                            lineHeight: 1.05
                         }
                     }
-                    Text { text: home.t("架构", "Architecture"); color: Theme.text; font.family: Theme.serif; font.pixelSize: Theme.title
-                           font.weight: Font.DemiBold; topPadding: 8 }
+
+                    Item { width: 1; height: 64 }
+                    Text { text: home.t("它由四部分组成", "Four parts"); color: Theme.text; font.pixelSize: Theme.headline
+                           font.letterSpacing: -0.3; textFormat: Text.PlainText }
+                    Item { width: 1; height: 28 }
                     Row {
                         width: parent.width
-                        spacing: Theme.gap
+                        spacing: 32
                         Repeater {
                             model: [
                                 ["壹", home.t("你", "You"), home.t("签名口令只在你手里。高风险的事，任何模式下都要你亲自确认。",
@@ -1128,58 +1240,64 @@ Window {
                                                        "This app: the companion on your desktop. It talks with you, pairs your devices, and is where you sign.")],
                                 ["叁", home.t("节点", "Node"), home.t("在后台做事的那部分：签名日志、两道门、决策模型。关掉 Studio 它就停。",
                                                                     "The part that works: a signed journal, two gates, the decision model. It stops when Studio closes.")],
-                                ["肆", home.t("网格", "Mesh"), home.t("只由你的设备组成：浏览器里点同意，经 WebRTC 直连，两屏对码，主人签接纳书。",
-                                                                    "Only your own devices: agree in a browser, link directly over WebRTC, compare codes, the owner signs an admission.")]
+                                ["肆", home.t("网格", "Mesh"), home.t("只由你的设备组成：点同意，经 WebRTC 直连，两屏对码，主人签接纳书。",
+                                                                    "Only your own devices: agree, link directly over WebRTC, compare codes, the owner signs an admission.")]
                             ]
-                            Card {
+                            Column {
                                 required property var modelData
-                                width: (aboutBody.width - 3 * Theme.gap) / 4
-                                height: 200
-                                title: modelData[1]
-                                Text { anchors.right: parent.right; y: -36; text: modelData[0]; color: Theme.seal
-                                       font.family: Theme.serif; font.pixelSize: 28; font.weight: Font.Bold }
-                                Words { width: parent.width; text: modelData[2]; lineHeight: 1.5 }
+                                width: (aboutBody.width - 3 * 32) / 4
+                                spacing: 10
+                                Rectangle { width: parent.width; height: 1; color: Theme.hairline }
+                                Text { topPadding: 14; text: modelData[0]; color: Theme.seal; font.family: Theme.serif
+                                       font.pixelSize: 34; font.weight: Font.Bold }
+                                Text { text: modelData[1]; color: Theme.text; font.pixelSize: Theme.lead; font.weight: Font.Medium
+                                       textFormat: Text.PlainText }
+                                Text { width: parent.width; text: modelData[2]; color: Theme.soft; font.pixelSize: Theme.body
+                                       wrapMode: Text.Wrap; lineHeight: 1.5; textFormat: Text.PlainText }
                             }
                         }
                     }
-                    Text { text: home.t("长处", "Strengths"); color: Theme.text; font.family: Theme.serif; font.pixelSize: Theme.title
-                           font.weight: Font.DemiBold; topPadding: 8 }
-                    Card {
+
+                    Item { width: 1; height: 64 }
+                    Text { text: home.t("它擅长什么", "What it is good at"); color: Theme.text; font.pixelSize: Theme.headline
+                           font.letterSpacing: -0.3; textFormat: Text.PlainText }
+                    Item { width: 1; height: 24 }
+                    Grid {
+                        id: strengths
                         width: parent.width
-                        height: 72 + strengths.height
-                        title: home.t("为什么是它", "Why it")
-                        Column {
-                            id: strengths
-                            width: parent.width
-                            spacing: 12
-                            Repeater {
-                                model: [
-                                    home.t("只在你的设备上：没有中心服务器，没有公开节点，规则从不离开你的节点。",
-                                           "Only your devices: no central server, no public nodes, and your rules never leave your nodes."),
-                                    home.t("先问后做：每个新目标都过苏格拉底门，有疑问先问你一个问题。",
-                                           "Ask before acting: every new goal goes through the Socratic gate, which asks you when in doubt."),
-                                    home.t("高风险必须你签名：没有开关能关掉这一条。",
-                                           "High-risk always needs your signature: no switch turns that off."),
-                                    home.t("结构而非截屏：用无障碍树看界面，不读屏幕像素。",
-                                           "Structure, not pixels: it reads the accessibility tree, never the picture on the screen."),
-                                    home.t("处处可验：身份是 DID，日志签名成链，设备之间的每条消息都签名。",
-                                           "Verifiable everywhere: DIDs for identity, a signed hash-chained journal, every message between devices signed.")
-                                ]
-                                Row {
-                                    required property string modelData
-                                    required property int index
-                                    width: strengths.width
-                                    spacing: 14
-                                    Text { text: home.two(index + 1); color: Theme.seal; font.pixelSize: Theme.body; font.weight: Font.Bold
-                                           font.features: ({ "tnum": 1 }) }
-                                    Words { width: parent.width - 40; text: modelData; color: Theme.text }
-                                }
+                        columns: 2
+                        columnSpacing: 48
+                        rowSpacing: 20
+                        Repeater {
+                            model: [
+                                home.t("只在你的设备上：没有中心服务器，没有公开节点，规则从不离开你的节点。",
+                                       "Only your devices: no central server, no public nodes, and your rules never leave your nodes."),
+                                home.t("先问后做：每个新目标都过苏格拉底门，有疑问先问你一个问题。",
+                                       "Ask before acting: every new goal goes through the Socratic gate, which asks you when in doubt."),
+                                home.t("高风险必须你签名：没有开关能关掉这一条。",
+                                       "High-risk always needs your signature: no switch turns that off."),
+                                home.t("结构而非像素：用无障碍树看界面，不读屏幕上的画面。",
+                                       "Structure, not pixels: it reads the accessibility tree, never the picture on the screen."),
+                                home.t("处处可验：身份是 DID，日志签名成链，设备之间的每条消息都签名。",
+                                       "Verifiable everywhere: DIDs for identity, a signed hash-chained journal, every message between devices signed."),
+                                home.t("开机不自启，不常驻：关掉 Studio，节点就停，什么也不在后台跑。",
+                                       "Nothing at login, nothing left running: close Studio and the node stops.")
+                            ]
+                            Row {
+                                required property string modelData
+                                width: (strengths.width - 48) / 2
+                                spacing: 14
+                                Dot { y: 7; color: Theme.primary }
+                                Text { width: parent.width - 24; text: modelData; color: Theme.text; font.pixelSize: Theme.body
+                                       wrapMode: Text.Wrap; lineHeight: 1.5; textFormat: Text.PlainText }
                             }
                         }
                     }
+                    Item { width: 1; height: 24 }
                 }
             }
         }
+
     }
 
     InkFlood {

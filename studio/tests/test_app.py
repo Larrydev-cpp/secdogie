@@ -307,3 +307,35 @@ def test_presence_is_told_from_the_idle_time_only():
     s = presence.tick()
     assert 55 <= s["hereToday"] <= 61 and s["present"] == [7]
     assert len(s["hereBars"]) == 24 and 0 < sum(s["hereBars"]) * BUCKET <= 61
+    # the node card's dots: today by the quarter-hour, lit only where you were here
+    assert len(s["dayQuarters"]) == 96 and s["quarterNow"] == 14 * 4 + 0
+    assert s["dayQuarters"][56] > 0 and sum(1 for v in s["dayQuarters"] if v > 0) == 1
+
+
+def test_the_overview_is_a_wallet(qt):
+    """The node, what waits on you and each device are cards; the chosen card
+    comes to the front, and Studio's own face (Google Sans) is loaded."""
+    from PySide6.QtCore import QMetaObject
+    from PySide6.QtGui import QFontDatabase
+    from PySide6.QtQuick import QQuickItem
+    from secdogie_studio.app import load_fonts
+
+    app, messages = qt
+    messages.clear()
+    load_fonts(app)
+    assert "Google Sans" in QFontDatabase.families()
+    presence = Presence(FakeController(), idle=lambda: 10.0, companion_factory=lambda profile, ready: FakeCompanion())
+    engine, bridge, (light, home) = _windows(qt, presence, still=True)
+    assert _pump(qt, bridge, lambda: home.isVisible())
+    wallet = home.findChild(QQuickItem, "homeWallet")
+    assert _pump(qt, bridge, lambda: wallet.property("count") >= 3)   # this node, waiting, an empty slot
+    cards = [c for c in wallet.childItems() if c.property("kind") in ("dots", "glaze", "add")]
+    kinds = {c.property("kind") for c in cards}
+    assert {"dots", "glaze", "add"} <= kinds
+    assert wallet.property("front") == 0
+    add = next(c for c in cards if c.property("kind") == "add")
+    QMetaObject.invokeMethod(add, "click")
+    assert _pump(qt, bridge, lambda: wallet.property("front") == wallet.property("count") - 1)
+    assert home.property("picked").toVariant()["what"] == "add"
+    assert _qml_problems(messages) == []
+    del engine

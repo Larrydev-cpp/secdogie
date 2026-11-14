@@ -23,15 +23,15 @@ AbstractButton {
             name: btn.symbol
             size: btn.iconSize
             opacity: btn.enabled ? 1 : 0.45
-            color: btn.primary ? Qt.lighter(btn.tint, 1.15) : (btn.hovered || btn.visualFocus ? Theme.text : Theme.soft)
+            color: btn.primary ? (Theme.dark ? "#121318" : "#FFFFFF") : (btn.hovered || btn.visualFocus ? Theme.text : Theme.soft)
         }
     }
     background: Rectangle {
         radius: width / 2
         opacity: btn.enabled ? 1 : 0.45
-        color: btn.primary ? Theme.tinted(btn.tint, btn.down ? 0.36 : (btn.hovered ? 0.27 : 0.18))
+        color: btn.primary ? (btn.down ? Qt.darker(btn.tint, 1.12) : (btn.hovered ? Qt.lighter(btn.tint, 1.08) : btn.tint))
                            : (btn.down ? Theme.press : (btn.hovered ? Theme.wash : "transparent"))
-        border.color: btn.primary ? Theme.tinted(btn.tint, 0.55) : "transparent"
+        border.color: "transparent"
         Behavior on color { ColorAnimation { duration: Theme.touch } }
         Ring { visible: btn.visualFocus; round: parent.radius }
     }

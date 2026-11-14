@@ -39,9 +39,18 @@ from .words import load as load_lang
 from .words import save as save_lang
 
 QML_DIR = Path(__file__).resolve().parent / "qml"
+# Google Sans (OFL 1.1, Latin; qml/fonts/OFL.txt) first, the platform's CJK sans behind it
+FONT_FAMILIES = ["Google Sans", "PingFang SC", "Microsoft YaHei UI", "Noto Sans CJK SC", "Source Han Sans SC",
+                 "WenQuanYi Zen Hei", "Segoe UI", "Helvetica Neue", "sans-serif"]
 POLL_EVERY = 3.0  # seconds between asking the node how it is, while the home window is open
 THEMES = ("dark", "light")  # 墨 (ink) and 宣纸 (rice paper)
 BUCKET, BUCKETS = 300, 24  # presence in 5-minute columns, over the last two hours
+
+
+def quarter_of(t: float) -> int:
+    """Which quarter-hour of the local day (0..95) a moment falls in."""
+    lt = time.localtime(t)
+    return lt.tm_hour * 4 + lt.tm_min // 15
 
 
 def shichen_of(t: float) -> int:
@@ -171,6 +180,7 @@ class Presence:
         self._present: tuple[str, set[int]] = ("", set())  # today's date, and the 时辰 you were here in
         self._here_today = 0.0  # seconds at this computer today
         self._buckets: dict[int, float] = {}  # 5-minute bucket -> seconds at this computer in it
+        self._quarters: dict[int, float] = {}  # today's quarter-hour (0..95) -> seconds at this computer in it
         self._last_tick: float | None = None
 
     # -- the tick ----------------------------------------------------------------------
@@ -254,6 +264,8 @@ class Presence:
             "clock": time.strftime("%H:%M", time.localtime(now)),
             "hereToday": int(self._here_today),
             "hereBars": self._bars(now),
+            "dayQuarters": [round(min(1.0, self._quarters.get(q, 0.0) / 900), 3) for q in range(96)],
+            "quarterNow": quarter_of(now),
         }
 
     def _note_presence(self, idle_s, now: float) -> None:
@@ -263,11 +275,14 @@ class Presence:
         if self._present[0] != day:
             self._present = (day, set())
             self._here_today = 0.0
+            self._quarters = {}
         step = 0.0 if self._last_tick is None else min(5.0, max(0.0, now - self._last_tick))
         self._last_tick = now
         if idle_s is not None and idle_s < 120:
             self._present[1].add(shichen_of(now))
             self._here_today += step
+            q = quarter_of(now)
+            self._quarters[q] = self._quarters.get(q, 0.0) + step
             bucket = int(now // BUCKET)
             self._buckets[bucket] = self._buckets.get(bucket, 0.0) + step
             for old in [b for b in self._buckets if b < bucket - BUCKETS]:
@@ -611,7 +626,8 @@ def bridge_class():
     names = ("lang", "onboarding", "you", "greeting", "keys", "homeOpen", "homeCard", "homeCardKey", "waiting", "conversation", "node", "mood",
              "card", "cardKey",
              "whisper", "whisperTone", "held", "feedback", "working", "innerOpen", "statusRows", "logText",
-             "rulesText", "rulesNote", "inForce", "theme", "devices", "present", "shichen", "clock", "hereToday", "hereBars")
+             "rulesText", "rulesNote", "inForce", "theme", "devices", "present", "shichen", "clock", "hereToday", "hereBars",
+             "dayQuarters", "quarterNow")
     changed = Signal()
 
     def init(self, presence: Presence, still: bool = False):
@@ -660,10 +676,21 @@ def bridge_class():
     return type("Bridge", (QObject,), ns)
 
 
+def load_fonts(app) -> None:
+    """Studio's own face for every window: Google Sans, with the platform's CJK sans behind it."""
+    from PySide6.QtGui import QFont, QFontDatabase
+
+    for face in sorted((QML_DIR / "fonts").glob("*.ttf")):
+        QFontDatabase.addApplicationFont(str(face))
+    font = QFont()
+    font.setFamilies(FONT_FAMILIES)
+    app.setFont(font)
+
+
 def run_gui(root: Path, *, kdf: str = "moderate") -> int:
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
     from PySide6.QtCore import QTimer, QUrl
-    from PySide6.QtGui import QFont, QGuiApplication
+    from PySide6.QtGui import QGuiApplication
     from PySide6.QtQml import QQmlApplicationEngine
 
     Bridge = bridge_class()
@@ -671,10 +698,7 @@ def run_gui(root: Path, *, kdf: str = "moderate") -> int:
     app = QGuiApplication.instance() or QGuiApplication([])
     app.setApplicationName("secdogie")
     app.setQuitOnLastWindowClosed(False)  # closing the home window leaves the light; "让我休息" quits
-    font = QFont()
-    font.setFamilies(["PingFang SC", "Microsoft YaHei UI", "Noto Sans CJK SC", "Source Han Sans SC",
-                      "WenQuanYi Zen Hei", "Segoe UI", "Helvetica Neue", "sans-serif"])
-    app.setFont(font)
+    load_fonts(app)
     presence = Presence(StudioController(root, kdf=kdf))
     bridge = Bridge(presence, reduce_motion(app))
     engine = QQmlApplicationEngine()
@@ -694,4 +718,4 @@ def run_gui(root: Path, *, kdf: str = "moderate") -> int:
     return code
 
 
-__all__ = ["Presence", "QML_DIR", "WELCOME", "bridge_class", "card_dict", "run_gui"]
+__all__ = ["Presence", "QML_DIR", "WELCOME", "bridge_class", "card_dict", "load_fonts", "run_gui"]

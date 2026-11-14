@@ -18,11 +18,11 @@ IconButton 1.0 IconButton.qml
 StatusPill 1.0 StatusPill.qml
 Panel 1.0 Panel.qml
 Onboarding 1.0 Onboarding.qml
-DotText 1.0 DotText.qml
-DotBars 1.0 DotBars.qml
-Dial 1.0 Dial.qml
 Card 1.0 Card.qml
 ThemeSwitch 1.0 ThemeSwitch.qml
 InkFlood 1.0 InkFlood.qml
 NavPill 1.0 NavPill.qml
 QrCode 1.0 QrCode.qml
+CardArt 1.0 CardArt.qml
+WalletCard 1.0 WalletCard.qml
+Wallet 1.0 Wallet.qml

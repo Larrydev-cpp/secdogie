@@ -25,7 +25,7 @@ dependencies = [
 [project.optional-dependencies]
 # The window. PySide6-Essentials is Qt Widgets without WebEngine / QML / 3D,
 # which keeps the bundle and the attack surface small (decision 1 in the plan).
-gui = ["PySide6-Essentials>=6.7"]  # per-corner radii (6.7)
+gui = ["PySide6-Essentials>=6.8"]  # per-corner radii (6.7), PathRectangle (6.8)
 
 [project.scripts]
 secdogie-studio = "secdogie_studio.cli:main"
@@ -34,4 +34,4 @@ secdogie-studio = "secdogie_studio.cli:main"
 include = ["secdogie_studio*"]
 
 [tool.setuptools.package-data]
-secdogie_studio = ["qml/*.qml", "qml/qmldir"]
+secdogie_studio = ["qml/*.qml", "qml/qmldir", "qml/*.png", "qml/fonts/*.ttf", "qml/fonts/OFL.txt"]
