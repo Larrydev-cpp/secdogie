@@ -76,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     # Programmable skills: run an authored JSON skill library (sub-flows, if/while,
-    # loops, params) instead of a one-off task. See agent/README.md.
+    # loops, params) instead of a one-off task.
     parser.add_argument("--skill", default=None, metavar="PATH", help="run a programmable skill library (JSON) instead of a task")
     parser.add_argument("--skill-entry", default=None, metavar="NAME", help="which skill in the library to run (default: main)")
     parser.add_argument(

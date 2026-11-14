@@ -4,7 +4,7 @@ name: test
 # release.yml (which only builds/publishes binaries on a tag push or manual
 # dispatch), this is the gate that actually catches a regression before it
 # lands. All Python suites are written to run headless (mocked screen/input/
-# network/window-backend layers -- see each component's README), so a single
+# network/window-backend layers), so a single
 # ubuntu-latest runner covers all of them; the C tunnel gets its own job for
 # its own toolchain.
 
@@ -39,6 +39,7 @@ jobs:
             needs_identity: true
             needs_agent: true      # so the real-loop M3 wiring tests run (not skip)
           - dir: transport  # P2P-ready peer/session/endpoint model
+            extras: "[webrtc]"  # so the WebRTC pairing / mesh tests run (not skip)
             needs_identity: true
           - dir: fleet      # protocol/coordinator are pure; a node needs the agent it drives
             needs_agent: true
@@ -55,6 +56,10 @@ jobs:
             needs_identity: true
             needs_citadel: true
             needs_transport: true  # so the real-UDP session round trip runs (not skip)
+            needs_policy: true     # the cross-language vector check regenerates policy.json too
+          - dir: policy     # signed, tighten-only policy bundles (gate rules, decision model, ingest, allowlist)
+            needs_identity: true
+            needs_citadel: true    # so the floor-vs-citadel drift check runs (not skip)
           - dir: inference  # inference mesh: routing, central fallback, quarantine, mutiny lockdown
             needs_identity: true
             needs_transport: true  # so the real-UDP round trip runs (not skip)
@@ -64,6 +69,16 @@ jobs:
             needs_transport: true
             needs_agent: true      # the end-to-end test drives the real agent loop
             needs_dialogue: true
+            needs_policy: true     # the node verifies injected policy bundles
+          - dir: studio     # desktop app: first run, the node as a child, loopback link, the window offscreen
+            extras: "[gui]"  # so the offscreen window test runs (not skip)
+            needs_identity: true
+            needs_citadel: true
+            needs_transport: true
+            needs_dialogue: true
+            needs_policy: true
+            needs_node: true
+            needs_qt: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -72,6 +87,10 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
+
+      - name: Qt system libraries (offscreen window tests)
+        if: matrix.needs_qt
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3
 
       - name: Install
         working-directory: ${{ matrix.dir }}
@@ -95,13 +114,22 @@ jobs:
           if [ "${{ matrix.needs_console }}" = "true" ]; then
             pip install -e ../console
           fi
+          if [ "${{ matrix.needs_policy }}" = "true" ]; then
+            pip install -e ../policy
+          fi
           if [ "${{ matrix.needs_dialogue }}" = "true" ]; then
             pip install -e "../dialogue[tui]"
+          fi
+          if [ "${{ matrix.needs_node }}" = "true" ]; then
+            pip install -e ../node
           fi
           pip install -e ".${{ matrix.extras }}" pytest
 
       - name: Test
         working-directory: ${{ matrix.dir }}
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_QUICK_BACKEND: software
         run: pytest tests/ -q
 
       # P2 commercial gate: offline CAD golden-scenario fixtures must load cleanly.
@@ -110,6 +138,39 @@ jobs:
         if: matrix.dir == 'agent'
         working-directory: agent
         run: python -m secdogie_agent.scenario_runner ../fixtures/cad --all
+
+  # --- Studio on every desktop OS: the node-as-child lifecycle and the loopback
+  # link are exactly what differs between Windows, macOS and Linux, so they run
+  # on all three (the window offscreen too), then the release smoke check.
+  studio-cross-os:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Qt system libraries (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3
+      - name: Install
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e identity -e transport -e citadel -e policy -e dialogue -e node -e "studio[gui]" pytest
+      - name: Test
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_QUICK_BACKEND: software
+        run: pytest studio/tests -q
+      - name: Self-test (what a release build must pass)
+        shell: bash
+        run: secdogie-studio --self-test
 
   # --- Browser P2P: signaling gateway unit tests (plain Node, no deps) --------
   webrtc-tests:
@@ -121,15 +182,53 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Syntax check (gateway + browser client)
+      - name: Syntax check (gateway + browser client + pairing page)
         working-directory: webrtc
         run: |
           node --check signaling/worker.js
           node --check client/web_peer.js
+          node --check client/pairing.js
+          node --check client/keystore.js
+          node --check client/meshlink.js
+          node --check client/frames.js
+          node --check client/mesh.js
+          node --check pair.js
+          node --check mesh-page.js
 
-      - name: Test
+      - name: Test (gateway, and pairing against the Python golden vectors)
         working-directory: webrtc
         run: npm test
+
+  # --- Browser pairing end to end: two real Chromium contexts, a real data channel
+  webrtc-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Playwright + Chromium
+        working-directory: webrtc
+        run: |
+          npm install --no-save playwright@1.63.0
+          npx playwright install --with-deps chromium
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Python side (Studio's WebRTC)
+        run: pip install -e identity -e "transport[webrtc]"
+
+      - name: A browser and Python pair and form one mesh, both ways round
+        working-directory: webrtc
+        run: node tests/e2e/python.e2e.cjs python
+
+      - name: Pair devices, then bring three online as one mesh, over WebRTC
+        working-directory: webrtc
+        run: npm run e2e
 
   # --- Browser runtime: Rust-WASM state graph + TypeScript dual gates ---------
   # graph/ is tested natively and linted for wasm32; symbiont/ then builds the

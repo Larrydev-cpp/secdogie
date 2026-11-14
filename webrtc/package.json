@@ -4,6 +4,9 @@
   "type": "module",
   "description": "Browser WebRTC data-channel peer + Cloudflare Worker signaling gateway",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "e2e": "node tests/e2e/pairing.e2e.cjs && node tests/e2e/mesh.e2e.cjs",
+    "e2e:pairing": "node tests/e2e/pairing.e2e.cjs",
+    "e2e:mesh": "node tests/e2e/mesh.e2e.cjs"
   }
 }

@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>secdogie · 配对</title>
+<link rel="stylesheet" href="./ink.css">
+</head>
+<body data-phase="loading">
+<svg class="hills" viewBox="0 0 1200 240" preserveAspectRatio="none" aria-hidden="true">
+  <defs>
+    <linearGradient id="fade-far" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" style="stop-color: var(--hill-far)"/>
+      <stop offset="1" style="stop-color: var(--ground)"/>
+    </linearGradient>
+    <linearGradient id="fade-near" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" style="stop-color: var(--hill-near)"/>
+      <stop offset="1" style="stop-color: var(--ground)"/>
+    </linearGradient>
+  </defs>
+  <path d="M0 150 C 70 132 120 96 190 108 S 300 70 372 92 S 470 50 548 84 S 650 124 720 98 S 842 58 918 90 S 1060 128 1200 104 L1200 240 L0 240 Z" fill="url(#fade-far)"/>
+  <path d="M0 196 C 110 176 170 146 262 166 S 408 140 488 162 S 640 196 728 166 S 896 150 980 172 S 1110 168 1200 150 L1200 240 L0 240 Z" fill="url(#fade-near)"/>
+</svg>
+
+<div class="moon" aria-hidden="true"></div>
+<div class="page">
+  <header class="top">
+    <a class="brand" href="./pair.html">secdogie</a>
+    <div class="lang" role="group" aria-label="Language / 语言">
+      <button type="button" data-lang="zh" aria-pressed="true">中</button>
+      <button type="button" data-lang="en" aria-pressed="false">EN</button>
+    </div>
+  </header>
+  <p class="inscription" aria-hidden="true">吾之器物　自成一网</p>
+
+  <main>
+    <h1 id="title"></h1>
+    <p class="lede" id="lede"></p>
+
+    <ol class="steps" id="steps">
+      <li><span class="n">壹</span><span data-t="step.write"></span></li>
+      <li><span class="n">贰</span><span data-t="step.agree"></span></li>
+      <li><span class="n">叁</span><span data-t="step.compare"></span></li>
+      <li><span class="n">肆</span><span data-t="step.admit"></span></li>
+    </ol>
+
+    <!-- inviting: write the invitation -->
+    <section id="form" class="sheet" hidden>
+      <form id="invite-form" novalidate>
+        <div class="field">
+          <label for="mesh" data-t="form.mesh"></label>
+          <input id="mesh" type="text" maxlength="64" autocomplete="off" spellcheck="false" required>
+        </div>
+        <div class="field">
+          <label for="owner-name" data-t="form.name"></label>
+          <input id="owner-name" type="text" maxlength="40" autocomplete="off" data-ph="form.name.ph">
+        </div>
+        <div class="field">
+          <label for="signal" data-t="form.signal"></label>
+          <input id="signal" type="url" autocomplete="off" spellcheck="false" inputmode="url" required>
+          <span class="hint" data-t="form.signal.hint"></span>
+        </div>
+        <div class="actions">
+          <button class="act" id="write" type="submit" data-t="form.write"></button>
+        </div>
+      </form>
+    </section>
+
+    <!-- inviting: the link, while waiting for the other device -->
+    <section id="out" class="sheet" hidden>
+      <h2 data-t="out.title"></h2>
+      <p class="sub" data-t="out.sub"></p>
+      <textarea class="link" id="link" readonly rows="4" aria-labelledby="link-label"></textarea>
+      <span id="link-label" hidden data-t="out.title"></span>
+      <div class="actions" style="margin-top: 12px">
+        <button class="act" id="copy" type="button" data-t="out.copy"></button>
+        <button class="text" id="withdraw" type="button" data-t="out.withdraw"></button>
+        <span class="clock" id="clock"></span>
+      </div>
+      <p class="waiting"><span class="ember" aria-hidden="true"></span><span id="waiting-text" data-t="out.waiting"></span></p>
+    </section>
+
+    <!-- joining: the invitation as received -->
+    <section id="card" class="sheet" hidden>
+      <dl class="letter">
+        <dt data-t="card.from"></dt><dd><span class="did" id="card-from"></span></dd>
+        <dt data-t="card.mesh"></dt><dd id="card-mesh"></dd>
+        <dt data-t="card.until"></dt><dd id="card-until"></dd>
+        <dt data-t="card.signal"></dt><dd id="card-signal"></dd>
+      </dl>
+      <form id="agree-form" novalidate>
+        <div class="field">
+          <label for="device-name" data-t="form.name"></label>
+          <input id="device-name" type="text" maxlength="40" autocomplete="off" data-ph="card.name.ph">
+        </div>
+        <div class="actions">
+          <button class="act" id="agree" type="submit" data-t="card.agree"></button>
+        </div>
+      </form>
+      <p class="fine" style="margin: 14px 0 0" data-t="card.offline"></p>
+    </section>
+
+    <!-- joining: an invitation that cannot be used -->
+    <section id="invalid" class="sheet" hidden>
+      <h2 id="invalid-title"></h2>
+      <p class="reason" id="invalid-reason"></p>
+      <p class="fine" style="margin: 8px 0 0" id="invalid-next"></p>
+    </section>
+
+    <!-- both: compare the six digits -->
+    <section id="compare" class="sheet" hidden>
+      <h2 data-t="compare.title"></h2>
+      <p class="sub" id="compare-sub"></p>
+      <div class="code unroll" id="code" aria-live="polite"></div>
+      <p class="who" id="who"></p>
+      <div class="actions">
+        <button class="act" id="admit" type="button" data-t="compare.admit"></button>
+        <button class="act quiet" id="differ" type="button" data-t="compare.differ"></button>
+      </div>
+    </section>
+
+    <!-- both: done -->
+    <section id="done" class="sheet" hidden>
+      <div class="sealed">
+        <div class="seal stamp" aria-hidden="true">纳</div>
+        <div>
+          <h2 id="done-title"></h2>
+          <p class="sub" id="done-sub" style="margin-bottom: 14px"></p>
+          <div class="actions">
+            <button class="act" id="save" type="button" data-t="done.save" hidden></button>
+            <button class="act quiet" id="again" type="button" data-t="done.again" hidden></button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <p class="status" id="status" role="status" aria-live="polite"></p>
+
+    <!-- what this browser holds -->
+    <section class="mine" id="mine" hidden>
+      <h2 id="mine-title" data-t="mine.title"></h2>
+      <div id="owner-block" hidden>
+        <p class="fine" style="margin: 0" data-t="mine.owner"></p>
+        <div class="owner-id">
+          <span class="did" id="owner-did"></span>
+          <button class="text" id="copy-owner" type="button" data-t="mine.copy"></button>
+        </div>
+        <p class="fine" style="margin: 0 0 14px" data-t="mine.owner.why"></p>
+      </div>
+      <h2 style="margin-top: 22px" id="list-title"></h2>
+      <ul class="devices" id="devices"></ul>
+      <p class="empty" id="devices-empty" data-t="mine.empty" hidden></p>
+      <p class="fine" id="volatile" data-t="mine.volatile" hidden></p>
+      <button class="text" id="forget" type="button" hidden></button>
+    </section>
+  </main>
+
+  <footer>
+    <p data-t="foot"></p>
+  </footer>
+</div>
+
+<script type="module" src="./pair.js"></script>
+</body>
+</html>

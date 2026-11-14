@@ -15,8 +15,8 @@ void sdtp_keypair_generate(sdtp_keypair *kp);
 void sdtp_mac1(uint8_t out[SDTP_MAC_LEN], const uint8_t peer_static_pk[SDTP_KEY_LEN],
                const uint8_t *data, size_t data_len);
 
-/* Derives the chaining-key + directional transport keys described in
- * PROTOCOL.md from three DH outputs and both parties' static public keys. */
+/* Derives the chaining key and the two directional transport keys (Noise-style
+ * HKDF chain) from three DH outputs and both parties' static public keys. */
 void sdtp_derive_transport_keys(uint8_t key_i2r[SDTP_KEY_LEN], uint8_t key_r2i[SDTP_KEY_LEN],
                                  const uint8_t dh1[SDTP_KEY_LEN], const uint8_t dh2[SDTP_KEY_LEN],
                                  const uint8_t dh3[SDTP_KEY_LEN],
@@ -28,7 +28,7 @@ void sdtp_derive_transport_keys(uint8_t key_i2r[SDTP_KEY_LEN], uint8_t key_r2i[S
 int sdtp_dh(uint8_t out[SDTP_KEY_LEN], const uint8_t sk[SDTP_KEY_LEN], const uint8_t pk[SDTP_KEY_LEN]);
 
 /* AEAD encrypt/decrypt (XChaCha20-Poly1305-IETF). `nonce` is always
- * SDTP_NONCE_LEN bytes, caller-constructed per PROTOCOL.md. `ct` buffer must
+ * SDTP_NONCE_LEN bytes, caller-constructed (see handshake.c and the data path). `ct` buffer must
  * have room for pt_len + SDTP_AEAD_TAG_LEN. Returns 0 on success. */
 int sdtp_aead_encrypt(uint8_t *ct, const uint8_t *pt, size_t pt_len,
                        const uint8_t *aad, size_t aad_len,

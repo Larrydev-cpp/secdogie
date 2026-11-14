@@ -1,0 +1,10 @@
+.venv/
+.build-venv/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+
+# DID signing keys -- secrets, never commit
+*.key

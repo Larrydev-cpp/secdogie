@@ -6,7 +6,7 @@
 #include "util.h"
 
 /* First byte 0x01 guarantees this can never collide with a data-channel
- * nonce, whose first 16 bytes are always zero (see PROTOCOL.md). */
+ * nonce, whose first 16 bytes are always zero. */
 static const uint8_t CONFIRM_NONCE[SDTP_NONCE_LEN] = {0x01};
 static const uint8_t CONFIRM_PT[16] = {
     'S', 'D', 'T', 'P', '-', 'H', 'E', 'L', 'L', 'O', '-', 'R', '2', 'I', 'v', '1'};

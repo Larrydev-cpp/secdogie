@@ -26,18 +26,56 @@ refused at once (no answer is a no); they come back with the App.
 Control requests from the App are answered with a status line starting
 ``accepted`` or ``refused``. After each goal the node tells the App how it
 ended and offers any quarantined (S2) facts / preferences for confirmation.
+
+Rules arrive as signed policy bundles on ``policy/v1`` (``policy_host.py``) and
+take effect at once. The App may ask how the node is doing on ``admin/v1``
+(``admin.py``, read-only).
+
+Gate 1 meets every new goal at the door. First the instruction review runs
+under the rules in force. Then the automatic Socratic gate
+(``citadel/deliberate.py``) questions the request itself, drawing on what this
+node knows:
+
+  * of the person: every request it reviewed, how each was judged, and the
+    facts they confirmed;
+  * of the things involved: how anything that would be deleted has been used
+    (``citadel/usage.py``).
+
+What the gate decides:
+
+  * fraud, and accounts in bulk from a history with fraud marks: refused for
+    good;
+  * deleting something still in use: refused, in a letter that recounts that
+    use;
+  * what the gate cannot settle: one question, in prose. The goal waits for
+    the answer and is queued only once it holds up. An unanswered question
+    is a no.
+
+Each verdict is journaled (``deliberation``) and becomes part of the person's
+standing. The same check runs again before Gate 2 asks to sign any deletion
+the loop proposes.
+
+What reaches the App: a refusal is a status line starting ``letter:``. Notes
+the decision model wants the person to see in passing (a goal started or
+ended, a step it stopped) are status lines starting ``note:`` or ``hold:``.
 """
 from __future__ import annotations
 
+import dataclasses
 import logging
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from secdogie_citadel import socratic
 from secdogie_citadel.consolidate import confirm_and_promote, retract_memory
+from secdogie_citadel.decision import ASK, DROP, HOLD, REPHRASE, START, DecisionModel
+from secdogie_citadel.deliberate import CONTEXT, REFUSE, Asked, Standing, deliberate, drops
 from secdogie_citadel.journal import Journal
 from secdogie_citadel.lessons import MemoryClass
 from secdogie_citadel.supervisor import MemoryConfig, Supervisor, agent_run_task
+from secdogie_citadel.usage import read_usage
 from secdogie_dialogue.agent_bridge import OperatorBridge
 from secdogie_dialogue.dialogue import system_status
 from secdogie_dialogue.protocol import ControlOp, MemoryCandidatePacket
@@ -55,7 +93,14 @@ from secdogie_transport import (
     UDPChannel,
 )
 
+from . import admin
+from .policy_host import PolicyHost
+
 log = logging.getLogger("secdogie_node")
+
+ALIGN_ROUNDS = 3  # questions at goal intake before the goal is set aside
+DELIBERATION_EVENT = "deliberation"  # the automatic Socratic gate's verdict, with the questions it asked itself
+DELETE_KINDS = frozenset({"delete", "remove", "rm", "trash", "erase", "wipe"})
 
 OFFERED_CLASSES = (MemoryClass.FACT, MemoryClass.PREFERENCE)  # cautions are promoted on evidence
 
@@ -79,6 +124,10 @@ class NodeConfig:
     challenge_ttl: float = 120.0
     probe_ttl: float = 300.0
     idle_poll: float = 1.0
+    usage: Callable | None = None  # how the gate reads a thing's use (usage.read_usage; tests pass a stand-in)
+    mesh: str = "home"  # policy bundles for another mesh are refused
+    masters: object = None  # MasterSet: who may sign decision-model / allowlist bundles
+    roles: tuple = ("forward",)  # what this node offers the mesh; bundle scopes name roles
 
 
 class _AppLink:
@@ -95,9 +144,12 @@ class Node:
         self.operators = require_trust(cfg.operators, "the node's operator allowlist")
         self.journal = Journal(cfg.journal_path, identity=cfg.identity,
                                allowlist=require_trust(cfg.authorized, "the node's journal allowlist"))
+        self.policy = PolicyHost(self.journal, mesh=cfg.mesh, operators=self.operators, masters=cfg.masters,
+                                 node_did=cfg.identity.did, roles=cfg.roles)
         self.supervisor = Supervisor(
             self.journal, cfg.run_task, issuers=cfg.issuers, unrestricted=cfg.unrestricted,
             memory=MemoryConfig(candidates_path=cfg.candidates_path, confirmers=self.apps),
+            rules=self.policy.gate_rules,
         )
         self._lock = threading.RLock()
         self._link: _AppLink | None = None
@@ -105,6 +157,8 @@ class Node:
         self._stopping = threading.Event()
         self._worker: threading.Thread | None = None
         self._refused: set[str] = set()
+        self._started_at = 0.0
+        self.read_usage = cfg.usage if cfg.usage is not None else read_usage
         self.channel = UDPChannel(*cfg.listen)
         try:
             self.transport = DirectUDPTransport(cfg.identity, self.channel, allowlist=self.apps,
@@ -122,6 +176,8 @@ class Node:
             self.mux = ChannelMux(carrier, Session("node", PeerIdentity(cfg.identity.did, ""),
                                                    active=Endpoint("local", *self.channel.address)))
             self.router = SessionRouter(self.mux, accept=self._accept)
+            self.policy.attach(self.mux, may_send=self.apps.contains)
+            admin.serve(self.mux, {"status": self.status}, may_send=self.apps.contains)
         except Exception:
             self.channel.close()
             raise
@@ -133,6 +189,7 @@ class Node:
     # -- lifecycle ------------------------------------------------------------------
 
     def start(self) -> None:
+        self._started_at = time.time()
         requeued = self.supervisor.recover()
         if requeued:
             log.info("resumed %d interrupted goal(s): %s", len(requeued), ", ".join(requeued))
@@ -166,6 +223,27 @@ class Node:
             self.rendezvous.close()
         self.channel.close()
 
+    def status(self) -> dict:
+        """What this node says about itself on ``admin/v1`` (see ``admin.py``)."""
+        goals = self.supervisor.goals()
+        with self._lock:
+            link = self._link
+        host, port = self.channel.address
+        return {
+            "node": self.identity.did,
+            "mesh": self.cfg.mesh,
+            "roles": list(self.cfg.roles),
+            "listen": f"{host}:{port}",
+            "carriers": [getattr(self.channel, "kind", "udp")],
+            "relays": len(self.cfg.relay_records),
+            "rendezvous": len(self.cfg.rendezvous_records),
+            "since": int(self._started_at),
+            "halted": self.supervisor.halted,
+            "app": None if link is None else {"did": link.session.peer_did, "connected": bool(link.session.alive)},
+            "goals": admin.goal_counts(goals),
+            "recent": admin.recent_goals(goals),
+        }
+
     # -- the App ----------------------------------------------------------------------
 
     def _accept(self, did: str) -> DialogueSession | None:
@@ -187,7 +265,7 @@ class Node:
                                     challenge_ttl=self.cfg.challenge_ttl, probe_ttl=self.cfg.probe_ttl,
                                     on_control=self.on_control, publisher=publisher)
             link = self._link = _AppLink(session, bridge, publisher)
-            self.supervisor.set_operator_hooks(bridge.hooks())
+            self.supervisor.set_operator_hooks(self._hooks(bridge))
 
         def down():
             bridge.on_peer_down()  # every pending challenge and probe fails now
@@ -199,7 +277,7 @@ class Node:
         def up():
             with self._lock:
                 if self._link is link:
-                    self.supervisor.set_operator_hooks(bridge.hooks())
+                    self.supervisor.set_operator_hooks(self._hooks(bridge))
             log.info("operator App %s is reachable again", did)
 
         session.on_peer_down, session.on_peer_up = down, up
@@ -208,14 +286,170 @@ class Node:
         self._offer_memories()
         return session
 
+    def _hooks(self, bridge: OperatorBridge):
+        hooks = bridge.hooks()
+        authorize = hooks.authorize
+
+        def spare_what_is_used(planned):
+            # Before Gate 2 even asks for a signature: something the person
+            # still uses is not deleted, and the letter says why.
+            refusal = self._spare(planned)
+            if refusal is not None:
+                self._letter(refusal.letter)
+                return None
+            return authorize(planned)
+
+        return dataclasses.replace(hooks, note=self._note,
+                                   authorize=spare_what_is_used if authorize is not None else None)
+
+    def _note(self, involvement) -> None:
+        """A decision-model note for the person: one line, shown in passing."""
+        self._send(system_status(f"{involvement.disposition}: {involvement.says}"))
+
+    def _letter(self, text: str) -> None:
+        """A refusal at length: the first paragraph is what the person sees in
+        passing, the rest is for when they read it."""
+        self._send(system_status(f"letter: {text}"))
+
+    # -- Gate 1 at the door: the review, then the automatic Socratic gate ----------------
+
+    def _review(self, rules, title: str):
+        review = rules.review(title)
+        socratic.record_review(self.journal, title, review)
+        return review
+
+    def standing(self) -> Standing:
+        """Who is asking, as far as this node knows them: every request it
+        reviewed and how the gate judged it, and the facts the person
+        confirmed (consolidated memory)."""
+        judged: dict[str, tuple[str, str]] = {}
+        asked: list[Asked] = []
+        for e in self.journal.events():
+            body = e.get("body") if isinstance(e.get("body"), dict) else {}
+            if e.get("kind") == DELIBERATION_EVENT and isinstance(body.get("title"), str):
+                judged[body["title"]] = (str(body.get("verdict", "")), str(body.get("category", "")))
+            elif e.get("kind") == "socratic" and isinstance(body.get("instruction"), str):
+                asked.append(Asked(float(e.get("ts", 0.0)), body["instruction"]))
+        asked = [Asked(a.when, a.text, *judged.get(a.text, ("", ""))) for a in asked]
+        facts: list[tuple[str, str]] = []
+        try:
+            facts = [(r.key, r.value) for r in self.supervisor.memory_view().facts().values()]
+        except Exception:  # noqa: BLE001 - memory is an aid; no memory, no facts
+            log.exception("could not read memory for the standing")
+        return Standing(tuple(asked), tuple(facts))
+
+    def _deliberate(self, title: str, review, standing: Standing, *, answered: bool = False):
+        d = deliberate(title, review, standing=standing, usage=self.read_usage, answered=answered)
+        self.journal.append(DELIBERATION_EVENT, d.journal_body(title))
+        return d
+
+    def _spare(self, planned):
+        """A deletion the loop is about to take, of something the person still
+        uses: the gate's refusal, else None."""
+        if planned.kind not in DELETE_KINDS:
+            return None
+        target = planned.target_name or planned.text or ""
+        if not target:
+            return None
+        d = deliberate(f"删除 {target}", standing=self.standing(), usage=self.read_usage)
+        if d.verdict != REFUSE:
+            return None
+        self.journal.append(DELIBERATION_EVENT, d.journal_body(f"删除 {target}"))
+        return d
+
+    def _queue(self, goal_id: str, title: str, says: str = "") -> None:
+        self.supervisor.add_goal(goal_id, title=title)
+        self._wake.set()
+        self._send(system_status(f"note: {says or f'好，我开始做「{title}」。'}"))
+
+    def intake(self, goal_id: str, title: str) -> str:
+        """Gate 1 meets a new goal: the review, then the automatic Socratic
+        gate. Queue it, refuse it with a letter, or ask one question first."""
+        rules = self.policy.gate_rules()
+        standing = self.standing()  # before this request joins the record
+        review = self._review(rules, title)
+        d = self._deliberate(title, review, standing)
+        involvement = DecisionModel(rules).intake(title, review, d)
+        if involvement.disposition == HOLD:
+            self._letter(involvement.letter or involvement.says)
+            return f"refused: goal {goal_id}: {d.category or 'held'}"
+        if involvement.disposition != ASK:
+            self._queue(goal_id, title, involvement.says)
+            return f"accepted: goal {goal_id} queued"
+        with self._lock:
+            link = self._link
+        if link is None:
+            return f"refused: goal {goal_id} needs a word with you first, and no App is connected"
+        target = self._confirm if involvement.options else self._align
+        threading.Thread(target=target, args=(link.bridge, goal_id, title, involvement, d, rules),
+                         daemon=True, name=f"align-{goal_id}").start()
+        return f"accepted: goal {goal_id} waits for your answer to one question"
+
+    def _align(self, bridge: OperatorBridge, goal_id: str, title: str, involvement, d, rules) -> None:
+        """One question in prose, answered in the person's own words; then the
+        gate judges again, with the answer."""
+        original = title
+        for _ in range(ALIGN_ROUNDS):
+            answer = bridge.ask(involvement.letter or involvement.says)
+            if answer is None or drops(answer) or not answer.strip():
+                self._send(system_status(f"note: 好，「{original}」先不做了。"))
+                return
+            answer = answer.strip()
+            context = d.answer == CONTEXT
+            title = f"{original}（{answer}）" if context else answer
+            if not context:
+                original = title
+            review = self._review(rules, title)
+            d = self._deliberate(title, review, self.standing(), answered=context)
+            involvement = DecisionModel(rules).intake(title, review, d)
+            if involvement.disposition == HOLD:
+                self._letter(involvement.letter or involvement.says)
+                return
+            if involvement.disposition != ASK:
+                self._queue(goal_id, title, involvement.says)
+                return
+            if involvement.options:
+                self._confirm(bridge, goal_id, title, involvement, d, rules)
+                return
+        self._send(system_status(f"note: 我们还没说到一块儿，「{original}」先放着。"))
+
+    def _confirm(self, bridge: OperatorBridge, goal_id: str, title: str, involvement, d, rules) -> None:
+        """The operator's own "ask before every new goal": start, say it
+        differently, or drop it."""
+        for _ in range(ALIGN_ROUNDS):
+            answer = bridge.ask(involvement.says, options=involvement.options)
+            if answer is None or answer == DROP or drops(answer):
+                self._send(system_status(f"note: 好，「{title}」先不做了。"))
+                return
+            if answer == START:
+                self._queue(goal_id, title)
+                return
+            if answer == REPHRASE:
+                answer = bridge.ask("好，你想怎么说？")
+                if not answer or not answer.strip():
+                    self._send(system_status(f"note: 好，「{title}」先不做了。"))
+                    return
+            title = answer.strip()
+            review = self._review(rules, title)
+            d = self._deliberate(title, review, self.standing())
+            involvement = DecisionModel(rules).intake(title, review, d)
+            if involvement.disposition == HOLD:
+                self._letter(involvement.letter or involvement.says)
+                return
+            if involvement.disposition != ASK:
+                self._queue(goal_id, title, involvement.says)
+                return
+            if not involvement.options:
+                self._align(bridge, goal_id, title, involvement, d, rules)
+                return
+        self._send(system_status(f"note: 我们还没说到一块儿，「{title}」先放着。"))
+
     def on_control(self, pkt, signer: str) -> str:
         """One operator request (already authenticated as ``signer``, an App on
         the allowlist). Returns the status line sent back."""
         op = pkt.op
         if op is ControlOp.ADD_GOAL:
-            self.supervisor.add_goal(pkt.goal_id, title=pkt.title)
-            self._wake.set()
-            return f"accepted: goal {pkt.goal_id} queued"
+            return self.intake(pkt.goal_id, pkt.title)
         if op is ControlOp.STOP:
             self.supervisor.request_stop(pkt.goal_id)
             return f"accepted: stop requested for {pkt.goal_id}"

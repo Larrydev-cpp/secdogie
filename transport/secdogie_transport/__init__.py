@@ -6,9 +6,12 @@ only implementation is an in-memory HubTransport (the current hub-and-spoke
 topology, kept as fallback/rendezvous/relay); a DirectUDPTransport (Phase 2.10)
 implements the same interface for true peer-to-peer, and a RelayClient (2C) is
 the same interface over relays that any allowlisted node can host (RelayService).
+Under the direct transport sits the carrier seam (carrier.py): UDP today, and a
+CarrierSet for several pipes under one transport.
 """
 from __future__ import annotations
 
+from .carrier import AsyncCarrierHost, Carrier, CarrierSet, MemoryCarrier, MemoryNetwork
 from .dht import RoutingTable, find_node, find_peer, node_id, xor_distance
 from .endpoint import Endpoint, EndpointSet
 from .failover import FailoverTransport
@@ -21,10 +24,10 @@ from .revocation_gossip import REVOCATION_GOSSIP, RevocationGossip
 from .sealed import ReplayWindow, load_transport_key
 from .session import Session
 from .transport import HubTransport, Transport
-from .udp import DirectUDPTransport, UDPChannel
+from .udp import DirectTransport, DirectUDPTransport, UDPChannel
 from .upgrade import DirectUpgrader, UpgradeState
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
 
 __all__ = [
     "PeerIdentity",
@@ -34,6 +37,12 @@ __all__ = [
     "Transport",
     "HubTransport",
     "DirectUDPTransport",
+    "DirectTransport",
+    "Carrier",
+    "CarrierSet",
+    "MemoryNetwork",
+    "MemoryCarrier",
+    "AsyncCarrierHost",
     "ChannelMux",
     "UDPChannel",
     "ReplayWindow",

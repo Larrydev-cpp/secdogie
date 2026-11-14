@@ -1,6 +1,6 @@
 """The Dialogue App's screen (Textual): a thin view over ``AppController``.
 
-Layout (DESIGN.zh.md §3): the conversation on the left; on the right the
+Layout: the conversation on the left; on the right the
 structural view above the Gate 2 console; a status line and one command line
 at the bottom. Everything shown comes from the controller's plain-text views
 and is rendered as ``rich.text.Text`` -- never parsed as markup -- because it

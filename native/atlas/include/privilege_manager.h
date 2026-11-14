@@ -2,7 +2,7 @@
 
 // Privilege manager — operator-gated, read-only by default.
 //
-// Honest boundaries (match secdogie SECURITY.md):
+// Honest boundaries (the README's safety boundary):
 //   * SYSTEM launch is the documented CreateProcessAsUser path from an
 //     already-admin token (PsExec -s). It is not a UAC bypass.
 //   * NT SERVICE\TrustedInstaller impersonation is REFUSED. Token theft of

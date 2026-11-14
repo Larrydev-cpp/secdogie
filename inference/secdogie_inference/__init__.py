@@ -17,7 +17,7 @@ a bounded session (session.py), heartbeats a Merkle DAG (forks isolate a node,
 links must be witnessed, ledgers converge), and puts a history-aware decision
 gate (gate.py) in front of the decision layer.
 
-See README.md for the architecture and PROTOCOL.md for the wire.
+The wire is described in protocol.py.
 """
 from __future__ import annotations
 

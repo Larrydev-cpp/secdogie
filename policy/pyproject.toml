@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secdogie-policy"
+version = "0.1.0"
+description = "Signed, declarative policy bundles for a secdogie mesh: Socratic gate rules, the decision model, ingestion limits and allowlist changes. Tighten-only, closed schemas, operator or k-of-n master signatures."
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# Signing, DIDs and the master set come from secdogie-identity; nothing else.
+dependencies = ["secdogie-identity"]
+
+[tool.setuptools.packages.find]
+include = ["secdogie_policy*"]

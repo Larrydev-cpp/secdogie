@@ -31,7 +31,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class MemoryConfig:
-    """Staged memory for a supervised node (see MEMORY.zh.md).
+    """Staged memory for a supervised node (staged memory: S1 episodes, S2 quarantine, S3 consolidation).
 
     ``candidates_path``: the local S2 quarantine (SQLite). ``min_runs``: failing
     runs before a caution is promoted. ``confirmers``: the operator App session
@@ -60,7 +60,9 @@ class OperatorHooks:
     gate decision (the bridge uses it to make a fresh signature count as the
     step's confirmation). ``on_targets(elements)`` receives the element targets
     the loop offers the model each step, for the operator's structural view
-    (an observer: it cannot change the step)."""
+    (an observer: it cannot change the step). ``note(involvement)`` receives
+    what the decision model wants the person to see in passing: a step it
+    stopped, a goal that ended."""
 
     confirm: Callable[[str, bool], bool] | None = None
     ask: Callable[[str], str | None] | None = None
@@ -68,6 +70,9 @@ class OperatorHooks:
     operators: Any = None
     observe: Callable[[Any, Any], None] | None = None
     on_targets: Callable[[list], None] | None = None
+    # The companion's notes (decision.Involvement with disposition note / hold):
+    # one line for the person, shown at a pause and faded. An observer only.
+    note: Callable[[Any], None] | None = None
 
 
 class Supervisor:
@@ -82,6 +87,7 @@ class Supervisor:
         issuers=None,
         memory: MemoryConfig | None = None,
         unrestricted: bool = False,
+        rules: Callable[[], Any] | None = None,
     ):
         from .goals import build_goal_tree
         from .run import RunRecorder
@@ -102,6 +108,9 @@ class Supervisor:
         self.issuers = issuers
         self.unrestricted = bool(unrestricted)
         self.memory = memory
+        # The node's injected gate rules, read fresh at every check so a newly
+        # activated bundle applies mid-run. None: the built-ins only.
+        self._rules_provider = rules
         self._hooks = OperatorHooks()
         self._candidates = None
         if memory is not None:
@@ -109,6 +118,33 @@ class Supervisor:
 
             self._candidates = CandidateStore(memory.candidates_path)
         self._halted = threading.Event()
+
+    # -- rules and the decision model ---------------------------------------------
+
+    def gate_rules(self):
+        """The gate rules in force now (``rules.GateRules``)."""
+        from .rules import GateRules
+
+        if self._rules_provider is None:
+            return GateRules()
+        try:
+            rules = self._rules_provider()
+        except Exception:  # noqa: BLE001 - a broken provider must not open the gates; stay at the built-ins
+            self.log.exception("reading the gate rules failed; using the built-ins")
+            return GateRules()
+        return rules if isinstance(rules, GateRules) else GateRules()
+
+    def decision_model(self):
+        from .decision import DecisionModel
+
+        return DecisionModel(self.gate_rules())
+
+    def _note(self, involvement) -> None:
+        if self._hooks.note is not None and involvement.disposition in ("note", "hold"):
+            try:
+                self._hooks.note(involvement)
+            except Exception:  # noqa: BLE001 - a note is a courtesy; it never fails a goal
+                self.log.exception("delivering a note failed")
 
     # -- halting ---------------------------------------------------------------
 
@@ -199,6 +235,11 @@ class Supervisor:
             if e.get("kind") == "result" and (e.get("body") or {}).get("goal_id") == goal_id
         )
 
+    def goals(self) -> list:
+        """Every goal in the journal (``goals.Goal``: id, title, status), in the
+        order they were added."""
+        return list(self._tree().nodes.values())
+
     def pending_ready(self) -> list[str]:
         """Ready goals (pending, deps done) that are not paused or stopped.
         A stopped/paused goal stays pending but parked until it is resumed."""
@@ -282,8 +323,9 @@ class Supervisor:
         from .consolidate import consolidate
         from .episodes import episodes_from_events
 
+        min_runs = min(self.memory.min_runs, self.gate_rules().known_failure_min_runs)
         return consolidate(self.journal, self._candidates, episodes_from_events(self.journal.events()),
-                           min_runs=self.memory.min_runs, scope="global",
+                           min_runs=min_runs, scope="global",
                            trust=getattr(self.journal, "allowlist", None), confirmers=self.memory.confirmers)
 
     # -- execution -----------------------------------------------------------
@@ -366,14 +408,22 @@ class Supervisor:
         # don't accept them keep working.
         extra: dict = {}
         hooks = self._hooks
-        if not self.unrestricted or self.memory is not None or hooks.authorize is not None:
+        rules_on = self._rules_provider is not None
+        if not self.unrestricted or self.memory is not None or hooks.authorize is not None or rules_on:
             from .loop_gate import make_plan_gate
 
             instruction = node.title or goal_id
             enforce = not self.unrestricted
             ident = getattr(self.journal, "identity", None)
             subject_did = getattr(ident, "did", "") if ident is not None else ""
-            observers = [o for o in (correlator.observe if correlator is not None else None, hooks.observe)
+            def note_step(planned, decision):
+                from .loop_gate import BLOCKING
+
+                blocked = any(k in BLOCKING for k in decision.findings)
+                self._note(self.decision_model().step(planned, decision, blocked=blocked))
+
+            observers = [o for o in (correlator.observe if correlator is not None else None, hooks.observe,
+                                     note_step if hooks.note is not None else None)
                          if o is not None]
 
             def observe(planned, decision):
@@ -391,6 +441,7 @@ class Supervisor:
                     require_intent=bool(self.memory is not None and self.memory.require_intent),
                     observer=observe if observers else None,
                     authorize=hooks.authorize, operators=hooks.operators, subject_did=subject_did,
+                    rules=self.gate_rules() if rules_on else None,
                 )(view, recent)
 
             extra["plan_gate"] = plan_gate
@@ -426,6 +477,7 @@ class Supervisor:
             except Exception:  # memory is an aid: a failed pass never fails the goal
                 self.log.exception("memory consolidation after goal %s failed", goal_id)
         self.journal.append("result", {"goal_id": goal_id, "code": code, "summary": str(summary)})
+        self._note(self.decision_model().finish(node.title or goal_id, code, str(summary)))
         if code == 0:
             self.journal.append("goal", {"op": "complete", "id": goal_id})
         elif code == 5:

@@ -6,7 +6,6 @@ build-backend = "setuptools.build_meta"
 name = "secdogie-console"
 version = "0.5.0"
 description = "A local web control console for a secdogie fleet coordinator: watch nodes/tasks and submit/stop/pause/resume, with operator-DID-gated commands."
-readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 # Identity for operator-DID gating; the fleet coordinator it drives.

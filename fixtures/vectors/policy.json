@@ -1,0 +1,1050 @@
+{
+  "spec": "verify_bundle(json.loads(bundle), operators={operator}, masters=MasterSet(masters, threshold))",
+  "operator": {
+    "did": "did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY",
+    "seed_hex": "eae852c06e679489880d546b763175af788d47d1a10c5010ebefd0df65039867"
+  },
+  "outsider": {
+    "did": "did:key:z6MkrVKRLDsNLwwxa5i6gbAibVp4g4PwUY8xnrnB6xcraQxh",
+    "seed_hex": "b497e2cd03df44fd3e7728b3f2fd78132d2ff373861af6cacf4ae6455efd91bb"
+  },
+  "masters": [
+    {
+      "did": "did:key:z6MkqWQVsY3GwKNTvULJdrfLqoRYz5xT7eXdKLbGxWqQPyZj",
+      "seed_hex": "35a1d3557159ed2a8a0fb547edd690e3194689f4064f33daff0044a15e1711d9"
+    },
+    {
+      "did": "did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN",
+      "seed_hex": "39e71a5662269ec7bec549e04809d08cd1e41c19fd86489ddc020f865fb91fa6"
+    },
+    {
+      "did": "did:key:z6MkiKzBkgMqRmhK3KkV26RASor2Mv31RU6Gd4cSv3Z8dcAi",
+      "seed_hex": "b6f7b0408729278c294677eab57a90d32f7aa400bd04263402fe7cec9d8b9312"
+    }
+  ],
+  "threshold": 2,
+  "floor": {
+    "instruction.max_len": 600,
+    "instruction.max_steps": 6,
+    "plan.repeat_threshold": 2,
+    "plan.poll_window": 3,
+    "plan.known_failure_min_runs": 3,
+    "ingest.rps_milli": 1000,
+    "ingest.concurrency": 1,
+    "ingest.max_body_bytes": 8388608,
+    "ingest.timeout_ms": 30000
+  },
+  "normalize": [
+    {
+      "input": "mass register",
+      "normalized": "mass register"
+    },
+    {
+      "input": "Mass Register",
+      "normalized": "mass register"
+    },
+    {
+      "input": "  MASS   register  ",
+      "normalized": "mass register"
+    },
+    {
+      "input": "ＭＡＳＳ　ｒｅｇｉｓｔｅｒ",
+      "normalized": "mass register"
+    },
+    {
+      "input": "ﬁle",
+      "normalized": "file"
+    },
+    {
+      "input": "Straße",
+      "normalized": "straße"
+    },
+    {
+      "input": "ÀÉÎ",
+      "normalized": "ÀÉÎ"
+    },
+    {
+      "input": "批量注册",
+      "normalized": "批量注册"
+    },
+    {
+      "input": "①②",
+      "normalized": "12"
+    },
+    {
+      "input": "é",
+      "normalized": "é"
+    }
+  ],
+  "cases": [
+    {
+      "name": "gate-rules signed by an operator",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"f95d1da5bf4da4d005a84c1f03c5072b713e71dddca4a6b2b43d018716a066f5\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"T9jkRt3aIe6fhmk2ZFW9fZd+FjXTT/aj95sUTAKmiJhgbY4Ee5pDa3Hyib+TxcDRCIsYIEErN2w5VAMR5m38Aw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": true,
+        "errors": [],
+        "signers": [
+          "did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY"
+        ]
+      }
+    },
+    {
+      "name": "gate-rules v2 naming v1",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":300}},\"bundle_id\":\"6beee3ebe3dc42175f1631138ec8a9a34ef59c2786e8213053356aa93aeffe81\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"iY2XsaCWUckbj+DTXX1xJBlJ07noKY0oqFYNWIiytWGBdF22dmzAlzlfyLXKubrAhpi14YywXsWoKavJxkrsAw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"f95d1da5bf4da4d005a84c1f03c5072b713e71dddca4a6b2b43d018716a066f5\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":2}",
+      "expect": {
+        "ok": true,
+        "errors": [],
+        "signers": [
+          "did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY"
+        ]
+      }
+    },
+    {
+      "name": "an empty gate-rules body (back to the built-ins)",
+      "bundle": "{\"body\":{},\"bundle_id\":\"04d04603c460fda15060b0bdde835c3e43d7c3522def79d90220e6233609af4f\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"UsL16tVf0oxJs+ZliVVIJUaNK6TzzKQDKncKZ8oAYXP24TM7sPr2muhHgCkh0oR/H5m6PtmA/Grqz+tD4X7rAg==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": true,
+        "errors": [],
+        "signers": [
+          "did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY"
+        ]
+      }
+    },
+    {
+      "name": "decision-model signed by 2 of 3 masters",
+      "bundle": "{\"body\":{\"deny_providers\":[\"did:key:z6MkrVKRLDsNLwwxa5i6gbAibVp4g4PwUY8xnrnB6xcraQxh\"],\"llm\":{\"max_tokens\":256,\"model\":\"router-small\",\"prompt_template_hash\":\"8e2fc6921160cc954422a9c98a82a43f6d3aced71f70e138f8f4645e7a8eb02b\",\"timeout_ms\":1500},\"policy\":\"llm/v1\",\"rollout\":{\"promote_after\":1000,\"stage\":\"shadow\"},\"weights\":{\"hop_milli\":1000,\"load_milli\":500}},\"bundle_id\":\"94c0e263459fd1fd73f4d659cd59907cc6e1a3cd4b840e4c36fa750cbaee911b\",\"kind\":\"decision-model\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"/8VJN1cqp7PHVicuGNBaD93Y6e6uSuo7zqgclkwYw6UVeO+XYqB6mf/PGJ7GJ/0tclRWEtIvKFRsOHhme4DhBA==\",\"signer\":\"did:key:z6MkqWQVsY3GwKNTvULJdrfLqoRYz5xT7eXdKLbGxWqQPyZj\"},{\"sig\":\"Vfnv3GYvQpLJu+fIxLrtBRrtvswBYz1ZcUc2wyNavVspizHea9f8xl94e7yiWfgHY4IVZBn3e+k5Gj2cDPUiBA==\",\"signer\":\"did:key:z6MkiKzBkgMqRmhK3KkV26RASor2Mv31RU6Gd4cSv3Z8dcAi\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": true,
+        "errors": [],
+        "signers": [
+          "did:key:z6MkiKzBkgMqRmhK3KkV26RASor2Mv31RU6Gd4cSv3Z8dcAi",
+          "did:key:z6MkqWQVsY3GwKNTvULJdrfLqoRYz5xT7eXdKLbGxWqQPyZj"
+        ]
+      }
+    },
+    {
+      "name": "decision-model with all three masters",
+      "bundle": "{\"body\":{\"deny_providers\":[\"did:key:z6MkrVKRLDsNLwwxa5i6gbAibVp4g4PwUY8xnrnB6xcraQxh\"],\"llm\":{\"max_tokens\":256,\"model\":\"router-small\",\"prompt_template_hash\":\"8e2fc6921160cc954422a9c98a82a43f6d3aced71f70e138f8f4645e7a8eb02b\",\"timeout_ms\":1500},\"policy\":\"llm/v1\",\"rollout\":{\"promote_after\":1000,\"stage\":\"shadow\"},\"weights\":{\"hop_milli\":1000,\"load_milli\":500}},\"bundle_id\":\"94c0e263459fd1fd73f4d659cd59907cc6e1a3cd4b840e4c36fa750cbaee911b\",\"kind\":\"decision-model\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"/8VJN1cqp7PHVicuGNBaD93Y6e6uSuo7zqgclkwYw6UVeO+XYqB6mf/PGJ7GJ/0tclRWEtIvKFRsOHhme4DhBA==\",\"signer\":\"did:key:z6MkqWQVsY3GwKNTvULJdrfLqoRYz5xT7eXdKLbGxWqQPyZj\"},{\"sig\":\"g9CZx5bno1vds1HbVBhqnU9fOeCN/zJtB/KlOstbjHR5lPWbIzx7x39hCPkEdK6y1bXXczWj84kwp6c6X3PqAw==\",\"signer\":\"did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN\"},{\"sig\":\"Vfnv3GYvQpLJu+fIxLrtBRrtvswBYz1ZcUc2wyNavVspizHea9f8xl94e7yiWfgHY4IVZBn3e+k5Gj2cDPUiBA==\",\"signer\":\"did:key:z6MkiKzBkgMqRmhK3KkV26RASor2Mv31RU6Gd4cSv3Z8dcAi\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": true,
+        "errors": [],
+        "signers": [
+          "did:key:z6MkiKzBkgMqRmhK3KkV26RASor2Mv31RU6Gd4cSv3Z8dcAi",
+          "did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN",
+          "did:key:z6MkqWQVsY3GwKNTvULJdrfLqoRYz5xT7eXdKLbGxWqQPyZj"
+        ]
+      }
+    },
+    {
+      "name": "built-in router, nothing else",
+      "bundle": "{\"body\":{\"policy\":\"router/v1\"},\"bundle_id\":\"8c792d301b6d76e3f84f38c2580d01d4f18a0317f5673af3caac38bdad8c1a4d\",\"kind\":\"decision-model\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"C8kSCI8RQUOg+gKoKBNUCBCSvk8X2E0d7suxnMoB5d2j9ARvufB4ekxjmmLY3GWUllCdMf0we5JrJwIHrNCYDA==\",\"signer\":\"did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN\"},{\"sig\":\"/7rxRABwCAE6qdcKqVa3fTXnQ+F4y3pN83MLBw0EmmUVdq/Mc78C6D7oA5h2DsdohX2tS8tc7cnjtKTIQJDcDQ==\",\"signer\":\"did:key:z6MkiKzBkgMqRmhK3KkV26RASor2Mv31RU6Gd4cSv3Z8dcAi\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": true,
+        "errors": [],
+        "signers": [
+          "did:key:z6MkiKzBkgMqRmhK3KkV26RASor2Mv31RU6Gd4cSv3Z8dcAi",
+          "did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN"
+        ]
+      }
+    },
+    {
+      "name": "canary rollout",
+      "bundle": "{\"body\":{\"policy\":\"weighted/v1\",\"rollout\":{\"canary\":[\"did:key:z6MksULLa2gUU4etVGdapsUKX6TFoZLzKeNCBnrzgYJ6krLt\"],\"stage\":\"canary\"}},\"bundle_id\":\"a8e4e75b583ae3462f8396cc8fddd2afc9a1855706e3980c688785b62ca2b5fa\",\"kind\":\"decision-model\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"sbpUKwtVQ+AzjGi67160Zy8unP3ipPT4rVEBZ16v9ZXAqSYtQB3OszorCPCdzDxNyj3iuGwrXr0nrb3UZuGoDA==\",\"signer\":\"did:key:z6MkqWQVsY3GwKNTvULJdrfLqoRYz5xT7eXdKLbGxWqQPyZj\"},{\"sig\":\"9CrcAlB4itd9YaYp2wUSe9FsMP1Fy5bQtzwtG5u+ZIGbuK3jGhthsolvOU/iaMvmh8bbQuMxNOCkC6nmykF4AA==\",\"signer\":\"did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": true,
+        "errors": [],
+        "signers": [
+          "did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN",
+          "did:key:z6MkqWQVsY3GwKNTvULJdrfLqoRYz5xT7eXdKLbGxWqQPyZj"
+        ]
+      }
+    },
+    {
+      "name": "ingest signed by an operator",
+      "bundle": "{\"body\":{\"max_body_bytes\":2097152,\"modes\":[\"rendered\",\"static\"],\"origins\":[\"https://data.example.org\",\"https://docs.example.com:8443\"],\"rate\":{\"concurrency\":1,\"rps_milli\":500},\"submitters\":[\"did:key:z6MksULLa2gUU4etVGdapsUKX6TFoZLzKeNCBnrzgYJ6krLt\",\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"],\"timeout_ms\":10000},\"bundle_id\":\"f9f121edc76d44e043e124a1d100f71867ecbb2e3301bd79f0d954dcdb4796b0\",\"kind\":\"ingest\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[\"ingest\"]},\"sigs\":[{\"sig\":\"+CLNw/lP/1WTlLdZDImQsOb0Yx/ZevrA1KrrnA9FQZOgNd33/h30GQUTUOAAeREBjS395oQF6cGpOUpuQNJZAw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": true,
+        "errors": [],
+        "signers": [
+          "did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY"
+        ]
+      }
+    },
+    {
+      "name": "allowlist signed by 2 masters",
+      "bundle": "{\"body\":{\"add\":[\"did:key:z6MksULLa2gUU4etVGdapsUKX6TFoZLzKeNCBnrzgYJ6krLt\"],\"remove\":[\"did:key:z6MkrVKRLDsNLwwxa5i6gbAibVp4g4PwUY8xnrnB6xcraQxh\"]},\"bundle_id\":\"b858c245ed9fb54fb3640a4ffcefb9c3ef9aa8937c50866e39aa7366e7f56d84\",\"kind\":\"allowlist\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"s8rSVcUGNd9I/4XAAhftdVH636nRHgI5hltpC0yxIY4YpJir3xsGheglgu+x4aQdZX8H1z1Y1E2Qj3tvgt1/CA==\",\"signer\":\"did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN\"},{\"sig\":\"o6j0y1hWwy5mlzLrESYMONjGU600+g80p2ahdEUAIkib/1Cm4BWWkN0r0l7f9C/IhI2JDo4HpFG9wX4zhvgODA==\",\"signer\":\"did:key:z6MkqWQVsY3GwKNTvULJdrfLqoRYz5xT7eXdKLbGxWqQPyZj\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": true,
+        "errors": [],
+        "signers": [
+          "did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN",
+          "did:key:z6MkqWQVsY3GwKNTvULJdrfLqoRYz5xT7eXdKLbGxWqQPyZj"
+        ]
+      }
+    },
+    {
+      "name": "gate-rules signed by an outsider",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"f95d1da5bf4da4d005a84c1f03c5072b713e71dddca4a6b2b43d018716a066f5\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"eBNKLpTFqXUcYR+JB+F2cjzIYWlSu3n/f+eZzh/JyDflXk2hlOxp4Vh9UvmXNkdIUzs7L5n4WpbxOFBnEfinCA==\",\"signer\":\"did:key:z6MkrVKRLDsNLwwxa5i6gbAibVp4g4PwUY8xnrnB6xcraQxh\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "unauthorized:sigs"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "gate-rules unsigned",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"f95d1da5bf4da4d005a84c1f03c5072b713e71dddca4a6b2b43d018716a066f5\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "unauthorized:sigs"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "gate-rules signed by a master, who is not an operator",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"f95d1da5bf4da4d005a84c1f03c5072b713e71dddca4a6b2b43d018716a066f5\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"ySH/+85sHYTr8Ik1NvVMGgzg1oFN+2Ye+53o43NoI20JFghB8A+P8uLd82tu16Wv3pib7xGcMZOncCu5gP7fDg==\",\"signer\":\"did:key:z6MkqWQVsY3GwKNTvULJdrfLqoRYz5xT7eXdKLbGxWqQPyZj\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "unauthorized:sigs"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "decision-model with one master",
+      "bundle": "{\"body\":{\"deny_providers\":[\"did:key:z6MkrVKRLDsNLwwxa5i6gbAibVp4g4PwUY8xnrnB6xcraQxh\"],\"llm\":{\"max_tokens\":256,\"model\":\"router-small\",\"prompt_template_hash\":\"8e2fc6921160cc954422a9c98a82a43f6d3aced71f70e138f8f4645e7a8eb02b\",\"timeout_ms\":1500},\"policy\":\"llm/v1\",\"rollout\":{\"promote_after\":1000,\"stage\":\"shadow\"},\"weights\":{\"hop_milli\":1000,\"load_milli\":500}},\"bundle_id\":\"94c0e263459fd1fd73f4d659cd59907cc6e1a3cd4b840e4c36fa750cbaee911b\",\"kind\":\"decision-model\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"g9CZx5bno1vds1HbVBhqnU9fOeCN/zJtB/KlOstbjHR5lPWbIzx7x39hCPkEdK6y1bXXczWj84kwp6c6X3PqAw==\",\"signer\":\"did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "threshold:sigs"
+        ],
+        "signers": [
+          "did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN"
+        ]
+      }
+    },
+    {
+      "name": "decision-model signed by the operator",
+      "bundle": "{\"body\":{\"deny_providers\":[\"did:key:z6MkrVKRLDsNLwwxa5i6gbAibVp4g4PwUY8xnrnB6xcraQxh\"],\"llm\":{\"max_tokens\":256,\"model\":\"router-small\",\"prompt_template_hash\":\"8e2fc6921160cc954422a9c98a82a43f6d3aced71f70e138f8f4645e7a8eb02b\",\"timeout_ms\":1500},\"policy\":\"llm/v1\",\"rollout\":{\"promote_after\":1000,\"stage\":\"shadow\"},\"weights\":{\"hop_milli\":1000,\"load_milli\":500}},\"bundle_id\":\"94c0e263459fd1fd73f4d659cd59907cc6e1a3cd4b840e4c36fa750cbaee911b\",\"kind\":\"decision-model\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"L7HPxdk2JpnpIMuUtB2LNcBxm8p3/TspLxm/0MJVKq9jAfFxRFEaJP3tM0OgYvlr9A+GZcHp0uoXm8Ac3k09Dg==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "threshold:sigs"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "decision-model with one master signing twice",
+      "bundle": "{\"body\":{\"deny_providers\":[\"did:key:z6MkrVKRLDsNLwwxa5i6gbAibVp4g4PwUY8xnrnB6xcraQxh\"],\"llm\":{\"max_tokens\":256,\"model\":\"router-small\",\"prompt_template_hash\":\"8e2fc6921160cc954422a9c98a82a43f6d3aced71f70e138f8f4645e7a8eb02b\",\"timeout_ms\":1500},\"policy\":\"llm/v1\",\"rollout\":{\"promote_after\":1000,\"stage\":\"shadow\"},\"weights\":{\"hop_milli\":1000,\"load_milli\":500}},\"bundle_id\":\"94c0e263459fd1fd73f4d659cd59907cc6e1a3cd4b840e4c36fa750cbaee911b\",\"kind\":\"decision-model\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"g9CZx5bno1vds1HbVBhqnU9fOeCN/zJtB/KlOstbjHR5lPWbIzx7x39hCPkEdK6y1bXXczWj84kwp6c6X3PqAw==\",\"signer\":\"did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN\"},{\"sig\":\"g9CZx5bno1vds1HbVBhqnU9fOeCN/zJtB/KlOstbjHR5lPWbIzx7x39hCPkEdK6y1bXXczWj84kwp6c6X3PqAw==\",\"signer\":\"did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "threshold:sigs"
+        ],
+        "signers": [
+          "did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN"
+        ]
+      }
+    },
+    {
+      "name": "a signature over other bytes",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"f95d1da5bf4da4d005a84c1f03c5072b713e71dddca4a6b2b43d018716a066f5\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"UsL16tVf0oxJs+ZliVVIJUaNK6TzzKQDKncKZ8oAYXP24TM7sPr2muhHgCkh0oR/H5m6PtmA/Grqz+tD4X7rAg==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "unauthorized:sigs"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "a sig that is not base64",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"f95d1da5bf4da4d005a84c1f03c5072b713e71dddca4a6b2b43d018716a066f5\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"%%%\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "unauthorized:sigs"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "sigs is not a list",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"f95d1da5bf4da4d005a84c1f03c5072b713e71dddca4a6b2b43d018716a066f5\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":{\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"},\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "type:sigs"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "seventeen sigs",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"f95d1da5bf4da4d005a84c1f03c5072b713e71dddca4a6b2b43d018716a066f5\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"},{\"sig\":\"\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"},{\"sig\":\"\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"},{\"sig\":\"\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"},{\"sig\":\"\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"},{\"sig\":\"\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"},{\"sig\":\"\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"},{\"sig\":\"\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"},{\"sig\":\"\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"},{\"sig\":\"\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"},{\"sig\":\"\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"},{\"sig\":\"\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"},{\"sig\":\"\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"},{\"sig\":\"\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"},{\"sig\":\"\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"},{\"sig\":\"\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"},{\"sig\":\"\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "range:sigs"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "body changed after signing, id left alone",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":600}},\"bundle_id\":\"f95d1da5bf4da4d005a84c1f03c5072b713e71dddca4a6b2b43d018716a066f5\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"T9jkRt3aIe6fhmk2ZFW9fZd+FjXTT/aj95sUTAKmiJhgbY4Ee5pDa3Hyib+TxcDRCIsYIEErN2w5VAMR5m38Aw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "bundle-id:bundle_id"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "body changed after signing, id recomputed",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":600}},\"bundle_id\":\"6d62ec696368b0e92ad78c18cf0fb8a9198da9044cff77a3a7f08aaec4e2580d\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"T9jkRt3aIe6fhmk2ZFW9fZd+FjXTT/aj95sUTAKmiJhgbY4Ee5pDa3Hyib+TxcDRCIsYIEErN2w5VAMR5m38Aw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "unauthorized:sigs"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "bundle_id is not a string",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":7,\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "type:bundle_id"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "max_len above the floor",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":601,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"ba2ea5ce36bbe722d4a76e3906246430b163403aae44e74d878e9e8c26a9dd3c\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"5rgZ8HUk+dzI+X3g5/d4dvsNc2olBUeSUJUa9O359xZEgISODYv19+PY/cIlhTTmYHgp2uO/13N1wIMuxtZEBg==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "loosens:body.instruction.max_len"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "max_len zero",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":0,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"872c70e68c40bee80aafc1063e054c3f858005c74fc4f3802bb51c51bf8e66e8\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"wjUirpjam2z2E/MAJTgO7x3VvSyryTdrlmIpXmaRtMS/M3oyQYXIRNreGzIVDg9J3hpDG5ma7TbLIVOSwpTVCQ==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "range:body.instruction.max_len"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "max_len as a float",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400.0,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"6252fc029f50d87cc8db0b0fab2b7ab52e7eef6c6238ca49edd87015421e5e00\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"ZQ/yxyzkwpAHuKP33XaSvvUKgv8pJfidz+VjNZ5eVnFst5PPjtA3gpK7zgYOFJBg1lQ7vEumTUmTEmA/rsoCAA==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "type:body.instruction.max_len"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "max_len as a bool",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":true,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"62c7e0a27275f3c62f31b02976d44502cf3b05a5e5301cf14ff0e6e1d417897f\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"J60Ficqfzk5oRlKHQRG3oIcKHojII8k0s6TVSoI3lC//0/QO8BbX61edmnelKF/CkR8Cwzn8ahJ6NavT7pcUCg==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "type:body.instruction.max_len"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "max_steps above the floor",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":7,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"03bb737de01e54651a9c558c0a9484ecdf9fffab664d40f81bd3b5ee58159548\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"FS2xjyxQiPZs/qP1hciPkSKiwXy1K8WSPRRPjRqcFrMNT5OHNa6HURX2sWLf7nViLDJ46abf6jerhIkSrBaZDQ==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "loosens:body.instruction.max_steps"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "require_intent false",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":false},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"30412ce4fc6146c9f835cb8929448c265ab89880f792e32b69e977d413294561\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"1+298VuNowlslvBfYUHHcjseOe2l5rtpexv4Mnk46mPeUglnL3+35Q4Muc3slv7dS6GfTP4i9qPkCB2GDtxnDw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "loosens:body.plan.require_intent"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "repeat_threshold above the floor",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":3,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"070baabf7946bae89cc80bbf3c63a04c16fec37a63601be40d90582d8a745653\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"UP10pKA5qrmSQZZKrfkD+co1PR5FbyrnMNJrmwSx8IWkqGHOCf46d19stITo3RC8DrOVuGP4RdAH52IDI6ZxAg==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "loosens:body.plan.repeat_threshold"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "poll_window below its range",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":1,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"44aa53cce95f38629745ecb689f3de896ab3aac6e4efadb173233026895236e6\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"f1asywh09jt1u86Z0IsJTGz6DKshaRtcR2dT9ezabi/zOWT18sqGJ7VC/nX18vTtJzSeJQd90tQZzudcqU3vCQ==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "range:body.plan.poll_window"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "known_failure_min_runs above the floor",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":4,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"ce8a8cc432ed2f7029fe99cf9b52170d9a2381b1dc6c5d2d20de604c65745199\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"PBuHPRdy4hLJy8Gwz6xS1I63WcaRq9A4s5fFm6zhuA5wAWb8PcWhsl6s3KKxtWRN8dbbwWDazo9SikCfLya5Dw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "loosens:body.plan.known_failure_min_runs"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "a field that would switch a check off",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"disable_checks\":[\"known-failure\"],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"f44db88d274481614e64de170dbc147ffb7cf9fa889638d9b58de1ec81b4175b\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"vyyAcGDDAhTXG9sX8PyyvGekAoJH7WQy1tUk2aZfN8cezede4ca1ch5SfmsOQfGpvp1C7xumoVoU+1efegnqAw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "unknown-field:body.plan.disable_checks"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "a field that would touch Gate 2",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_authorization\":false,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"3f18e6db9e330f96f99a94cfd8111e7b331132f70e4eaacc631c2355a02c1d1b\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"oyCJQ7yLiaKkxOudFggZ6K5OQ4fKV0aFtLik693XqFFa/bOsVeWdlF5ioEqsJhqc29Z2eupE0BFYGfBVU6r5AQ==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "unknown-field:body.plan.require_authorization"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "an unknown top-level field",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"f95d1da5bf4da4d005a84c1f03c5072b713e71dddca4a6b2b43d018716a066f5\",\"comment\":\"hi\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "bundle-id:bundle_id",
+          "unknown-field:comment"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "presence switched off",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":false,\"note_every_mutation\":true}},\"bundle_id\":\"69fcb9f3ee5fd9b54477ed6d4257e3ab718564d7bfeb6ab5805d1422a4488453\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"fwDVb97UUq5DTZKJND4IOiu2sl57AvaMYNJ10f29DlKHfHY1z9t4EZr3r3YqYcCzjou5E9+o/iBWxRmiGxQEBQ==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "loosens:body.presence.ask_before_new_goal"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "a presence field that would silence the companion",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"never_ask\":true,\"note_every_mutation\":true}},\"bundle_id\":\"0c2950f81a9502c0af72f0e7fd6b2c9f9a3def611f1c86d0ed674dc42c95b850\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"1hrgUDuAp8mavqpBRLxJlBQna1fxjcbbldt7rFVk6F64VRdezzBCBYIAcKsGEiMDBLKh7I2K0Tl0NnwYXZRIAA==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "unknown-field:body.presence.never_ask"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "a phrase in upper case",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"Mass Register\"],\"reason\":\"r\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"697ac63323da40a21d90473524294a31031e2c15b1bc9cf33b985ff4ddfd44fb\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"S643dzsyRJq9cCEugwEF4no/4G0zfLsqSkNb28jaFpNxwrfExE+qKQvCvTaRfiRTdSVIRbGb8fo/fuk6iCPoBw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "not-normalized:body.instruction.revise_on[0].phrases[0]"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "a full-width phrase",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"ｍａｓｓ\"],\"reason\":\"r\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"472c66df3e4b5eee84a6fe4937ab804c490d7cda289a8baed85e7fa542d58fa2\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"f3E048y1SgHsXIggpzxvtOwravIMmWOKrcM99zF6iMFq9WtkRk5db6x0nbGR1NmTKCqtHVlbXsNPpeoFWYqWBg==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "not-normalized:body.instruction.revise_on[0].phrases[0]"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "a phrase with a double space",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass  register\"],\"reason\":\"r\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"0c8eb2d0154c847f31cda2398cda2288a660168fa4a4ab728098807e2db227d9\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"8cqUy66GQt9vnvGeAHdfJQ9ePbbYw9du6Kj5Zm9es0nofQrDQjWYlI3ytaHB9OzvYA3MjN1V+xeNUv5YLxfLCw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "not-normalized:body.instruction.revise_on[0].phrases[0]"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "a phrase with a tab",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass\\tregister\"],\"reason\":\"r\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"55ef63985e56320ccb8cf698ed361b72628020cbf2aa1f93ae7011086646ac5e\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"+1B++l6FLxY2QXewr1/sPCDqj79IwsXIMH+CoiBwkxqYNWKZ4MDho1R3sWCRI50I4BPZU/3YiKoTQNyNNfeiDQ==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "format:body.instruction.revise_on[0].phrases[0]"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "phrases out of order",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"b\",\"a\"],\"reason\":\"r\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"e88cd8d312aefea164a4f9fcc3697ec7610efad5e2925c9c31148b05e6c99434\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"ZoWVOLDeCHvGBqSoPp3bQ/j1JYpD9luQUrQnAhMcah8oI7b0dxXf1HxQ/fvPn3re/hKOqHP3xGOuwZAelKOmBQ==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "order:body.instruction.revise_on[0].phrases"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "phrases repeated",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"a\",\"a\"],\"reason\":\"r\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"40e0a259217b076d94fb4577cb9b208a94c864e266b3021732e9c78852a8d5f1\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"k0gpkY4omZafWuu2CbXq4S/xw8z6qw5mO6KadDFxm4SzL8R1k8c8TJXflGcmbJ+PdBNuOdgNsiU7HhJ3Sg1kCw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "order:body.instruction.revise_on[0].phrases"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "a revise_on entry with no reason",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"a\"]}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"73488c8ef64a52ee053914d8db5866096b1c123e9000b8ee5da8f4a2938c535a\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"7Y1EZ3NUJ/pvTwYgz0WQyXLMvTVmBs7FwcgJN4xlwtClPX+Cbagteo6PxjGYLzbnzki3x+3wARzcq2Yz0+hgAA==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "missing:body.instruction.revise_on[0].reason"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "a blocked target with neither role nor name",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"682d89c7a5d80f5304ca4f2cab63a8a40c97d63e7706b37e1aec9d3103ade7d4\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"4q5CpPbKr8jeEmeDbU9EpJZcXMtLBlPNjCyJanOWmuKWP3uyXDeNGIvCnLVchBYMEF8/TxRVv8hU4bIiFmoRCA==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "missing:body.plan.blocked_targets[0].role"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "a kind token in upper case",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"Run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"ea5213d0b60c68e4200e075c8600d765d256467b7ef4cd68a98a178e61dfc2f2\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"YgHz7hv5Yi4zudRpDSsy0Zt4y5ZirHEa44EYKlAFN1OZ5VX1Sn/8pjcOKZ2sJoMkmmPodDVkoCUBlTL/RNuaAA==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "format:body.plan.blocked_kinds[0]"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "several errors at once",
+      "bundle": "{\"body\":{\"instruction\":{\"extra\":1,\"max_len\":9999,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"b\",\"a\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":\"2\",\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"7c2e439eb87025ab0d5171468f001f7ec597340f8294fc35d50181d868f9514a\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"JoUIyLug23FpFjZpGTlk/rRTwwoh8+hL53jMSwZpDVEcJwo+2DTFP61lE4t35RAiPfrXqQyZ51S+gbuPptVXAw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "loosens:body.instruction.max_len",
+          "order:body.plan.blocked_kinds",
+          "type:body.plan.poll_window",
+          "unknown-field:body.instruction.extra"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "llm policy without its llm block",
+      "bundle": "{\"body\":{\"deny_providers\":[\"did:key:z6MkrVKRLDsNLwwxa5i6gbAibVp4g4PwUY8xnrnB6xcraQxh\"],\"policy\":\"llm/v1\",\"rollout\":{\"promote_after\":1000,\"stage\":\"shadow\"},\"weights\":{\"hop_milli\":1000,\"load_milli\":500}},\"bundle_id\":\"8272d57a669a159bdfa17a155662b1ff0d46c853957ff80369bfbb35beab684e\",\"kind\":\"decision-model\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"TKW8aDJV8JKO89W9zKTnqOno3FSZ5I0iKnsQZHAFQFysvFTlg+L+ZRqHsd2fhcWNrCGOMoRyLDr9lcCWACcPBA==\",\"signer\":\"did:key:z6MkqWQVsY3GwKNTvULJdrfLqoRYz5xT7eXdKLbGxWqQPyZj\"},{\"sig\":\"V+3V7rXYb6o974LJh2y7qsAAMdR42IoPm+WeS3RY4wVU6F8nXrQWFtjtFWv5ymghqCwt0mmVUCKNMO2FpXI6BQ==\",\"signer\":\"did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "missing:body.llm"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "router with an llm block",
+      "bundle": "{\"body\":{\"deny_providers\":[\"did:key:z6MkrVKRLDsNLwwxa5i6gbAibVp4g4PwUY8xnrnB6xcraQxh\"],\"llm\":{\"max_tokens\":256,\"model\":\"router-small\",\"prompt_template_hash\":\"8e2fc6921160cc954422a9c98a82a43f6d3aced71f70e138f8f4645e7a8eb02b\",\"timeout_ms\":1500},\"policy\":\"router/v1\",\"rollout\":{\"promote_after\":1000,\"stage\":\"shadow\"},\"weights\":{\"hop_milli\":1000,\"load_milli\":500}},\"bundle_id\":\"e893a6f267d6c1d1010615b1aabc923d878b4e72c4b53405903909a866b25894\",\"kind\":\"decision-model\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"u/MXkZg1DlKvHAdeqg//iw2NHnbUTG5XzUcuYkN26+jKiLv6Z5H+hEyOIJdcVKfPjLEXgY0pSxtxdbF1Aak0CA==\",\"signer\":\"did:key:z6MkqWQVsY3GwKNTvULJdrfLqoRYz5xT7eXdKLbGxWqQPyZj\"},{\"sig\":\"5lYi1Nrqw9ixB+huqlZMekq9JC83mzWnkfvrQ/SLK3frU6ULN5XeAYzYOLqqQAiQVRX0FKPia039jqHrKgmmDw==\",\"signer\":\"did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "conflict:body.llm",
+          "conflict:body.rollout",
+          "conflict:body.weights"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "a policy nobody knows",
+      "bundle": "{\"body\":{\"deny_providers\":[\"did:key:z6MkrVKRLDsNLwwxa5i6gbAibVp4g4PwUY8xnrnB6xcraQxh\"],\"llm\":{\"max_tokens\":256,\"model\":\"router-small\",\"prompt_template_hash\":\"8e2fc6921160cc954422a9c98a82a43f6d3aced71f70e138f8f4645e7a8eb02b\",\"timeout_ms\":1500},\"policy\":\"oracle/v1\",\"rollout\":{\"promote_after\":1000,\"stage\":\"shadow\"},\"weights\":{\"hop_milli\":1000,\"load_milli\":500}},\"bundle_id\":\"0c2886b5a6c07695aad3bb6bf14b0f758fb7dcf256cc242795680f86b614b30d\",\"kind\":\"decision-model\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"w+KoFr+ghQzbAb7ZWtCgjp6M/WumRYafvzeVeLiXkIfSAtnTMKvFdkQKmvWLiDOMjt3KW/SBfz/t/giDi7pSAg==\",\"signer\":\"did:key:z6MkqWQVsY3GwKNTvULJdrfLqoRYz5xT7eXdKLbGxWqQPyZj\"},{\"sig\":\"q06tjIzsgNKHLzm3cQB3KIQxZ5E2mAD2jH1p+CgVDMfGOfQr/Y7YV87DfcNCO8gvmth+Y8HBKCR7Um5M9RcwDQ==\",\"signer\":\"did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "value:body.policy"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "a weighted policy without a rollout",
+      "bundle": "{\"body\":{\"policy\":\"weighted/v1\"},\"bundle_id\":\"54186540648c0a4a8ccdca09dfd930a75936d6a8c34b38232aaae39015c32c55\",\"kind\":\"decision-model\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"DRo9eN/sevgfy2+xSHWnBTlQeNciYrspfuSR6Mkk2Rg3Qtg3y0a6kUfZxzq7WHJ64wM475MKJZn3ISXIR/JTDg==\",\"signer\":\"did:key:z6MkqWQVsY3GwKNTvULJdrfLqoRYz5xT7eXdKLbGxWqQPyZj\"},{\"sig\":\"3qvy2dMy1SruGN5n3rhMF4282LW0isZzSWOhYzHe/glonF9avBTgnOqMuF5nj68Jq2YM1UHHR8g3itpUq8t7Bg==\",\"signer\":\"did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "missing:body.rollout"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "canary stage with no canary nodes",
+      "bundle": "{\"body\":{\"policy\":\"weighted/v1\",\"rollout\":{\"stage\":\"canary\"}},\"bundle_id\":\"7e4ada83acdf99c0999c92e2e3d958f07ae8f0ec9ae18504bb8e0eec3c714f75\",\"kind\":\"decision-model\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"xAeVfUdj6mW8COZkOX7tyzFhzBax2PVDjAiwJ7GSVUuB4XPC6/Zi55cEU0md+9koywxUz9PgP4aaqjpWc0DcCw==\",\"signer\":\"did:key:z6MkqWQVsY3GwKNTvULJdrfLqoRYz5xT7eXdKLbGxWqQPyZj\"},{\"sig\":\"GXKldE2ULuexkQaBW4/ZZS8aexplzikbMxxIhQQ/aOLoLPdlsESjmKZZXzoX3qlpvF/VNBpF4VkdG9fBx1M9Cg==\",\"signer\":\"did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "missing:body.rollout.canary"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "full stage that names canaries",
+      "bundle": "{\"body\":{\"policy\":\"weighted/v1\",\"rollout\":{\"canary\":[\"did:key:z6MksULLa2gUU4etVGdapsUKX6TFoZLzKeNCBnrzgYJ6krLt\"],\"stage\":\"full\"}},\"bundle_id\":\"d822142ae8e4cbc07a859ca5a7c338effc4a1a9e415945e06972800a923b5c89\",\"kind\":\"decision-model\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"qhqfIVZ5ztA0PtHUfEqVdv/el7fJ5BwglMyG8xm77JzQ1bhs5y+jkbwoOGmSw9FdqHpsyKFqDLE5AZsdPhYWAQ==\",\"signer\":\"did:key:z6MkqWQVsY3GwKNTvULJdrfLqoRYz5xT7eXdKLbGxWqQPyZj\"},{\"sig\":\"SiHqQWVaVhOstAK+q/MlWJ9BW1+JrcH0ymJC7z46kUUhQ1v9qz2B2FTrN+GIbyMeEj9MliBorlv4HzU/ShHACA==\",\"signer\":\"did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "conflict:body.rollout.canary"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "promote_after outside shadow",
+      "bundle": "{\"body\":{\"policy\":\"weighted/v1\",\"rollout\":{\"promote_after\":500,\"stage\":\"full\"}},\"bundle_id\":\"e2a4fa6e01bc7fac84b5919a7c969e39448993b01a1a74c452c6edfd5df367dd\",\"kind\":\"decision-model\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"fe5JXQrx3LIBnDjc10KPcf1fAtlMWSwDuS7TyZhRhvwZjD/vHCEHtBKoRZGTsRuortiYh3KHZGiPdpOr0n1zAg==\",\"signer\":\"did:key:z6MkqWQVsY3GwKNTvULJdrfLqoRYz5xT7eXdKLbGxWqQPyZj\"},{\"sig\":\"uP/MZPrBbGcs7sSbawpO21tVP7GoYe78SLsDitZb8lh6aUy36laONwzGYrojwBNFrNFRbA9OgQaUfJemsOJXDQ==\",\"signer\":\"did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "conflict:body.rollout.promote_after"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "a prompt hash that is not hex",
+      "bundle": "{\"body\":{\"deny_providers\":[\"did:key:z6MkrVKRLDsNLwwxa5i6gbAibVp4g4PwUY8xnrnB6xcraQxh\"],\"llm\":{\"max_tokens\":256,\"model\":\"router-small\",\"prompt_template_hash\":\"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\",\"timeout_ms\":1500},\"policy\":\"llm/v1\",\"rollout\":{\"promote_after\":1000,\"stage\":\"shadow\"},\"weights\":{\"hop_milli\":1000,\"load_milli\":500}},\"bundle_id\":\"1026c1175078eac1fa2943736b6a94029ba3c22b7ecd935606b9392170003cfb\",\"kind\":\"decision-model\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"2YNmTlq5dwmBu/cN9c7tOU3LX/7O1kwlJhpM88jr7rJWWj5IH9aqNoPe5GeLEidjVVKdbvNlpACe2opn2LUGDg==\",\"signer\":\"did:key:z6MkqWQVsY3GwKNTvULJdrfLqoRYz5xT7eXdKLbGxWqQPyZj\"},{\"sig\":\"9nY3J7/ssWi/2s7/uUG0/QA6P2BqjdwcWHKHatzhii8yL2eqAkM7dvOcxDeIl1SV2YfRy5BkV84WO9BcUuSlCA==\",\"signer\":\"did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "format:body.llm.prompt_template_hash"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "a deny list entry that is not a DID",
+      "bundle": "{\"body\":{\"deny_providers\":[\"did:key:nope\"],\"llm\":{\"max_tokens\":256,\"model\":\"router-small\",\"prompt_template_hash\":\"8e2fc6921160cc954422a9c98a82a43f6d3aced71f70e138f8f4645e7a8eb02b\",\"timeout_ms\":1500},\"policy\":\"llm/v1\",\"rollout\":{\"promote_after\":1000,\"stage\":\"shadow\"},\"weights\":{\"hop_milli\":1000,\"load_milli\":500}},\"bundle_id\":\"6b0ff21613b26092ce33f00ad5aa941d95ec156becf0729298338eaaf6d06ad6\",\"kind\":\"decision-model\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"r1ZMtDH75lRbfZxRU95uVaugVbgYba+hQvZJHk7f72l6HWWWiUzKq66FtUlG6pQXBu09xYDYrUQmqv4pUdLwAw==\",\"signer\":\"did:key:z6MkqWQVsY3GwKNTvULJdrfLqoRYz5xT7eXdKLbGxWqQPyZj\"},{\"sig\":\"jw0Ed3QBudbHF6gNpudLeiGLl24sd2WR0QCqkFm/CziJmvRN1el+WMemv5i6ub4pXEKZ1bKe6WI25PguLt9hDA==\",\"signer\":\"did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "format:body.deny_providers[0]"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "an http origin",
+      "bundle": "{\"body\":{\"max_body_bytes\":2097152,\"modes\":[\"rendered\",\"static\"],\"origins\":[\"http://data.example.org\"],\"rate\":{\"concurrency\":1,\"rps_milli\":500},\"submitters\":[\"did:key:z6MksULLa2gUU4etVGdapsUKX6TFoZLzKeNCBnrzgYJ6krLt\",\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"],\"timeout_ms\":10000},\"bundle_id\":\"59a49e70001df21baf113daeac20240d6aece0b90fa44e57351a3e0980e8588e\",\"kind\":\"ingest\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[\"ingest\"]},\"sigs\":[{\"sig\":\"xIxddnRTcn9B1yZa10LT8Oc22YbfCwzBA34QfTvw1GBOGdM/va14lawgAu7dX+2PSQpanT4iiOPp4EZVmbqGCw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "format:body.origins[0]"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "an origin with a path",
+      "bundle": "{\"body\":{\"max_body_bytes\":2097152,\"modes\":[\"rendered\",\"static\"],\"origins\":[\"https://a.example/x\"],\"rate\":{\"concurrency\":1,\"rps_milli\":500},\"submitters\":[\"did:key:z6MksULLa2gUU4etVGdapsUKX6TFoZLzKeNCBnrzgYJ6krLt\",\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"],\"timeout_ms\":10000},\"bundle_id\":\"d7f2deb578b630a17bf8a69fe4093c9a8dde9543121a721f07649604a9c0d319\",\"kind\":\"ingest\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[\"ingest\"]},\"sigs\":[{\"sig\":\"HvHUnCgJg5b0M6AavMU6jqTg8z6jJWUmvTjwYZyG0ZqWe4mjUEp19diwfBzgA2gCJ4TNw2rdAXKAdhLh6o2eDQ==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "format:body.origins[0]"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "an origin with the default port",
+      "bundle": "{\"body\":{\"max_body_bytes\":2097152,\"modes\":[\"rendered\",\"static\"],\"origins\":[\"https://a.example:443\"],\"rate\":{\"concurrency\":1,\"rps_milli\":500},\"submitters\":[\"did:key:z6MksULLa2gUU4etVGdapsUKX6TFoZLzKeNCBnrzgYJ6krLt\",\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"],\"timeout_ms\":10000},\"bundle_id\":\"929b8adfbcbe0aa29defd7a38fb2ca71902e6a38086d216cccb3da0040dabc99\",\"kind\":\"ingest\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[\"ingest\"]},\"sigs\":[{\"sig\":\"LfRP95OJDSGA3y9kXNPns16NlSkj3uDDPiNVAURR2WEdAYt2x09No59+dKWXd0Vx2ATe+57UmLkfgwUlmG6FBA==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "format:body.origins[0]"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "an origin in upper case",
+      "bundle": "{\"body\":{\"max_body_bytes\":2097152,\"modes\":[\"rendered\",\"static\"],\"origins\":[\"https://A.example\"],\"rate\":{\"concurrency\":1,\"rps_milli\":500},\"submitters\":[\"did:key:z6MksULLa2gUU4etVGdapsUKX6TFoZLzKeNCBnrzgYJ6krLt\",\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"],\"timeout_ms\":10000},\"bundle_id\":\"2f4ef81f62cbe8a1f4c7a7f951635ea6f7a06f1e60b6387027139f412d8e800c\",\"kind\":\"ingest\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[\"ingest\"]},\"sigs\":[{\"sig\":\"G/xrvhSGI5BRHHMS/ZMqmO8hLe6Sff6DVyT2KM9ppP5tt+DceL9eKXWwA/U8cuLE6LG2gKJf9t0+qT0NE51oDg==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "format:body.origins[0]"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "an origin with a port past 65535",
+      "bundle": "{\"body\":{\"max_body_bytes\":2097152,\"modes\":[\"rendered\",\"static\"],\"origins\":[\"https://a.example:65536\"],\"rate\":{\"concurrency\":1,\"rps_milli\":500},\"submitters\":[\"did:key:z6MksULLa2gUU4etVGdapsUKX6TFoZLzKeNCBnrzgYJ6krLt\",\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"],\"timeout_ms\":10000},\"bundle_id\":\"7d51d13c521c5e2c6c728009a931935877b046e85c018b8be830e9fd0cc5bc13\",\"kind\":\"ingest\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[\"ingest\"]},\"sigs\":[{\"sig\":\"3akFZxXUZd1zwK9mdk3ifCV51rw9z9+Cz9SfWd33GozmAeoWzwN5aF26Ru6gqjvb66hTQV2SAQnoNc1ODaGRCA==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "format:body.origins[0]"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "a single-label host",
+      "bundle": "{\"body\":{\"max_body_bytes\":2097152,\"modes\":[\"rendered\",\"static\"],\"origins\":[\"https://localhost\"],\"rate\":{\"concurrency\":1,\"rps_milli\":500},\"submitters\":[\"did:key:z6MksULLa2gUU4etVGdapsUKX6TFoZLzKeNCBnrzgYJ6krLt\",\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"],\"timeout_ms\":10000},\"bundle_id\":\"311c463a329d94e43a911837687ed7d5177c524ee9e15a7b2a234251371f2f98\",\"kind\":\"ingest\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[\"ingest\"]},\"sigs\":[{\"sig\":\"KQ37uatttAwo2VUT0DAtzAmHhgRLJmaZGnduIbQMa2XH5y3hqbhBgzUWKZr3g2vMnKMydDninitrSXGnkG7fCg==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "format:body.origins[0]"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "origins out of order",
+      "bundle": "{\"body\":{\"max_body_bytes\":2097152,\"modes\":[\"rendered\",\"static\"],\"origins\":[\"https://b.example\",\"https://a.example\"],\"rate\":{\"concurrency\":1,\"rps_milli\":500},\"submitters\":[\"did:key:z6MksULLa2gUU4etVGdapsUKX6TFoZLzKeNCBnrzgYJ6krLt\",\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"],\"timeout_ms\":10000},\"bundle_id\":\"3e6844a2200e484e66a2bafcc4038ff059580ea8353ece6d44054db3e9ec3c6d\",\"kind\":\"ingest\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[\"ingest\"]},\"sigs\":[{\"sig\":\"XziXSjGiZRa+PdgQs6nujqtuukqTtVakJwU44YZVettT4U1f4oWzidOyBwiZh+hszNSP0DoqoRmoVObkcIo0CA==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "order:body.origins"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "faster than one request a second",
+      "bundle": "{\"body\":{\"max_body_bytes\":2097152,\"modes\":[\"rendered\",\"static\"],\"origins\":[\"https://data.example.org\",\"https://docs.example.com:8443\"],\"rate\":{\"concurrency\":1,\"rps_milli\":1001},\"submitters\":[\"did:key:z6MksULLa2gUU4etVGdapsUKX6TFoZLzKeNCBnrzgYJ6krLt\",\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"],\"timeout_ms\":10000},\"bundle_id\":\"d9b6a6c9438b71d7e6b80cfe031bc3c098a558c52f3a039a0f34fd13adfa1bbb\",\"kind\":\"ingest\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[\"ingest\"]},\"sigs\":[{\"sig\":\"fkbuIkItDKVe151jgY6LlJdTs5hSv9ZwxP3UFMOgRk95+Djx6aYQB4ASGEjW371nrjRkrccTLUd8yk7/rtiuDA==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "loosens:body.rate.rps_milli"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "two at a time",
+      "bundle": "{\"body\":{\"max_body_bytes\":2097152,\"modes\":[\"rendered\",\"static\"],\"origins\":[\"https://data.example.org\",\"https://docs.example.com:8443\"],\"rate\":{\"concurrency\":2,\"rps_milli\":500},\"submitters\":[\"did:key:z6MksULLa2gUU4etVGdapsUKX6TFoZLzKeNCBnrzgYJ6krLt\",\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"],\"timeout_ms\":10000},\"bundle_id\":\"92cc672f725426830875e7b36975acb7ffd1e7c98ab79aec1ed34fea642aed9d\",\"kind\":\"ingest\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[\"ingest\"]},\"sigs\":[{\"sig\":\"u/MTRskoqL/7LzzeTYyUtoo0nT7pZEpPyJOo8V6QBxvILCFS40WaPfffat7UeAa8axf/o3wsnXq2AJCBFxpYBw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "loosens:body.rate.concurrency"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "a robots switch",
+      "bundle": "{\"body\":{\"max_body_bytes\":2097152,\"modes\":[\"rendered\",\"static\"],\"origins\":[\"https://data.example.org\",\"https://docs.example.com:8443\"],\"rate\":{\"concurrency\":1,\"rps_milli\":500},\"robots\":false,\"submitters\":[\"did:key:z6MksULLa2gUU4etVGdapsUKX6TFoZLzKeNCBnrzgYJ6krLt\",\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"],\"timeout_ms\":10000},\"bundle_id\":\"15f1bfae6e3f741f62457fef3ccb98aa5571d02a028d38a5a3688f4a484df378\",\"kind\":\"ingest\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[\"ingest\"]},\"sigs\":[{\"sig\":\"/VmLGQYaEabzoJZcinyOsnw5FHPWfKXVHchx6fW2xnpNgHiOuq5K1cv7WM+eV8TlTdAEangWLoG7/4gI0k6kAw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "unknown-field:body.robots"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "bodies past 8 MiB",
+      "bundle": "{\"body\":{\"max_body_bytes\":8388609,\"modes\":[\"rendered\",\"static\"],\"origins\":[\"https://data.example.org\",\"https://docs.example.com:8443\"],\"rate\":{\"concurrency\":1,\"rps_milli\":500},\"submitters\":[\"did:key:z6MksULLa2gUU4etVGdapsUKX6TFoZLzKeNCBnrzgYJ6krLt\",\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"],\"timeout_ms\":10000},\"bundle_id\":\"e4cad4c190637892f2ea31c68387c05d12ffcedea26a7e038780c3f23b0cbe7d\",\"kind\":\"ingest\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[\"ingest\"]},\"sigs\":[{\"sig\":\"lk9Ezf5M7uTlRgN4S0bPyv1fFjTUeCCQ6RIsNV38+ljGjR024hk3Xht6HuL07jf5x+YDO6Gq4BNl/+ouFybgDw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "loosens:body.max_body_bytes"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "a mode nobody knows",
+      "bundle": "{\"body\":{\"max_body_bytes\":2097152,\"modes\":[\"screenshot\"],\"origins\":[\"https://data.example.org\",\"https://docs.example.com:8443\"],\"rate\":{\"concurrency\":1,\"rps_milli\":500},\"submitters\":[\"did:key:z6MksULLa2gUU4etVGdapsUKX6TFoZLzKeNCBnrzgYJ6krLt\",\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"],\"timeout_ms\":10000},\"bundle_id\":\"941fbf401c6f43f69638804293511dea4412751a4f31864a10cf30fc22f02bdc\",\"kind\":\"ingest\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[\"ingest\"]},\"sigs\":[{\"sig\":\"nO3vaQO+GLMkCI5QR03uXJDnBqjESzCOxi9wzRJSctxqfjsYHt24bxpXPyq2paMSwPomHC/7Q2XxaUdLV98KDA==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "value:body.modes[0]"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "no submitters",
+      "bundle": "{\"body\":{\"max_body_bytes\":2097152,\"modes\":[\"rendered\",\"static\"],\"origins\":[\"https://data.example.org\",\"https://docs.example.com:8443\"],\"rate\":{\"concurrency\":1,\"rps_milli\":500},\"submitters\":[],\"timeout_ms\":10000},\"bundle_id\":\"4825a1e753de397de32b5b305a6ee4f095af65b743d18375a71816ae3438e156\",\"kind\":\"ingest\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[\"ingest\"]},\"sigs\":[{\"sig\":\"hVd2/t8IBjcrWjAqakVZp7mjhwfYRindqo1NSaNMp24Xxq2IpdWpoI3KXUtrwL0/YUGYZMMmooEO2EWcDHd0Bw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "range:body.submitters"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "add and remove the same DID",
+      "bundle": "{\"body\":{\"add\":[\"did:key:z6MksULLa2gUU4etVGdapsUKX6TFoZLzKeNCBnrzgYJ6krLt\"],\"remove\":[\"did:key:z6MksULLa2gUU4etVGdapsUKX6TFoZLzKeNCBnrzgYJ6krLt\"]},\"bundle_id\":\"8686f38744db4648ec4940414eac97a6945b441ad60975aa5492ee7bb427b697\",\"kind\":\"allowlist\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"OxAqSB6Pe7ah6x2hCurwnBEpn+tcgT90g/DVYO5o7kBoe8fCX5a9LmjYsCksBNxHUIIBlxU9o/laB57jVWabDA==\",\"signer\":\"did:key:z6MkqWQVsY3GwKNTvULJdrfLqoRYz5xT7eXdKLbGxWqQPyZj\"},{\"sig\":\"pPjSCT5+wBH2+sE3uS1rZ0IdpFNrVKtasEoUq1D2gIUw+7l+MA9iqWk3VBI4ANxc010pwDZEhDR+dA3j/cVNDg==\",\"signer\":\"did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "conflict:body.remove"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "an allowlist change that changes nothing",
+      "bundle": "{\"body\":{},\"bundle_id\":\"04118eeba3823cc95960ab1a9761627355b6c774fbbbba5ae376c7599954f3d3\",\"kind\":\"allowlist\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"Q2EPoHSHdBLD01ZWj0WVep+DouczrWiHqf2bZT4bp8T3xJILjmBs1Dla9Y7saWTD2dzCgwA63ooGKMabcHnhDQ==\",\"signer\":\"did:key:z6MkqWQVsY3GwKNTvULJdrfLqoRYz5xT7eXdKLbGxWqQPyZj\"},{\"sig\":\"rBDsa8QEvgMt6JSpjOBPGSuI2mFTUMqBeyPBIDujgRBzCr6Gt3BFx7VxSY397ur4g3rzPgcxyNxUZdbeqC+QAw==\",\"signer\":\"did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "conflict:body"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "not an object",
+      "bundle": "[\"a\",\"list\"]",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "type:$"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "a kind nobody knows",
+      "bundle": "{\"body\":{\"blob\":\"...\"},\"bundle_id\":\"adf4487f1198e4c80f0ec6a6020247288e68e2b6a73c762ba9ffd028ad561b33\",\"kind\":\"firmware\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"2zqsdhSYpsufcSo/i2AvGtw2yo+gH+qw51qLWuaQBrgdCFrJUC65pf+B7qMupHu2sjvrO4XdntFpxeFVvQ2nAQ==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "value:kind"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "the wrong type",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"c36e89d2ed282d52a9e44ad21754c0bca4466eaee159eb28995a21ffaac46684\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"Yz8nVEHIEslEtEF6iZrrc2weMjZrBYI9L/ekFYGYU5ESQN/ZXu0MoXFthRSBq5Ek8bnjVlbbuT+tvdOGq0uUCA==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v2\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "value:type"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "a bad mesh name",
+      "bundle": "{\"body\":{},\"bundle_id\":\"8187bf7f198eca4065d47d1417bd2e0d8030c7a7b141d997eaccd6f31c1e17bf\",\"kind\":\"gate-rules\",\"mesh\":\"Home Lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"DyVbFdLDLemV7u2/77NMPmq+SNKECzT0hyKYe9+tRDqOLwZcVBI3V/kU3N/Ve16prw9RTHQLhHYgY6a5JXLuBw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "format:mesh"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "version 0",
+      "bundle": "{\"body\":{},\"bundle_id\":\"31d66887923904a8a48d53ee4ad4d9b7b4b9e94afd0bb83e58352f055b9e5103\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"dUbhTuRH7XoVzkXTTK5OxEcnkChmH3PvKYOPb8HNdApRMX5ZY8x56z2XDMkakCSl37CS9wK6nbbzQfOvtwtNAA==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":0}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "range:version"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "version 2 with no predecessor named",
+      "bundle": "{\"body\":{},\"bundle_id\":\"a450f0d3f57f04a30070f3440ef4f9895f3c26478f0b3b38873f04a04ab6f550\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"wPLW8OAhThIRy40n35np+hH0Gr+74rUNsc8/fnjBXaEPzKb+V5+Dz4fcG/X542B+cyKdHfBMx2zgzKQR5t6eCw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":2}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "conflict:supersedes"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "version 1 naming a predecessor",
+      "bundle": "{\"body\":{},\"bundle_id\":\"9d362ced7bde8d7e434569c79fe05bd9251a7d5a78e7e21bf8003d71ee41be28\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"bIoUMspKe2czCpgvXLXgZZHlqNnVV8ueZUDlJGkR8GXf5L24PgMEmKLmR2Gr+qnHnvKuHH4OPeKL0NAteBDmCw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"f95d1da5bf4da4d005a84c1f03c5072b713e71dddca4a6b2b43d018716a066f5\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "conflict:supersedes"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "a role nobody knows",
+      "bundle": "{\"body\":{},\"bundle_id\":\"14577976bd72b678e29d7d7d7f0281a95b19d33b2d45d062ac71c81b234c7d9d\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[\"admin\"]},\"sigs\":[{\"sig\":\"zanahi44FCwN9PnLrk8fzBBsFx0c0FCJ/1c3lclw06WgW0W/cPoFnSAQLqW7IvbsxLl/vQ2NSWl6Ke48O4hMCA==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "value:scope.roles[0]"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "a scope without nodes",
+      "bundle": "{\"body\":{},\"bundle_id\":\"2f29d8420adf9c590228cf7aeeb7cfe2464b433a008045d6e511a0bef4c7b282\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"roles\":[]},\"sigs\":[{\"sig\":\"+nhWZLUi54sFYxFm7lsMHi8W1nwqLU7gVUxnVVbdn+SZ8pGQsjHNZ0sKwlQyZ85BvUYFb+wpeKXBuI2pM0/xAg==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "missing:scope.nodes"
+        ],
+        "signers": []
+      }
+    },
+    {
+      "name": "a missing field",
+      "bundle": "{\"body\":{\"instruction\":{\"max_len\":400,\"max_steps\":5,\"revise_on\":[{\"phrases\":[\"mass register\",\"批量注册\"],\"reason\":\"registering accounts in bulk is not what this mesh is for\",\"suggestion\":\"name the one account you own and what to do with it\"}]},\"plan\":{\"blocked_kinds\":[\"run\"],\"blocked_targets\":[{\"name\":\"terminal\"},{\"name\":\"delete all\",\"role\":\"button\"}],\"enforce_capabilities\":true,\"extra_destructive_kinds\":[\"clear\",\"purge\"],\"known_failure_min_runs\":2,\"max_cost\":30,\"poll_window\":2,\"repeat_threshold\":1,\"require_intent\":true},\"presence\":{\"ask_before_new_goal\":true,\"note_every_mutation\":true}},\"bundle_id\":\"f95d1da5bf4da4d005a84c1f03c5072b713e71dddca4a6b2b43d018716a066f5\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"T9jkRt3aIe6fhmk2ZFW9fZd+FjXTT/aj95sUTAKmiJhgbY4Ee5pDa3Hyib+TxcDRCIsYIEErN2w5VAMR5m38Aw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "expect": {
+        "ok": false,
+        "errors": [
+          "bundle-id:bundle_id",
+          "missing:not_before"
+        ],
+        "signers": []
+      }
+    }
+  ],
+  "chain": [
+    {
+      "name": "the first bundle",
+      "current": null,
+      "candidate": "{\"body\":{\"instruction\":{\"max_len\":500}},\"bundle_id\":\"b4c3c60357729947c3410e6d8829695e465ed78262b9883989ccf8aa57e03532\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"Gw0gMrkqXzQHpcjx9/TAbvlZIhG4pBxgB/ESdJGZOWOz3ZAW/++aEd7pW02Hyfsl9pMQRsG/93/CFJnUoPH9Aw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "errors": []
+    },
+    {
+      "name": "the next version naming its predecessor",
+      "current": "{\"body\":{\"instruction\":{\"max_len\":500}},\"bundle_id\":\"b4c3c60357729947c3410e6d8829695e465ed78262b9883989ccf8aa57e03532\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"Gw0gMrkqXzQHpcjx9/TAbvlZIhG4pBxgB/ESdJGZOWOz3ZAW/++aEd7pW02Hyfsl9pMQRsG/93/CFJnUoPH9Aw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "candidate": "{\"body\":{\"instruction\":{\"max_len\":400}},\"bundle_id\":\"893a5393830181b8966815a1821bb8b097454e0c3d7745622cf762c5965036a8\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"SKZSU6vpIAw7PE4eWYHAWaAMoeyE7DNKGLsD01Na1JbS8916l6Zi2at456S67If8dApO42NiUF7BMFXxfD9DBw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"b4c3c60357729947c3410e6d8829695e465ed78262b9883989ccf8aa57e03532\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":2}",
+      "errors": []
+    },
+    {
+      "name": "a gap in versions",
+      "current": "{\"body\":{\"instruction\":{\"max_len\":500}},\"bundle_id\":\"b4c3c60357729947c3410e6d8829695e465ed78262b9883989ccf8aa57e03532\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"Gw0gMrkqXzQHpcjx9/TAbvlZIhG4pBxgB/ESdJGZOWOz3ZAW/++aEd7pW02Hyfsl9pMQRsG/93/CFJnUoPH9Aw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "candidate": "{\"body\":{},\"bundle_id\":\"c7bd42df95877498dd86e702b282bef4bea93f46e40f61f3194cdc1c7d1f8d1f\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"utdcSVAR4j9WA0k4asjOePpVZGurnchNKTwX+CpYihjV2Yn8D9CBz5gXAKFmuxNU/dcF1/8vFR9H9jUY+GnKCQ==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"893a5393830181b8966815a1821bb8b097454e0c3d7745622cf762c5965036a8\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":3}",
+      "errors": [
+        "chain:supersedes",
+        "chain:version"
+      ]
+    },
+    {
+      "name": "a first bundle that is not version 1",
+      "current": null,
+      "candidate": "{\"body\":{\"instruction\":{\"max_len\":400}},\"bundle_id\":\"893a5393830181b8966815a1821bb8b097454e0c3d7745622cf762c5965036a8\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"SKZSU6vpIAw7PE4eWYHAWaAMoeyE7DNKGLsD01Na1JbS8916l6Zi2at456S67If8dApO42NiUF7BMFXxfD9DBw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"b4c3c60357729947c3410e6d8829695e465ed78262b9883989ccf8aa57e03532\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":2}",
+      "errors": [
+        "chain:version"
+      ]
+    },
+    {
+      "name": "the same version again",
+      "current": "{\"body\":{\"instruction\":{\"max_len\":500}},\"bundle_id\":\"b4c3c60357729947c3410e6d8829695e465ed78262b9883989ccf8aa57e03532\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"Gw0gMrkqXzQHpcjx9/TAbvlZIhG4pBxgB/ESdJGZOWOz3ZAW/++aEd7pW02Hyfsl9pMQRsG/93/CFJnUoPH9Aw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "candidate": "{\"body\":{\"instruction\":{\"max_len\":500}},\"bundle_id\":\"b4c3c60357729947c3410e6d8829695e465ed78262b9883989ccf8aa57e03532\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"Gw0gMrkqXzQHpcjx9/TAbvlZIhG4pBxgB/ESdJGZOWOz3ZAW/++aEd7pW02Hyfsl9pMQRsG/93/CFJnUoPH9Aw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "errors": [
+        "chain:supersedes",
+        "chain:version"
+      ]
+    },
+    {
+      "name": "another scope",
+      "current": "{\"body\":{\"instruction\":{\"max_len\":500}},\"bundle_id\":\"b4c3c60357729947c3410e6d8829695e465ed78262b9883989ccf8aa57e03532\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"Gw0gMrkqXzQHpcjx9/TAbvlZIhG4pBxgB/ESdJGZOWOz3ZAW/++aEd7pW02Hyfsl9pMQRsG/93/CFJnUoPH9Aw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "candidate": "{\"body\":{},\"bundle_id\":\"26cc8c5a8d0435a34bdb78c945f1716d567f8c0f3cc906c82a9b2e12419c9145\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[\"serve\"]},\"sigs\":[{\"sig\":\"SVqGDOXJm4CMF0/B3aKdxvRkYMHJPGQVB0XRZ/cpxlRAZSl7b+slEjx0lqoujqZAiHHoqzdEgEwV2ZJwsvjIDg==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"b4c3c60357729947c3410e6d8829695e465ed78262b9883989ccf8aa57e03532\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":2}",
+      "errors": [
+        "chain:scope"
+      ]
+    },
+    {
+      "name": "another mesh",
+      "current": "{\"body\":{\"instruction\":{\"max_len\":500}},\"bundle_id\":\"b4c3c60357729947c3410e6d8829695e465ed78262b9883989ccf8aa57e03532\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"Gw0gMrkqXzQHpcjx9/TAbvlZIhG4pBxgB/ESdJGZOWOz3ZAW/++aEd7pW02Hyfsl9pMQRsG/93/CFJnUoPH9Aw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "candidate": "{\"body\":{},\"bundle_id\":\"270639a77922cfd3765a34496f6c8a94f9629eb416d005e42b45f5460c51373b\",\"kind\":\"gate-rules\",\"mesh\":\"office\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"Oz6aIxs35/fmQxsBZPABfoNX8cUxdMNohuG2/MLp9Xkp5OnVRWJSCVGQTjqEsIHCtUwxZCn8xvzg1D1rn/C9CA==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"b4c3c60357729947c3410e6d8829695e465ed78262b9883989ccf8aa57e03532\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":2}",
+      "errors": [
+        "chain:mesh"
+      ]
+    },
+    {
+      "name": "another kind",
+      "current": "{\"body\":{\"instruction\":{\"max_len\":500}},\"bundle_id\":\"b4c3c60357729947c3410e6d8829695e465ed78262b9883989ccf8aa57e03532\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"Gw0gMrkqXzQHpcjx9/TAbvlZIhG4pBxgB/ESdJGZOWOz3ZAW/++aEd7pW02Hyfsl9pMQRsG/93/CFJnUoPH9Aw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "candidate": "{\"body\":{\"add\":[\"did:key:z6MksULLa2gUU4etVGdapsUKX6TFoZLzKeNCBnrzgYJ6krLt\"]},\"bundle_id\":\"311497639f67ea367119ddd6aa89bd38f3f4375c00b32211b5333fce8712a367\",\"kind\":\"allowlist\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"OaXw5R45cxsXpRHOnQoaW8rYNtcgvvMW66IHmGF5VBRdGdCYsNheL+xXP132akmylSEDYONH9qA6ds0yqkbhCw==\",\"signer\":\"did:key:z6MkqWQVsY3GwKNTvULJdrfLqoRYz5xT7eXdKLbGxWqQPyZj\"},{\"sig\":\"pUy5B6q83Ivv22oTuMB+jJ4RnP7+gmVlU3BzTL7eIb4xvtPVCZSPyDDIxt6Ng+OlrEIM9bkXm3qvE+jp93UKDA==\",\"signer\":\"did:key:z6MkmmcWBQFkxBy6EciCTg2gyjDUUWSvkodwxYTxmY2N6SwN\"}],\"supersedes\":\"b4c3c60357729947c3410e6d8829695e465ed78262b9883989ccf8aa57e03532\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":2}",
+      "errors": [
+        "chain:kind"
+      ]
+    },
+    {
+      "name": "naming the wrong predecessor",
+      "current": "{\"body\":{\"instruction\":{\"max_len\":500}},\"bundle_id\":\"b4c3c60357729947c3410e6d8829695e465ed78262b9883989ccf8aa57e03532\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"Gw0gMrkqXzQHpcjx9/TAbvlZIhG4pBxgB/ESdJGZOWOz3ZAW/++aEd7pW02Hyfsl9pMQRsG/93/CFJnUoPH9Aw==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":1}",
+      "candidate": "{\"body\":{},\"bundle_id\":\"728ab85fb77138b9211e0af0685803fa35b52390c8b27ee190964a125332faf5\",\"kind\":\"gate-rules\",\"mesh\":\"home-lab\",\"not_before\":1767225600,\"scope\":{\"nodes\":[],\"roles\":[]},\"sigs\":[{\"sig\":\"L9lsAnT+i6+6DJYJm4reDz1NhoLBwOLerEm8WlOEc+QdeeKSNG75r9k7fKOzecDWEQ0O1fCQrtqCy/GYsDMhAA==\",\"signer\":\"did:key:z6MkvXiEshwWd72nLZq5vG7Nk8gANGSjk41mii4r8mDtNJuY\"}],\"supersedes\":\"c7bd42df95877498dd86e702b282bef4bea93f46e40f61f3194cdc1c7d1f8d1f\",\"type\":\"secdogie/policy-bundle/v1\",\"version\":2}",
+      "errors": [
+        "chain:supersedes"
+      ]
+    }
+  ]
+}

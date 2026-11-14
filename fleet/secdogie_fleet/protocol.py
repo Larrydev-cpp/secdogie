@@ -19,8 +19,7 @@ unit-testable and both ends only have to move bytes).
 
 Screenshots never cross this wire. Each node captures, calls the model, and acts
 entirely on its own machine, and only text comes back -- so adding nodes costs
-the host nothing in bandwidth. What it does multiply is API quota; see
-fleet/README.md.
+the host nothing in bandwidth. What it does multiply is API quota.
 """
 from __future__ import annotations
 

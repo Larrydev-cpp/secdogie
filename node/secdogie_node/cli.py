@@ -5,13 +5,17 @@
         [--candidates memory.db] [--listen 0.0.0.0:7950] \\
         [--masters masters.conf [--revocations revocations.jsonl]] \\
         [--transport-key node.tkey --app-binding app.binding.json ...] \\
-        [--relay-record relay.json ...] [--rendezvous-record rendezvous.json ...]
+        [--relay-record relay.json ...] [--rendezvous-record rendezvous.json ...] \\
+        [--exit-on-stdin-eof]
 
     secdogie-node status --journal node.db --authorized nodes.allow
 
 ``run`` is a foreground process the owner starts and stops: it prints one JSON
 line when it is ready (its DID and address), logs to stderr, and exits 0 on
 SIGTERM / SIGINT. Nothing installs itself or keeps running in the background.
+With ``--exit-on-stdin-eof`` it also stops when its standard input closes: a
+parent that owns the node (the Studio window) holds that pipe, so the node
+stops with the parent however the parent ends, on every OS.
 
 Zero trust: ``--apps`` (the operator Apps' session keys), ``--operators``
 (the keys whose Gate 2 signatures authorize destructive steps) and
@@ -75,6 +79,13 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--rendezvous-record", action="append", default=[], metavar="FILE",
                    help="a rendezvous' self-signed record, as secdogie-relay --rendezvous prints it "
                         "(repeatable): this node registers there, so an App can find it by DID")
+    r.add_argument("--mesh", default="home", metavar="NAME",
+                   help="the mesh this node belongs to: policy bundles for another mesh are refused (default: home)")
+    r.add_argument("--role", action="append", default=[], metavar="ROLE",
+                   help="a role this node offers (repeatable; default: forward): bundle scopes can name roles")
+    r.add_argument("--exit-on-stdin-eof", action="store_true",
+                   help="stop when standard input closes: for a parent process that owns this node "
+                        "(the Studio window), so the node never outlives it")
     r.add_argument("--insecure-dev", action="store_true",
                    help="INSECURE, throwaway local tests only: without --issuers, turn the capability check off")
     r.set_defaults(fn=_run)
@@ -84,6 +95,22 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--authorized", required=True, metavar="ALLOWLIST")
     s.set_defaults(fn=_status)
     return p
+
+
+def _watch_stdin(stop: threading.Event) -> None:
+    """Set ``stop`` once standard input reaches end of file: the owning parent
+    closed it, or exited and the OS closed it."""
+    stream = getattr(sys.stdin, "buffer", None)
+    if stream is None:
+        log.warning("--exit-on-stdin-eof: no standard input to watch; stop with SIGTERM instead")
+        return
+    try:
+        while stream.read1(4096):
+            pass
+    except (OSError, ValueError):
+        pass
+    log.info("standard input closed: stopping")
+    stop.set()
 
 
 def _trust(args, path):
@@ -111,6 +138,7 @@ def _run(args, parser) -> int:
     except (OSError, ValueError) as e:
         parser.error(str(e))
 
+    masters = MasterSet.load(args.masters) if args.masters else None
     self_policy = None
     if args.masters:
         store = RevocationStore(args.revocations) if args.revocations else None
@@ -131,13 +159,16 @@ def _run(args, parser) -> int:
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
     signal.signal(signal.SIGINT, lambda *_: stop.set())
+    if args.exit_on_stdin_eof:
+        threading.Thread(target=_watch_stdin, args=(stop,), daemon=True, name="stdin-eof").start()
     candidates = args.candidates or (args.journal + ".memory" if args.journal != ":memory:" else ":memory:")
     try:
         node = Node(NodeConfig(identity=identity, apps=apps, operators=operators, authorized=authorized,
                                issuers=issuers, unrestricted=unrestricted, journal_path=args.journal,
                                candidates_path=candidates, listen=args.listen, transport_key=tkey,
                                app_bindings=bindings, relay_records=relays,
-                               rendezvous_records=rendezvous))
+                               rendezvous_records=rendezvous, mesh=args.mesh, masters=masters,
+                               roles=tuple(args.role) or ("forward",)))
     except (OSError, ValueError) as e:
         parser.error(str(e))
     if self_policy is not None:

@@ -9,7 +9,7 @@
 #
 # The executable is OS- and architecture-specific: build it once per target
 # platform (Linux x86_64, macOS arm64, Windows x86_64, ...). See
-# packaging/README.md.
+# the build scripts beside this file.
 
 import os
 import sys

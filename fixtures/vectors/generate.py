@@ -1,11 +1,13 @@
-"""Golden vectors shared by the Python, Rust (graph/) and TypeScript (symbiont/)
-implementations of secdogie's canonical JSON, Gate 2 authorization, state-graph
-deltas and the Socratic instruction review.
+"""Golden vectors shared by the Python, Rust (graph/), TypeScript (symbiont/)
+and browser JavaScript (webrtc/) implementations of secdogie's canonical JSON,
+Gate 2 authorization, state-graph deltas, the Socratic instruction review,
+policy bundles and device pairing.
 
 Python is the reference: every expected value here is produced by the real
 production functions (``secdogie_identity.signing.canonical`` / ``sign_payload``,
 ``secdogie_citadel.authz``, ``secdogie_citadel.socratic``,
-``secdogie_dialogue.protocol.seal``), never written by hand. The Rust and TS test
+``secdogie_dialogue.protocol.seal``, ``secdogie_policy.verify_bundle``), never
+written by hand. The Rust and TS test
 suites read these files and must agree byte for byte; the Python suite
 (``dialogue/tests/test_cross_language_vectors.py``) regenerates them and fails if
 the committed files drifted.
@@ -14,7 +16,7 @@ Every float, and every integer past 2**53, appears only inside a JSON *text*
 string, so reading the vector files with a plain JSON parser never loses the
 int/float distinction the cases are about.
 
-    python fixtures/vectors/generate.py          # rewrite the four files
+    python fixtures/vectors/generate.py          # rewrite the vector files
     python fixtures/vectors/generate.py --check  # exit 1 if any file is stale
 
 The seeds below are public test keys. Never use them for anything real.
@@ -41,6 +43,8 @@ from secdogie_dialogue.protocol import (
 )
 from secdogie_identity import Identity, sign_payload
 from secdogie_identity.signing import canonical
+from secdogie_policy.vectors import build as policy_vectors
+from secdogie_transport import meshlink, mux, pairing, udp
 
 HERE = Path(__file__).resolve().parent
 
@@ -333,6 +337,93 @@ def socratic_vectors() -> dict:
     return {"cases": cases}
 
 
+def pairing_vectors() -> dict:
+    """One whole pairing of a device, as webrtc/client/pairing.js must reproduce
+    it byte for byte (Ed25519 signatures are deterministic)."""
+    owner, owner_seed = _identity("pairing-owner")
+    phone, phone_seed = _identity("pairing-phone")
+    t0 = 1_800_000_000
+    fp_owner, fp_phone = _sha(b"owner dtls certificate"), _sha(b"phone dtls certificate")
+    invite = pairing.create_invite(owner, "home", room="pair-0123456789abcdef", signal="wss://signal.example/ws",
+                                   ttl=600, clock=lambda: t0)
+    nonce_owner, nonce_phone = _sha(b"owner nonce")[:32], _sha(b"phone nonce")[:32]
+    bind_owner = pairing.create_bind(owner, invite_id=invite["invite_id"], role=pairing.INVITER, nonce=nonce_owner,
+                                     local_fp=fp_owner, remote_fp=fp_phone, name="书房的电脑", clock=lambda: t0 + 5)
+    bind_phone = pairing.create_bind(phone, invite_id=invite["invite_id"], role=pairing.DEVICE, nonce=nonce_phone,
+                                     local_fp=fp_phone, remote_fp=fp_owner, name="我的手机", clock=lambda: t0 + 5)
+    admission = pairing.create_admission(owner, "home", phone.did, invite_id=invite["invite_id"], name="我的手机",
+                                         roles=("forward",), clock=lambda: t0 + 30)
+    return {
+        "keys": {"owner": {"seed_hex": owner_seed, "did": owner.did},
+                 "phone": {"seed_hex": phone_seed, "did": phone.did}},
+        "now": t0 + 6,
+        "invite": {"args": {"mesh": "home", "room": invite["room"], "signal": invite["signal"], "ttl": 600,
+                            "clock": t0},
+                   "signed": invite, "link": pairing.encode_invite(invite)},
+        "binds": {
+            "owner": {"args": {"nonce": nonce_owner, "local_fp": "sha-256 " + ":".join(
+                fp_owner[i:i + 2].upper() for i in range(0, 64, 2)), "remote_fp": fp_phone, "name": "书房的电脑",
+                "clock": t0 + 5}, "signed": bind_owner},
+            "phone": {"args": {"nonce": nonce_phone, "local_fp": fp_phone, "remote_fp": fp_owner, "name": "我的手机",
+                               "clock": t0 + 5}, "signed": bind_phone},
+        },
+        "check_code": pairing.check_code(invite["invite_id"], bind_owner, bind_phone),
+        "admission": {"args": {"name": "我的手机", "roles": ["forward"], "clock": t0 + 30}, "signed": admission},
+    }
+
+
+def meshlink_vectors() -> dict:
+    """Three of your devices as one mesh, as webrtc/client/meshlink.js and
+    frames.js must reproduce it: the rooms, the roster, the hellos, and one
+    DID-signed frame (secdogie/direct/v1, mux channel mesh/v1) whose counter
+    is a real time_ns() value, past what a JS number holds exactly."""
+    owner, owner_seed = _identity("mesh-owner")
+    phone, phone_seed = _identity("mesh-phone")
+    tablet, tablet_seed = _identity("mesh-tablet")
+    t0 = 1_800_000_000
+    adm_phone = pairing.create_admission(owner, "home", phone.did, invite_id=_sha(b"invite 1")[:32], name="我的手机",
+                                         clock=lambda: t0)
+    adm_tablet = pairing.create_admission(owner, "home", tablet.did, invite_id=_sha(b"invite 2")[:32], name="平板",
+                                          clock=lambda: t0 + 60)
+    full = meshlink.Roster("home", {owner.did})
+    full.admit(adm_phone)
+    full.admit(adm_tablet)
+    phone_only = meshlink.Roster("home", {owner.did})
+    phone_only.admit(adm_phone)
+    fp_owner, fp_phone = _sha(b"owner link certificate"), _sha(b"phone link certificate")
+    n_owner, n_phone = _sha(b"owner hello nonce")[:32], _sha(b"phone hello nonce")[:32]
+    hello_phone = meshlink.create_hello(phone, mesh="home", nonce=n_phone, local_fp=fp_phone, remote_fp=fp_owner,
+                                        admission=adm_phone, name="我的手机", roster=phone_only.digest(),
+                                        clock=lambda: t0 + 100)
+    hello_owner = meshlink.create_hello(owner, mesh="home", nonce=n_owner, local_fp=fp_owner, remote_fp=fp_phone,
+                                        name="书房的电脑", roster=full.digest(), clock=lambda: t0 + 100)
+    note = json.dumps({"m": "note", "text": "晚上好"}, ensure_ascii=False, separators=(",", ":")).encode()
+    message = mux.encode(meshlink.MESH_CHANNEL, note)
+    ctr = 1_800_000_000_123_456_789
+    frame_text = udp._encode_frame(owner, phone.did, message, ctr).decode("utf-8")
+    return {
+        "keys": {"owner": {"seed_hex": owner_seed, "did": owner.did},
+                 "phone": {"seed_hex": phone_seed, "did": phone.did},
+                 "tablet": {"seed_hex": tablet_seed, "did": tablet.did}},
+        "mesh": "home",
+        "now": t0 + 101,
+        "rooms": {"owner_phone": meshlink.link_room("home", owner.did, phone.did),
+                  "phone_tablet": meshlink.link_room("home", phone.did, tablet.did)},
+        "admissions": {"phone": adm_phone, "tablet": adm_tablet},
+        "roster": {"wire": full.wire(), "digest": full.digest(), "phone_only_digest": phone_only.digest(),
+                   "devices": full.devices()},
+        "hellos": {
+            "phone": {"args": {"nonce": n_phone, "local_fp": fp_phone, "remote_fp": fp_owner, "name": "我的手机",
+                               "roster": phone_only.digest(), "clock": t0 + 100}, "signed": hello_phone},
+            "owner": {"args": {"nonce": n_owner, "local_fp": fp_owner, "remote_fp": fp_phone, "name": "书房的电脑",
+                               "roster": full.digest(), "clock": t0 + 100}, "signed": hello_owner},
+        },
+        "frame": {"text": frame_text, "from": owner.did, "to": phone.did, "ctr": str(ctr),
+                  "channel": meshlink.MESH_CHANNEL, "payload": note.decode("utf-8"),
+                  "message_b64": base64.b64encode(message).decode("ascii")},
+    }
+
+
 # ---- files ----------------------------------------------------------------------
 
 
@@ -342,6 +433,9 @@ def build_all() -> dict[str, str]:
         "gate2.json": gate2_vectors(),
         "graph_delta.json": graph_delta_vectors(),
         "socratic.json": socratic_vectors(),
+        "policy.json": policy_vectors(),
+        "pairing.json": pairing_vectors(),
+        "meshlink.json": meshlink_vectors(),
     }
     return {name: json.dumps(obj, indent=2, ensure_ascii=False) + "\n" for name, obj in files.items()}
 
