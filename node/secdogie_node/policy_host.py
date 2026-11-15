@@ -17,9 +17,16 @@ The node accepts a bundle only when all of these hold:
 
 An accepted bundle is appended to the node's signed journal (``policy`` event)
 and takes effect at once. On restart the node reloads what it activated from
-the journal, re-checking structure and signatures but not who is trusted
-today. A revoked signer therefore cannot loosen the gates by making a bundle
-vanish; replacing a bundle takes a newer version.
+the journal. It re-checks each bundle's structure and its signatures by the
+signers recorded with it, but not who is trusted today. A revoked signer
+therefore cannot loosen the gates by making a bundle vanish; replacing a
+bundle takes a newer version.
+
+Who may sign operator kinds: the node's Gate 2 operators, and the **policy
+signers**. Those are the owners of the mesh this machine joined (the owner
+of your devices signs the rules, and they reach this node from another of
+your devices). Policy signers are trusted for policy bundles only, never
+for Gate 2.
 
 What takes effect now: ``gate-rules`` (both gates and the companion's
 presence switches, via ``GateRules``). ``ingest``, ``decision-model`` (mesh
@@ -30,7 +37,9 @@ Wire (JSON in both directions)::
 
     App -> node   {"op": "offer", "req": "<id>", "bundle": {...}}
                   {"op": "list",  "req": "<id>"}
+                  {"op": "chain", "req": "<id>"}     the whole-mesh gate-rules chain, v1 first
     node -> App   {"req": "<id>", "ok": bool, "errors": [...], "note": "...", "active": [...]}
+                  (+ "chain": [...] for a chain request)
 """
 from __future__ import annotations
 
@@ -52,18 +61,39 @@ APPLIED_KINDS = frozenset({"gate-rules"})
 MAX_MESSAGE = 60_000
 
 
+WHOLE_MESH = {"nodes": [], "roles": []}
+
+
 def _scope_key(scope) -> str:
     return canonical({"scope": scope}).decode("utf-8")
+
+
+class _AnyOf:
+    """Trusted when any of the given trust sets trusts the DID."""
+
+    def __init__(self, *sets):
+        self.sets = [s for s in sets if s is not None]
+
+    def contains(self, did: str) -> bool:
+        return any(s.contains(did) for s in self.sets)
+
+
+class _Named:
+    def __init__(self, dids):
+        self.dids = frozenset(dids)
+
+    def contains(self, did: str) -> bool:
+        return did in self.dids
 
 
 class PolicyHost:
     """The policy bundles in force on one node."""
 
     def __init__(self, journal, *, mesh: str, operators, masters=None, node_did: str, roles=(),
-                 clock=time.time):
+                 signers=None, clock=time.time):
         self.journal = journal
         self.mesh = mesh
-        self.operators = operators
+        self.operators = _AnyOf(operators, signers)  # who may sign operator kinds: Gate 2 operators, policy signers
         self.masters = masters
         self.node_did = node_did
         self.roles = frozenset(roles)
@@ -82,6 +112,10 @@ class PolicyHost:
             bundle = body.get("bundle")
             if body.get("op") != "activate" or check_bundle(bundle):
                 continue
+            recorded = _Named(body.get("signers") or ())
+            if not verify_bundle(bundle, operators=recorded, masters=self.masters).ok:
+                log.warning("policy %s in the journal does not verify; ignored", str(bundle.get("bundle_id"))[:12])
+                continue  # a bundle whose signatures do not hold is not loaded, whoever wrote the event
             key = (bundle["kind"], bundle["mesh"], _scope_key(bundle["scope"]))
             if not check_successor(self._active.get(key), bundle):
                 self._active[key] = bundle
@@ -102,6 +136,20 @@ class PolicyHost:
 
     def gate_rules(self) -> GateRules:
         return GateRules.from_bodies((b["bundle_id"], b["body"]) for b in self.active("gate-rules"))
+
+    def chain(self, kind: str = "gate-rules", scope=None) -> list[dict]:
+        """Every bundle activated for (kind, this mesh, scope), first version first: what another of your devices
+        needs to follow the same chain."""
+        scope = WHOLE_MESH if scope is None else scope
+        key = _scope_key(scope)
+        out = []
+        for event in self.journal.events():
+            body = event.get("body") or {}
+            b = body.get("bundle")
+            if event.get("kind") == POLICY_EVENT and body.get("op") == "activate" and isinstance(b, dict) \
+                    and b.get("kind") == kind and b.get("mesh") == self.mesh and _scope_key(b.get("scope")) == key:
+                out.append(b)
+        return out
 
     def summary(self) -> list[dict]:
         return [{"kind": b["kind"], "version": b["version"], "bundle_id": b["bundle_id"], "scope": b["scope"],
@@ -155,6 +203,11 @@ class PolicyHost:
                 reply = self.offer(msg.get("bundle"))
             elif msg.get("op") == "list":
                 reply = {"ok": True, "errors": []}
+            elif msg.get("op") == "chain":
+                chain = self.chain()
+                while chain and len(json.dumps(chain, ensure_ascii=False)) > MAX_MESSAGE - 4000:
+                    chain = chain[1:]  # too long for one datagram: the newest that fit (the caller sees it lacks v1)
+                reply = {"ok": True, "errors": [], "chain": chain}
             else:
                 reply = {"ok": False, "errors": ["op:op"]}
             reply = {"req": msg["req"][:64], "mesh": self.mesh, "active": self.summary(), **reply}
@@ -218,5 +271,9 @@ class PolicyClient(ChannelClient):
     def list(self, *, timeout: float = 10.0) -> dict | None:
         return self.request("list", timeout=timeout)
 
+    def chain(self, *, timeout: float = 10.0) -> list[dict] | None:
+        reply = self.request("chain", timeout=timeout)
+        return reply.get("chain") if reply is not None and reply.get("ok") else None
 
-__all__ = ["APPLIED_KINDS", "POLICY_CHANNEL", "ChannelClient", "PolicyClient", "PolicyHost"]
+
+__all__ = ["APPLIED_KINDS", "POLICY_CHANNEL", "WHOLE_MESH", "ChannelClient", "PolicyClient", "PolicyHost"]

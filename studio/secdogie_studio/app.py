@@ -224,6 +224,7 @@ class Presence:
             from .devices import Devices
 
             self.devices = Devices(self.controller.profile, lang=lambda: self.lang, clock=self.clock)
+            self.devices.on_rules = self._rules_arrived
         busy = self.companion.busy() if self.companion is not None else bool(snap.busy)
         view = self.stage.update(moments, self.attention.mode(now), now, busy=busy)
         self._maybe_poll(now)
@@ -542,6 +543,12 @@ class Presence:
         companion = self.companion
         if companion is None:
             return
+        if self.devices is not None and self.devices.snapshot().get("role") == "member":
+            with self._lock:
+                self._rules_note = pick(self.lang, "这台设备在别人的设备网里：规则由设备网的主人签名，再传到这里。",
+                                        "This device belongs to someone else's mesh: its owner signs the rules, "
+                                        "and they travel here.")
+            return
         try:
             body = parse_rules(text, self.lang)
         except ValueError as e:
@@ -551,12 +558,58 @@ class Presence:
 
         def push():
             ok, note = companion.push_rules(body, passphrase)
+            if ok and self.devices is not None:
+                chain = companion.policy.chain(timeout=5.0) or []
+                if chain and chain[0].get("version") == 1:
+                    self.devices.spread(chain)  # every device of yours gets what it lacks of it
+                    if self.devices.snapshot().get("devices"):
+                        note += pick(self.lang, " 它会传到你的每一台设备上。", " It travels to each of your devices.")
             with self._lock:
                 self._rules_note = note
             if ok:
                 self.refresh_in_force()
 
         self._work(pick(self.lang, "正在注入规则", "Injecting the rules"), push)
+
+    def _rules_arrived(self, chain: list[dict]) -> None:
+        """The owner's rules came from another of your devices: offer what this node lacks, in order, then tell
+        the other devices what it holds. Off the devices loop (the node may take a moment to answer)."""
+        companion, devices = self.companion, self.devices
+        if companion is None or devices is None:
+            return
+
+        def offer():
+            from .companion import explain_errors
+
+            listing = companion.rules_in_force(timeout=5.0) or {}
+            held = next((a for a in listing.get("active", []) if a.get("kind") == "gate-rules"
+                         and a.get("scope") == {"nodes": [], "roles": []}), None)
+            have = held["version"] if held else 0
+            active, errors = listing.get("active", []), []
+            for b in chain:
+                if b.get("version", 0) <= have:
+                    continue
+                reply = companion.policy.offer(b, timeout=8.0)
+                if reply is None:
+                    errors = [pick(self.lang, "节点没有回应。", "The node did not answer.")]
+                    break
+                active = reply.get("active", active)
+                if not reply.get("ok"):
+                    words = explain_errors(reply.get("errors", []), self.lang)
+                    if any(e.startswith("chain:") for e in reply.get("errors", [])):
+                        words = [pick(self.lang, "这台设备有自己的规则，和主人的对不上。", "This device has rules of its own "
+                                      "that do not follow the owner's.")]
+                    errors = words
+                    break
+            devices.report(active, errors)
+            with self._lock:
+                self._rules_note = pick(self.lang, f"你另一台设备上签的第 {len(chain)} 版规则到了。",
+                                        f"Version {len(chain)} of the rules came from another of your devices.") \
+                    if not errors else pick(self.lang, "另一台设备传来的规则没有生效：", "The rules from another device "
+                                            "did not take effect: ") + pick(self.lang, "；", "; ").join(errors)
+            self.refresh_in_force()
+
+        threading.Thread(target=offer, daemon=True, name="studio-rules-arrived").start()
 
     # -- look, and your own devices -------------------------------------------------------
 

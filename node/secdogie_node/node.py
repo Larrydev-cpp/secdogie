@@ -82,7 +82,7 @@ from secdogie_dialogue.dialogue import system_status
 from secdogie_dialogue.protocol import ControlOp, MemoryCandidatePacket
 from secdogie_dialogue.publisher import SnapshotPublisher
 from secdogie_dialogue.session import DialogueSession, SessionRouter
-from secdogie_identity import require_trust
+from secdogie_identity import Allowlist, require_trust
 from secdogie_transport import (
     ChannelMux,
     DirectUDPTransport,
@@ -130,6 +130,7 @@ class NodeConfig:
     mesh: str = "home"  # policy bundles for another mesh are refused
     masters: object = None  # MasterSet: who may sign decision-model / allowlist bundles
     roles: tuple = ("forward",)  # what this node offers the mesh; bundle scopes name roles
+    policy_signers: tuple = ()  # DIDs trusted to sign policy bundles only: the owners of the mesh this machine joined
     thinker_path: str = ""  # the thinker's configuration (thinker.json): re-read when it changes; off when absent
     thinker: object = None  # a Thinker to use instead (tests)
 
@@ -148,8 +149,9 @@ class Node:
         self.operators = require_trust(cfg.operators, "the node's operator allowlist")
         self.journal = Journal(cfg.journal_path, identity=cfg.identity,
                                allowlist=require_trust(cfg.authorized, "the node's journal allowlist"))
+        signers = Allowlist(set(cfg.policy_signers)) if cfg.policy_signers else None
         self.policy = PolicyHost(self.journal, mesh=cfg.mesh, operators=self.operators, masters=cfg.masters,
-                                 node_did=cfg.identity.did, roles=cfg.roles)
+                                 node_did=cfg.identity.did, roles=cfg.roles, signers=signers)
         self.supervisor = Supervisor(
             self.journal, cfg.run_task, issuers=cfg.issuers, unrestricted=cfg.unrestricted,
             memory=MemoryConfig(candidates_path=cfg.candidates_path, confirmers=self.apps),

@@ -9,9 +9,25 @@ nothing else is read until the other end's hello checks out. Then every
 message is a DID-signed frame (secdogie/direct/v1, the same as on UDP) on the
 mux channel mesh/v1:
 
-    {m: roster, roster}   the admissions this device holds
-    {m: note, text}       a line from the person
-    {m: ping, t} / pong   round-trip time
+    {m: roster, roster}            the admissions this device holds
+    {m: note, text}                a line from the person
+    {m: ping, t} / pong            round-trip time
+    {m: policy-have, v, head}      how far this device's chain of gate rules goes
+    {m: policy, bundle}            one signed gate-rules bundle, the next in the chain
+    {m: policy-state, active, errors}  what this device's node holds after it was offered
+
+**Rules across your devices.** The owner signs the gate rules once, and they
+travel bundle by bundle to every device that runs a gate:
+- A device takes a bundle only if it is the next in its chain and
+  ``on_policy`` (the caller's check: a valid signature by an owner of this
+  mesh) accepts it.
+- It then passes the bundle on to its other links.
+- After every hello the two ends say how far their chains go, and the one
+  that is ahead sends the rest.
+- The node behind each device is the final judge. It reports what it holds
+  (``policy-state``), and ``snapshot()`` shows, per device, whether the rules
+  are in force there, still on their way, refused, or never answered (a
+  browser runs no gate).
 
     node = MeshNode(me, mesh="home", owners=[owner_did], admission=mine, signal_url=...)
     await node.start()        # the person asked to go online
@@ -48,6 +64,8 @@ PING_EVERY = 4.0
 RETRY = (2.0, 4.0, 8.0, 15.0, 30.0)
 WAIT_IN_ROOM = 90.0  # how long one attempt waits for the other device to come online
 MAX_NOTE = 500
+MAX_STATE = 16  # bundles or errors reported in one policy-state
+IN_FORCE, WAITING, REFUSED_RULES, SILENT, NO_RULES = "in-force", "waiting", "refused", "silent", "none"
 
 
 class _Link:
@@ -61,12 +79,15 @@ class _Link:
         self.authed = False
         self.task: asyncio.Task | None = None
         self.window = ReplayWindow()
+        self.their_v = 0  # how far its chain of gate rules goes, as it last said
+        self.policy_state: dict | None = None  # what its node holds, as it last reported
 
 
 class MeshNode:
     def __init__(self, me, *, mesh: str, owners, admission: dict | None = None, admissions=(), name: str = "",
                  signal_url: str, ice_servers=(), on_change: Callable[[], None] = lambda: None,
-                 on_note: Callable[[dict], None] = lambda n: None, clock=time.time):
+                 on_note: Callable[[dict], None] = lambda n: None,
+                 on_policy: Callable[[dict, str], bool] = lambda b, frm: False, clock=time.time):
         self.me = me
         self.mesh = mesh
         self.roster = Roster(mesh, owners)
@@ -79,6 +100,8 @@ class MeshNode:
         self.ice_servers = tuple(ice_servers)
         self.on_change = on_change
         self.on_note = on_note
+        self.on_policy = on_policy  # (bundle, from) -> it is valid and joins the chain: the caller's check
+        self.chain: list[dict] = []  # the whole-mesh gate rules, first version first
         self.clock = clock
         self.online = False
         self.links: dict[str, _Link] = {}
@@ -124,7 +147,7 @@ class MeshNode:
             devices.append({"did": did, "name": (link.name if link and link.name else self.roster.name(did)),
                             "owner": did in self.roster.owners, "state": state,
                             "rtt": link.rtt if link and state == ONLINE else None,
-                            "reason": link.reason if link else None})
+                            "reason": link.reason if link else None, "rules": self.rules_of(link, state)})
         return {"online": self.online, "mesh": self.mesh, "me": {"did": self.me.did, "name": self.name,
                                                                  "owner": self.me.did in self.roster.owners},
                 "devices": devices}
@@ -139,6 +162,24 @@ class MeshNode:
                 n += 1
         return n
 
+    def set_chain(self, bundles) -> None:
+        """The chain of gate rules this device holds (already checked by the caller)."""
+        self.chain = [b for b in bundles if isinstance(b, dict)]
+
+    async def spread(self) -> int:
+        """Send every device what it lacks of the chain; how many devices got something."""
+        n = 0
+        for link in list(self.links.values()):
+            if await self._offer_chain(link, link.their_v):
+                n += 1
+        return n
+
+    async def report(self, active, errors=()) -> None:
+        """Tell the other devices what this device's node holds now."""
+        msg = {"m": "policy-state", "active": list(active)[:MAX_STATE], "errors": [str(e) for e in errors][:MAX_STATE]}
+        for link in list(self.links.values()):
+            await self._send_frame(link, msg)
+
     def admit(self, admission: dict) -> bool:
         """A device this machine just admitted (or learned of): link to it too."""
         added = self.roster.admit(admission)
@@ -147,6 +188,24 @@ class MeshNode:
         if added:
             self._changed()
         return added
+
+    def rules_of(self, link: _Link | None, state: str = OFFLINE) -> dict:
+        """Whether this device's chain of gate rules is in force on another device."""
+        head = self.chain[-1] if self.chain else None
+        if head is None:
+            return {"version": 0, "state": NO_RULES}
+        st = link.policy_state if link is not None else None
+        if st is None:
+            silent = state == ONLINE and link is not None and link.authed
+            return {"version": link.their_v if link else 0, "state": SILENT if silent else WAITING}
+        held = next((a for a in st.get("active", []) if a.get("kind") == "gate-rules"
+                     and a.get("scope") == {"nodes": [], "roles": []}), None)
+        version = held.get("version", 0) if held else 0
+        if st.get("errors"):
+            return {"version": version, "state": REFUSED_RULES, "errors": list(st["errors"])}
+        if held and held.get("bundle_id") == head.get("bundle_id"):
+            return {"version": version, "state": IN_FORCE}
+        return {"version": version, "state": WAITING}
 
     # ---- links --------------------------------------------------------------------------
 
@@ -274,6 +333,7 @@ class MeshNode:
         if checked.value.get("roster") != self.roster.digest():
             await self._send_frame(link, {"m": "roster", "roster": self.roster.wire()})
         await self._send_frame(link, {"m": "ping", "t": time.monotonic() * 1000})
+        await self._send_frame(link, self._have())
 
     async def _on_message(self, link: _Link, msg) -> None:
         kind = msg.get("m") if isinstance(msg, dict) else None
@@ -290,11 +350,54 @@ class MeshNode:
             with contextlib.suppress(Exception):
                 self.on_note({"from": link.did, "name": link.name, "text": msg["text"][:MAX_NOTE],
                               "at": time.time()})
+        elif kind == "policy-have" and isinstance(msg.get("v"), int):
+            link.their_v = max(0, msg["v"])
+            await self._offer_chain(link, link.their_v)
+        elif kind == "policy" and isinstance(msg.get("bundle"), dict):
+            await self._their_bundle(link, msg["bundle"])
+        elif kind == "policy-state" and isinstance(msg.get("active"), list):
+            link.policy_state = {"active": [a for a in msg["active"][:MAX_STATE] if isinstance(a, dict)],
+                                 "errors": [str(e)[:200] for e in (msg.get("errors") or [])][:MAX_STATE],
+                                 "at": time.time()}
+            self._changed()
         elif kind == "ping":
             await self._send_frame(link, {"m": "pong", "t": msg.get("t")})
         elif kind == "pong" and isinstance(msg.get("t"), (int, float)):
             link.rtt = max(0, round(time.monotonic() * 1000 - msg["t"]))
             self._changed()
+
+    def _have(self) -> dict:
+        return {"m": "policy-have", "v": len(self.chain), "head": self.chain[-1].get("bundle_id", "") if self.chain else ""}
+
+    async def _offer_chain(self, link: _Link, after: int) -> bool:
+        sent = False
+        for b in self.chain[max(0, after):]:
+            sent = await self._send_frame(link, {"m": "policy", "bundle": b}) or sent
+        return sent
+
+    async def _their_bundle(self, link: _Link, bundle: dict) -> None:
+        v = bundle.get("version")
+        if not isinstance(v, int):
+            return
+        link.their_v = max(link.their_v, v)
+        if v <= len(self.chain):
+            return  # already held
+        head = self.chain[-1] if self.chain else None
+        follows = v == len(self.chain) + 1 and (head is None or bundle.get("supersedes") == head.get("bundle_id"))
+        if not follows:
+            await self._send_frame(link, self._have())  # a gap: say how far this chain goes, so they send the rest
+            return
+        try:
+            accepted = bool(self.on_policy(bundle, link.did))
+        except Exception:  # noqa: BLE001 - the caller's check failing is a no
+            accepted = False
+        if not accepted:
+            return
+        self.chain.append(bundle)
+        self._changed()
+        for other in list(self.links.values()):
+            if other is not link and other.authed and other.their_v < v:
+                await self._offer_chain(other, other.their_v)
 
     async def _send_frame(self, link: _Link, msg: dict) -> bool:
         if not link.authed or link.peer is None:
@@ -315,4 +418,5 @@ class MeshNode:
                 await self._send_frame(link, {"m": "ping", "t": time.monotonic() * 1000})
 
 
-__all__ = ["CONNECTING", "OFFLINE", "ONLINE", "REFUSED", "MeshNode"]
+__all__ = ["CONNECTING", "IN_FORCE", "NO_RULES", "OFFLINE", "ONLINE", "REFUSED", "REFUSED_RULES", "SILENT", "WAITING",
+           "MeshNode"]

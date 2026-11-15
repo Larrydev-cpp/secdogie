@@ -192,3 +192,66 @@ def test_a_device_without_an_admission_is_refused():
         await srv.close()
 
     run(go())
+
+
+def _chain(n, start=None):
+    """A stand-in chain of gate-rules bundles (the signature check is the caller's: here a mark)."""
+    out, prev = [], start
+    for v in range(1 if prev is None else prev["version"] + 1, (1 if prev is None else prev["version"] + 1) + n):
+        b = {"kind": "gate-rules", "mesh": "home", "scope": {"nodes": [], "roles": []}, "version": v,
+             "supersedes": prev["bundle_id"] if prev else "", "bundle_id": f"b{v:02d}" + "0" * 61, "body": {}}
+        b["mark"] = "ok-" + b["bundle_id"]
+        out.append(b)
+        prev = b
+    return out
+
+
+def test_the_gate_rules_travel_to_every_device_and_each_says_what_it_holds():
+    from secdogie_transport.mesh_rtc import IN_FORCE, NO_RULES, SILENT, WAITING
+
+    owner, phone, tablet = Identity.generate(), Identity.generate(), Identity.generate()
+    adm_phone = create_admission(owner, "home", phone.did, invite_id="1" * 32, name="我的手机")
+    adm_tablet = create_admission(owner, "home", tablet.did, invite_id="2" * 32, name="平板")
+
+    def check(bundle, frm):
+        return bundle.get("mark") == "ok-" + bundle.get("bundle_id", "")
+
+    async def go():
+        srv = await serve_signaling()
+        common = {"mesh": "home", "owners": [owner.did], "signal_url": srv.url, "on_policy": check}
+        at_owner = MeshNode(owner, admissions=[adm_phone, adm_tablet], name="书房的电脑", **common)
+        at_phone = MeshNode(phone, admission=adm_phone, name="我的手机", **common)
+        at_tablet = MeshNode(tablet, admission=adm_tablet, admissions=[adm_phone], name="平板", **common)
+        assert at_owner.rules_of(None)["state"] == NO_RULES
+        at_owner.set_chain(_chain(2))
+        for node in (at_owner, at_phone, at_tablet):
+            await node.start()
+        # after the hellos, whoever is ahead sends the rest: both devices follow the owner's chain, in order
+        await until(lambda: len(at_phone.chain) == 2 and len(at_tablet.chain) == 2, timeout=40)
+        assert [b["version"] for b in at_tablet.chain] == [1, 2]
+        # the phone's node takes them and says so; the tablet never answers (as a browser would not)
+        await at_phone.report([{"kind": "gate-rules", "version": 2, "bundle_id": at_owner.chain[-1]["bundle_id"],
+                                "scope": {"nodes": [], "roles": []}}])
+
+        def rules(node, did):
+            return {d["did"]: d["rules"] for d in node.snapshot()["devices"]}[did]
+
+        await until(lambda: rules(at_owner, phone.did)["state"] == IN_FORCE)
+        assert rules(at_owner, tablet.did)["state"] == SILENT
+        # a forged next version is dropped wherever it lands, and goes no further
+        forged = _chain(1, at_owner.chain[-1])[0] | {"mark": "forged"}
+        await at_tablet._their_bundle(at_tablet.links[owner.did], forged)
+        assert len(at_tablet.chain) == 2
+        # a device that was away catches up when it is back
+        await at_tablet.stop()
+        at_owner.set_chain(at_owner.chain + _chain(1, at_owner.chain[-1]))
+        await at_owner.spread()
+        await until(lambda: len(at_phone.chain) == 3, timeout=20)
+        assert rules(at_owner, phone.did)["state"] == WAITING  # its node has not said it holds v3 yet
+        await at_tablet.start()
+        await until(lambda: len(at_tablet.chain) == 3, timeout=40)
+        for node in (at_owner, at_phone, at_tablet):
+            await node.stop()
+        await srv.close()
+
+    run(go(), timeout=150)
