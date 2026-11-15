@@ -36,8 +36,15 @@ Code comments refer to these by number.
    loop on Windows and Linux are being replaced (track D).
 7. **Code signing:** releases ship unsigned, and say so, until there are
    Apple Developer ID and Windows Authenticode certificates.
-8. **Lifetime:** nothing starts at login. Closing Studio's window leaves a
-   light; quitting stops the node.
+8. **Lifetime** (revised by the owner, 2026-11; being built). There are two
+   modes:
+   - **With Studio** (the default): closing the window leaves a light, and
+     quitting stops the node.
+   - **Always on:** the node keeps running in the background after Studio
+     quits, until it is stopped from Studio.
+
+   Starting at login is a visible switch, off by default, shown in Studio
+   and in the system's startup items. Nothing else ever starts at login.
 9. **Only your own devices** (2026-11). A device joins by pairing: invitation,
    agree, direct WebRTC, six digits on both screens, an admission signed by
    the owner. The public tier (`PeerBook(public=True)`) is kept but off.
@@ -51,7 +58,31 @@ Code comments refer to these by number.
     interpreter runs them. They can only tighten: they never touch Gate 2,
     human confirmation, capabilities outside `GRANTABLE_SCOPES`, or the
     forbidden list.
+14. **Weighty steps are dissuaded, never confirmed** (owner, 2026-11). The
+    automatic Socratic gate never asks "are you sure?" about deleting,
+    wiping a disk or registering accounts in bulk. It reads the person
+    (`citadel/judgment.py`):
+    - the feeling and haste in their words;
+    - the hour, and a run of upset requests;
+    - what the thing holds and whether it is dear;
+    - their portrait.
 
+    Then it goes ahead (Gate 2 still signs), or it dissuades (劝阻) with a
+    letter:
+    - gentler paths: seal it away (封存), encrypt it, back it up first, or
+      reach the real goal another way;
+    - a cooling-off period: 7 days when upset, 3 when the thing is only
+      still in use;
+    - the choice left with them.
+
+    After the cooling-off, calm and still wanting it, it goes ahead with a
+    signature. A question is kept only for *what* is meant, and only when
+    the value of asking exceeds the interruption. Harm to someone else is
+    still refused for good.
+15. **The device in use is the central dispatcher** (owner, 2026-11; being
+    built). Among your own devices, the one you are using now takes the
+    coordinator's role (the drawing's "central server"). When you leave it,
+    the role falls to an always-on device.
 ## Where each track stands
 
 ✅ done · 🔨 under way · 🔜 not started
@@ -60,7 +91,7 @@ Code comments refer to these by number.
 | --- | --- | --- |
 | A · Network | DIDs, sessions, real P2P UDP, rendezvous, direct-path upgrade, relay, membership gossip, carriers (UDP, WebRTC) | ✅ |
 | B · State | Signed hash-chained journal, StateStore, anti-entropy replication across the mesh | ✅ |
-| C · Mind | Instruction gate and plan gate in the live loop, intent contracts, known failures, staged memory, automatic deliberation, the decision model | ✅ |
+| C · Mind | Instruction gate and plan gate in the live loop, intent contracts, known failures, staged memory, the decision model; automatic deliberation reads the person and dissuades weighty steps (decision 14) | ✅ |
 | M · Inference mesh | Protocol v2: three modes (nominal, degraded with central fallback, lockdown) as an explicit state machine, bounded sessions, Merkle-DAG heartbeats (a fork isolates the node), a history-aware decision gate; only an operator signature leaves lockdown | ✅ |
 | D · Perception | Fused AX + DIB observation and TOCTOU-safe targets exist as building blocks; not yet in the live loop | 🔨 |
 | G · Studio | The desktop app: wallet overview, conversation, pairing and My devices, the rules editor, the first meeting, 墨 / 宣纸, 中 / EN | ✅ |
@@ -116,6 +147,20 @@ Open questions for the owner:
 
 ## Next, in order
 
+0. **Run modes and the dispatcher** (decisions 8 and 15), and the connection
+   rules of the owner's drawing on the real mesh. The rules already in
+   `inference/`:
+   - bypass around a failed node;
+   - error → the central server;
+   - a standby forwarder for a stranded model node.
+
+   Still to add:
+   - with 2 or fewer P2P nodes left, recruit redundant ones;
+   - the API key holder's edge cache;
+   - a load balancer in front of several dispatchers.
+
+   Then the optional thinker (an LLM that only adds caution, with its API
+   key in Studio) and the Aesper page redesign.
 1. **Close the device loop.**
    - S4: the node trusts paired devices.
    - S6: revocation.

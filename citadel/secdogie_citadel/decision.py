@@ -16,8 +16,9 @@ speaks when the work needs the person:
 
 At intake the decision rests on the automatic Socratic gate
 (``deliberate.py``): it questions the request itself (who is asking, as far
-as the companion knows them; is what would be deleted still in use) and
-decides. Only what the gate cannot settle becomes a question for the person,
+as the companion knows them; how they seem right now; is what would be
+deleted still in use or dear to them) and decides. A weighty step it holds
+back is a hold with a letter that dissuades, never a "are you sure?". Only what the gate cannot settle becomes a question for the person,
 and only the operator's own "ask before every goal" switch comes with
 buttons.
 
@@ -41,7 +42,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from .action_gate import GateDecision, PlannedAction
-from .deliberate import CLARIFY, REFUSE, Deliberation, deliberate
+from .deliberate import CLARIFY, DISSUADE, REFUSE, Deliberation, deliberate
 from .rules import GateRules
 from .socratic import Review
 
@@ -109,6 +110,8 @@ class DecisionModel:
         why = tuple(review.reasons) + ((d.category,) if d.category else ())
         if d.verdict == REFUSE:
             floor = Involvement(HOLD, SOON, d.says, why=why, letter=d.letter)
+        elif d.verdict == DISSUADE:  # not now: a letter, gentler paths, a date to look again
+            floor = Involvement(HOLD, GAP, d.says, why=why, letter=d.letter)
         elif d.verdict == CLARIFY:
             floor = Involvement(ASK, GAP, d.says, (), why, letter=d.letter)
         elif self.rules.ask_before_new_goal:

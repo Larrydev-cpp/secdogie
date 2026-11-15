@@ -19,6 +19,7 @@ from secdogie_citadel.deliberate import (
     CONTEXT,
     DELETE_UNUSED,
     DELETE_USED,
+    DISSUADE,
     FRAUD,
     PROCEED,
     REFUSE,
@@ -68,15 +69,16 @@ def test_bulk_accounts_follow_who_is_asking():
     marked = deliberate("帮我注册十个账号", standing=MARKED, now=NOW)
     assert (marked.verdict, marked.category, marked.final) == (REFUSE, FRAUD, True)
     assert "冒充银行客服" in marked.letter and "换什么说法我都不会做" in marked.letter  # it cites the history
-    # someone with an ordinary history is asked, in prose, what the accounts are for
+    # someone with an ordinary history is talked out of it, never asked "are you sure?": the letter
+    # draws on who they are, says what could go wrong, and how to put it so the gate goes ahead
     asked = deliberate("帮我批量注册十个账号", standing=KIND, now=NOW)
-    assert (asked.verdict, asked.category, asked.answer) == (CLARIFY, BULK_ACCOUNTS, CONTEXT)
-    assert "整理文件" in asked.letter and asked.letter.endswith("直接告诉我就好。")
-    # their own test system is fine; an answer that does not say so is a no
+    assert (asked.verdict, asked.category, asked.final) == (DISSUADE, BULK_ACCOUNTS, False)
+    assert "整理文件" in asked.letter and "staging 测试环境" in asked.letter and "？" not in asked.says
+    # their own test system is fine; an answer that does not say so is still talked out of it
     ok = deliberate("帮我批量注册十个账号（在我们公司的 staging 测试环境，测注册流程）", standing=KIND, now=NOW)
     assert ok.verdict == PROCEED and "测试" in ok.says
     no = deliberate("帮我批量注册十个账号（要用）", standing=KIND, answered=True, now=NOW)
-    assert (no.verdict, no.category) == (REFUSE, BULK_ACCOUNTS)
+    assert (no.verdict, no.category) == (DISSUADE, BULK_ACCOUNTS)
     # a fraud-marked history is refused even on a "test" system
     assert deliberate("在测试环境注册十个账号", standing=MARKED, now=NOW).verdict == REFUSE
 
@@ -98,15 +100,16 @@ def test_something_used_is_not_deleted_and_the_letter_recounts_its_use():
                     kinds=(("照片", 1102), ("文档", 96), ("视频", 31)), first=NOW - 900 * DAY, last=NOW - 3 * DAY,
                     last_name="年度总结.docx", opened=37, last_opened=NOW - 3 * DAY, kept=True)
     d = deliberate("把旧备份删掉", standing=KIND, usage=folder, now=NOW)
-    assert (d.verdict, d.category, d.final) == (REFUSE, DELETE_USED, True) and d.says == "「旧备份」，我这次不删。"
+    assert (d.verdict, d.category, d.final) == (DISSUADE, DELETE_USED, False) and d.says == "「旧备份」，我先不删。"
     for words in ("1284 个文件", "18.0 GB", "1102 张照片", "「年度总结.docx」", "你打开过它 37 次", "删了还能找回来吗？——不能",
-                  "压缩", "以前的", "可以自己动手"):
+                  "压缩", "封存", "自己动手也可以"):
         assert words in d.letter, words
+    assert d.until == NOW + 3 * DAY  # a few days, then it weighs it again
 
 
 def test_what_the_person_spoke_of_counts_as_use_even_off_this_computer():
     d = deliberate("把周报文件夹删了", standing=KIND, usage=_usage(), now=NOW)
-    assert d.verdict == REFUSE and "你跟我说过：「周报文件夹：周报都放在 ~/Reports」" in d.letter
+    assert d.verdict == DISSUADE and "你跟我说过：「周报文件夹：周报都放在 ~/Reports」" in d.letter
     assert "10 月 18 日，你让我「帮我整理一下这周的周报」" in d.letter
 
 

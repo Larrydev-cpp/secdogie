@@ -71,7 +71,7 @@ from dataclasses import dataclass, field
 from secdogie_citadel import socratic
 from secdogie_citadel.consolidate import confirm_and_promote, retract_memory
 from secdogie_citadel.decision import ASK, DROP, HOLD, REPHRASE, START, DecisionModel
-from secdogie_citadel.deliberate import CONTEXT, REFUSE, Asked, Standing, deliberate, drops
+from secdogie_citadel.deliberate import CONTEXT, DISSUADE, REFUSE, Asked, Standing, deliberate, drops
 from secdogie_citadel.journal import Journal
 from secdogie_citadel.lessons import MemoryClass
 from secdogie_citadel.supervisor import MemoryConfig, Supervisor, agent_run_task
@@ -292,7 +292,8 @@ class Node:
 
         def spare_what_is_used(planned):
             # Before Gate 2 even asks for a signature: something the person
-            # still uses is not deleted, and the letter says why.
+            # still uses, or holds dear, is not deleted now; the letter says
+            # why and offers gentler paths.
             refusal = self._spare(planned)
             if refusal is not None:
                 self._letter(refusal.letter)
@@ -322,15 +323,17 @@ class Node:
         """Who is asking, as far as this node knows them: every request it
         reviewed and how the gate judged it, and the facts the person
         confirmed (consolidated memory)."""
-        judged: dict[str, tuple[str, str]] = {}
+        judged: dict[str, tuple[str, str, float]] = {}
         asked: list[Asked] = []
         for e in self.journal.events():
             body = e.get("body") if isinstance(e.get("body"), dict) else {}
             if e.get("kind") == DELIBERATION_EVENT and isinstance(body.get("title"), str):
-                judged[body["title"]] = (str(body.get("verdict", "")), str(body.get("category", "")))
+                until = body.get("until")
+                judged[body["title"]] = (str(body.get("verdict", "")), str(body.get("category", "")),
+                                         float(until) if isinstance(until, (int, float)) else 0.0)
             elif e.get("kind") == "socratic" and isinstance(body.get("instruction"), str):
                 asked.append(Asked(float(e.get("ts", 0.0)), body["instruction"]))
-        asked = [Asked(a.when, a.text, *judged.get(a.text, ("", ""))) for a in asked]
+        asked = [Asked(a.when, a.text, *judged.get(a.text, ("", "", 0.0))) for a in asked]
         facts: list[tuple[str, str]] = []
         try:
             facts = [(r.key, r.value) for r in self.supervisor.memory_view().facts().values()]
@@ -352,7 +355,7 @@ class Node:
         if not target:
             return None
         d = deliberate(f"删除 {target}", standing=self.standing(), usage=self.read_usage)
-        if d.verdict != REFUSE:
+        if d.verdict not in (REFUSE, DISSUADE):
             return None
         self.journal.append(DELIBERATION_EVENT, d.journal_body(f"删除 {target}"))
         return d

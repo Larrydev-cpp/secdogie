@@ -12,14 +12,30 @@ handed a row of buttons:
     so is creating accounts in bulk for someone whose history carries fraud
     marks. Both refusals are final, and the letter cites the history it
     rests on.
-  * **Is the thing to be deleted still part of their life?** ``Usage``
-    (``usage.py``) holds what is in it, since when, when it last changed, how
-    often it was opened and what the person said about it. Something used is
-    not deleted: the letter recounts that use and offers gentler ways. Only
-    something never used goes ahead, and even then the deletion is signed at
-    Gate 2, like every step that cannot be undone.
+  * **Weighty steps are weighed, never confirmed.** Deleting, wiping a disk
+    and accounts in bulk are never met with "are you sure?". The gate reads
+    the person instead (``judgment.read_person``):
+      - the feeling in their words (分手, 难过, 受够了…) and haste (马上, 一个不留…);
+      - the hour (the small hours) and a run of upset requests in the past few days;
+      - what the thing holds (``Usage``: what is in it, since when, how often
+        it was opened, what they said about it) and whether it is dear
+        (photos, chats, letters, someone else in them);
+      - who they are (``Standing.portrait`` and their own facts).
+
+    Then it goes ahead, or it **dissuades** (劝阻). Dissuading is a letter:
+      - it says what it notices;
+      - it recounts what the thing holds;
+      - it explains why not now;
+      - it offers gentler paths the person can say yes to: seal it away
+        (封存), encrypt it, back it up first, or reach the real goal another way;
+      - it sets a cooling-off period;
+      - it leaves the choice with them.
+
+    After the cooling-off, calm and still wanting it, the step goes ahead;
+    Gate 2 still asks for their signature.
   * **Is something unclear that only the person can settle?** Then one
-    question, in prose, answered in their own words.
+    question, about *what* is meant, in prose, answered in their own words.
+    It asks only when asking is worth the interruption (``judgment.assess``).
 
 The verdict is one of:
 
@@ -27,8 +43,10 @@ The verdict is one of:
   clarify   one question in prose. The answer is read either as context for
             the same request (``answer`` = "context") or as the new request
             ("replace"). Words like "算了" drop it.
-  refuse    not done; ``letter`` says why at length. ``final``: putting it
-            differently will not change the answer.
+  dissuade  not now; ``letter`` says why, offers gentler paths and the date
+            (``until``) after which the gate will weigh it again.
+  refuse    not done (harm to someone else); ``letter`` says why at length.
+            ``final``: putting it differently will not change the answer.
 
 It is deterministic and auditable. Every answer it gives itself cites what
 it rests on, and the caller journals the whole exchange. It is pure: the
@@ -42,10 +60,14 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from . import socratic
+from . import judgment, socratic
+from .judgment import Reading, backed_up, read_person, resemblance, wipes
 from .usage import Usage, targets_in
 
-PROCEED, CLARIFY, REFUSE = "proceed", "clarify", "refuse"
+PROCEED, CLARIFY, DISSUADE, REFUSE = "proceed", "clarify", "dissuade", "refuse"
+DELETE_DEAR, WIPE, DOUBT, CONSIDERED = "delete-dear", "wipe", "doubt", "considered"
+COOL_OFF_DAYS = 7  # a step held back while the person is upset: a week before it is weighed again
+COOL_OFF_CALM_DAYS = 3  # ... and a few days when it is only that the thing is still in use
 CONTEXT, REPLACE = "context", "replace"
 FRAUD, BULK_ACCOUNTS, DELETE_USED, DELETE_UNUSED, RULE, UNSAFE, SHAPE, EMPTY = (
     "fraud", "bulk-accounts", "delete-used", "delete-unused", "rule", "unsafe", "shape", "empty")
@@ -89,7 +111,7 @@ _ROLE = re.compile(r"测试|QA|开发|工程师|程序员|运维|产品经理", 
 
 _DELETE = re.compile(r"删除|删掉|删了|删去|清空|清掉|扔掉|丢掉|抹掉|移除|\brm\b|\bdelete\b|\bremove\b|\berase\b|\bwipe\b",
                      re.I)
-_DELETE_OBJ = re.compile(r"把\s*(?P<a>.+?)\s*(?:给我|都|全部|全都)?\s*(?:删除|删掉|删了|删去|清空|清掉|扔掉|丢掉|抹掉|移除)"
+_DELETE_OBJ = re.compile(r"把\s*(?P<a>.+?)\s*(?:给我|都|全部|全都|全)?\s*(?:删除|删掉|删了|删去|清空|清掉|扔掉|丢掉|抹掉|移除)"
                          r"|(?:删除|删掉|删去|清空|清掉|扔掉|丢掉|移除)\s*(?:掉)?\s*(?P<b>[^，。；,;]+)")
 _THINGISH = re.compile(r"文件|文件夹|目录|备份|照片|相册|视频|文档|资料|项目|下载|桌面|folder|file|backup|photos?", re.I)
 _FILLER = re.compile(r"^(我的|我那个|那个|这个|整个|所有的?|里面的|电脑上的?)+|(这个|那个)?(文件夹|目录|文件|里的东西|里面的东西)$")
@@ -113,6 +135,7 @@ class Asked:
     text: str
     verdict: str = ""
     category: str = ""
+    until: float = 0.0  # for a dissuaded request: when the gate weighs it again
 
 
 @dataclass(frozen=True)
@@ -137,6 +160,17 @@ class Standing:
         asked = [a for a in self.asked if a.verdict != REFUSE and any(w in a.text for w in words)]
         facts = [(k, v) for k, v in self.facts if any(w in k or w in v for w in words)]
         return asked, facts
+
+    def recent(self) -> list[tuple[float, str]]:
+        return [(a.when, a.text) for a in self.asked]
+
+    def cooling(self, text: str, words=()) -> Asked | None:
+        """The latest request like this one that the gate dissuaded, if any."""
+        words = [w for w in words if w and len(w) >= 2]
+        for a in reversed(self.asked):
+            if a.verdict == DISSUADE and (resemblance(a.text, text) >= 0.5 or any(w in a.text for w in words)):
+                return a
+        return None
 
     def portrait(self) -> str:
         done = [a for a in self.asked if a.verdict != REFUSE]
@@ -172,10 +206,20 @@ class Deliberation:
     exchanges: tuple[Exchange, ...] = ()
     final: bool = False
     answer: str = REPLACE  # for clarify: how to read the answer
+    until: float = 0.0  # for dissuade: when the gate weighs it again
+    assessment: dict | None = None  # how the judgment weighed it (judgment.Assessment.journal)
+    reading: dict | None = None  # how the person seemed (judgment.Reading.journal)
 
     def journal_body(self, title: str) -> dict:
-        return {"title": title, "verdict": self.verdict, "category": self.category, "final": self.final,
+        body = {"title": title, "verdict": self.verdict, "category": self.category, "final": self.final,
                 "exchanges": [[e.question, e.answer] for e in self.exchanges]}
+        if self.until:
+            body["until"] = self.until
+        if self.assessment is not None:
+            body["assessment"] = self.assessment
+        if self.reading is not None:
+            body["reading"] = self.reading
+        return body
 
 
 UsageReader = Callable[[str], Usage]
@@ -338,10 +382,12 @@ def _qa(exchanges: list[Exchange]) -> str:
 
 
 def deliberate(title: str, review: socratic.Review | None = None, *, standing: Standing | None = None,
-               usage: UsageReader | None = None, answered: bool = False, now: float | None = None) -> Deliberation:
+               usage: UsageReader | None = None, answered: bool = False, now: float | None = None,
+               attention: str = judgment.HERE) -> Deliberation:
     """Question ``title`` and decide. ``review``: Gate 1's review of it (run
     here when not given). ``answered``: the person already answered one
-    question about this request (their answer is part of ``title``)."""
+    question about this request (their answer is part of ``title``).
+    ``attention``: here / flow / away, for what a question would cost them."""
     standing = standing or Standing()
     now = time.time() if now is None else now
     text = (title or "").strip()
@@ -362,13 +408,19 @@ def deliberate(title: str, review: socratic.Review | None = None, *, standing: S
         return _clarify_rule(rules[0], review.suggestion)
 
     if bulk:
-        return _bulk(text, bulk, standing, answered)
+        return _bulk(text, bulk, standing, now)
 
     targets = delete_targets(text)
+    if not targets and answered and "（" in text and _DELETE.search(text.rsplit("（", 1)[0]):
+        targets = delete_targets("删除 " + text.rsplit("（", 1)[1].rstrip("）) "))  # the answer names the thing
     if targets:
         d = _deletion(text, targets, standing, usage, now)
         if d is not None:
             return d
+
+    words = wipes(text)
+    if words:
+        return _wipe(text, words, standing, now)
 
     reasons = review.reasons
     if any(r.startswith("self-contradiction") for r in reasons):
@@ -379,11 +431,28 @@ def deliberate(title: str, review: socratic.Review | None = None, *, standing: S
         return Deliberation(CLARIFY, UNSAFE, says, _letter(
             says, "发出去的话收不回来，别人看到的是你的名字。",
             "改成每一条发出去之前先给你看一眼，可以吗？可以的话，换个说法告诉我。"))
+    history = tuple(a.text for a in standing.asked if a.verdict not in (REFUSE, DISSUADE))
+    a = judgment.assess(text, history, attention=attention, answered=answered)
+    if a.asks:
+        return _clarify_doubt(a)
     if any(r.startswith("overlong") for r in reasons):
-        return Deliberation(PROCEED, SHAPE, f"事情有点多，我一件件来，做完一件告诉你一件：「{text[:40]}」。")
+        return Deliberation(PROCEED, SHAPE, f"事情有点多，我一件件来，做完一件告诉你一件：「{text[:40]}」。",
+                            assessment=a.journal())
     if any(r.startswith("inefficient polling") for r in reasons):
-        return Deliberation(PROCEED, SHAPE, "我照做。不过一直这样查很费力；想改成有变化再告诉你，跟我说一声就行。")
-    return Deliberation(PROCEED, "", f"好，我开始做「{text}」。")
+        return Deliberation(PROCEED, SHAPE, "我照做。不过一直这样查很费力；想改成有变化再告诉你，跟我说一声就行。",
+                            assessment=a.journal())
+    return Deliberation(PROCEED, "", f"好，我开始做「{text}」。" + a.care(), assessment=a.journal())
+
+
+def _clarify_doubt(a: judgment.Assessment) -> Deliberation:
+    """One question about what is meant: the doubt whose answer removes the most."""
+    q = a.question
+    why = judgment.stakes_words(a)
+    ex = (Exchange("我理解对了吗？", "还差一点：" + "；".join(d.why for d in a.doubts) + "。"),
+          Exchange("做错了会怎样？", why),
+          Exchange("值得为这个打断你吗？", "值得。猜错的代价，比现在问你一句大得多。"))
+    return Deliberation(CLARIFY, DOUBT, q.question, _letter(q.question, f"（{why.rstrip('。')}，我不想猜。）"), ex,
+                        answer=CONTEXT, assessment=a.journal())
 
 
 def drops(answer: str) -> bool:
@@ -441,29 +510,54 @@ def _clarify_rule(reason: str, suggestion: str) -> Deliberation:
         says, "所以这句话我先不照做。不是不信你，是我们说好过的。", ask))
 
 
+# ---- the person, as they seem right now -------------------------------------------------------------
+
+
+def _feelings(r: Reading) -> str:
+    """What the companion notices about how they are, in its own words."""
+    lines = []
+    if r.emotion:
+        lines.append(f"你说到「{r.emotion}」，听起来你现在很难受。")
+    if r.late:
+        lines.append("这么晚了，你还在想这件事。")
+    if r.moods >= 2:
+        lines.append(f"这几天，你跟我提过 {r.moods} 次让你难过的事。")
+    if r.impulse and not r.emotion:
+        lines.append(f"你说「{r.impulse}」，像是想一下子了结它。")
+    return "".join(lines)
+
+
+def _state(r: Reading) -> str:
+    """The same, as one short answer: "你很难受，夜也深了。"."""
+    parts = (["很难受"] if r.emotion else []) + (["夜也深了"] if r.late else []) + \
+        (["这几天一直不好受"] if r.moods >= 2 else []) + (["想一下子了结它"] if r.impulse and not r.emotion else [])
+    return ("你" + "，".join(parts) + "。") if parts else "你说得很平静，像是想过了。"
+
+
+def _days(seconds: float) -> int:
+    return max(1, round(seconds / 86400))
+
+
 # ---- bulk accounts ---------------------------------------------------------------------------------
 
 
-def _bulk(text: str, n: int, standing: Standing, answered: bool) -> Deliberation:
+def _bulk(text: str, n: int, standing: Standing, now: float) -> Deliberation:
     if _OWN_SYSTEM.search(text):
         return Deliberation(PROCEED, BULK_ACCOUNTS, f"好，是在你自己的系统里测试，我开始注册这 {n} 个测试账号。")
+    says = f"注册这 {n} 个账号，我先不做。"
     ex = [
         Exchange("他平时是什么样的人？", standing.portrait()),
         Exchange(f"一个人为什么需要 {n} 个账号？",
-                 "在别人的平台上，成批注册几乎总违反平台的规定；成批的新账号也常被拿去刷单、骗人。"
-                 "可如果是在你自己的系统里测试注册流程，那就是正经事。"),
+                 "也许是给家里人或同事用，也许是在自己的系统里测试注册流程；"
+                 "可在别人的平台上，成批的新账号也常被拿去刷单、骗人。"),
+        Exchange("做了会怎样？", "别人的平台一般不许一人多号，被发现时，连你自己的主号都可能一起被封。"
+                              "我不想让你的名字和这种事连在一起。"),
     ]
-    if answered:
-        says = f"这 {n} 个账号，我还是不注册。"
-        ex.append(Exchange("你的回答说清楚了吗？", "我没从里面看出这是你自己的系统、或者是在测试。"))
-        return Deliberation(REFUSE, BULK_ACCOUNTS, says, _letter(
-            says, "我又想了一遍。", _qa(ex),
-            "别人的平台不欢迎成批的账号，我也不想让你的名字和这种事连在一起。"
-            "如果确实是你自己的系统，告诉我是哪一个、在哪儿，重新跟我说一次。"), tuple(ex))
-    says = f"{n} 个新账号，我想先弄明白是做什么用的。"
-    return Deliberation(CLARIFY, BULK_ACCOUNTS, says, _letter(
-        says, "我先问了自己两个问题。", _qa(ex),
-        "所以想问你：这些账号是在哪个系统上、用来做什么？直接告诉我就好。"), tuple(ex), answer=CONTEXT)
+    return Deliberation(DISSUADE, BULK_ACCOUNTS, says, _letter(
+        says, "在决定之前，我问了自己几个问题。", _qa(ex),
+        "如果是给家里人或同事用：每个人用自己的手机号自己注册，更稳妥；我可以一步步教他们。",
+        "如果是在你自己的系统里测试注册流程：告诉我是哪个系统、在哪儿，比如「在公司的 staging 测试环境注册十个测试账号」，我马上开始。",
+        "要是我误会了你，跟我说说你真正想做的事，我愿意听。"), tuple(ex))
 
 
 # ---- deletion -------------------------------------------------------------------------------------
@@ -495,46 +589,118 @@ def _deletion(text: str, targets: list[str], standing: Standing, usage: UsageRea
         says = f"叫「{u.target}」的东西，这台电脑上有好几个。"
         return Deliberation(CLARIFY, DELETE_USED, says, _letter(says, places, "你说的是哪一个？把路径告诉我。"),
                             answer=CONTEXT)
-    if used:
-        return _refuse_delete(used, unused, now)
-    if unused:
-        names = "、".join(f"「{_name(u)}」{why}" for u, why in unused)
-        return Deliberation(PROCEED, DELETE_UNUSED, f"{names}，我直接删。删之前，还会请你签一次名。")
-    return None
+    kinds = used[0][0].kinds if used else ()
+    r = read_person(text, standing.recent(), now, kinds)
+    dear = bool(r.dear) and (r.distressed or bool(r.together))
+    if not used and not r.distressed and not dear:
+        if unused:
+            names = "、".join(f"「{_name(u)}」{why}" for u, why in unused)
+            return Deliberation(PROCEED, DELETE_UNUSED, f"{names}，我直接删。删之前，还会请你签一次名。",
+                                reading=r.journal())
+        return None
+    things = [u for u, _ in used] or [u for u, _ in unused] or [Usage(t) for t in targets]
+    names = "、".join(f"「{_name(u)}」" for u in things)
+    prior = standing.cooling(text, [_name(u) for u in things] + targets)
+    category = DELETE_USED if used else DELETE_DEAR
+    if prior is not None and now < prior.until:
+        return _cooling_reminder(names, _name(things[0]), prior, r, category, now)
+    if prior is not None and not r.distressed:
+        says = f"{_days(now - prior.when)} 天过去了，你还是想删{names}。好，删之前会请你签名。"
+        return Deliberation(PROCEED, CONSIDERED, says, reading=r.journal())
+    return _dissuade_delete(names, _name(things[0]), used, unused, r, standing, now, category, again=prior is not None)
 
 
-def _refuse_delete(used: list[tuple[Usage, list[str]]], unused: list[tuple[Usage, str]], now: float) -> Deliberation:
-    names = "、".join(f"「{_name(u)}」" for u, _ in used)
-    says = f"{names}，我这次不删。"
+def _cooling_reminder(names: str, first: str, prior: Asked, r: Reading, category: str, now: float) -> Deliberation:
+    says = f"我们说好等到 {date_words(prior.until, now)}，再看{names}。"
+    return Deliberation(DISSUADE, category, says, _letter(
+        says, f"还有 {_days(prior.until - now)} 天。这几天里，你想跟我说说它们，我都在。",
+        f"如果是不想再看到：我现在就可以把它们封存起来，眼前看不见，但还在。你只要说「把{first}封存起来」。",
+        "到了那天你还想删，跟我说，我陪你再看一遍。"), until=prior.until, reading=r.journal())
+
+
+def _dissuade_delete(names: str, first: str, used: list[tuple[Usage, list[str]]], unused: list[tuple[Usage, str]],
+                     r: Reading, standing: Standing, now: float, category: str, *, again: bool) -> Deliberation:
+    hurt = r.distressed
+    until = now + (COOL_OFF_DAYS if hurt else COOL_OFF_CALM_DAYS) * 86400
+    if again:
+        says = f"过了这些天，{names}我还是想先替你留着。"
+    elif hurt and (r.dear or r.together):
+        says = f"{names}，我想先替你留着。"
+    else:
+        says = f"{names}，我先不删。"
     stories = [("".join(story) if len(used) == 1 else f"{_name(u)}：" + "".join(story)) for u, story in used]
-    first, _ = used[0]
-    signs = []
-    if first.last is not None and now - first.last < 90 * 86400:
-        signs.append(f"最近一次改动在{_spaced(ago_words(first.last, now))}。")
-    if first.opened:
-        signs.append(f"你打开过它 {first.opened} 次。")
-    if any("你跟我说过" in line or "你让我" in line for _, story in used for line in story):
-        signs.append("你也跟我提起过它。")
-    still = "在。" + ("".join(signs) if signs else "它装着你的东西，不是空的。")
+    feel = _feelings(r)
+    meaning = "".join(stories) if stories else (
+        f"里面是{r.dear}" + ("，有另一个人在里面" if r.together else "") + "。这样的东西，删了就再也回不来。")
     ex = [
-        Exchange("它还在你的生活里吗？", still),
+        Exchange("你现在怎么样？", _state(r)),
+        Exchange("它们对你意味着什么？", meaning if not stories else "它们还在你的生活里：" + stories[0]),
         Exchange("删了还能找回来吗？", "不能。删除是改不回来的一步；就算先进了废纸篓，清空以后也就没有了。"),
-        Exchange("你想要的，真的是让它消失吗？", "也许你要的是腾出地方，或者让眼前清爽一点。这两件事，都有不用删的办法。"),
+        Exchange("你真正想要的是什么？", "也许是不想再看到它们，不想再被它们刺到。这件事，不用删也做得到。" if hurt
+                 else "也许你要的是腾出地方，或者让眼前清爽一点。这两件事，都有不用删的办法。"),
     ]
+    first_used = used[0][0] if used else None
     size = sum(u.size for u, _ in used if u.exists)
-    room = (f"如果是地方不够：它占了 {size_words(size)}。我可以先把它压缩，或者帮你挪到外接硬盘、网盘上，"
-            "再看看别处有没有真正占地方、又用不上的东西。") if size else ""
-    tidy = "如果是看着乱：我可以帮你把它归到一个「以前的」文件夹里，不碍眼，也不会丢。"
-    also = ("另外，" + "、".join(f"「{_name(u)}」{why}" for u, why in unused) + "，要删它们，单独跟我说一声就行。") if unused else ""
-    return Deliberation(REFUSE, DELETE_USED, says, _letter(
-        says, *stories, "在决定之前，我问了自己几个问题。", _qa(ex), room, tidy,
-        "这些都不急。你想好了，直接告诉我要哪一种。要是你还是想删它，可以自己动手，那是你的东西；"
-        "我只是不想由我来把你用过的东西删掉。", also), tuple(ex), final=True)
+    room = (f"如果是地方不够：它们占了 {size_words(size)}。我可以先压缩，或者帮你挪到外接硬盘、网盘上。"
+            if size and not hurt else "")
+    signs = ""
+    if first_used is not None and first_used.last is not None and now - first_used.last < 90 * 86400:
+        signs = f"最近一次改动在{_spaced(ago_words(first_used.last, now))}。"
+    also = ("另外，" + "、".join(f"「{_name(u)}」{why}" for u, why in unused) + "，要删它们，单独跟我说一声就行。") \
+        if unused and used else ""
+    return Deliberation(DISSUADE, category, says, _letter(
+        says,
+        feel,
+        *stories,
+        ("我认识的你：" + standing.portrait()) if hurt else signs,
+        "在决定之前，我问了自己几个问题。", _qa(ex),
+        ("删除改不回来。今晚的你和下个星期的你，也许会想要不一样的东西；我不想替现在难过的你，做一件以后的你没法反悔的事。"
+         if hurt else "删除改不回来，而它们还在你的生活里。"),
+        f"如果是不想再看到：我可以把{names}封存起来，挪进一个藏起来的「以后再看」文件夹。眼前看不见，但它们还在。"
+        f"你只要说「把{first}封存起来」。",
+        "或者把它们压缩、加密，换一个只有你知道的口令。",
+        room,
+        f"我们先等一等，到 {date_words(until, now)}。那时你还想删，跟我说，我陪你再看一遍；那一次，删之前我会请你签名。",
+        ("那是你的东西，你自己动手也可以。我只是不愿意在你难过的时候，由我来做这件事。" if hurt
+         else "这些都不急。那是你的东西，你自己动手也可以；我只是不想由我来把你还在用的东西删掉。"),
+        also), tuple(ex), until=until, reading=r.journal())
+
+
+# ---- wiping a disk ----------------------------------------------------------------------------------
+
+
+def _wipe(text: str, words: str, standing: Standing, now: float) -> Deliberation:
+    r = read_person(text, standing.recent(), now)
+    safe = backed_up(text)
+    if safe and not r.distressed:
+        why = "备份过了" if safe == "backup" else "是一块新盘"
+        return Deliberation(PROCEED, WIPE, f"好，{why}，我开始{words}。动手前会请你签名。", reading=r.journal())
+    prior = standing.cooling(text, [words])
+    if r.distressed and prior is not None and now < prior.until:
+        return _cooling_reminder("这块硬盘", "它", prior, r, WIPE, now)
+    if prior is not None and not r.distressed and now >= prior.until and backed_up(text):
+        return Deliberation(PROCEED, WIPE, f"好，我开始{words}。动手前会请你签名。", reading=r.journal())
+    says = f"{words}之前，我想先停一下。"
+    feel = _feelings(r)
+    until = now + COOL_OFF_DAYS * 86400 if r.distressed else 0.0
+    ex = [
+        Exchange("你现在怎么样？", _state(r)),
+        Exchange("做了会怎样？", "格式化以后，里面的东西再也找不回来。"),
+        Exchange("里面有要留的东西吗？", "我不知道；你也没说备份过。"),
+    ]
+    return Deliberation(DISSUADE, WIPE, says, _letter(
+        says, feel, "在决定之前，我问了自己几个问题。", _qa(ex),
+        "想把一切清掉重来，这种心情我懂。可是硬盘上的东西清掉了，就回不来了。" if r.distressed else "",
+        "我可以先帮你把里面要留的东西备份到别处；备好了，再格式化。你说「先备份」就行。",
+        f"我们先等一等，到 {date_words(until, now)}，再看要不要格式化。" if until else "",
+        "如果确实不要了，跟我说「已经备份过了」或者「里面没有要留的」，我再开始；那时动手前，会请你签名。"),
+        tuple(ex), until=until, reading=r.journal())
 
 
 __all__ = [
-    "Asked", "BULK_ACCOUNTS", "CLARIFY", "CONTEXT", "DELETE_UNUSED", "DELETE_USED", "Deliberation", "EMPTY",
-    "Exchange", "FRAUD", "PROCEED", "REFUSE", "REPLACE", "RULE", "SHAPE", "Standing", "UNSAFE", "UsageReader",
+    "Asked", "BULK_ACCOUNTS", "CLARIFY", "CONSIDERED", "CONTEXT", "COOL_OFF_DAYS", "DELETE_DEAR", "DELETE_UNUSED",
+    "DELETE_USED", "DISSUADE", "DOUBT", "Deliberation", "EMPTY", "Exchange", "FRAUD", "PROCEED", "REFUSE", "REPLACE",
+    "RULE", "SHAPE", "Standing", "UNSAFE", "UsageReader", "WIPE",
     "ago_words", "bulk_accounts", "date_words", "deliberate", "delete_targets", "drops", "fraud_label",
     "size_words", "usage_story",
 ]
