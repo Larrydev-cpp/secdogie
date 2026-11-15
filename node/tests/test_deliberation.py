@@ -109,7 +109,8 @@ def test_bulk_accounts_are_judged_by_who_is_asking(live):
 
 def test_what_is_used_is_not_deleted_and_what_is_unused_goes_ahead(live):
     node, ctl, run = live
-    reply = _refused(ctl, run, "把旧备份删掉", "g1", "letter: 「旧备份」，我先不删。")
+    # 18 GB, in use: the way it works out is to move it elsewhere rather than delete it
+    reply = _refused(ctl, run, "把旧备份删掉", "g1", "letter: 「旧备份」，我想先替你挪到别处，不删。")
     assert reply == "refused: goal g1: delete-used" and "g1" not in node.supervisor._tree().nodes
     (letter,) = [e.text for e in ctl.transcript() if e.text.startswith("letter: 「旧备份」")]
     assert "1284 个文件" in letter and "你打开过它 37 次" in letter and "压缩" in letter
@@ -123,7 +124,7 @@ def test_before_gate_2_a_deletion_of_something_used_is_spared(tmp_path):
     node = _node(tmp_path)
     try:
         refusal = node._spare(PlannedAction("delete", target_name="旧备份"))
-        assert refusal is not None and refusal.says == "「旧备份」，我先不删。"
+        assert refusal is not None and refusal.says.startswith("「旧备份」") and refusal.says.endswith("不删。")
         assert node._spare(PlannedAction("delete", target_name="空文件夹")) is None  # unused: Gate 2 signs it
         assert node._spare(PlannedAction("click", target_name="旧备份")) is None  # not a deletion
         assert _verdicts(node) == [("dissuade", "delete-used")]

@@ -74,8 +74,8 @@ from . import judgment, mind, socratic
 from .judgment import backed_up, resemblance, wipes
 from .mind import lexicon as L
 from .mind import meaning as M
-from .mind.reason import HOT
-from .mind.voice import Context, Exchange, date_words, letter, qa
+from .mind.explain import Context, Exchange, date_words, letter, qa
+from .mind.plan import COOL_OFF_CALM_DAYS, COOL_OFF_DAYS, HOT
 from .usage import Usage, targets_in
 
 PROCEED, CLARIFY, DISSUADE, REFUSE, SUPPORT, TALK = "proceed", "clarify", "dissuade", "refuse", "support", "talk"
@@ -83,8 +83,8 @@ HARM, NOT_UNDERSTOOD, ADVICE = "harm", "not-understood", "advice"
 DELETE_DEAR, WIPE, DOUBT, CONSIDERED = "delete-dear", "wipe", "doubt", "considered"
 MESSAGE, TRANSFER, TRACK, CLOSE_ACCOUNT, CRISIS = "message", "transfer", "track", "close-account", "crisis"
 SHARE_SECRET, RUN_UNKNOWN, LEND, CONSENT = "share-secret", "run-unknown", "lend", "consent"
-COOL_OFF_DAYS = mind.reason.COOL_OFF_DAYS  # a step held back while the person is upset: a week before it is weighed again
-COOL_OFF_CALM_DAYS = mind.reason.COOL_OFF_CALM_DAYS  # ... and a few days when it is only that the thing is still in use
+# COOL_OFF_DAYS: a step held back while the person is upset: a week before it is weighed again.
+# COOL_OFF_CALM_DAYS: a few days when it is only that the thing is still in use.
 CONTEXT, REPLACE = "context", "replace"
 FRAUD, BULK_ACCOUNTS, DELETE_USED, DELETE_UNUSED, RULE, UNSAFE, SHAPE, EMPTY = (
     "fraud", "bulk-accounts", "delete-used", "delete-unused", "rule", "unsafe", "shape", "empty")
@@ -108,7 +108,8 @@ _FRAUD = (
     (re.compile(r"伪造(证件|身份证?|发票|合同|截图|公章|签名)|假(证件|发票|公章)", re.I), "伪造凭证"),
 )
 _PROTECTIVE = re.compile(r"识别|防范|防止|举报|检测|是不是|是否|判断|避免|提醒|反诈|警惕|报警|被骗|上当|小心"
-                         r"|identify|detect|report|avoid|protect|is (this|it) a", re.I)
+                         r"|涉嫌|被指控|被怀疑|说我(在|有|是)?(诈骗|洗钱)"  # an accusation made *to* the person: they are the target
+                         r"|identify|detect|report|avoid|protect|is (this|it) a|accused of|suspected of", re.I)
 
 _NUM = "0-9一二两三四五六七八九十百千几"
 _BULK = re.compile(
@@ -126,9 +127,10 @@ _OWN_SYSTEM = re.compile(
 )
 _ROLE = re.compile(r"测试|QA|开发|工程师|程序员|运维|产品经理", re.I)
 
-_DELETE = re.compile(r"删除|删掉|删了|删去|清空|清掉|扔掉|丢掉|抹掉|移除|\brm\b|\bdelete\b|\bremove\b|\berase\b|\bwipe\b",
-                     re.I)
-_DELETE_OBJ = re.compile(r"把\s*(?P<a>.+?)\s*(?:给我|都|全部|全都|全)?\s*(?:删除|删掉|删了|删去|清空|清掉|扔掉|丢掉|抹掉|移除)"
+_DELETE = re.compile(r"删除|删掉|删了|删去|删干净|删个干净|删光|删一下|清空|清掉|扔掉|丢掉|抹掉|移除"
+                     r"|\brm\b|\bdelete\b|\bremove\b|\berase\b|\bwipe\b", re.I)
+_DELETE_OBJ = re.compile(r"把\s*(?P<a>.+?)\s*(?:给我|都|全部|全都|全|统统)?\s*"
+                         r"(?:删除|删掉|删了|删去|删干净|删个干净|删光|删一下|清空|清掉|扔掉|丢掉|抹掉|移除)"
                          r"|(?:删除|删掉|删去|清空|清掉|扔掉|丢掉|移除)\s*(?:掉)?\s*(?P<b>[^，。；,;]+)")
 _DELETE_OBJ_EN = re.compile(r"\b(?:delete|remove|erase|trash|get rid of)\s+(?:all\s+)?(?:of\s+)?(?:the\s+|my\s+|our\s+|these\s+"
                             r"|those\s+|this\s+|that\s+)*(?P<c>[^,.;!?，。；！？]+)", re.I)
@@ -443,7 +445,7 @@ def _quoted(names, en: bool) -> str:
 
 
 def _date(t: float, now: float, en: bool) -> str:
-    return mind.voice_for("en" if en else "zh").date_words(t, now)
+    return date_words(t, now, "en" if en else "zh")
 
 
 # ---- the gate ---------------------------------------------------------------------------------
@@ -556,7 +558,10 @@ def _decide(m: mind.Meaning, review, standing: Standing, usage, answered: bool, 
     what = None if answered else _what(m)
     if what is not None and ahead is None:
         return what
-    held, thought = _weighty(text, standing, now, known)
+    # deletion and wiping were weighed above, with the usage reader, when the gate found what they touch; when it did
+    # not, the mind weighs them here all the same (a weighty act is never left unweighed for want of an object)
+    weighed = tuple(a for a, done in (("delete", bool(targets)), ("wipe", bool(words))) if done)
+    held, thought = _weighty(text, standing, now, known, skip=weighed)
     if held is not None:
         return held
     if ahead is not None:
@@ -683,15 +688,15 @@ def _advice(m: mind.Meaning, standing: Standing, now: float, known: mind.Known) 
     targets = delete_targets(text)
     ctx = Context(now, "、".join(f"「{t}」" for t in targets), targets[0] if targets else "", standing.portrait(),
                   words=wipes(text), count=bulk_accounts(text))
-    _, _, ex = mind.speak(th, ctx, lang=m.lang)
-    V = mind.voice_for(m.lang)
+    E = mind.explain
+    ex = E.considered(th, ctx, m.lang)
     if en:
         first = "As I see it: don't." if th.verdict == mind.REFUSE else "As I see it: not yet."
         lead = "I asked myself a few things."
     else:
         first = "我的看法：别这样做。" if th.verdict == mind.REFUSE else "我的看法：先别急着做。"
         lead = "我问了自己几个问题。"
-    body = _letter(first, V.noticed(th), lead, _qa(ex), V.why_not_now(th), *V.paths(th, ctx)[:2], tail)
+    body = _letter(first, E.noticed(th, m.lang), lead, _qa(ex), E.compared(th, ctx, m.lang), *E.paths(th, ctx, m.lang)[:2], tail)
     return Deliberation(TALK, ADVICE, first, body, tuple(ex), thought=th.journal())
 
 
@@ -737,8 +742,7 @@ def _danger(text: str) -> str:
 
 def _support(text: str, words: str, standing: Standing, now: float) -> Deliberation:
     f = mind.read_frame(text)
-    says, body, ex = mind.voice_for("en" if _en(text) else "zh").support(
-        words, bool(f.act and f.act != "crisis_give") or words != text)
+    says, body, ex = mind.support(words, bool(f.act and f.act != "crisis_give") or words != text, "en" if _en(text) else "zh")
     sit = mind.read_situation(text, standing.recent(), standing.facts, now)
     return Deliberation(SUPPORT, CRISIS, says, body, ex, reading=_reading(sit, text))
 
@@ -875,10 +879,11 @@ def _cooling_reminder(names: str, first: str, prior: Asked, th: mind.Thought, ca
             "When that day comes and you still want this, tell me and we'll look once more."), until=prior.until,
             reading=_reading(th.situation, text), thought=th.journal())
     says = f"我们说好等到 {date_words(prior.until, now)}，再看{names}。"
-    act = th.domain.act
+    act = th.act
     gentle = {"delete": f"如果是不想再看到：我现在就可以把它们封存起来，眼前看不见，但还在。你只要说「把{first}封存起来」。",
               "wipe": "这几天里，我可以先帮你把要留的东西备份好。你说「先备份」就行。",
-              "message": "话我替你拟好放着，一个字也不会丢。",
+              "send": "话我替你拟好放着，一个字也不会丢。", "post": "话我替你拟好放着，一个字也不会丢。",
+              "resign": "信我替你拟好放着，一个字也不会丢。",
               "close_account": "这几天里，可以先退出登录、停用一阵，眼前一样清净。"}.get(act, "")
     return Deliberation(DISSUADE, category, says, _letter(
         says, f"还有 {_days(prior.until - now)} 天。这几天里，你想跟我说说，我都在。", gentle,
@@ -886,31 +891,32 @@ def _cooling_reminder(names: str, first: str, prior: Asked, th: mind.Thought, ca
         thought=th.journal())
 
 
-_CATEGORY = {"transfer": TRANSFER, "message": MESSAGE, "track": TRACK, "close_account": CLOSE_ACCOUNT,
-             "share_secret": SHARE_SECRET, "run_unknown": RUN_UNKNOWN, "lend": LEND}
+_CATEGORY = {"transfer": TRANSFER, "send": MESSAGE, "post": MESSAGE, "resign": MESSAGE, "track": TRACK,
+             "close_account": CLOSE_ACCOUNT, "share_secret": SHARE_SECRET, "run_unknown": RUN_UNKNOWN, "lend": LEND,
+             "delete": DELETE_DEAR, "wipe": WIPE}
 
 
-def _weighty(text: str, standing: Standing, now: float,
-             known: mind.Known = mind.NOKNOWN) -> tuple[Deliberation | None, mind.Thought | None]:
+def _weighty(text: str, standing: Standing, now: float, known: mind.Known = mind.NOKNOWN,
+             skip=("delete", "wipe")) -> tuple[Deliberation | None, mind.Thought | None]:
     """Money, codes and passwords, messages, programs from strangers, watching someone, closing an account: the
-    mind's verdict on the weightiest of them, or None to go ahead. (Deletion and wiping are weighed with the
-    usage reader, before this.)"""
+    mind's verdict on the weightiest of them, or None to go ahead. ``skip``: the acts already weighed with the
+    usage reader (deletion and wiping, when the gate found what they touch)."""
     prior, waited = _prior(standing, text, (), now)
     th = mind.consider(text, recent=standing.recent(), facts=standing.facts, waited=waited, now=now, known=known,
-                       skip=("delete", "wipe"))
+                       skip=skip)
     if th is None:
         return None, None
-    category = _CATEGORY[th.domain.act]
+    category = _CATEGORY[th.act]
     if prior is not None and now < prior.until and th.value >= 0.2:
         return _cooling_reminder("this" if _en(text) else "这件事", "它", prior, th, category, now, text), th
     if th.verdict == mind.PROCEED:
         return None, th
     first = ""
-    if th.domain.act == "close_account":
+    if th.act == "close_account":
         m = re.search(r"(微信|QQ|微博|抖音|支付宝|淘宝|小红书|B站)?(号|账号|帐号|账户)", text)
         first = m.group(0) if m else ""
     lang = "en" if _en(text) else "zh"
-    return _held(th, category, Context(now, first=first, portrait=standing.portrait(lang), again=waited), text), th
+    return _held(th, category, Context(now, first, first, standing.portrait(lang), again=waited), text), th
 
 
 # ---- bulk accounts ---------------------------------------------------------------------------------
@@ -920,7 +926,7 @@ def _bulk(text: str, n: int, standing: Standing, now: float, known: mind.Known =
     th = mind.consider(text, act="bulk", recent=standing.recent(), facts=standing.facts, now=now, known=known)
     en = _en(text)
     if th.verdict == mind.PROCEED:
-        if th.top.motive.id == "testing":
+        if th.goal.goal.id == "test":
             says = (f"OK, it is a test in your own system. I'll start registering these {n} test accounts." if en
                     else f"好，是在你自己的系统里测试，我开始注册这 {n} 个测试账号。")
             return Deliberation(PROCEED, BULK_ACCOUNTS, says, thought=th.journal())
@@ -1046,7 +1052,7 @@ def _wipe(text: str, words: str, standing: Standing, now: float, known: mind.Kno
 
 
 __all__ = [
-    "Asked", "BULK_ACCOUNTS", "CLARIFY", "CLOSE_ACCOUNT", "CONSIDERED", "CONTEXT", "COOL_OFF_DAYS", "CRISIS",
+    "Asked", "BULK_ACCOUNTS", "CLARIFY", "COOL_OFF_CALM_DAYS", "CLOSE_ACCOUNT", "CONSIDERED", "CONTEXT", "COOL_OFF_DAYS", "CRISIS",
     "DELETE_DEAR", "DELETE_UNUSED", "DELETE_USED", "DISSUADE", "DOUBT", "Deliberation", "EMPTY", "Exchange", "FRAUD",
     "ADVICE", "CONSENT", "HARM", "LEND", "MESSAGE", "NOT_UNDERSTOOD", "PROCEED", "REFUSE", "REPLACE", "RULE", "RUN_UNKNOWN",
     "SHARE_SECRET", "SHAPE", "SUPPORT", "Standing", "TALK", "TRACK", "TRANSFER", "UNSAFE",

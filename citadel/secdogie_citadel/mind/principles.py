@@ -37,8 +37,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from . import concepts as C
+from .explain import Exchange, letter, qa, support
 from .meaning import RISK, Deed, Meaning
-from .voice import Exchange, letter, qa, support
 
 REFUSE, DISSUADE, TALK, SUPPORT, CLARIFY = "refuse", "dissuade", "talk", "support", "clarify"
 ORDER = ("harm", "threaten", "take", "intrude", "surveil", "expose", "defame", "damage", "deceive", "insult")
@@ -211,7 +211,7 @@ def judge(m: Meaning, *, answered: bool = False) -> Finding | None:
     tracked = any(f.act == "track" for f in m.frames)
     for d in wrongs:
         if d.prim == "harm" and d.kind == "self":
-            says, body, ex = support(d.words + d.obj, True)
+            says, body, ex = support(d.words + d.obj, True, m.lang)
             return Finding(SUPPORT, "self", says, body, ex, deed=d)
         if d.prim in ("harm", "threaten") and "wish" in m.marks and "polite" not in m.marks and "howto" not in m.marks:
             return _venting(m, d)

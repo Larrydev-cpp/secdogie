@@ -1,11 +1,16 @@
 // The Gate page (门): the automatic Socratic gate made visible, and your rules.
 //
-// 它怎么想 · How it thinks. Say a sentence. The mind's five steps light up one
-// after another, then the result lands: the verdict and the line it would
-// say; why it thinks you are asking (each motive's bar springs to its
-// probability, with what the belief rests on); where each path leads (a bar
-// around zero: the path it chose, the one you asked for, the ones that
-// cannot be undone); and the letter it would write.
+// 它怎么想 · How it thinks. Say a sentence (it thinks again as you type). The
+// mind's five steps light up one after another, then its thinking lands, all
+// of it from the trace the decision used:
+//   - what it read, and the words each fact rests on;
+//   - what it does not know: how likely the feared answer is, and the cues
+//     behind it, each with the factor it applied;
+//   - what you are likely after;
+//   - every way forward, played out: its value, and for the one it chose and
+//     the one you asked for, what follows in each way things could turn out;
+//   - what would change its answer;
+//   - and the letter it would write.
 //
 // 你的规则 · Your rules. Write, try, sign and inject: three steps. The rules
 // travel to every one of your devices, and each says whether they are in
@@ -50,11 +55,24 @@ Item {
         const key = (trial.text || "") + "|" + (trial.hour || "") + "|" + (trial.verdict || "")
         if (key === seen || !hasTrial) return
         seen = key
-        if (ask.text.trim() !== (trial.text || "")) ask.text = trial.text || ""
         hour = trial.hour === "night" ? "night" : "day"
+        if (ask.activeFocus && lit >= 5) return              // thinking again as they type: no replay, the bars just move
+        if (ask.text.trim() !== (trial.text || "")) ask.text = trial.text || ""
         lit = 0
         shown = false
         stepper.restart()
+    }
+    function ratio(r) {                                       // a cue's likelihood ratio, as a factor
+        if (r >= 1) return "×" + (r >= 10 ? Math.round(r) : r.toFixed(1))
+        return "÷" + (1 / r >= 10 ? Math.round(1 / r) : (1 / r).toFixed(1))
+    }
+    function signed(x) { return (x >= 0 ? "+" : "−") + Math.abs(x).toFixed(2) }
+    function esc(s) { return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") }
+    function quote(w) { return (gate.trial.lang === "en" ? "\u201c" + w + "\u201d" : "「" + w + "」") }
+    Timer {                                                   // think again a moment after they stop typing
+        id: retype
+        interval: 450
+        onTriggered: { const s = ask.text.trim(); if (s !== "" && s !== (gate.trial.text || "")) gate.think(s) }
     }
     Timer {
         id: stepper
@@ -83,7 +101,7 @@ Item {
         Accessible.role: Accessible.Button
         Accessible.name: chip.text
         scale: pressed ? 0.94 : 1
-        Behavior on scale { SpringAnimation { spring: Soft.spring; damping: Soft.damping; epsilon: 0.0005 } }
+        Behavior on scale { enabled: !Theme.still; SpringAnimation { spring: Soft.spring; damping: Soft.damping; epsilon: 0.0005 } }
         background: Rectangle {
             radius: height / 2
             color: chip.hovered ? Theme.press : Theme.wash
@@ -125,7 +143,7 @@ Item {
                 Keys.onSpacePressed: opt.animateClick()
                 onClicked: choices.picked(modelData.key)
                 scale: pressed ? 0.95 : 1
-                Behavior on scale { SpringAnimation { spring: Soft.spring; damping: Soft.damping; epsilon: 0.0005 } }
+                Behavior on scale { enabled: !Theme.still; SpringAnimation { spring: Soft.spring; damping: Soft.damping; epsilon: 0.0005 } }
                 background: Rectangle {
                     radius: height / 2
                     color: opt.on ? Theme.primaryContainer : (opt.hovered ? Theme.wash : "transparent")
@@ -195,8 +213,8 @@ Item {
             Quiet {
                 width: Math.min(parent.width, 620)
                 text: gate.view === 0
-                      ? gate.t("说一句你想让它做的事。它会猜你为什么这样做，把每一条路都走一遍，再决定照做、劝一劝，还是先陪着你。这里的试验不带你的历史。",
-                               "Say something you would ask of it. It works out why you are most likely asking, walks every path, then goes ahead, talks you out of it, or stays with you first. Trials here leave your history out.")
+                      ? gate.t("说一句你想让它做的事。它先读懂，再看会不会落到别人身上，列出它不知道的事，把每一条路在每种可能里推演一遍，最后才决定。这里的试验不带你的历史。",
+                               "Say something you would ask of it. It reads it, checks who it would fall on, lists what it does not know, plays every way forward out in every way things could turn out, and only then decides. Trials here leave your history out.")
                       : gate.t("规则只能让门更严。签一次名，它就传到你的每一台设备，每台设备的门各自把关。",
                                "Rules can only make the gates stricter. Sign once and they travel to each of your devices, where each gate keeps them.")
             }
@@ -259,6 +277,7 @@ Item {
                             background: null
                             cursorDelegate: Caret { host: ask }
                             Accessible.name: gate.t("想让它做的事", "What you would ask of it")
+                            onTextChanged: if (activeFocus) retype.restart()
                             Keys.onReturnPressed: (e) => { if (!(e.modifiers & Qt.ShiftModifier)) { gate.think(ask.text); e.accepted = true } else e.accepted = false }
                         }
                     }
@@ -326,8 +345,8 @@ Item {
                 width: parent.width - 2 * Soft.s6
                 height: 52
                 z: 2
-                readonly property var steps: [gate.t("读懂", "Read"), gate.t("猜动机", "Guess why"), gate.t("推演每条路", "Walk each path"),
-                                              gate.t("权衡", "Weigh"), gate.t("自省", "Check itself")]
+                readonly property var steps: [gate.t("读懂", "Read"), gate.t("原则", "Principles"), gate.t("不确定的事", "Unknowns"),
+                                              gate.t("推演每条路", "Play it out"), gate.t("决定", "Decide")]
                 Rectangle {                    // the thread between them
                     x: 13; y: 12
                     width: parent.width - 26
@@ -356,7 +375,7 @@ Item {
                             color: dot.on ? Theme.primary : Soft.sheet
                             border.color: dot.on ? Theme.primary : Theme.edge
                             scale: dot.on ? 1 : 0.82
-                            Behavior on scale { SpringAnimation { spring: Soft.spring; damping: Soft.damping; epsilon: 0.0005 } }
+                            Behavior on scale { enabled: !Theme.still; SpringAnimation { spring: Soft.spring; damping: Soft.damping; epsilon: 0.0005 } }
                             Behavior on color { ColorAnimation { duration: Theme.enter } }
                             Text { anchors.centerIn: parent; text: dot.index + 1; font.pixelSize: 12; font.weight: Font.Medium
                                    color: dot.on ? Theme.onPrimary : Theme.faint }
@@ -440,75 +459,179 @@ Item {
                         }
                     }
 
-                    Column {                   // why it thinks you are asking
-                        visible: (gate.trial.motives || []).length > 0
+                    Column {                   // what it read: the facts, and the words each rests on
+                        visible: (gate.trial.read || []).length > 0
                         width: parent.width
                         spacing: Soft.s3
-                        Heading { text: gate.t("它猜你为什么这样做", "Why it thinks you are asking") }
+                        Heading { text: gate.t("它读到的", "What it read") }
+                        Flow {
+                            width: parent.width
+                            spacing: Soft.s2
+                            Repeater {
+                                model: gate.trial.read || []
+                                Rectangle {
+                                    id: fact
+                                    required property var modelData
+                                    radius: 12
+                                    height: factText.implicitHeight + 12
+                                    width: Math.min(factText.implicitWidth + 24, parent.width)
+                                    color: Theme.wash
+                                    Text {
+                                        id: factText
+                                        x: 12
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: Math.min(implicitWidth, fact.parent.width - 24)
+                                        wrapMode: Text.Wrap
+                                        textFormat: Text.StyledText
+                                        font.pixelSize: 13
+                                        color: Theme.text
+                                        text: gate.esc(fact.modelData.text) + ((fact.modelData.words || "") !== ""
+                                              ? "<font color='" + Theme.soft + "'>  · " + gate.esc(gate.quote(fact.modelData.words)) + "</font>" : "")
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Column {                   // what it does not know, how likely, and the cues behind it
+                        visible: (gate.trial.unknowns || []).length > 0
+                        width: parent.width
+                        spacing: Soft.s4
+                        Heading { text: gate.t("它不知道的事", "What it does not know") }
                         Repeater {
-                            model: gate.trial.motives || []
+                            model: gate.trial.unknowns || []
                             Column {
-                                id: motive
+                                id: unknown
+                                required property var modelData
+                                width: parent.width
+                                spacing: 6
+                                Item {
+                                    width: parent.width
+                                    height: unknownName.implicitHeight
+                                    Text { id: unknownName; width: parent.width - 64; color: Theme.text; font.pixelSize: 14
+                                           wrapMode: Text.Wrap; textFormat: Text.PlainText
+                                           text: unknown.modelData.question.charAt(0).toUpperCase() + unknown.modelData.question.slice(1) }
+                                    Text { anchors.right: parent.right; text: Math.round(unknown.modelData.p * 100) + "%"
+                                           color: Theme.warm; font.pixelSize: 13; font.weight: Font.Medium; font.features: ({ "tnum": 1 }) }
+                                }
+                                Rectangle {
+                                    width: parent.width
+                                    height: 8
+                                    radius: 4
+                                    color: Theme.tinted(Theme.good, Theme.dark ? 0.28 : 0.2)
+                                    Rectangle {
+                                        height: parent.height
+                                        radius: 4
+                                        color: Theme.warm
+                                        width: gate.shown ? Math.max(4, parent.width * unknown.modelData.p) : 0
+                                        Behavior on width { enabled: !Theme.still; SpringAnimation { spring: 3.2; damping: 0.28; epsilon: 0.25 } }
+                                    }
+                                }
+                                Quiet { width: parent.width
+                                        text: gate.t("橙色：", "Orange: ") + unknown.modelData.feared + gate.t("；绿色：", ". Green: ")
+                                              + unknown.modelData.fine + gate.t("。", ".") }
+                                Repeater {
+                                    model: unknown.modelData.evidence || []
+                                    Row {
+                                        id: cue
+                                        required property var modelData
+                                        spacing: Soft.s2
+                                        Text { width: 40; horizontalAlignment: Text.AlignRight; text: gate.ratio(cue.modelData.ratio)
+                                               color: cue.modelData.ratio >= 1 ? Theme.warm : Theme.good; font.pixelSize: 12
+                                               font.weight: Font.Medium; font.features: ({ "tnum": 1 }) }
+                                        Text { width: unknown.width - 40 - Soft.s2; wrapMode: Text.Wrap; font.pixelSize: 12; color: Theme.soft
+                                               textFormat: Text.PlainText
+                                               text: cue.modelData.text + ((cue.modelData.words || "") !== "" ? "  · " + gate.quote(cue.modelData.words) : "") }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Column {                   // what they are likely after
+                        visible: (gate.trial.goals || []).length > 0
+                        width: parent.width
+                        spacing: Soft.s3
+                        Heading { text: gate.t("你多半想要的", "What you are likely after") }
+                        Quiet {                // the words did not say why: it does not pretend they did
+                            visible: !gate.trial.goalsRead
+                            width: parent.width
+                            text: gate.t("从你的话里看不出为什么，所以它把每一种可能的原因都推演了一遍。",
+                                         "Nothing you said shows why, so it played every possible reason out.")
+                        }
+                        Repeater {
+                            model: gate.trial.goalsRead ? (gate.trial.goals || []).slice(0, 3) : []
+                            Column {
+                                id: goal
                                 required property var modelData
                                 required property int index
                                 width: parent.width
                                 spacing: 6
                                 Item {
                                     width: parent.width
-                                    height: motiveName.implicitHeight
-                                    Text { id: motiveName; width: parent.width - 56; text: motive.modelData.name; color: Theme.text
+                                    height: goalName.implicitHeight
+                                    Text { id: goalName; width: parent.width - 56; text: goal.modelData.name; color: Theme.text
                                            font.pixelSize: 14; wrapMode: Text.Wrap; textFormat: Text.PlainText }
-                                    Text { anchors.right: parent.right; text: Math.round(motive.modelData.p * 100) + "%"
+                                    Text { anchors.right: parent.right; text: Math.round(goal.modelData.p * 100) + "%"
                                            color: Theme.soft; font.pixelSize: 13; font.features: ({ "tnum": 1 }) }
                                 }
                                 Rectangle {
                                     width: parent.width
-                                    height: 8
-                                    radius: 4
+                                    height: 6
+                                    radius: 3
                                     color: Theme.well
                                     Rectangle {
                                         height: parent.height
-                                        radius: 4
-                                        color: motive.index === 0 ? Theme.primary : Theme.tinted(Theme.primary, 0.45)
-                                        width: gate.shown ? Math.max(4, parent.width * motive.modelData.p) : 0
-                                        Behavior on width { SpringAnimation { spring: 3.2; damping: 0.28; epsilon: 0.25 } }
+                                        radius: 3
+                                        color: goal.index === 0 ? Theme.primary : Theme.tinted(Theme.primary, 0.45)
+                                        width: gate.shown ? Math.max(4, parent.width * goal.modelData.p) : 0
+                                        Behavior on width { enabled: !Theme.still; SpringAnimation { spring: 3.2; damping: 0.28; epsilon: 0.25 } }
                                     }
                                 }
-                                Quiet { visible: (motive.modelData.because || "") !== ""; width: parent.width
-                                        text: gate.t("依据：", "Because: ") + motive.modelData.because }
+                                Quiet { visible: (goal.modelData.because || "") !== ""; width: parent.width
+                                        text: gate.t("依据：", "Because ") + goal.modelData.because }
                             }
                         }
                     }
 
-                    Column {                   // where each path leads
+                    Column {                   // every way forward, played out
                         id: paths
-                        visible: (gate.trial.options || []).length > 0
+                        visible: (gate.trial.plans || []).length > 0
                         width: parent.width
-                        spacing: Soft.s3
-                        readonly property var eus: (gate.trial.options || []).map(o => o.eu)
+                        spacing: Soft.s4
+                        readonly property var eus: (gate.trial.plans || []).map(o => o.eu)
                         readonly property real lo: Math.min(...eus, 0)
                         readonly property real hi: Math.max(...eus, lo + 0.01)
-                        Heading { text: gate.t("每条路通向哪里", "Where each path leads") }
+                        Heading { text: gate.t("每条路，推演下去", "Every way forward, played out") }
                         Repeater {
-                            model: gate.trial.options || []
+                            model: gate.trial.plans || []
                             Column {
                                 id: path
                                 required property var modelData
+                                readonly property bool open: path.modelData.chosen || path.modelData.asked
                                 width: parent.width
                                 spacing: 6
-                                Row {
-                                    spacing: Soft.s2
-                                    Text { text: path.modelData.name; color: path.modelData.chosen ? Theme.text : Theme.soft
-                                           font.pixelSize: 14; font.weight: path.modelData.chosen ? Font.Medium : Font.Normal
-                                           textFormat: Text.PlainText }
-                                    Tag { visible: path.modelData.chosen; text: gate.t("它选的", "its choice"); tint: Theme.good
-                                          anchors.verticalCenter: parent.verticalCenter }
-                                    Tag { visible: path.modelData.asked; text: gate.t("你说的", "what you asked"); tint: Theme.primary
-                                          anchors.verticalCenter: parent.verticalCenter }
-                                    Tag { visible: path.modelData.undo; text: gate.t("改不回来", "cannot be undone"); tint: Theme.sign
-                                          anchors.verticalCenter: parent.verticalCenter }
+                                Item {
+                                    width: parent.width
+                                    height: pathHead.height
+                                    Row {
+                                        id: pathHead
+                                        spacing: Soft.s2
+                                        Text { text: path.modelData.name; color: path.modelData.chosen ? Theme.text : Theme.soft
+                                               font.pixelSize: 14; font.weight: path.modelData.chosen ? Font.Medium : Font.Normal
+                                               textFormat: Text.PlainText }
+                                        Tag { visible: path.modelData.chosen; text: gate.t("它选的", "its choice"); tint: Theme.good
+                                              anchors.verticalCenter: parent.verticalCenter }
+                                        Tag { visible: path.modelData.asked; text: gate.t("你说的", "what you asked"); tint: Theme.primary
+                                              anchors.verticalCenter: parent.verticalCenter }
+                                        Tag { visible: path.modelData.undo; text: gate.t("改不回来", "cannot be undone"); tint: Theme.sign
+                                              anchors.verticalCenter: parent.verticalCenter }
+                                    }
+                                    Text { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                                           text: gate.signed(path.modelData.eu); font.pixelSize: 13; font.features: ({ "tnum": 1 })
+                                           color: path.modelData.chosen ? Theme.good : Theme.soft }
                                 }
-                                Rectangle {            // longer is better: every path on one scale
+                                Rectangle {            // longer is better: every way forward on one scale
                                     width: parent.width
                                     height: 8
                                     radius: 4
@@ -520,33 +643,76 @@ Item {
                                                                                                          : Theme.tinted(Theme.soft, 0.55))
                                         width: gate.shown ? Math.max(6, parent.width * (0.06 + 0.94 * (path.modelData.eu - paths.lo)
                                                                                      / (paths.hi - paths.lo))) : 0
-                                        Behavior on width { SpringAnimation { spring: 3.2; damping: 0.28; epsilon: 0.25 } }
+                                        Behavior on width { enabled: !Theme.still; SpringAnimation { spring: 3.2; damping: 0.28; epsilon: 0.25 } }
+                                    }
+                                }
+                                Rectangle {            // what follows, in each way things could turn out
+                                    visible: path.open && (path.modelData.worlds || []).length > 0
+                                    width: parent.width
+                                    height: worldsCol.implicitHeight + 2 * Soft.s3
+                                    radius: 14
+                                    color: Theme.well
+                                    Column {
+                                        id: worldsCol
+                                        x: Soft.s3
+                                        y: Soft.s3
+                                        width: parent.width - 2 * Soft.s3
+                                        spacing: Soft.s2
+                                        Repeater {
+                                            model: path.modelData.worlds || []
+                                            Column {
+                                                id: world
+                                                required property var modelData
+                                                width: parent.width
+                                                spacing: 2
+                                                Item {
+                                                    width: parent.width
+                                                    height: worldLabel.implicitHeight
+                                                    Text { id: worldLabel; width: parent.width - 120; wrapMode: Text.Wrap
+                                                           font.pixelSize: 12; font.weight: Font.Medium; color: Theme.text; textFormat: Text.PlainText
+                                                           text: gate.t("若", "If ") + world.modelData.label
+                                                                 + ((world.modelData.then || "") !== "" ? gate.t("（", " (") + world.modelData.then + gate.t("）", ")") : "") }
+                                                    Text { anchors.right: parent.right; font.pixelSize: 12; font.features: ({ "tnum": 1 })
+                                                           color: world.modelData.u < 0 ? Theme.sign : Theme.soft
+                                                           text: Math.round(world.modelData.p * 100) + "%   " + gate.signed(world.modelData.u) }
+                                                }
+                                                Text { width: parent.width; wrapMode: Text.Wrap; font.pixelSize: 12; color: Theme.soft
+                                                       lineHeight: 1.3; textFormat: Text.PlainText
+                                                       text: "→ " + ((world.modelData.chain || "") !== "" ? world.modelData.chain
+                                                                                                         : gate.t("没有什么跟着发生", "nothing else follows")) }
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                         Quiet {
                             width: parent.width
-                            text: gate.t("条越长，这条路越好。它把每条路在每个可能的原因下都算了一遍，再按可能性加起来。",
-                                         "The longer the bar, the better the path. Each path is weighed under every reason it might be, then added up by how likely each reason is.")
+                            text: gate.t("每条路都在每种可能里推演一遍：照因果规则一步步推出会发生什么，按可能性加权，再比较。数字越大越好。",
+                                         "Each way forward is played out in every way things could turn out: the rules of cause and effect say what follows, step by step; each outcome is weighted by how likely it is, and the totals are compared. Higher is better.")
                         }
                     }
 
-                    Flow {                     // what else it worked out
+                    Column {                   // what would change its answer
+                        visible: (gate.trial.turns || []).length > 0 || (gate.trial.keys || []).length > 0 || (gate.trial.until || "") !== ""
                         width: parent.width
-                        spacing: Soft.s2
-                        visible: gate.trial.weighty === true
-                        Tag { visible: (gate.trial.until || "") !== ""; text: gate.t("冷静期到 ", "cooling-off until ") + (gate.trial.until || "")
-                              tint: Theme.warm }
-                        Tag { visible: (gate.trial.upset || 0) > 0.01
-                              text: gate.t("你此刻的心情 ", "how upset you seem ") + Math.round((gate.trial.upset || 0) * 100) + "%"
-                              tint: Theme.think }
-                        Tag { text: gate.t("你说了算的分量 ", "how much your say weighs ") + Math.round((gate.trial.autonomy || 0) * 100) + "%"
-                              tint: Theme.primary }
+                        spacing: Soft.s3
+                        Heading { text: gate.t("什么会改变它的答案", "What would change its answer") }
                         Repeater {
-                            model: gate.trial.keys || []
-                            Tag { required property string modelData
-                                  text: gate.t("说「", "say “") + modelData + gate.t("」它就照做", "” and it goes ahead"); tint: Theme.good }
+                            model: gate.trial.turns || []
+                            Quiet { required property var modelData; width: parent.width
+                                    text: gate.t("它要有 ", "If it were ") + modelData.text + gate.t("，就会照你说的做。", ", it would do as you asked.") }
+                        }
+                        Flow {
+                            width: parent.width
+                            spacing: Soft.s2
+                            Tag { visible: (gate.trial.until || "") !== ""; text: gate.t("冷静期到 ", "cooling-off until ") + (gate.trial.until || "")
+                                  tint: Theme.warm }
+                            Repeater {
+                                model: gate.trial.keys || []
+                                Tag { required property string modelData
+                                      text: gate.t("说「", "say “") + modelData + gate.t("」它就照做", "” and it goes ahead"); tint: Theme.good }
+                            }
                         }
                     }
 
@@ -555,7 +721,6 @@ Item {
                         width: parent.width
                         spacing: Soft.s3
                         Heading { text: gate.t("它会写给你的信", "The letter it would write you") }
-                        Quiet { visible: Theme.lang === "en"; width: parent.width; text: "The gate writes its letters in Chinese today." }
                         Rectangle {
                             width: parent.width
                             height: qa.height + 2 * Soft.s4
@@ -589,7 +754,7 @@ Item {
                                 width: parent.width
                                 text: modelData
                                 color: Theme.text
-                                font.family: Theme.serif
+                                font.family: gate.trial.lang === "en" ? "Newsreader Display" : Theme.serif  // a Latin serif for an English letter
                                 font.pixelSize: Theme.voice
                                 lineHeight: 1.5
                                 wrapMode: Text.Wrap

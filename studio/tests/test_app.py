@@ -365,8 +365,9 @@ def test_the_aesper_parts_draw_in_both_worlds_and_languages(qt):
 
 
 def test_the_gate_page_shows_how_it_thinks_in_both_worlds_and_languages(qt):
-    """门: a sentence tried on the Gate page lays the gate's thinking out (motives, paths, the letter); the rules
-    and every device on the other view; no QML warnings in either world or language."""
+    """门: a sentence tried on the Gate page lays the gate's thinking out (what it read, what it does not know, every
+    way forward played out, the letter); the rules and every device on the other view; no QML warnings in either
+    world or language."""
     from PySide6.QtCore import QObject
 
     _, messages = qt
@@ -380,7 +381,8 @@ def test_the_gate_page_shows_how_it_thinks_in_both_worlds_and_languages(qt):
     presence.think_through("", "和他分手了，把我们的照片全删了", "night")
     assert _pump(qt, bridge, lambda: gate.property("hasTrial") is True)
     trial = presence.tick()["trial"]
-    assert trial["verdict"] == "dissuade" and trial["motives"][0]["p"] > 0.8 and trial["until"]
+    assert trial["verdict"] == "dissuade" and trial["goals"][0]["p"] > 0.8 and trial["until"]
+    assert trial["unknowns"] and any(o["worlds"] for o in trial["plans"] if o["asked"])
     for theme, lang in (("dark", "zh"), ("light", "en")):
         presence.set_theme(theme)
         presence.set_language(lang)

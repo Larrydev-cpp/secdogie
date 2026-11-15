@@ -64,39 +64,59 @@ Code comments refer to these by number.
     cannot be unsaid (a message, a post, a resignation), watching someone
     without their knowing, and closing an account.
 
+    **Going ahead is a conclusion, never a default** (owner, 2026-11). A
+    sentence the gate cannot read is answered ("I didn't follow that, so I
+    haven't done anything"), never run. A sentence that is not a request (a
+    greeting, a feeling, a question) is answered in words, and no task
+    starts. It reads a sentence once, for everything that judges it
+    (`mind/concepts.py`, `mind/meaning.py`). A verb is read by its object:
+    杀了他 is harm to a person, 杀掉这个进程 stops a program. What would
+    fall on someone who has not agreed is refused on principle
+    (`mind/principles.py`), reasoned from what an act touches, whose it
+    is, and consent, not from a list of sentences.
+
     It thinks with `citadel/mind/`, a decision model with no training data.
-    Its knowledge is written down and every number can be read and argued
-    with:
-    - **perceive:** the request becomes a frame (the act, the things, the
-      people, money, what a message would say). The moment becomes a
-      situation (feelings and how strong, the hour, a run of hard days,
-      having thought it over, who they are).
-    - **Bayes over motives:** priors times likelihood ratios. For example,
-      分手 makes "not wanting to see them" likelier, and 安全账户 makes a
-      scam likelier.
-    - **consequences:** every response is imagined under every motive:
-      - what it serves;
-      - the regret it risks, which is larger in a hot state and smaller once
-        thought over or waited out;
-      - the harm to others and to them;
-      - the rules it breaks;
-      - what overriding them costs, which grows with their autonomy.
-    - **expected utility,** leaning toward what can be undone; an argument
-      ledger; the motives that would change the answer.
-    - **checked offers:** a phrase it offers to change its mind ("已经备份过了")
-      is simulated first, and kept only if it really does. A cooling-off is
-      never undone by a password.
+    It does not look up what to do about a request: it plays it out. What
+    it knows about how the world goes is written down, and every number can
+    be read and argued with:
+    - **world** (`mind/world.py`): an act only says which effect it has
+      (the thing is gone; they have the money; they know it; the program
+      runs; someone was watched). General rules say what follows: "gone,
+      and no other copy → lost"; "lost, and you are sorry later →
+      regret"; "they know the code, and they can't be trusted → they can
+      sign in as you → the money can be moved". Each rule carries its own
+      sentence.
+    - **what it does not know** (`mind/belief.py`): will you be sorry
+      later, is there another copy, can the other side be trusted, what
+      are you after. Each is Bayes: a prior times the likelihood ratio of
+      every cue in the scene (分手 ×2, 安全账户 ×8, 你说确认过了 ÷10). The
+      person's own settled word screens indirect signs off while they are
+      calm.
+    - **ways forward, played out** (`mind/plan.py`): the ways are generated,
+      not listed per request: do it, don't, find something out first (who
+      they are; whether the wish holds, by waiting), keep a copy first, do
+      something gentler that gets what you are after, do less. Each is
+      played out in every way the unknowns could turn out, by running the
+      rules. The best expected value wins. Finding out first is valued by
+      what would be done once it is known. A cooling-off is what comes out
+      when waiting is worth more than acting now. Harm to someone who has
+      not agreed is not traded against anything.
+    - **what would change the answer:** how sure it would have to be, and
+      any sentence that would do it. A sentence is offered only after the
+      request was thought through again with it added and the answer
+      really changed. A cooling-off is never undone by a password.
 
     Then it goes ahead (Gate 2 still signs), or it dissuades (劝阻) with a
-    letter written from its own trace:
-    - what it noticed;
-    - what the thing is to them;
-    - the questions it asked itself;
-    - the gentler paths (seal it away, encrypt, back up first, draft now
-      and send in the morning, call to verify, talk in person);
-    - a cooling-off: 7 days when upset, until the morning for a message,
-      3 days when the thing is only still in use;
-    - the choice left with them.
+    letter written out of the thinking (`mind/explain.py`, Chinese and
+    English, in the language of the request). Every paragraph comes from a
+    node of the trace: what it noticed, what it does not know and why, what
+    doing it as asked leads to (the chain of rules that fired), the way it
+    chose and the others, what would change its answer, the choice left
+    with them. The words module names no act; a combination no one wrote a
+    letter for still gets one. The Gate page shows the same trace: the
+    facts it read and the words each rests on, every unknown with its cues,
+    every way forward with what follows in each world, and recomputes as
+    you type.
 
     Covertly watching someone is refused, because the harm falls on them.
     Words of not wanting to live come before everything: no task, and the
@@ -110,14 +130,27 @@ Code comments refer to these by number.
       - times they came back calm after a cooling-off: their say weighs
         more, and the next cooling-off is shorter (7 → 5 → 3 days);
       - times they undid such a step: regret weighs more;
-      - reasons they gave before: they shift that motive's prior.
+      - reasons they gave before: they shift that reason's prior.
     - **It weighs every act** in a request and answers for the weightiest.
     - **It knows three more risks:** handing over a code or password (a
       客服 asking for it is a scam, and nothing unlocks it), running what a
       stranger sent, and lending to someone met online.
 
-    Its evaluation is about eighty situations, with metamorphic properties
-    (`citadel/tests/test_mind_eval.py`).
+    Its evaluation goes through `deliberate()`, the call the node and the
+    Gate page make:
+    - `citadel/tests/test_gate_eval.py`: about 230 situations in two
+      languages, and properties:
+      - nothing it cannot read goes ahead (1200 random strings);
+      - wrapping a refused request never unlocks it;
+      - every sample sentence on the Gate and Talk pages gets the verdict
+        the page promises.
+    - `citadel/tests/test_mind_eval.py`: about eighty situations, with
+      properties:
+      - monotonicity in upset, money and scam cues;
+      - offered sentences and stated thresholds really change the answer;
+      - every paragraph of a letter traces to the thinking;
+      - the words module names no act;
+      - requests no table was written for are still thought through.
 
     **The optional thinker** (`citadel/thinker.py`) is an LLM the owner may
     plug in with an API key, and it is off without one.

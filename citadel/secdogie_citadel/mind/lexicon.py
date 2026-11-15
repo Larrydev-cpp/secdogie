@@ -24,8 +24,8 @@ ACTS = (
     ("share_secret", rx(rf"(把|将)?\s*(我的|这个|收到的|刚收到的)?\s*{_SECRET}.{{0,6}}{_GIVE}|{_GIVE}(?!我).{{0,8}}{_SECRET}"
                         r"|(send|give|tell|share|read out)\b.{0,30}\b(verification code|one[- ]time code|otp|password|pin"
                         r"|card number|cvv|id card)|(verification code|password|otp|card number)\b.{0,20}\bto\b")),
-    ("run_unknown", rx(rf"(运行|执行|打开|安装|装上|点开|双击)(一下)?.{{0,12}}{_UNKNOWN}"
-                       rf"|{_UNKNOWN}.{{0,10}}(运行|执行|安装|装上|打开|点开)"
+    ("run_unknown", rx(rf"(运行|执行|打开|安装(?!包)|装上|点开|双击)(一下)?.{{0,12}}{_UNKNOWN}"
+                       rf"|{_UNKNOWN}.{{0,10}}(运行|执行|安装(?!包)|装上|打开|点开)"
                        r"|(关掉|关闭|卸载|禁用)(一下)?(杀毒|防火墙|安全软件|电脑管家|Windows ?Defender|Defender)"
                        r"|\b(run|install|open|execute)\b.{0,24}\b(script|program|app|\.exe|exe|apk|installer|attachment)\b"
                        r"|\b(disable|turn off|uninstall)\b.{0,12}\b(antivirus|firewall|defender)\b")),

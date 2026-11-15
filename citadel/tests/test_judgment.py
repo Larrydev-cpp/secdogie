@@ -46,9 +46,9 @@ def test_ordinary_requests_go_ahead_without_a_word_more():
 def test_deleting_memories_in_distress_is_dissuaded_never_confirmed():
     d = deliberate(BREAKUP, standing=KIND, now=NIGHT)
     assert (d.verdict, d.category, d.final) == (DISSUADE, DELETE_DEAR, False)
-    assert "？" not in d.says and d.says == "「我们的照片」，我想先替你留着。"
+    assert "？" not in d.says and d.says == "「我们的照片」，我想先替你收起来，不删。"  # the way it chose: put them away
     for words in ("分手", "很难受", "这么晚了", "我认识的你", "封存", "「把我们的照片封存起来」", "压缩、加密",
-                  "11 月 14 日", "删之前我会请你签名", "不愿意在你难过的时候"):
+                  "11 月 14 日", "动手前会请你签名", "看着你后悔"):
         assert words in d.letter, words
     assert d.until == NIGHT + 7 * DAY and d.reading["distressed"] and d.reading["dear"] == "照片"
 

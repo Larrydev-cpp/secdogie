@@ -469,13 +469,41 @@ def _at(hour: str, now: float | None = None) -> float:
     return time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 2 if hour == "night" else 14, 10, 0, 0, 0, -1))
 
 
+_LEADS = ("在决定之前，我问了自己几个问题。", "在决定之前，我把这件事从头想了一遍。", "回答之前，我问了自己几个问题。",
+          "Before deciding, I thought this through from the start.", "Before answering I asked myself a few things.",
+          "Before deciding I asked myself a few things.", "I asked myself a few things first.")
+
+
+def _reading(d, lang: str) -> list[dict]:
+    """What the sentence was read as, when no weighty act was thought through: each act it names, done to what, and
+    whose that is (the reading a refusal on principle rests on)."""
+    from secdogie_citadel.mind.concepts import ORDINARY, PRIMS
+
+    out = []
+    whose = {"other": pick(lang, "别人的", "someone else's"), "self": pick(lang, "你自己的", "your own")}
+    for prim, words, obj, _kind, owner in (d.meaning or {}).get("deeds", []):
+        p = PRIMS.get(prim)
+        if p is None or (prim in ORDINARY and not owner):
+            continue
+        name = pick(lang, p.zh, p.en) or prim
+        on = (pick(lang, f"，对象是「{obj}」", f", done to “{obj}”") if obj else "") + \
+             (pick(lang, f"（{whose[owner]}）", f" ({whose[owner]})") if owner in whose else "")
+        out.append({"text": name + on, "words": words})
+    return out
+
+
 def think_through(body: dict | None, sample: str, hour: str = "day", lang: str = "zh",
                   now: float | None = None) -> dict:
     """How the automatic Socratic gate thinks about ``sample`` under the draft rules: the same path the node takes
-    (the rules' review, the mind, the decision model), shown as the page shows it. Without the person's history."""
+    (the rules' review, the mind, the decision model), shown as the page shows it. Without the person's history.
+
+    For a weighty request the page gets the whole thinking (``mind.explain.view``): the facts it read and the words
+    each rests on; what it does not know, how likely, and the cues behind it; what the person is likely after; every
+    way forward, played out in the worlds that matter, with the chain of consequences and its value; and what would
+    change the answer. All of it in the language the sentence was written in."""
+    from secdogie_citadel import mind
     from secdogie_citadel.deliberate import deliberate
-    from secdogie_citadel.mind import DOMAINS
-    from secdogie_citadel.mind.voice import date_words, qa
+    from secdogie_citadel.mind.explain import date_words, qa
 
     text = (sample or "").strip()
     if not text:
@@ -483,31 +511,29 @@ def think_through(body: dict | None, sample: str, hour: str = "day", lang: str =
     rules = GateRules.from_bodies([("draft", body)]) if body else GateRules()
     review = rules.review(text)
     at = _at(hour, now)
-    d = deliberate(text, review, now=at)
+    d = deliberate(text, review, now=at, lang=lang)
     involvement = DecisionModel(rules).intake(text, review, d)
+    said = "en" if mind.concepts.language(text) == "en" else "zh"
     th = d.thought or {}
-    domain = {x.act: x for x in DOMAINS.values()}.get(th.get("act", ""))
-    motives, options = [], []
-    if domain is not None:
-        for mid, p, why in th.get("motives", [])[:4]:
-            if p >= 0.02:
-                motives.append({"name": domain.motive(mid).name, "p": p, "because": "，".join(why)})
-        for oid, eu, _ in th.get("options", []):
-            o = domain.option(oid)
-            options.append({"name": o.name, "eu": eu, "chosen": oid == th.get("choice"), "asked": oid == "do",
-                            "undo": not o.reversible})
-    qa_block = qa(d.exchanges)
-    skip = {d.says, qa_block, "在决定之前，我问了自己几个问题。"}
+    view: dict = {}
+    if th:  # the same thinking again (it is deterministic), kept whole for showing
+        thought = mind.consider(text, act=th.get("act", ""), now=at)
+        if thought is not None:
+            view = mind.explain.view(thought, mind.Context(at), said)
+    skip = {d.says, qa(d.exchanges), *_LEADS}
     paragraphs = [p for p in (d.letter or "").split("\n\n") if p and p not in skip]
     verdict = d.verdict
     return {
         "text": text, "hour": hour, "verdict": verdict, "verdictWords": pick(lang, *VERDICT_WORDS.get(verdict, ("", ""))),
-        "category": d.category, "says": d.says or "", "paragraphs": paragraphs,
+        "category": d.category, "says": d.says or "", "paragraphs": paragraphs, "lang": said,
         "exchanges": [{"q": e.question, "a": e.answer} for e in d.exchanges],
-        "motives": motives, "options": options, "weighty": bool(th),
+        "read": view.get("facts") or _reading(d, said), "unknowns": view.get("unknowns", []),
+        "goals": view.get("goals", []), "plans": view.get("plans", []), "turns": view.get("turns", []),
+        "goalsRead": any(g.get("because") for g in view.get("goals", [])),  # did the words say why, or only the priors
+        "keys": [k.get("say", "") for k in view.get("keys", [])], "weighty": bool(th),
         "upset": float(th.get("upset", 0.0)), "autonomy": float(th.get("autonomy", 0.0)),
-        "until": date_words(d.until, at) if d.until else "", "keys": [k[1] for k in th.get("keys", [])],
-        "rule": d.category == "rule", "asks": involvement.needs_person,
+        "until": date_words(d.until, at, said) if d.until else "",
+        "rule": d.category == "rule", "asks": involvement.needs_person, "principle": (d.principle or {}).get("principle", ""),
         "acts": [a for a in th.get("acts", []) if a], "known": th.get("known", {}),
     }
 

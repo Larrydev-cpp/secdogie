@@ -102,9 +102,10 @@ def test_something_used_is_not_deleted_and_the_letter_recounts_its_use():
                     kinds=(("照片", 1102), ("文档", 96), ("视频", 31)), first=NOW - 900 * DAY, last=NOW - 3 * DAY,
                     last_name="年度总结.docx", opened=37, last_opened=NOW - 3 * DAY, kept=True)
     d = deliberate("把旧备份删掉", standing=KIND, usage=folder, now=NOW)
-    assert (d.verdict, d.category, d.final) == (DISSUADE, DELETE_USED, False) and d.says == "「旧备份」，我先不删。"
-    for words in ("1284 个文件", "18.0 GB", "1102 张照片", "「年度总结.docx」", "你打开过它 37 次", "删了还能找回来吗？——不能",
-                  "压缩", "封存", "自己动手也可以"):
+    assert (d.verdict, d.category, d.final) == (DISSUADE, DELETE_USED, False)
+    assert d.says == "「旧备份」，我想先替你挪到别处，不删。"  # 18 GB and in use: the way it chose is to move it elsewhere
+    for words in ("1284 个文件", "18.0 GB", "1102 张照片", "「年度总结.docx」", "你打开过它 37 次", "照你说的删，会怎样？",
+                  "再也找不回来", "压缩", "封存", "自己动手也可以"):
         assert words in d.letter, words
     assert d.until == NOW + 3 * DAY  # a few days, then it weighs it again
 

@@ -194,7 +194,7 @@ def apply(d, advice: Advice | None, request: str):
     if calm and _CONSIDERED.search(request):
         return d  # they said they thought it over, and they are calm: the thinker does not overrule them
     from .deliberate import DISSUADE, Exchange
-    from .mind.voice import letter
+    from .mind.explain import letter
 
     says = "这件事，我想先停一下。"
     body = letter(

@@ -25,7 +25,7 @@ import time
 
 from . import lexicon as L
 from . import meaning as M
-from .voice import letter
+from .explain import letter
 
 KEY_ZH = "（在顶栏的「思考者」里填上 API key，这类问题我就能回答。不填也可以：决定一直由决策模型来做。）"
 KEY_EN = "(Add an API key under “Thinker” in the top bar and I can answer this kind of question. It is optional: the decision model always makes the decisions.)"
