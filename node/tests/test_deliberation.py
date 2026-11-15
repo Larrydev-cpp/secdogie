@@ -129,3 +129,26 @@ def test_before_gate_2_a_deletion_of_something_used_is_spared(tmp_path):
         assert _verdicts(node) == [("dissuade", "delete-used")]
     finally:
         node.stop()
+
+
+def test_the_thinker_is_consulted_at_intake_and_can_only_raise_the_gate(tmp_path):
+    from secdogie_citadel.thinker import ANTHROPIC, Thinker, ThinkerConfig
+
+    asked = []
+
+    def backend(config, system, question):
+        asked.append(question)
+        return {"raise": True, "distress": "", "why": "数目不小，先打个电话问一句。"}
+
+    node = _node(tmp_path)
+    node.cfg = NodeConfig(**{**node.cfg.__dict__, "thinker": Thinker(ThinkerConfig(ANTHROPIC, "", "", "k" * 20),
+                                                                      backend=backend)})
+    try:
+        d = node._deliberate("给妈妈转2000块生活费", None, node.standing())
+        assert (d.verdict, d.category) == ("dissuade", "thinker") and "先打个电话问一句" in d.letter
+        assert node._deliberate("帮我整理一下这周的周报", None, node.standing()).verdict == "proceed"
+        assert len(asked) == 1  # the ordinary request was not sent anywhere
+        events = [e["body"] for e in node.journal.events() if e["kind"] == "thinker"]
+        assert events == [{"title": "给妈妈转2000块生活费", "how": "advised", "raised": True, "noted": False}]
+    finally:
+        node.stop()

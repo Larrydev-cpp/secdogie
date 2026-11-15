@@ -75,6 +75,7 @@ from secdogie_citadel.deliberate import CONTEXT, DISSUADE, REFUSE, Asked, Standi
 from secdogie_citadel.journal import Journal
 from secdogie_citadel.lessons import MemoryClass
 from secdogie_citadel.supervisor import MemoryConfig, Supervisor, agent_run_task
+from secdogie_citadel.thinker import Thinker, apply, load_config, may_consult
 from secdogie_citadel.usage import read_usage
 from secdogie_dialogue.agent_bridge import OperatorBridge
 from secdogie_dialogue.dialogue import system_status
@@ -99,6 +100,7 @@ from .policy_host import PolicyHost
 log = logging.getLogger("secdogie_node")
 
 ALIGN_ROUNDS = 3  # questions at goal intake before the goal is set aside
+THINKER_EVENT = "thinker"  # the optional thinker was consulted: what happened, and whether it raised the gate
 DELIBERATION_EVENT = "deliberation"  # the automatic Socratic gate's verdict, with the questions it asked itself
 DELETE_KINDS = frozenset({"delete", "remove", "rm", "trash", "erase", "wipe"})
 
@@ -128,6 +130,8 @@ class NodeConfig:
     mesh: str = "home"  # policy bundles for another mesh are refused
     masters: object = None  # MasterSet: who may sign decision-model / allowlist bundles
     roles: tuple = ("forward",)  # what this node offers the mesh; bundle scopes name roles
+    thinker_path: str = ""  # the thinker's configuration (thinker.json): re-read when it changes; off when absent
+    thinker: object = None  # a Thinker to use instead (tests)
 
 
 class _AppLink:
@@ -343,8 +347,32 @@ class Node:
 
     def _deliberate(self, title: str, review, standing: Standing, *, answered: bool = False):
         d = deliberate(title, review, standing=standing, usage=self.read_usage, answered=answered)
+        thinker = self._thinker()
+        if thinker is not None and thinker.on and may_consult(d, answered=answered):
+            advice, how = thinker.consult(title, d.thought, standing.portrait())
+            raised = apply(d, advice, title)
+            self.journal.append(THINKER_EVENT, {"title": title, "how": how or "advised",
+                                                "raised": raised.verdict != d.verdict,
+                                                "noted": bool(advice and advice.distress)})
+            d = raised
         self.journal.append(DELIBERATION_EVENT, d.journal_body(title))
         return d
+
+    def _thinker(self):
+        """The thinker, as its configuration file says now (the owner can change it while the node runs)."""
+        if self.cfg.thinker is not None or not self.cfg.thinker_path:
+            return self.cfg.thinker
+        import os
+
+        try:
+            mtime = os.stat(self.cfg.thinker_path).st_mtime
+        except OSError:
+            self._thinker_seen = (None, None)
+            return None
+        seen = getattr(self, "_thinker_seen", (None, None))
+        if seen[0] != mtime:
+            self._thinker_seen = (mtime, Thinker(load_config(self.cfg.thinker_path)))
+        return self._thinker_seen[1]
 
     def _spare(self, planned):
         """A deletion the loop is about to take, of something the person still
