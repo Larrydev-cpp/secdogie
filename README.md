@@ -127,5 +127,5 @@ browser end-to-end tests over real WebRTC.
 
 ## License
 
-See [`LICENSE`](LICENSE). Studio bundles Google Sans under the SIL Open Font
-License 1.1 (`studio/secdogie_studio/qml/fonts/OFL.txt`).
+See [`LICENSE`](LICENSE). Studio bundles Google Sans and Newsreader under the
+SIL Open Font License 1.1 (`studio/secdogie_studio/qml/fonts/OFL-*.txt`).

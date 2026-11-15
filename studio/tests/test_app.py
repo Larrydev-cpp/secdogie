@@ -339,3 +339,26 @@ def test_the_overview_is_a_wallet(qt):
     assert home.property("picked").toVariant()["what"] == "add"
     assert _qml_problems(messages) == []
     del engine
+
+
+def test_the_aesper_parts_draw_in_both_worlds_and_languages(qt):
+    """Aesper's gallery (mist, a sheet with a torn painted half, the display
+    line, the glowing figure, the wavy link, the caption) loads and redraws in
+    墨 and 宣纸, Chinese and English, without a QML warning."""
+    from PySide6.QtCore import QUrl
+    from PySide6.QtQml import QQmlApplicationEngine
+    from secdogie_studio.app import load_fonts
+
+    app, messages = qt
+    messages.clear()
+    load_fonts(app)
+    engine = QQmlApplicationEngine()
+    engine.load(QUrl.fromLocalFile(str(QML_DIR / "aesper" / "Gallery.qml")))
+    (gallery,) = engine.rootObjects()
+    for night, lang in ((False, "en"), (True, "en"), (True, "zh"), (False, "zh")):
+        gallery.setProperty("night", night)
+        gallery.setProperty("lang", lang)
+        wait_until(lambda: (app.processEvents() or True), 0.3, interval=0.02)
+    assert _qml_problems(messages) == []
+    gallery.setProperty("night", False)
+    del engine

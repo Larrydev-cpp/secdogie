@@ -39,7 +39,7 @@ from .words import load as load_lang
 from .words import save as save_lang
 
 QML_DIR = Path(__file__).resolve().parent / "qml"
-# Google Sans (OFL 1.1, Latin; qml/fonts/OFL.txt) first, the platform's CJK sans behind it
+# Google Sans (OFL 1.1, Latin; qml/fonts/OFL-GoogleSans.txt) first, the platform's CJK sans behind it
 FONT_FAMILIES = ["Google Sans", "PingFang SC", "Microsoft YaHei UI", "Noto Sans CJK SC", "Source Han Sans SC",
                  "WenQuanYi Zen Hei", "Segoe UI", "Helvetica Neue", "sans-serif"]
 POLL_EVERY = 3.0  # seconds between asking the node how it is, while the home window is open
