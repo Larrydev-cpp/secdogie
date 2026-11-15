@@ -215,9 +215,9 @@ Open questions for the owner:
    - S4: the node trusts paired devices.
    - S6: revocation.
    - S8b: the dialogue over WebRTC, so a phone can talk to the companion.
-2. **Spread policy** (P2):
-   - bundles converge across your devices through the journal and the
-     heartbeat;
+2. **Spread policy** (P2): the gate rules already travel to every device
+   over the WebRTC mesh, and each node judges them. Still to do:
+   - other kinds (decision models, allowlists) on the same path;
    - a revoked signer's bundles stop applying.
 
    Then P3 (`gate-rules` in Gate 1 and the plan gate, Python and TS), P4
