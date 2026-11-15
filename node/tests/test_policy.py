@@ -188,3 +188,30 @@ def test_what_was_activated_survives_a_restart_even_if_the_signer_is_no_longer_t
     journal = Journal(str(tmp_path / "node.db"), identity=NODE, allowlist=Allowlist({NODE.did}))
     host = PolicyHost(journal, mesh="home", operators=Allowlist({Identity.generate().did}), node_did=NODE.did)
     assert host.gate_rules().blocked_kinds == {"run"}
+
+
+def test_a_joined_devices_node_takes_the_owners_rules_but_not_their_gate_2_authority(tmp_path):
+    owner = Identity.generate()  # the owner of the mesh this machine joined: another of your devices signs
+    node = _node(tmp_path, policy_signers=(owner.did,))
+    try:
+        assert node.policy.offer(_bundle(signer=owner))["ok"]  # the rules: yes
+        assert not node.operators.contains(owner.did)  # Gate 2: no
+        assert not node.policy.offer(_bundle(signer=OUTSIDER, version=2, supersedes=node.policy.chain()[0]["bundle_id"]))["ok"]
+        assert [b["version"] for b in node.policy.chain()] == [1]
+    finally:
+        node.stop()
+
+
+def test_a_bundle_whose_signature_does_not_hold_is_not_reloaded(tmp_path):
+    from secdogie_citadel.journal import Journal
+
+    node = _node(tmp_path)
+    good = _bundle()
+    assert node.policy.offer(good)["ok"]
+    node.stop()
+    journal = Journal(str(tmp_path / "node.db"), identity=NODE, allowlist=Allowlist({NODE.did}))
+    other = _bundle(body={"plan": {"blocked_kinds": ["save"]}}, version=2, supersedes=good["bundle_id"])
+    forged = dict(other, sigs=[{**other["sigs"][0], "sig": other["sigs"][0]["sig"][::-1]}])
+    journal.append("policy", {"op": "activate", "bundle": forged, "signers": [OPERATOR.did]})
+    host = PolicyHost(journal, mesh="home", operators=Allowlist({OPERATOR.did}), node_did=NODE.did)
+    assert [b["bundle_id"] for b in host.active()] == [good["bundle_id"]]

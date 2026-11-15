@@ -10,9 +10,17 @@ Who is who:
     its node key with the admission that owner signed, and it cannot invite.
 
 What is kept, in the profile (mesh.json): the mesh's name, its owners, this
-machine's own admission, and the devices it knows (admissions only an owner
-signed). Nothing here starts on its own: pairing waits for the person, and
+machine's own admission, the devices it knows (admissions only an owner
+signed), and the owner's chain of gate rules (``policy``: signed bundles, v1
+first). Nothing here starts on its own: pairing waits for the person, and
 "online" lasts until they go offline or close Studio.
+
+Rules across your devices: the owner signs the gate rules in their Studio;
+the chain travels over the mesh (``mesh_rtc``) to every device. Here a
+bundle is taken only if it is signed by an owner of this mesh and is the
+next in the chain; ``on_rules`` (Presence) then offers it to this machine's
+own node, which is the final judge, and what the node holds goes back to the
+other devices (``report``).
 
 The window reads `snapshot()` and calls the actions; the WebRTC work runs on
 one asyncio loop in a daemon thread.
@@ -56,6 +64,7 @@ class Devices:
         self._decision: asyncio.Future | None = None
         self._task = None
         self._join_invite: dict | None = None
+        self.on_rules = lambda chain: None  # a chain came in from another device: offer it to this node
         self._state = self._read()
 
     # ---- what is kept --------------------------------------------------------------------
@@ -235,8 +244,12 @@ class Devices:
             self._set("_join", phase="ended", reason=str(e))
             return
         self._state = {"mesh": invite["mesh"], "role": "member", "owners": [invite["inviter"]], "self": admission,
-                       "devices": [a for a in (roster or {}).get("admissions", []) if isinstance(a, dict)]}
+                       "devices": [a for a in (roster or {}).get("admissions", []) if isinstance(a, dict)], "policy": []}
         self._write()
+        try:  # the node follows this mesh's name, so the owner's rules are for it (it restarts to take it)
+            self.profile.set_setting("mesh", invite["mesh"])
+        except Exception:  # noqa: BLE001 - a profile without settings (tests): the mesh file is enough
+            pass
         self.set_settings(invite["signal"], self.settings()["page"])
         self._set("_join", phase="done", mesh=invite["mesh"])
 
@@ -255,7 +268,8 @@ class Devices:
         node = Identity.load(self.profile.node_key)
         mesh = MeshNode(node, mesh=self._state["mesh"], owners=self._state["owners"], admission=self._state["self"],
                         admissions=self._state["devices"], name=self.device_name(), signal_url=signal,
-                        on_note=self._note)
+                        on_note=self._note, on_policy=self._incoming)
+        mesh.set_chain(self.chain())
         self._mesh = mesh
         self._run(mesh.start())
 
@@ -270,6 +284,58 @@ class Devices:
             return
         self._note({"from": "", "name": "", "text": text.strip(), "at": self.clock(), "mine": True})
         self._run(mesh.say(text))
+
+    # ---- rules across your devices ---------------------------------------------------------
+
+    def chain(self) -> list[dict]:
+        with self._lock:
+            return list(self._state.get("policy") or [])
+
+    def verify(self, bundle: dict) -> bool:
+        """A gate-rules bundle for this mesh, for every device of it, signed by an owner of it."""
+        from secdogie_identity import Allowlist
+        from secdogie_policy import verify_bundle
+
+        if not isinstance(bundle, dict) or bundle.get("kind") != "gate-rules" or bundle.get("mesh") != self._state["mesh"]:
+            return False
+        if bundle.get("scope") != {"nodes": [], "roles": []}:
+            return False
+        owners = Allowlist(set(self._state.get("owners") or ()))
+        return verify_bundle(bundle, operators=owners).ok
+
+    def _incoming(self, bundle: dict, frm: str) -> bool:
+        """A bundle from another device (on the devices loop): keep it if it holds, then hand the chain on."""
+        if not self.verify(bundle):
+            return False
+        with self._lock:
+            chain = list(self._state.get("policy") or [])
+            if bundle["version"] != len(chain) + 1:
+                return False
+            chain.append(bundle)
+            self._state["policy"] = chain
+            self._write()
+        try:
+            self.on_rules(list(chain))
+        except Exception:  # noqa: BLE001 - offering it to the node is the caller's; the chain is kept either way
+            pass
+        return True
+
+    def spread(self, chain: list[dict]) -> None:
+        """The owner's own chain (as its node holds it): keep it and send every device what it lacks."""
+        chain = [b for b in chain if self.verify(b)]
+        with self._lock:
+            self._state["policy"] = chain
+            self._write()
+        mesh = self._mesh
+        if mesh is not None:
+            mesh.set_chain(chain)
+            self._run(mesh.spread())
+
+    def report(self, active, errors=()) -> None:
+        """What this machine's node holds now, for the other devices."""
+        mesh = self._mesh
+        if mesh is not None:
+            self._run(mesh.report(active, errors))
 
     def _note(self, note: dict) -> None:
         with self._lock:
@@ -296,16 +362,18 @@ class Devices:
                 if a:
                     roster.admit(a)
             me = self._state["self"]["device"] if self._state.get("self") else ""
+            held = len(self._state.get("policy") or [])
             view = {"online": False, "devices": [
                 {"did": d, "name": roster.name(d), "owner": d in roster.owners, "state": "offline", "rtt": None,
-                 "reason": None} for d in roster.devices() if d != me and roster.admission(d)]}
+                 "reason": None, "rules": {"version": 0, "state": "waiting" if held else "none"}}
+                for d in roster.devices() if d != me and roster.admission(d)]}
         left = max(0, int(pair.get("expires", 0) - self.clock())) if pair.get("phase") in ("waiting", "compare") else 0
         return {
             "role": self._state.get("role", "owner"), "mesh": self._state["mesh"],
             "ready": bool(self._state.get("self")), "online": view["online"], "devices": view["devices"],
             "pair": {**{k: v for k, v in pair.items() if k != "token"}, "left": left,
                      "code_text": pair.get("token", "")},
-            "join": join, "notes": notes, **self.settings(),
+            "join": join, "notes": notes, "rulesVersion": len(self._state.get("policy") or []), **self.settings(),
         }
 
 

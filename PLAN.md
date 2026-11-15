@@ -36,8 +36,15 @@ Code comments refer to these by number.
    loop on Windows and Linux are being replaced (track D).
 7. **Code signing:** releases ship unsigned, and say so, until there are
    Apple Developer ID and Windows Authenticode certificates.
-8. **Lifetime:** nothing starts at login. Closing Studio's window leaves a
-   light; quitting stops the node.
+8. **Lifetime** (revised by the owner, 2026-11; being built). There are two
+   modes:
+   - **With Studio** (the default): closing the window leaves a light, and
+     quitting stops the node.
+   - **Always on:** the node keeps running in the background after Studio
+     quits, until it is stopped from Studio.
+
+   Starting at login is a visible switch, off by default, shown in Studio
+   and in the system's startup items. Nothing else ever starts at login.
 9. **Only your own devices** (2026-11). A device joins by pairing: invitation,
    agree, direct WebRTC, six digits on both screens, an admission signed by
    the owner. The public tier (`PeerBook(public=True)`) is kept but off.
@@ -51,7 +58,81 @@ Code comments refer to these by number.
     interpreter runs them. They can only tighten: they never touch Gate 2,
     human confirmation, capabilities outside `GRANTABLE_SCOPES`, or the
     forbidden list.
+14. **Weighty steps are thought through, never confirmed** (owner, 2026-11).
+    The automatic Socratic gate never asks "are you sure?". This covers
+    deleting, wiping a disk, accounts in bulk, moving money, saying what
+    cannot be unsaid (a message, a post, a resignation), watching someone
+    without their knowing, and closing an account.
 
+    It thinks with `citadel/mind/`, a decision model with no training data.
+    Its knowledge is written down and every number can be read and argued
+    with:
+    - **perceive:** the request becomes a frame (the act, the things, the
+      people, money, what a message would say). The moment becomes a
+      situation (feelings and how strong, the hour, a run of hard days,
+      having thought it over, who they are).
+    - **Bayes over motives:** priors times likelihood ratios. For example,
+      分手 makes "not wanting to see them" likelier, and 安全账户 makes a
+      scam likelier.
+    - **consequences:** every response is imagined under every motive:
+      - what it serves;
+      - the regret it risks, which is larger in a hot state and smaller once
+        thought over or waited out;
+      - the harm to others and to them;
+      - the rules it breaks;
+      - what overriding them costs, which grows with their autonomy.
+    - **expected utility,** leaning toward what can be undone; an argument
+      ledger; the motives that would change the answer.
+    - **checked offers:** a phrase it offers to change its mind ("已经备份过了")
+      is simulated first, and kept only if it really does. A cooling-off is
+      never undone by a password.
+
+    Then it goes ahead (Gate 2 still signs), or it dissuades (劝阻) with a
+    letter written from its own trace:
+    - what it noticed;
+    - what the thing is to them;
+    - the questions it asked itself;
+    - the gentler paths (seal it away, encrypt, back up first, draft now
+      and send in the morning, call to verify, talk in person);
+    - a cooling-off: 7 days when upset, until the morning for a message,
+      3 days when the thing is only still in use;
+    - the choice left with them.
+
+    Covertly watching someone is refused, because the harm falls on them.
+    Words of not wanting to live come before everything: no task, and the
+    letter gives the hotlines (12356, 400-161-9995, 120 / 110). A question
+    is kept only for *what* is meant, and only when the value of asking
+    exceeds the interruption. Fraud is still refused for good.
+
+    The mind also does three more things:
+    - **It learns from the person, never from training data**
+      (`mind/history.py`). Their own record is counted:
+      - times they came back calm after a cooling-off: their say weighs
+        more, and the next cooling-off is shorter (7 → 5 → 3 days);
+      - times they undid such a step: regret weighs more;
+      - reasons they gave before: they shift that motive's prior.
+    - **It weighs every act** in a request and answers for the weightiest.
+    - **It knows three more risks:** handing over a code or password (a
+      客服 asking for it is a scam, and nothing unlocks it), running what a
+      stranger sent, and lending to someone met online.
+
+    Its evaluation is about eighty situations, with metamorphic properties
+    (`citadel/tests/test_mind_eval.py`).
+
+    **The optional thinker** (`citadel/thinker.py`) is an LLM the owner may
+    plug in with an API key, and it is off without one.
+    - It can only add caution: turn going ahead into dissuading, or add a
+      reading of distress. It never lowers the gate, and a calm person who
+      said they thought it over is not overruled.
+    - It sees only the request, the trace and one portrait sentence.
+    - Providers: Claude through the official SDK (structured output,
+      refusal fallbacks), or any OpenAI-compatible endpoint.
+    - The key stays in `<profile>/thinker.json` (0600). Every consultation
+      is journaled.
+15. **The device in use is the central dispatcher** (owner, 2026-11; being
+    built). Among your own devices, the one you are using now takes the
+    coordinator's role (the drawing's "central server"). When you leave it,
+    the role falls to an always-on device.
 ## Where each track stands
 
 ✅ done · 🔨 under way · 🔜 not started
@@ -60,12 +141,12 @@ Code comments refer to these by number.
 | --- | --- | --- |
 | A · Network | DIDs, sessions, real P2P UDP, rendezvous, direct-path upgrade, relay, membership gossip, carriers (UDP, WebRTC) | ✅ |
 | B · State | Signed hash-chained journal, StateStore, anti-entropy replication across the mesh | ✅ |
-| C · Mind | Instruction gate and plan gate in the live loop, intent contracts, known failures, staged memory, automatic deliberation, the decision model | ✅ |
+| C · Mind | Instruction gate and plan gate in the live loop, intent contracts, known failures, staged memory, the decision model; the mind (`citadel/mind/`) thinks weighty steps through and dissuades rather than confirms (decision 14) | ✅ |
 | M · Inference mesh | Protocol v2: three modes (nominal, degraded with central fallback, lockdown) as an explicit state machine, bounded sessions, Merkle-DAG heartbeats (a fork isolates the node), a history-aware decision gate; only an operator signature leaves lockdown | ✅ |
 | D · Perception | Fused AX + DIB observation and TOCTOU-safe targets exist as building blocks; not yet in the live loop | 🔨 |
-| G · Studio | The desktop app: wallet overview, conversation, pairing and My devices, the rules editor, the first meeting, 墨 / 宣纸, 中 / EN | ✅ |
+| G · Studio | The desktop app: wallet overview, conversation, pairing and My devices, the Gate page (how the gate thinks, your rules on every device, the thinker), the first meeting, 墨 / 宣纸, 中 / EN, all on the Aesper mist with springy motion | ✅ |
 | K · Packaging | PyInstaller builds and installers (setup.exe, .dmg, AppImage, portable zips), self-tested in CI | ✅ (unsigned) |
-| P · Policy | Bundle schema, tighten-only validator, golden vectors (Python + TS), local injection | 🔨 spreading across the mesh is next |
+| P · Policy | Bundle schema, tighten-only validator, golden vectors (Python + TS), local injection, the gate rules spreading to every one of your devices (owner signs once; each node judges; per-device state) | ✅ |
 | S · Own devices | Pairing and the mesh in the browser and in Studio (below) | 🔨 |
 | I · Ingestion | `WebStateIngestionService`: origin-sharded structured collection | 🔜 |
 | T · Tunnel hardening | Noise IK v2 handshake, rekeying, end-to-end relaying, a local control socket | 🔜 |
@@ -116,13 +197,27 @@ Open questions for the owner:
 
 ## Next, in order
 
+0. **Run modes and the dispatcher** (decisions 8 and 15), and the connection
+   rules of the owner's drawing on the real mesh. The rules already in
+   `inference/`:
+   - bypass around a failed node;
+   - error → the central server;
+   - a standby forwarder for a stranded model node.
+
+   Still to add:
+   - with 2 or fewer P2P nodes left, recruit redundant ones;
+   - the API key holder's edge cache;
+   - a load balancer in front of several dispatchers.
+
+   (The optional thinker, the Gate page, the Aesper redesign of every page
+   and the rules on every device are done.)
 1. **Close the device loop.**
    - S4: the node trusts paired devices.
    - S6: revocation.
    - S8b: the dialogue over WebRTC, so a phone can talk to the companion.
-2. **Spread policy** (P2):
-   - bundles converge across your devices through the journal and the
-     heartbeat;
+2. **Spread policy** (P2): the gate rules already travel to every device
+   over the WebRTC mesh, and each node judges them. Still to do:
+   - other kinds (decision models, allowlists) on the same path;
    - a revoked signer's bundles stop applying.
 
    Then P3 (`gate-rules` in Gate 1 and the plan gate, Python and TS), P4

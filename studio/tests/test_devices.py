@@ -18,6 +18,7 @@ import pytest
 
 pytest.importorskip("aiortc")
 
+from secdogie_identity import Identity  # noqa: E402
 from secdogie_studio.devices import Devices, qr_rows  # noqa: E402
 from secdogie_studio.profile import create_profile  # noqa: E402
 from secdogie_transport.pairing import verify_admission  # noqa: E402
@@ -91,6 +92,32 @@ def test_two_studios_pair_then_meet_online(tmp_path, gateway):
               timeout=60)
         laptop.say("笔记本来了")
         until(lambda: any(n["text"] == "笔记本来了" for n in desk.snapshot()["notes"]))
+
+        # the gate rules signed on the desk travel to the laptop, which keeps them and hands them to its node
+        from secdogie_dialogue.keystore import unseal_identity
+        from secdogie_policy import create_bundle, sign_bundle
+
+        owner = unseal_identity(desk.profile.operator_keystore, PASS.encode())
+        v1 = sign_bundle(owner, create_bundle("gate-rules", mesh="home", version=1, body={"plan": {"blocked_kinds": ["run"]}}))
+        arrived = []
+        laptop.on_rules = arrived.append
+        desk.spread([v1])
+        until(lambda: arrived and arrived[-1][-1]["bundle_id"] == v1["bundle_id"], timeout=30)
+        assert [b["version"] for b in laptop.chain()] == [1]
+        # a bundle a stranger signed is not taken, nor one that skips a version
+        stranger = Identity.generate()
+        assert not laptop.verify(sign_bundle(stranger, create_bundle("gate-rules", mesh="home", version=2, body={},
+                                                                     supersedes=v1["bundle_id"])))
+        skipped = create_bundle("gate-rules", mesh="home", version=3, body={}, supersedes=v1["bundle_id"])
+        assert not laptop._incoming(sign_bundle(owner, skipped), desk.profile.node_did())
+        # the laptop's node holds it now: the desk sees it in force there
+        laptop.report([{"kind": "gate-rules", "version": 1, "bundle_id": v1["bundle_id"],
+                        "scope": {"nodes": [], "roles": []}}])
+        until(lambda: desk.snapshot()["devices"][0]["rules"]["state"] == "in-force", timeout=30)
+        # the laptop's node trusts the desk's operator for rules only, and follows the mesh's name
+        args = laptop.profile.node_args()
+        assert args[args.index("--policy-signer") + 1] == operator and laptop.profile.settings()["mesh"] == "home"
+        assert "--thinker" in args
     finally:
         desk.close()
         laptop.close()

@@ -3,7 +3,12 @@
 // it covers everything; under it the world changes (`covered`), and the ink
 // lifts away. Going to paper, the same with paper. For someone who asked for
 // less motion, it is only a short fade.
+//
+// The ink lifts only once the new world has been drawn beneath it (the next
+// frame after `covered`), so however long the world takes to change, the
+// lift is seen whole, and the window holds still until it is done.
 import QtQuick
+import QtQuick.Window
 import QtQuick.Shapes
 import "."
 
@@ -21,7 +26,27 @@ Item {
     property real level: 1                     // 1: nothing risen; 0: covered to the top
     property real phase: 0                     // the edge's waver
     property real splash: 0                    // 0..1: the drops at the foot
+    property bool underneath: false            // covered: waiting for the new world's first frame before lifting
     signal covered()
+
+    function changeUnderneath() {
+        flood.covered()
+        flood.underneath = true
+        fallback.restart()
+    }
+    function lift() {
+        if (!underneath) return
+        underneath = false
+        fallback.stop()
+        if (Theme.still) quickLift.restart()
+        else storyLift.restart()
+    }
+    Connections {                              // the new world is on screen: now the ink may lift
+        target: flood.Window.window
+        enabled: flood.underneath
+        function onFrameSwapped() { flood.lift() }
+    }
+    Timer { id: fallback; interval: 600; onTriggered: flood.lift() }   // no frame came (a hidden window): lift anyway
 
     function play(toColor, x, y) {
         if (running) return
@@ -101,7 +126,10 @@ Item {
                 }
             }
         }
-        ScriptAction { script: flood.covered() }
+        ScriptAction { script: flood.changeUnderneath() }
+    }
+    SequentialAnimation {
+        id: storyLift
         PauseAnimation { duration: 60 }
         NumberAnimation { target: flood; property: "opacity"; to: 0; duration: 340; easing.type: Easing.OutCubic }
         ScriptAction { script: flood.running = false }
@@ -110,7 +138,10 @@ Item {
         id: quick
         ScriptAction { script: { flood.thread = 0; flood.level = 0; flood.opacity = 0 } }
         NumberAnimation { target: flood; property: "opacity"; to: 1; duration: 100 }
-        ScriptAction { script: flood.covered() }
+        ScriptAction { script: flood.changeUnderneath() }
+    }
+    SequentialAnimation {
+        id: quickLift
         NumberAnimation { target: flood; property: "opacity"; to: 0; duration: 140 }
         ScriptAction { script: flood.running = false }
     }

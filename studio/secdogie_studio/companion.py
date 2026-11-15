@@ -451,6 +451,60 @@ def check_rules(body: dict, mesh: str, lang: str = "zh") -> list[str]:
     return explain_errors(errors, lang)
 
 
+VERDICT_WORDS = {"proceed": ("照做", "Goes ahead"), "clarify": ("先问一句", "Asks one thing"),
+                 "dissuade": ("劝一劝", "Talks you out of it"), "refuse": ("不做", "Won't do it"),
+                 "support": ("先陪你", "You first")}
+
+
+def _at(hour: str, now: float | None = None) -> float:
+    """Today in the afternoon, or in the small hours: the hour changes the judgment."""
+    lt = time.localtime(time.time() if now is None else now)
+    return time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 2 if hour == "night" else 14, 10, 0, 0, 0, -1))
+
+
+def think_through(body: dict | None, sample: str, hour: str = "day", lang: str = "zh",
+                  now: float | None = None) -> dict:
+    """How the automatic Socratic gate thinks about ``sample`` under the draft rules: the same path the node takes
+    (the rules' review, the mind, the decision model), shown as the page shows it. Without the person's history."""
+    from secdogie_citadel.deliberate import deliberate
+    from secdogie_citadel.mind import DOMAINS
+    from secdogie_citadel.mind.voice import date_words, qa
+
+    text = (sample or "").strip()
+    if not text:
+        return {}
+    rules = GateRules.from_bodies([("draft", body)]) if body else GateRules()
+    review = rules.review(text)
+    at = _at(hour, now)
+    d = deliberate(text, review, now=at)
+    involvement = DecisionModel(rules).intake(text, review, d)
+    th = d.thought or {}
+    domain = {x.act: x for x in DOMAINS.values()}.get(th.get("act", ""))
+    motives, options = [], []
+    if domain is not None:
+        for mid, p, why in th.get("motives", [])[:4]:
+            if p >= 0.02:
+                motives.append({"name": domain.motive(mid).name, "p": p, "because": "，".join(why)})
+        for oid, eu, _ in th.get("options", []):
+            o = domain.option(oid)
+            options.append({"name": o.name, "eu": eu, "chosen": oid == th.get("choice"), "asked": oid == "do",
+                            "undo": not o.reversible})
+    qa_block = qa(d.exchanges)
+    skip = {d.says, qa_block, "在决定之前，我问了自己几个问题。"}
+    paragraphs = [p for p in (d.letter or "").split("\n\n") if p and p not in skip]
+    verdict = d.verdict
+    return {
+        "text": text, "hour": hour, "verdict": verdict, "verdictWords": pick(lang, *VERDICT_WORDS.get(verdict, ("", ""))),
+        "category": d.category, "says": d.says or "", "paragraphs": paragraphs,
+        "exchanges": [{"q": e.question, "a": e.answer} for e in d.exchanges],
+        "motives": motives, "options": options, "weighty": bool(th),
+        "upset": float(th.get("upset", 0.0)), "autonomy": float(th.get("autonomy", 0.0)),
+        "until": date_words(d.until, at) if d.until else "", "keys": [k[1] for k in th.get("keys", [])],
+        "rule": d.category == "rule", "asks": involvement.needs_person,
+        "acts": [a for a in th.get("acts", []) if a], "known": th.get("known", {}),
+    }
+
+
 def try_rules(body: dict, sample: str, lang: str = "zh") -> str:
     """What Gate 1 would say to ``sample`` under the draft rules. (What the
     gate itself says is the node's words, in Chinese today.)"""
@@ -463,5 +517,5 @@ def try_rules(body: dict, sample: str, lang: str = "zh") -> str:
     return pick(lang, "通过：我会直接开始做。", "It passes: I would start right away.")
 
 
-__all__ = ["Companion", "FORGET", "KEEP", "RULES_TEMPLATE", "check_rules", "explain_errors", "line_from", "moments_from",
-           "parse_rules", "try_rules", "whisper_from"]
+__all__ = ["Companion", "FORGET", "KEEP", "RULES_TEMPLATE", "VERDICT_WORDS", "check_rules", "explain_errors", "line_from",
+           "moments_from", "parse_rules", "think_through", "try_rules", "whisper_from"]

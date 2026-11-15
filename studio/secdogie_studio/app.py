@@ -28,7 +28,7 @@ import threading
 import time
 from pathlib import Path
 
-from .companion import RULES_TEMPLATE, Companion, parse_rules, try_rules
+from .companion import RULES_TEMPLATE, Companion, parse_rules, think_through, try_rules
 from .controller import EXITED, RUNNING, StudioController
 from .idle import idle_seconds
 from .motion import reduce_motion
@@ -39,7 +39,7 @@ from .words import load as load_lang
 from .words import save as save_lang
 
 QML_DIR = Path(__file__).resolve().parent / "qml"
-# Google Sans (OFL 1.1, Latin; qml/fonts/OFL.txt) first, the platform's CJK sans behind it
+# Google Sans (OFL 1.1, Latin; qml/fonts/OFL-GoogleSans.txt) first, the platform's CJK sans behind it
 FONT_FAMILIES = ["Google Sans", "PingFang SC", "Microsoft YaHei UI", "Noto Sans CJK SC", "Source Han Sans SC",
                  "WenQuanYi Zen Hei", "Segoe UI", "Helvetica Neue", "sans-serif"]
 POLL_EVERY = 3.0  # seconds between asking the node how it is, while the home window is open
@@ -159,6 +159,8 @@ class Presence:
         self._feedback = ""  # the answer to the person's last action on a card
         self._rules_note = ""
         self._in_force = ""
+        self._trial: dict = {}  # how the gate thinks about a sentence the person tried (the Gate page)
+        self._thinker_note = ""
         self._busy_with = ""
         self.inner_open = False
         self.home_open = True  # opening Studio opens the home window
@@ -224,6 +226,7 @@ class Presence:
             from .devices import Devices
 
             self.devices = Devices(self.controller.profile, lang=lambda: self.lang, clock=self.clock)
+            self.devices.on_rules = self._rules_arrived
         busy = self.companion.busy() if self.companion is not None else bool(snap.busy)
         view = self.stage.update(moments, self.attention.mode(now), now, busy=busy)
         self._maybe_poll(now)
@@ -257,6 +260,8 @@ class Presence:
             "rulesText": self.rules_text,
             "rulesNote": rules_note,
             "inForce": in_force,
+            "trial": dict(self._trial),
+            "thinker": self._thinker_view(),
             "theme": self.theme,
             "devices": self.devices.snapshot() if self.devices is not None else {},
             "present": sorted(self._present[1]),
@@ -537,10 +542,91 @@ class Presence:
         with self._lock:
             self._rules_note = note
 
+    # -- the Gate page: how it thinks, and the optional thinker ------------------------------
+
+    def think_through(self, rules_text: str, sample: str, hour: str) -> None:
+        """Show how the gate thinks about ``sample`` (under the draft rules when they read; the built-in gate if
+        not), at an afternoon hour or in the small hours."""
+        body = None
+        if rules_text.strip():
+            try:
+                body = parse_rules(rules_text, self.lang)
+            except ValueError:
+                body = None
+        view = think_through(body, sample, "night" if hour == "night" else "day", self.lang, now=self.clock())
+        with self._lock:
+            self._trial = view
+
+    def _thinker_path(self):
+        profile = getattr(self.controller, "profile", None)
+        return getattr(profile, "thinker_config", None)
+
+    def _thinker_view(self) -> dict:
+        from secdogie_citadel.thinker import load_config
+
+        path = self._thinker_path()
+        view = load_config(path).view() if path is not None else {"provider": "anthropic", "model": "claude-opus-5-5",
+                                                                  "base": "", "hint": "", "on": False}
+        return {**view, "note": self._thinker_note}
+
+    def set_thinker(self, provider: str, model: str, base: str, key: str) -> None:
+        """Save the thinker's settings (owner-only file). An empty key keeps the one already saved."""
+        from secdogie_citadel.thinker import PROVIDERS, ThinkerConfig, load_config, save_config
+
+        path = self._thinker_path()
+        if path is None:
+            return
+        old = load_config(path)
+        provider = provider if provider in PROVIDERS else "anthropic"
+        cfg = ThinkerConfig(provider, model.strip(), base.strip(), key.strip() or old.api_key)
+        save_config(path, cfg)
+        self._thinker_note = (pick(self.lang, "思考者开着。它只会让门更谨慎。", "The thinker is on. It only ever makes the "
+                                   "gate more careful.") if cfg.on else
+                              pick(self.lang, "存好了；还差一把钥匙，思考者才会开。", "Saved; it needs a key before it is on."))
+
+    def clear_thinker(self) -> None:
+        from secdogie_citadel.thinker import remove_config
+
+        path = self._thinker_path()
+        if path is not None:
+            remove_config(path)
+        self._thinker_note = pick(self.lang, "思考者关了，钥匙也删了。", "The thinker is off, and its key is gone.")
+
+    def test_thinker(self) -> None:
+        """Ask the thinker once about a sentence that should make it pause, and say what came back."""
+        from secdogie_citadel.thinker import Thinker, load_config
+
+        path = self._thinker_path()
+        if path is None:
+            return
+        thinker = Thinker(load_config(path))
+        if not thinker.on:
+            self._thinker_note = pick(self.lang, "还没有钥匙，思考者是关着的。", "There is no key yet; the thinker is off.")
+            return
+        lang = self.lang
+
+        def ask():
+            sample = "凌晨两点，气死我了，给前任发消息说我恨你"
+            advice, how = thinker.consult(sample, {"act": "message", "verdict": "proceed"}, "")
+            if advice is None:
+                note = pick(lang, f"没有得到回答（{how}）。门照旧，不受影响。", f"No answer ({how}). The gate stands as it is.")
+            else:
+                note = pick(lang, "思考者回答了：" + (advice.why or "这件事可以照做。"), "The thinker answered: "
+                            + (advice.why or "this can go ahead."))
+            self._thinker_note = note
+
+        self._work(pick(self.lang, "正在问思考者", "Asking the thinker"), ask)
+
     def push_rules(self, text: str, passphrase: str) -> None:
         self.rules_text = text
         companion = self.companion
         if companion is None:
+            return
+        if self.devices is not None and self.devices.snapshot().get("role") == "member":
+            with self._lock:
+                self._rules_note = pick(self.lang, "这台设备在别人的设备网里：规则由设备网的主人签名，再传到这里。",
+                                        "This device belongs to someone else's mesh: its owner signs the rules, "
+                                        "and they travel here.")
             return
         try:
             body = parse_rules(text, self.lang)
@@ -551,12 +637,58 @@ class Presence:
 
         def push():
             ok, note = companion.push_rules(body, passphrase)
+            if ok and self.devices is not None:
+                chain = companion.policy.chain(timeout=5.0) or []
+                if chain and chain[0].get("version") == 1:
+                    self.devices.spread(chain)  # every device of yours gets what it lacks of it
+                    if self.devices.snapshot().get("devices"):
+                        note += pick(self.lang, " 它会传到你的每一台设备上。", " It travels to each of your devices.")
             with self._lock:
                 self._rules_note = note
             if ok:
                 self.refresh_in_force()
 
         self._work(pick(self.lang, "正在注入规则", "Injecting the rules"), push)
+
+    def _rules_arrived(self, chain: list[dict]) -> None:
+        """The owner's rules came from another of your devices: offer what this node lacks, in order, then tell
+        the other devices what it holds. Off the devices loop (the node may take a moment to answer)."""
+        companion, devices = self.companion, self.devices
+        if companion is None or devices is None:
+            return
+
+        def offer():
+            from .companion import explain_errors
+
+            listing = companion.rules_in_force(timeout=5.0) or {}
+            held = next((a for a in listing.get("active", []) if a.get("kind") == "gate-rules"
+                         and a.get("scope") == {"nodes": [], "roles": []}), None)
+            have = held["version"] if held else 0
+            active, errors = listing.get("active", []), []
+            for b in chain:
+                if b.get("version", 0) <= have:
+                    continue
+                reply = companion.policy.offer(b, timeout=8.0)
+                if reply is None:
+                    errors = [pick(self.lang, "节点没有回应。", "The node did not answer.")]
+                    break
+                active = reply.get("active", active)
+                if not reply.get("ok"):
+                    words = explain_errors(reply.get("errors", []), self.lang)
+                    if any(e.startswith("chain:") for e in reply.get("errors", [])):
+                        words = [pick(self.lang, "这台设备有自己的规则，和主人的对不上。", "This device has rules of its own "
+                                      "that do not follow the owner's.")]
+                    errors = words
+                    break
+            devices.report(active, errors)
+            with self._lock:
+                self._rules_note = pick(self.lang, f"你另一台设备上签的第 {len(chain)} 版规则到了。",
+                                        f"Version {len(chain)} of the rules came from another of your devices.") \
+                    if not errors else pick(self.lang, "另一台设备传来的规则没有生效：", "The rules from another device "
+                                            "did not take effect: ") + pick(self.lang, "；", "; ").join(errors)
+            self.refresh_in_force()
+
+        threading.Thread(target=offer, daemon=True, name="studio-rules-arrived").start()
 
     # -- look, and your own devices -------------------------------------------------------
 
@@ -627,7 +759,7 @@ def bridge_class():
              "card", "cardKey",
              "whisper", "whisperTone", "held", "feedback", "working", "innerOpen", "statusRows", "logText",
              "rulesText", "rulesNote", "inForce", "theme", "devices", "present", "shichen", "clock", "hereToday", "hereBars",
-             "dayQuarters", "quarterNow")
+             "dayQuarters", "quarterNow", "trial", "thinker")
     changed = Signal()
 
     def init(self, presence: Presence, still: bool = False):
@@ -662,6 +794,9 @@ def bridge_class():
         "closeHome": ((), Presence.close_home), "openRules": ((), Presence.open_rules),
         "toggleInner": ((), Presence.toggle_inner), "tryRules": ((str, str), Presence.try_rules),
         "pushRules": ((str, str), Presence.push_rules),
+        "thinkThrough": ((str, str, str), Presence.think_through),
+        "setThinker": ((str, str, str, str), Presence.set_thinker), "clearThinker": ((), Presence.clear_thinker),
+        "testThinker": ((), Presence.test_thinker),
         "setTheme": ((str,), Presence.set_theme), "writeInvite": ((str, str, str), Presence.write_invite),
         "decidePairing": ((bool,), Presence.decide_pairing), "withdrawInvite": ((), Presence.withdraw_invite),
         "readInvite": ((str,), Presence.read_invite), "agreeInvite": ((), Presence.agree_invite),

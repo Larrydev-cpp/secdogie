@@ -1,0 +1,10 @@
+singleton Soft 1.0 Soft.qml
+MistBackdrop 1.0 MistBackdrop.qml
+GlowFigure 1.0 GlowFigure.qml
+PaintedPanel 1.0 PaintedPanel.qml
+WavyLink 1.0 WavyLink.qml
+DisplayTitle 1.0 DisplayTitle.qml
+Caption 1.0 Caption.qml
+SoftSheet 1.0 SoftSheet.qml
+Appear 1.0 Appear.qml
+SoftPanel 1.0 SoftPanel.qml

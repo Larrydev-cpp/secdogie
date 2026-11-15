@@ -134,9 +134,36 @@ class Profile:
     def operator_did(self) -> str:
         return keystore_did(self.operator_keystore)
 
+    @property
+    def thinker_config(self) -> Path:
+        return self.path("thinker.json")
+
+    def set_setting(self, key: str, value) -> None:
+        """Change one setting in studio.json (atomically)."""
+        settings = self.settings()
+        settings[key] = value
+        tmp = self.path("studio.json.tmp")
+        tmp.write_text(json.dumps(settings, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(tmp, self.settings_path)
+
+    def mesh_owners(self) -> list[str]:
+        """The owners of the mesh this machine belongs to (mesh.json), other than this profile's own operator."""
+        try:
+            data = json.loads(self.path("mesh.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return []
+        mine = self.operator_did()
+        owners = data.get("owners") if isinstance(data, dict) else None
+        return sorted({o for o in owners or () if isinstance(o, str) and o.startswith("did:key:") and o != mine})
+
     def node_args(self) -> list[str]:
         """The ``secdogie-node run`` arguments for this profile. The node stops
-        when its standard input closes, so it never outlives Studio."""
+        when its standard input closes, so it never outlives Studio.
+
+        - The owners of the mesh this machine joined may sign its rules
+          (``--policy-signer``), never Gate 2.
+        - The thinker reads its configuration from the profile; without a key
+          it stays off."""
         settings = self.settings()
         listen = settings.get("listen", DEFAULT_LISTEN)
         parse_listen(listen)
@@ -151,6 +178,8 @@ class Profile:
                 "--listen", listen,
                 "--mesh", settings.get("mesh", DEFAULT_MESH),
                 *[arg for role in roles for arg in ("--role", role)],
+                *[arg for did in self.mesh_owners() for arg in ("--policy-signer", did)],
+                "--thinker", str(self.thinker_config),
                 "--exit-on-stdin-eof"]
 
 

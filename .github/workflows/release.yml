@@ -2,8 +2,11 @@ name: release
 
 # Builds downloadable binaries and attaches them to a GitHub Release.
 # Triggers when you push a version tag (e.g. `git tag v0.1.0 && git push --tags`),
-# or manually from the Actions tab (workflow_dispatch) for a dry run that only
-# builds artifacts without publishing a release.
+# or manually from the Actions tab (workflow_dispatch). A manual run without a
+# `tag` is a dry run that only builds artifacts. With a `tag` (e.g. V0.10.0) it
+# publishes: the release job creates that tag at `target` (default: the commit
+# built) and the release with every asset, after checking that the code built is
+# the code at `target` (anything outside .github/ differing stops it).
 
 on:
   push:
@@ -17,6 +20,20 @@ on:
       - "v[0-9]+.[0-9]+.[0-9]+*"
       - "V[0-9]+.[0-9]+.[0-9]+*"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Publish as this version tag (e.g. V0.10.0). Empty: a dry run that publishes nothing."
+        required: false
+        default: ""
+      target:
+        description: "The commit the new tag points at (default: the commit being built)."
+        required: false
+        default: ""
+
+# The version being built: the pushed tag, or the tag asked for by hand (on a
+# dry run, the branch name, which the steps below turn into 0.0.0).
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   # --- Python agent: one single-file executable per OS -----------------------
@@ -136,7 +153,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          version="${GITHUB_REF_NAME#[vV]}"; [[ "$version" =~ ^[0-9] ]] || version="0.0.0"
+          version="${RELEASE_TAG#[vV]}"; [[ "$version" =~ ^[0-9] ]] || version="0.0.0"
           iscc="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
           [ -x "$iscc" ] || { choco install innosetup -y --no-progress; }
           cd studio
@@ -329,8 +346,8 @@ jobs:
     needs: [build-agent, build-studio, build-tunnel, build-atlas, build-atlas-universal]
     runs-on: ubuntu-latest
     # Publish even if one arch failed (Intel Python on ARM can flake). A
-    # cancelled run still skips. Manual dispatch (no tag) still skips.
-    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/') }}
+    # cancelled run still skips. A manual run publishes only when given a tag.
+    if: ${{ !cancelled() && (startsWith(github.ref, 'refs/tags/') || inputs.tag != '') }}
     permissions:
       contents: write
     steps:
@@ -345,7 +362,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          version="${GITHUB_REF_NAME}"
+          version="${RELEASE_TAG}"
           mkdir -p release pkg
 
           # package name binary inner [extra files...]
@@ -444,9 +461,18 @@ jobs:
       - name: Create GitHub Release and upload assets
         env:
           GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
+          tag="${RELEASE_TAG}"
+          target="${TARGET:-$GITHUB_SHA}"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            # A tag asked for by hand: a version, and the code built must be the code at the target.
+            [[ "$tag" =~ ^[vV][0-9]+\.[0-9]+\.[0-9]+ ]] || { echo "not a version tag: $tag"; exit 1; }
+            git fetch --no-tags --quiet origin "$target"
+            git diff --quiet "$target" "$GITHUB_SHA" -- . ':(exclude).github' \
+              || { echo "the code built ($GITHUB_SHA) differs from $target outside .github/"; exit 1; }
+          fi
           # Idempotent: a re-run (retry, or re-pushing the same tag after
           # deleting/recreating it) must not fail just because a release for
           # this tag already exists -- replace it rather than erroring out.
@@ -458,7 +484,10 @@ jobs:
           fi
           # Everything in release/ is an asset: the bare binaries (one-file
           # downloads) and the .zip bundles (binary + docs + launcher).
+          # --target only matters when the tag does not exist yet (a manual run):
+          # gh creates it there. A pushed tag already exists and is left alone.
           gh release create "$tag" \
             release/* \
             --title "$tag" \
+            --target "$target" \
             --generate-notes

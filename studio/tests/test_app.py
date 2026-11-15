@@ -339,3 +339,53 @@ def test_the_overview_is_a_wallet(qt):
     assert home.property("picked").toVariant()["what"] == "add"
     assert _qml_problems(messages) == []
     del engine
+
+
+def test_the_aesper_parts_draw_in_both_worlds_and_languages(qt):
+    """Aesper's gallery (mist, a sheet with a torn painted half, the display
+    line, the glowing figure, the wavy link, the caption) loads and redraws in
+    墨 and 宣纸, Chinese and English, without a QML warning."""
+    from PySide6.QtCore import QUrl
+    from PySide6.QtQml import QQmlApplicationEngine
+    from secdogie_studio.app import load_fonts
+
+    app, messages = qt
+    messages.clear()
+    load_fonts(app)
+    engine = QQmlApplicationEngine()
+    engine.load(QUrl.fromLocalFile(str(QML_DIR / "aesper" / "Gallery.qml")))
+    (gallery,) = engine.rootObjects()
+    for night, lang in ((False, "en"), (True, "en"), (True, "zh"), (False, "zh")):
+        gallery.setProperty("night", night)
+        gallery.setProperty("lang", lang)
+        wait_until(lambda: (app.processEvents() or True), 0.3, interval=0.02)
+    assert _qml_problems(messages) == []
+    gallery.setProperty("night", False)
+    del engine
+
+
+def test_the_gate_page_shows_how_it_thinks_in_both_worlds_and_languages(qt):
+    """门: a sentence tried on the Gate page lays the gate's thinking out (motives, paths, the letter); the rules
+    and every device on the other view; no QML warnings in either world or language."""
+    from PySide6.QtCore import QObject
+
+    _, messages = qt
+    messages.clear()
+    presence = Presence(FakeController(), idle=lambda: 10.0, companion_factory=lambda profile, ready: FakeCompanion())
+    engine, bridge, (light, home) = _windows(qt, presence, still=True)
+    assert _pump(qt, bridge, lambda: home.isVisible())
+    home.setProperty("page", 3)
+    gate = home.findChild(QObject, "gatePage")
+    assert gate is not None
+    presence.think_through("", "和他分手了，把我们的照片全删了", "night")
+    assert _pump(qt, bridge, lambda: gate.property("hasTrial") is True)
+    trial = presence.tick()["trial"]
+    assert trial["verdict"] == "dissuade" and trial["motives"][0]["p"] > 0.8 and trial["until"]
+    for theme, lang in (("dark", "zh"), ("light", "en")):
+        presence.set_theme(theme)
+        presence.set_language(lang)
+        for view in (0, 1):
+            gate.setProperty("view", view)
+            _pump(qt, bridge, lambda: True, timeout=0.3)
+    assert _qml_problems(messages) == []
+    del engine

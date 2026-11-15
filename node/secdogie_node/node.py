@@ -71,17 +71,18 @@ from dataclasses import dataclass, field
 from secdogie_citadel import socratic
 from secdogie_citadel.consolidate import confirm_and_promote, retract_memory
 from secdogie_citadel.decision import ASK, DROP, HOLD, REPHRASE, START, DecisionModel
-from secdogie_citadel.deliberate import CONTEXT, REFUSE, Asked, Standing, deliberate, drops
+from secdogie_citadel.deliberate import CONTEXT, DISSUADE, REFUSE, Asked, Standing, deliberate, drops
 from secdogie_citadel.journal import Journal
 from secdogie_citadel.lessons import MemoryClass
 from secdogie_citadel.supervisor import MemoryConfig, Supervisor, agent_run_task
+from secdogie_citadel.thinker import Thinker, apply, load_config, may_consult
 from secdogie_citadel.usage import read_usage
 from secdogie_dialogue.agent_bridge import OperatorBridge
 from secdogie_dialogue.dialogue import system_status
 from secdogie_dialogue.protocol import ControlOp, MemoryCandidatePacket
 from secdogie_dialogue.publisher import SnapshotPublisher
 from secdogie_dialogue.session import DialogueSession, SessionRouter
-from secdogie_identity import require_trust
+from secdogie_identity import Allowlist, require_trust
 from secdogie_transport import (
     ChannelMux,
     DirectUDPTransport,
@@ -99,6 +100,7 @@ from .policy_host import PolicyHost
 log = logging.getLogger("secdogie_node")
 
 ALIGN_ROUNDS = 3  # questions at goal intake before the goal is set aside
+THINKER_EVENT = "thinker"  # the optional thinker was consulted: what happened, and whether it raised the gate
 DELIBERATION_EVENT = "deliberation"  # the automatic Socratic gate's verdict, with the questions it asked itself
 DELETE_KINDS = frozenset({"delete", "remove", "rm", "trash", "erase", "wipe"})
 
@@ -128,6 +130,9 @@ class NodeConfig:
     mesh: str = "home"  # policy bundles for another mesh are refused
     masters: object = None  # MasterSet: who may sign decision-model / allowlist bundles
     roles: tuple = ("forward",)  # what this node offers the mesh; bundle scopes name roles
+    policy_signers: tuple = ()  # DIDs trusted to sign policy bundles only: the owners of the mesh this machine joined
+    thinker_path: str = ""  # the thinker's configuration (thinker.json): re-read when it changes; off when absent
+    thinker: object = None  # a Thinker to use instead (tests)
 
 
 class _AppLink:
@@ -144,8 +149,9 @@ class Node:
         self.operators = require_trust(cfg.operators, "the node's operator allowlist")
         self.journal = Journal(cfg.journal_path, identity=cfg.identity,
                                allowlist=require_trust(cfg.authorized, "the node's journal allowlist"))
+        signers = Allowlist(set(cfg.policy_signers)) if cfg.policy_signers else None
         self.policy = PolicyHost(self.journal, mesh=cfg.mesh, operators=self.operators, masters=cfg.masters,
-                                 node_did=cfg.identity.did, roles=cfg.roles)
+                                 node_did=cfg.identity.did, roles=cfg.roles, signers=signers)
         self.supervisor = Supervisor(
             self.journal, cfg.run_task, issuers=cfg.issuers, unrestricted=cfg.unrestricted,
             memory=MemoryConfig(candidates_path=cfg.candidates_path, confirmers=self.apps),
@@ -292,7 +298,8 @@ class Node:
 
         def spare_what_is_used(planned):
             # Before Gate 2 even asks for a signature: something the person
-            # still uses is not deleted, and the letter says why.
+            # still uses, or holds dear, is not deleted now; the letter says
+            # why and offers gentler paths.
             refusal = self._spare(planned)
             if refusal is not None:
                 self._letter(refusal.letter)
@@ -322,15 +329,17 @@ class Node:
         """Who is asking, as far as this node knows them: every request it
         reviewed and how the gate judged it, and the facts the person
         confirmed (consolidated memory)."""
-        judged: dict[str, tuple[str, str]] = {}
+        judged: dict[str, tuple[str, str, float]] = {}
         asked: list[Asked] = []
         for e in self.journal.events():
             body = e.get("body") if isinstance(e.get("body"), dict) else {}
             if e.get("kind") == DELIBERATION_EVENT and isinstance(body.get("title"), str):
-                judged[body["title"]] = (str(body.get("verdict", "")), str(body.get("category", "")))
+                until = body.get("until")
+                judged[body["title"]] = (str(body.get("verdict", "")), str(body.get("category", "")),
+                                         float(until) if isinstance(until, (int, float)) else 0.0)
             elif e.get("kind") == "socratic" and isinstance(body.get("instruction"), str):
                 asked.append(Asked(float(e.get("ts", 0.0)), body["instruction"]))
-        asked = [Asked(a.when, a.text, *judged.get(a.text, ("", ""))) for a in asked]
+        asked = [Asked(a.when, a.text, *judged.get(a.text, ("", "", 0.0))) for a in asked]
         facts: list[tuple[str, str]] = []
         try:
             facts = [(r.key, r.value) for r in self.supervisor.memory_view().facts().values()]
@@ -340,8 +349,32 @@ class Node:
 
     def _deliberate(self, title: str, review, standing: Standing, *, answered: bool = False):
         d = deliberate(title, review, standing=standing, usage=self.read_usage, answered=answered)
+        thinker = self._thinker()
+        if thinker is not None and thinker.on and may_consult(d, answered=answered):
+            advice, how = thinker.consult(title, d.thought, standing.portrait())
+            raised = apply(d, advice, title)
+            self.journal.append(THINKER_EVENT, {"title": title, "how": how or "advised",
+                                                "raised": raised.verdict != d.verdict,
+                                                "noted": bool(advice and advice.distress)})
+            d = raised
         self.journal.append(DELIBERATION_EVENT, d.journal_body(title))
         return d
+
+    def _thinker(self):
+        """The thinker, as its configuration file says now (the owner can change it while the node runs)."""
+        if self.cfg.thinker is not None or not self.cfg.thinker_path:
+            return self.cfg.thinker
+        import os
+
+        try:
+            mtime = os.stat(self.cfg.thinker_path).st_mtime
+        except OSError:
+            self._thinker_seen = (None, None)
+            return None
+        seen = getattr(self, "_thinker_seen", (None, None))
+        if seen[0] != mtime:
+            self._thinker_seen = (mtime, Thinker(load_config(self.cfg.thinker_path)))
+        return self._thinker_seen[1]
 
     def _spare(self, planned):
         """A deletion the loop is about to take, of something the person still
@@ -352,7 +385,7 @@ class Node:
         if not target:
             return None
         d = deliberate(f"删除 {target}", standing=self.standing(), usage=self.read_usage)
-        if d.verdict != REFUSE:
+        if d.verdict not in (REFUSE, DISSUADE):
             return None
         self.journal.append(DELIBERATION_EVENT, d.journal_body(f"删除 {target}"))
         return d

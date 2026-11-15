@@ -83,6 +83,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="the mesh this node belongs to: policy bundles for another mesh are refused (default: home)")
     r.add_argument("--role", action="append", default=[], metavar="ROLE",
                    help="a role this node offers (repeatable; default: forward): bundle scopes can name roles")
+    r.add_argument("--policy-signer", action="append", default=[], metavar="DID",
+                   help="a DID trusted to sign policy bundles only (repeatable): the owner of the mesh this machine "
+                        "joined, so rules signed on another of your devices take effect here; never Gate 2")
+    r.add_argument("--thinker", default="", metavar="FILE",
+                   help="the optional thinker's configuration (an LLM that can only make the gate more careful): "
+                        "re-read when it changes; without it, or without a key in it, the thinker is off")
     r.add_argument("--exit-on-stdin-eof", action="store_true",
                    help="stop when standard input closes: for a parent process that owns this node "
                         "(the Studio window), so the node never outlives it")
@@ -168,7 +174,8 @@ def _run(args, parser) -> int:
                                candidates_path=candidates, listen=args.listen, transport_key=tkey,
                                app_bindings=bindings, relay_records=relays,
                                rendezvous_records=rendezvous, mesh=args.mesh, masters=masters,
-                               roles=tuple(args.role) or ("forward",)))
+                               roles=tuple(args.role) or ("forward",), thinker_path=args.thinker,
+                               policy_signers=tuple(args.policy_signer)))
     except (OSError, ValueError) as e:
         parser.error(str(e))
     if self_policy is not None:

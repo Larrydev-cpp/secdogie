@@ -11,6 +11,10 @@ license = { text = "MIT" }
 # Signing/verification only; storage is stdlib sqlite3, no network here.
 dependencies = ["secdogie-identity"]
 
+[project.optional-dependencies]
+# The optional thinker on Claude (thinker_claude.py); the OpenAI-compatible one needs nothing more.
+thinker = ["anthropic>=2.6"]
+
 [project.scripts]
 secdogie-citadel = "secdogie_citadel.cli:main"
 
