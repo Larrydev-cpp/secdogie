@@ -4,6 +4,12 @@ A companion that runs only on your own devices.
 
 - **It asks before it acts.** Every goal passes two Socratic gates. High-risk
   steps always wait for your signature: no mode or switch turns that off.
+- **It thinks before it helps.** For a weighty step, such as deleting
+  memories, moving money or sending a message in anger, it works out why you
+  are most likely asking and what each response would lead to. Then it goes
+  ahead, or it talks you out of it with gentler paths. It never asks "are you
+  sure?". The model needs no training data: its knowledge is written down in
+  `citadel/mind/`.
 - **Your devices are one mesh.** Pair a phone, a tablet or another computer
   over WebRTC: compare six digits, sign an admission. There is no central
   server and no public node.
@@ -55,7 +61,7 @@ stops the node. Nothing runs at login.
 | --- | --- |
 | `identity/` | DIDs (Ed25519 `did:key`), canonical signing, allowlists |
 | `transport/` | Signed sessions over UDP or WebRTC: rendezvous, relays, membership, pairing, mesh links |
-| `citadel/` | The signed journal and state, replication, both Socratic gates, staged memory, the decision model |
+| `citadel/` | The signed journal and state, replication, both Socratic gates, staged memory, the decision model, the mind |
 | `node/` | `secdogie-node`: the resident node that assembles all of the above |
 | `studio/` | `secdogie-studio`: the desktop app, which runs the node as its child |
 | `policy/` | Signed, declarative rule bundles, which can only tighten |

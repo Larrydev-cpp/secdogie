@@ -58,27 +58,51 @@ Code comments refer to these by number.
     interpreter runs them. They can only tighten: they never touch Gate 2,
     human confirmation, capabilities outside `GRANTABLE_SCOPES`, or the
     forbidden list.
-14. **Weighty steps are dissuaded, never confirmed** (owner, 2026-11). The
-    automatic Socratic gate never asks "are you sure?" about deleting,
-    wiping a disk or registering accounts in bulk. It reads the person
-    (`citadel/judgment.py`):
-    - the feeling and haste in their words;
-    - the hour, and a run of upset requests;
-    - what the thing holds and whether it is dear;
-    - their portrait.
+14. **Weighty steps are thought through, never confirmed** (owner, 2026-11).
+    The automatic Socratic gate never asks "are you sure?". This covers
+    deleting, wiping a disk, accounts in bulk, moving money, saying what
+    cannot be unsaid (a message, a post, a resignation), watching someone
+    without their knowing, and closing an account.
+
+    It thinks with `citadel/mind/`, a decision model with no training data.
+    Its knowledge is written down and every number can be read and argued
+    with:
+    - **perceive:** the request becomes a frame (the act, the things, the
+      people, money, what a message would say). The moment becomes a
+      situation (feelings and how strong, the hour, a run of hard days,
+      having thought it over, who they are).
+    - **Bayes over motives:** priors times likelihood ratios. For example,
+      分手 makes "not wanting to see them" likelier, and 安全账户 makes a
+      scam likelier.
+    - **consequences:** every response is imagined under every motive:
+      - what it serves;
+      - the regret it risks, which is larger in a hot state and smaller once
+        thought over or waited out;
+      - the harm to others and to them;
+      - the rules it breaks;
+      - what overriding them costs, which grows with their autonomy.
+    - **expected utility,** leaning toward what can be undone; an argument
+      ledger; the motives that would change the answer.
+    - **checked offers:** a phrase it offers to change its mind ("已经备份过了")
+      is simulated first, and kept only if it really does. A cooling-off is
+      never undone by a password.
 
     Then it goes ahead (Gate 2 still signs), or it dissuades (劝阻) with a
-    letter:
-    - gentler paths: seal it away (封存), encrypt it, back it up first, or
-      reach the real goal another way;
-    - a cooling-off period: 7 days when upset, 3 when the thing is only
-      still in use;
+    letter written from its own trace:
+    - what it noticed;
+    - what the thing is to them;
+    - the questions it asked itself;
+    - the gentler paths (seal it away, encrypt, back up first, draft now
+      and send in the morning, call to verify, talk in person);
+    - a cooling-off: 7 days when upset, until the morning for a message,
+      3 days when the thing is only still in use;
     - the choice left with them.
 
-    After the cooling-off, calm and still wanting it, it goes ahead with a
-    signature. A question is kept only for *what* is meant, and only when
-    the value of asking exceeds the interruption. Harm to someone else is
-    still refused for good.
+    Covertly watching someone is refused, because the harm falls on them.
+    Words of not wanting to live come before everything: no task, and the
+    letter gives the hotlines (12356, 400-161-9995, 120 / 110). A question
+    is kept only for *what* is meant, and only when the value of asking
+    exceeds the interruption. Fraud is still refused for good.
 15. **The device in use is the central dispatcher** (owner, 2026-11; being
     built). Among your own devices, the one you are using now takes the
     coordinator's role (the drawing's "central server"). When you leave it,
@@ -91,7 +115,7 @@ Code comments refer to these by number.
 | --- | --- | --- |
 | A · Network | DIDs, sessions, real P2P UDP, rendezvous, direct-path upgrade, relay, membership gossip, carriers (UDP, WebRTC) | ✅ |
 | B · State | Signed hash-chained journal, StateStore, anti-entropy replication across the mesh | ✅ |
-| C · Mind | Instruction gate and plan gate in the live loop, intent contracts, known failures, staged memory, the decision model; automatic deliberation reads the person and dissuades weighty steps (decision 14) | ✅ |
+| C · Mind | Instruction gate and plan gate in the live loop, intent contracts, known failures, staged memory, the decision model; the mind (`citadel/mind/`) thinks weighty steps through and dissuades rather than confirms (decision 14) | ✅ |
 | M · Inference mesh | Protocol v2: three modes (nominal, degraded with central fallback, lockdown) as an explicit state machine, bounded sessions, Merkle-DAG heartbeats (a fork isolates the node), a history-aware decision gate; only an operator signature leaves lockdown | ✅ |
 | D · Perception | Fused AX + DIB observation and TOCTOU-safe targets exist as building blocks; not yet in the live loop | 🔨 |
 | G · Studio | The desktop app: wallet overview, conversation, pairing and My devices, the rules editor, the first meeting, 墨 / 宣纸, 中 / EN | ✅ |

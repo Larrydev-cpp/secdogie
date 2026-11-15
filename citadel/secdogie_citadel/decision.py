@@ -15,12 +15,17 @@ speaks when the work needs the person:
             request a letter says it at length
 
 At intake the decision rests on the automatic Socratic gate
-(``deliberate.py``): it questions the request itself (who is asking, as far
-as the companion knows them; how they seem right now; is what would be
-deleted still in use or dear to them) and decides. A weighty step it holds
-back is a hold with a letter that dissuades, never a "are you sure?". Only what the gate cannot settle becomes a question for the person,
-and only the operator's own "ask before every goal" switch comes with
-buttons.
+(``deliberate.py``). It questions the request itself and decides:
+- who is asking, as far as the companion knows them;
+- how they seem right now;
+- why they are most likely asking, and what each response would lead to
+  (the mind, ``mind``).
+
+A weighty step it holds back becomes a hold with a letter that dissuades,
+never "are you sure?". Words that someone may be in danger become a hold at
+once, with a letter for the person and no task. Only what the gate cannot
+settle becomes a question for the person, and only the operator's own "ask
+before every goal" switch comes with buttons.
 
 ``urgency`` says when the person should see it. ``gap`` means wait for a pause
 in what they are doing. ``soon`` means the work is waiting on them, so surface
@@ -42,7 +47,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from .action_gate import GateDecision, PlannedAction
-from .deliberate import CLARIFY, DISSUADE, REFUSE, Deliberation, deliberate
+from .deliberate import CLARIFY, DISSUADE, REFUSE, SUPPORT, Deliberation, deliberate
 from .rules import GateRules
 from .socratic import Review
 
@@ -108,7 +113,7 @@ class DecisionModel:
         view of the disk, when the caller has none)."""
         d = deliberation if deliberation is not None else deliberate(title, review)
         why = tuple(review.reasons) + ((d.category,) if d.category else ())
-        if d.verdict == REFUSE:
+        if d.verdict in (REFUSE, SUPPORT):  # support: the person first, at once, and no task
             floor = Involvement(HOLD, SOON, d.says, why=why, letter=d.letter)
         elif d.verdict == DISSUADE:  # not now: a letter, gentler paths, a date to look again
             floor = Involvement(HOLD, GAP, d.says, why=why, letter=d.letter)
