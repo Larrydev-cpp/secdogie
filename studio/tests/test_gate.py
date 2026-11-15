@@ -60,7 +60,8 @@ def test_the_thinker_is_saved_for_its_owner_only_and_never_shown_again(tmp_path)
     view = presence._thinker_view()
     assert view["on"] and view["model"] == "claude-opus-5-5" and view["hint"] == "sk-a…cdef"
     assert "0123456789" not in str(view)
-    assert stat.S_IMODE(os.stat(tmp_path / "thinker.json").st_mode) == 0o600
+    if os.name != "nt":  # POSIX modes; on Windows the profile folder's own access rules keep it the user's
+        assert stat.S_IMODE(os.stat(tmp_path / "thinker.json").st_mode) == 0o600
     presence.set_thinker("openai", "deepseek-chat", "https://api.deepseek.com", "")  # an empty key keeps the saved one
     view = presence._thinker_view()
     assert view["provider"] == "openai" and view["on"] and view["base"] == "https://api.deepseek.com"

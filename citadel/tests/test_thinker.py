@@ -32,7 +32,8 @@ def test_the_configuration_is_the_owners_alone(tmp_path):
     path = tmp_path / "thinker.json"
     assert not T.load_config(path).on  # no file: off
     T.save_config(path, ON)
-    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+    if os.name != "nt":  # POSIX modes; on Windows the profile folder's own access rules keep it the user's
+        assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
     back = T.load_config(path)
     assert back == ON and back.on and back.model_name == "claude-opus-5-5"
     assert back.hint() == "sk-a…mnop" and "abcdefgh" not in json.dumps(back.view())
