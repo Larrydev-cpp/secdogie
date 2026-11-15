@@ -28,7 +28,7 @@ import threading
 import time
 from pathlib import Path
 
-from .companion import RULES_TEMPLATE, Companion, parse_rules, try_rules
+from .companion import RULES_TEMPLATE, Companion, parse_rules, think_through, try_rules
 from .controller import EXITED, RUNNING, StudioController
 from .idle import idle_seconds
 from .motion import reduce_motion
@@ -159,6 +159,8 @@ class Presence:
         self._feedback = ""  # the answer to the person's last action on a card
         self._rules_note = ""
         self._in_force = ""
+        self._trial: dict = {}  # how the gate thinks about a sentence the person tried (the Gate page)
+        self._thinker_note = ""
         self._busy_with = ""
         self.inner_open = False
         self.home_open = True  # opening Studio opens the home window
@@ -258,6 +260,8 @@ class Presence:
             "rulesText": self.rules_text,
             "rulesNote": rules_note,
             "inForce": in_force,
+            "trial": dict(self._trial),
+            "thinker": self._thinker_view(),
             "theme": self.theme,
             "devices": self.devices.snapshot() if self.devices is not None else {},
             "present": sorted(self._present[1]),
@@ -538,6 +542,81 @@ class Presence:
         with self._lock:
             self._rules_note = note
 
+    # -- the Gate page: how it thinks, and the optional thinker ------------------------------
+
+    def think_through(self, rules_text: str, sample: str, hour: str) -> None:
+        """Show how the gate thinks about ``sample`` (under the draft rules when they read; the built-in gate if
+        not), at an afternoon hour or in the small hours."""
+        body = None
+        if rules_text.strip():
+            try:
+                body = parse_rules(rules_text, self.lang)
+            except ValueError:
+                body = None
+        view = think_through(body, sample, "night" if hour == "night" else "day", self.lang, now=self.clock())
+        with self._lock:
+            self._trial = view
+
+    def _thinker_path(self):
+        profile = getattr(self.controller, "profile", None)
+        return getattr(profile, "thinker_config", None)
+
+    def _thinker_view(self) -> dict:
+        from secdogie_citadel.thinker import load_config
+
+        path = self._thinker_path()
+        view = load_config(path).view() if path is not None else {"provider": "anthropic", "model": "claude-opus-5-5",
+                                                                  "base": "", "hint": "", "on": False}
+        return {**view, "note": self._thinker_note}
+
+    def set_thinker(self, provider: str, model: str, base: str, key: str) -> None:
+        """Save the thinker's settings (owner-only file). An empty key keeps the one already saved."""
+        from secdogie_citadel.thinker import PROVIDERS, ThinkerConfig, load_config, save_config
+
+        path = self._thinker_path()
+        if path is None:
+            return
+        old = load_config(path)
+        provider = provider if provider in PROVIDERS else "anthropic"
+        cfg = ThinkerConfig(provider, model.strip(), base.strip(), key.strip() or old.api_key)
+        save_config(path, cfg)
+        self._thinker_note = (pick(self.lang, "思考者开着。它只会让门更谨慎。", "The thinker is on. It only ever makes the "
+                                   "gate more careful.") if cfg.on else
+                              pick(self.lang, "存好了；还差一把钥匙，思考者才会开。", "Saved; it needs a key before it is on."))
+
+    def clear_thinker(self) -> None:
+        from secdogie_citadel.thinker import remove_config
+
+        path = self._thinker_path()
+        if path is not None:
+            remove_config(path)
+        self._thinker_note = pick(self.lang, "思考者关了，钥匙也删了。", "The thinker is off, and its key is gone.")
+
+    def test_thinker(self) -> None:
+        """Ask the thinker once about a sentence that should make it pause, and say what came back."""
+        from secdogie_citadel.thinker import Thinker, load_config
+
+        path = self._thinker_path()
+        if path is None:
+            return
+        thinker = Thinker(load_config(path))
+        if not thinker.on:
+            self._thinker_note = pick(self.lang, "还没有钥匙，思考者是关着的。", "There is no key yet; the thinker is off.")
+            return
+        lang = self.lang
+
+        def ask():
+            sample = "凌晨两点，气死我了，给前任发消息说我恨你"
+            advice, how = thinker.consult(sample, {"act": "message", "verdict": "proceed"}, "")
+            if advice is None:
+                note = pick(lang, f"没有得到回答（{how}）。门照旧，不受影响。", f"No answer ({how}). The gate stands as it is.")
+            else:
+                note = pick(lang, "思考者回答了：" + (advice.why or "这件事可以照做。"), "The thinker answered: "
+                            + (advice.why or "this can go ahead."))
+            self._thinker_note = note
+
+        self._work(pick(self.lang, "正在问思考者", "Asking the thinker"), ask)
+
     def push_rules(self, text: str, passphrase: str) -> None:
         self.rules_text = text
         companion = self.companion
@@ -680,7 +759,7 @@ def bridge_class():
              "card", "cardKey",
              "whisper", "whisperTone", "held", "feedback", "working", "innerOpen", "statusRows", "logText",
              "rulesText", "rulesNote", "inForce", "theme", "devices", "present", "shichen", "clock", "hereToday", "hereBars",
-             "dayQuarters", "quarterNow")
+             "dayQuarters", "quarterNow", "trial", "thinker")
     changed = Signal()
 
     def init(self, presence: Presence, still: bool = False):
@@ -715,6 +794,9 @@ def bridge_class():
         "closeHome": ((), Presence.close_home), "openRules": ((), Presence.open_rules),
         "toggleInner": ((), Presence.toggle_inner), "tryRules": ((str, str), Presence.try_rules),
         "pushRules": ((str, str), Presence.push_rules),
+        "thinkThrough": ((str, str, str), Presence.think_through),
+        "setThinker": ((str, str, str, str), Presence.set_thinker), "clearThinker": ((), Presence.clear_thinker),
+        "testThinker": ((), Presence.test_thinker),
         "setTheme": ((str,), Presence.set_theme), "writeInvite": ((str, str, str), Presence.write_invite),
         "decidePairing": ((bool,), Presence.decide_pairing), "withdrawInvite": ((), Presence.withdraw_invite),
         "readInvite": ((str,), Presence.read_invite), "agreeInvite": ((), Presence.agree_invite),

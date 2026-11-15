@@ -3,8 +3,8 @@
 // card in front and the rest stacked behind it; beside the wallet, the page
 // is set the way Google sets its pages (Google Sans, a display greeting, flat
 // tonal sheets, pill buttons) and says what the front card holds. The other
-// pages: the conversation, pairing your devices, the gates' rules, and what
-// the project is. Two worlds, 墨 (ink) and 宣纸 (rice paper), changed by the
+// pages: the conversation, pairing your devices, the gate (how it thinks, and
+// your rules on every device), and what the project is. Two worlds, 墨 (ink) and 宣纸 (rice paper), changed by the
 // switch at the top right with ink (or paper) flooding up the window.
 //
 // Opening Studio opens it. Closing it leaves the companion as a light in the
@@ -17,6 +17,7 @@ import QtQuick.Window
 import QtQuick.Controls
 import QtQuick.Shapes
 import "."
+import "aesper"
 
 Window {
     id: home
@@ -25,7 +26,7 @@ Window {
     height: 820
     minimumWidth: 1000
     minimumHeight: 680
-    color: Theme.ground
+    color: Soft.mistGround
     visible: P.homeOpen
     onClosing: (close) => { close.accepted = false; P.closeHome() }   // closing leaves the light
 
@@ -176,6 +177,10 @@ Window {
         visible: opacity > 0.01
         enabled: here
         Behavior on opacity { NumberAnimation { duration: pageItem.here ? Theme.enter : Theme.exit } }
+        transform: Translate {                 // a page arrives with a little rise and settles with a spring (Q弹)
+            y: pageItem.here ? 0 : (Theme.still ? 0 : 22)
+            Behavior on y { SpringAnimation { spring: Soft.spring; damping: Soft.damping + 0.06; epsilon: 0.2 } }
+        }
     }
     component Words: Text {                    // a line of the interface
         textFormat: Text.PlainText
@@ -198,6 +203,8 @@ Window {
         Accessible.role: Accessible.Button
         Accessible.name: act.text
         opacity: enabled ? 1 : 0.4
+        scale: pressed ? 0.95 : 1
+        Behavior on scale { SpringAnimation { spring: Soft.spring; damping: Soft.damping; epsilon: 0.0005 } }
         background: Item {
             Rectangle {                        // the keyboard's ring, just outside the pill
                 anchors.fill: parent
@@ -252,10 +259,37 @@ Window {
                elide: Text.ElideMiddle; textFormat: Text.PlainText; font.features: ({ "tnum": 1 }) }
         Rectangle { visible: !kv.last; anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.hairline }
     }
-    component Surface: Rectangle {             // a page's surface: flat, tonal, generous corners
-        radius: 28
-        color: Theme.panel
-        border.color: Theme.dark ? Theme.hairline : "transparent"
+    component Surface: Rectangle {             // a page's surface: a soft sheet on the mist, with a shadow below
+        id: surface
+        radius: 32
+        color: Soft.sheet
+        border.color: Theme.dark ? Qt.rgba(1, 1, 1, 0.06) : "transparent"
+        Canvas {
+            z: -1
+            anchors.fill: parent
+            anchors.margins: -36
+            readonly property string sig: [width.toFixed(0), height.toFixed(0), Theme.dark].join("|")
+            onSigChanged: requestPaint()
+            onPaint: {
+                const ctx = getContext("2d")
+                ctx.reset()
+                const m = 36, W = width - 2 * m, H = height - 2 * m, r = surface.radius
+                const c = Theme.dark ? "0,0,0" : "120,86,104"
+                for (let i = 10; i >= 1; i--) {
+                    const g = 26 * Math.pow(i / 10, 1.5)
+                    ctx.fillStyle = `rgba(${c},${Theme.dark ? 0.04 : 0.022})`
+                    const x = m - g * 0.5, y = m + 10 - g * 0.3, w = W + g, h = H + g * 0.8, rr = r + g * 0.5
+                    ctx.beginPath()
+                    ctx.moveTo(x + rr, y)
+                    ctx.arcTo(x + w, y, x + w, y + h, rr)
+                    ctx.arcTo(x + w, y + h, x, y + h, rr)
+                    ctx.arcTo(x, y + h, x, y, rr)
+                    ctx.arcTo(x, y, x + w, y, rr)
+                    ctx.closePath()
+                    ctx.fill()
+                }
+            }
+        }
     }
     component Heading: Text {                  // a sheet's or a section's title
         color: Theme.text
@@ -264,6 +298,9 @@ Window {
         wrapMode: Text.Wrap
     }
     component Dot: Rectangle { width: 8; height: 8; radius: 4 }
+
+    // ---- the mist the pages sit on (still: a drifting canvas would repaint the window every frame) ----
+    MistBackdrop { anchors.fill: parent; drift: false; seed: 5 }
 
     // ---- the first meeting -------------------------------------------------------------------
     Onboarding { objectName: "onboarding"; anchors.fill: parent; visible: home.first }
@@ -299,7 +336,7 @@ Window {
             items: [{ text: home.t("总览", "Overview") },
                     { text: home.t("对话", "Talk"), badge: home.page !== 1 ? home.waitingCount : 0 },
                     { text: home.t("设备", "Devices") },
-                    { text: home.t("规则", "Rules") },
+                    { text: home.t("门", "Gate") },
                     { text: home.t("关于", "About") }]
             onPicked: (i) => home.page = i
         }
@@ -345,7 +382,7 @@ Window {
                 anchors.verticalCenter: parent.verticalCenter
                 onChosen: (dark, x, y) => {
                     home.nextTheme = dark ? "dark" : "light"
-                    flood.play(dark ? "#111216" : "#F3F1EC", x, y)
+                    flood.play(dark ? "#100F17" : "#F5F1EF", x, y)  // the mist's ground in the world it goes to
                 }
             }
             Rectangle {                                              // you
@@ -413,9 +450,10 @@ Window {
                         width: parent.width
                         text: (P.greeting || home.t("你好", "Hello")) + (home.you ? home.t("，", ", ") + home.you : "")
                         textFormat: Text.PlainText
-                        color: Theme.text
-                        font.pixelSize: Theme.display
-                        font.letterSpacing: -0.6
+                        color: Soft.ink
+                        font.family: Soft.display
+                        font.pixelSize: Theme.lang === "en" ? 52 : 46
+                        font.letterSpacing: Theme.lang === "en" ? -1.2 : 0.6
                         elide: Text.ElideRight
                     }
                     Text {
@@ -544,6 +582,12 @@ Window {
                                                                 : home.t("成员：由主人接纳", "Member: admitted by the owner") }
                                 KV { k: home.t("路径", "Path")
                                      v: home.pickedDevice.state === "online" ? home.t("WebRTC 直连，逐条签名", "Direct over WebRTC, every message signed") : "—" }
+                                KV { k: home.t("门的规则", "Gate rules")
+                                     v: ({ "in-force": home.t("生效中", "in force"), "waiting": home.t("等它上线", "waiting for it"),
+                                           "refused": home.t("没有接受", "not accepted"), "silent": home.t("这台设备不运行门", "runs no gate"),
+                                           "none": home.t("还没有规则要传", "none to send yet") })[(home.pickedDevice.rules || {}).state || "none"]
+                                        + (((home.pickedDevice.rules || {}).version || 0) > 0 ? home.t(" · 第 ", " · version ")
+                                           + home.pickedDevice.rules.version + home.t(" 版", "") : "") }
                                 KV { k: home.t("钥匙", "Key"); v: home.pickedDevice.did || "—"; mono: true; last: true }
                                 Column {
                                     width: parent.width
@@ -623,18 +667,25 @@ Window {
                 width: talk.measure
                 text: (P.greeting || home.t("你好", "Hello")) + (home.you ? home.t("，", ", ") + home.you : "") + home.t("。", ".")
                 textFormat: Text.PlainText
-                color: Theme.text
-                font.pixelSize: Theme.headline
-                font.letterSpacing: -0.3
+                color: Soft.ink
+                font.family: Soft.display
+                font.pixelSize: Theme.lang === "en" ? 40 : 36
+                font.letterSpacing: Theme.lang === "en" ? -0.8 : 0.4
+            }
+            Surface {                                                    // the thread sits on a soft sheet, like a notebook
+                x: talk.inset - 40
+                y: chat.y - 28
+                width: talk.measure + 80
+                height: chat.height + 52
             }
             ListView {
                 id: chat
                 x: talk.inset
                 width: talk.measure
                 anchors.top: talkTitle.bottom
-                anchors.topMargin: 18
+                anchors.topMargin: 52
                 anchors.bottom: dock.top
-                anchors.bottomMargin: 18
+                anchors.bottomMargin: 44
                 clip: true
                 model: convo
                 boundsBehavior: Flickable.StopAtBounds
@@ -774,8 +825,7 @@ Window {
                 anchors.centerIn: chat
                 width: Math.min(chat.width, 460)
                 spacing: 16
-                Rectangle { anchors.horizontalCenter: parent.horizontalCenter; width: 56; height: 56; radius: 28
-                            color: Theme.lamp; opacity: 0.9 }
+                GlowFigure { anchors.horizontalCenter: parent.horizontalCenter; width: 130; height: 160 }
                 Text { width: parent.width; horizontalAlignment: Text.AlignHCenter
                        text: home.t("想让我做点什么？", "What would you like me to do?")
                        color: Theme.text; font.family: Theme.serif; font.pixelSize: Theme.title; font.weight: Font.DemiBold }
@@ -1119,35 +1169,11 @@ Window {
             }
         }
 
-        // ==== 规则 ==================================================================================
+        // ==== 门: how the automatic Socratic gate thinks, and your rules on every device =================
         Page {
             index: 3
             anchors.fill: parent
-            Flickable {
-                anchors.fill: parent
-                contentHeight: rulesCard.height + home.margin + 4
-                clip: true
-                boundsBehavior: Flickable.StopAtBounds
-                ScrollBar.vertical: Bar {}
-                Card {
-                    id: rulesCard
-                    x: (parent.width - width) / 2
-                    y: 4
-                    width: Math.min(parent.width - 2 * home.margin, 860)
-                    height: rulesEditor.implicitHeight + 150
-                    title: home.t("门的规则", "The gates' rules")
-                    chip: home.t("只能更严", "STRICTER ONLY")
-                    Column {
-                        width: parent.width
-                        spacing: 14
-                        Words { width: parent.width
-                                text: home.t("规则写成 YAML，先试一句话看门怎么回应，再用签名口令签名注入。注入的规则只在你自己的节点上运行，只能让门更严。",
-                                             "Rules are YAML. Try a sentence to see how the gate answers, then sign and inject them with your passphrase. Injected rules run only on your own nodes, and can only make the gates stricter.") }
-                        RulesEditor { id: rulesEditor; width: parent.width; editorHeight: 260 }
-                    }
-                    Component.onCompleted: { P.openRules(); rulesEditor.load() }
-                }
-            }
+            Gate { anchors.fill: parent }
         }
 
         // ==== 关于: what this is, and what it is good at ================================================
@@ -1170,14 +1196,23 @@ Window {
                     spacing: 0
 
                     Surface {                                                 // the hero: words at the left, a hand of cards
+                        id: hero
                         width: parent.width
                         height: 380
+                        PaintedPanel {                                        // the painted half, behind a torn edge
+                            x: hero.width * 0.54
+                            width: hero.width - x
+                            height: hero.height
+                            corner: hero.radius
+                            seed: 23
+                        }
                         Column {
                             x: 52; y: 60
                             width: parent.width * 0.47
                             spacing: 18
-                            Text { width: parent.width; wrapMode: Text.Wrap; color: Theme.text; textFormat: Text.PlainText
-                                   font.pixelSize: 40; font.letterSpacing: -0.6; lineHeight: 1.12
+                            Text { width: parent.width; wrapMode: Text.Wrap; color: Soft.ink; textFormat: Text.PlainText
+                                   font.family: Soft.display; font.pixelSize: Theme.lang === "en" ? 46 : 40
+                                   font.letterSpacing: Theme.lang === "en" ? -1.0 : 0.6; lineHeight: 1.14
                                    text: home.t("你的设备，自成一网。\n你的伙伴，先问后做。", "Your devices, one mesh.\nA companion that asks first.") }
                             Text { width: parent.width; wrapMode: Text.Wrap; color: Theme.soft; textFormat: Text.PlainText
                                    font.pixelSize: 16; lineHeight: 1.5
@@ -1211,7 +1246,7 @@ Window {
                                          number: home.tail(home.node.did); quarters: P.dayQuarters || []; now: P.quarterNow === undefined ? -1 : P.quarterNow }
                         }
                         Text {                                                // the inscription, read top to bottom
-                            visible: Theme.lang !== "en"
+                            visible: false                                    // the painted half says it now
                             anchors.right: parent.right
                             anchors.rightMargin: 30
                             y: 40
@@ -1226,7 +1261,8 @@ Window {
                     }
 
                     Item { width: 1; height: 64 }
-                    Text { text: home.t("它由四部分组成", "Four parts"); color: Theme.text; font.pixelSize: Theme.headline
+                    Text { text: home.t("它由四部分组成", "Four parts"); color: Soft.ink; font.family: Soft.display
+                           font.pixelSize: Theme.lang === "en" ? 38 : 34
                            font.letterSpacing: -0.3; textFormat: Text.PlainText }
                     Item { width: 1; height: 28 }
                     Row {
@@ -1259,7 +1295,8 @@ Window {
                     }
 
                     Item { width: 1; height: 64 }
-                    Text { text: home.t("它擅长什么", "What it is good at"); color: Theme.text; font.pixelSize: Theme.headline
+                    Text { text: home.t("它擅长什么", "What it is good at"); color: Soft.ink; font.family: Soft.display
+                           font.pixelSize: Theme.lang === "en" ? 38 : 34
                            font.letterSpacing: -0.3; textFormat: Text.PlainText }
                     Item { width: 1; height: 24 }
                     Grid {

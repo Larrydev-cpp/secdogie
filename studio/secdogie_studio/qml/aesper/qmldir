@@ -7,3 +7,4 @@ DisplayTitle 1.0 DisplayTitle.qml
 Caption 1.0 Caption.qml
 SoftSheet 1.0 SoftSheet.qml
 Appear 1.0 Appear.qml
+SoftPanel 1.0 SoftPanel.qml

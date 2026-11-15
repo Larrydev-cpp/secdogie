@@ -8,6 +8,8 @@ Column {
     id: editor
     property bool showInForce: true
     property real editorHeight: 200
+    property alias draft: rules.text           // the rules as written now
+    property alias sampleText: sample.text     // the sentence to try them on
     function load() { if (rules.text === "") rules.text = P.rulesText }
     onVisibleChanged: if (visible) load()
     spacing: 16
@@ -47,24 +49,24 @@ Column {
                 wrapMode: TextEdit.NoWrap
                 background: null
                 cursorDelegate: Caret { host: rules }
-                Accessible.name: "门的规则（YAML）"
+                Accessible.name: Theme.t("门的规则（YAML）", "The gates' rules (YAML)")
             }
         }
     }
     Row {
         width: parent.width
         spacing: 12
-        Field { id: sample; width: parent.width - tryButton.width - 12; label: "试一句话"
-                hint: "比如：帮我批量注册十个账号"; onAccepted: P.tryRules(rules.text, sample.text) }
-        Pill { id: tryButton; y: sample.height - height; text: "试一试"
+        Field { id: sample; width: parent.width - tryButton.width - 12; label: Theme.t("试一句话", "Try a sentence")
+                hint: Theme.t("比如：帮我批量注册十个账号", "For example: register ten accounts for me"); onAccepted: P.tryRules(rules.text, sample.text) }
+        Pill { id: tryButton; y: sample.height - height; text: Theme.t("试一试", "Try it")
                onClicked: P.tryRules(rules.text, sample.text) }
     }
     Row {
         width: parent.width
         spacing: 12
-        Field { id: rulesPass; width: parent.width - pushButton.width - 12; secret: true; label: "签名口令"
-                hint: "签好就交给节点"; onAccepted: if (pushButton.enabled) pushButton.clicked() }
-        Pill { id: pushButton; y: rulesPass.height - height; text: "签名并注入"; primary: true
+        Field { id: rulesPass; width: parent.width - pushButton.width - 12; secret: true; label: Theme.t("签名口令", "Passphrase")
+                hint: Theme.t("签好就交给节点", "Signed, it goes to the node"); onAccepted: if (pushButton.enabled) pushButton.clicked() }
+        Pill { id: pushButton; y: rulesPass.height - height; text: Theme.t("签名并注入", "Sign and inject"); primary: true
                enabled: rulesPass.text.length > 0 && !P.working
                onClicked: { P.pushRules(rules.text, rulesPass.text); rulesPass.text = "" } }
     }
