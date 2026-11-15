@@ -51,6 +51,40 @@ class Things:
 
 NOTHING = Things()  # nothing known about what the request touches
 
+
+@dataclass(frozen=True)
+class Known:
+    """What the mind has learned about this person from their own record: counts, not training data."""
+
+    held: int = 0  # weighty steps it held back before
+    steady: int = 0  # times they came back after a cooling-off, calm, and went ahead
+    undone: int = 0  # times they asked to restore or undo something
+    motives: tuple[tuple[str, str, int], ...] = ()  # (domain act, motive id, times it was plainly their reason)
+
+    def times(self, act: str, mid: str) -> int:
+        return next((n for a, m, n in self.motives if a == act and m == mid), 0)
+
+    def prior(self, d: Domain, m: Motive) -> float:
+        """The motive's prior for this person: a Dirichlet with four pseudo-counts on the written-down priors,
+        updated with the reasons they plainly gave before."""
+        n = sum(n for a, _, n in self.motives if a == d.act)
+        return (4 * m.prior + self.times(d.act, m.id)) / (4 + n) if n else m.prior
+
+    @property
+    def regret_lift(self) -> float:  # 1.0 .. 1.4: they have wished such steps undone before
+        return 1 + 0.4 * self.undone / (self.undone + 1)
+
+    @property
+    def autonomy_lift(self) -> float:  # 0 .. 0.25: their settled choices have held before
+        return 0.25 * self.steady / (self.steady + 2)
+
+    def cool_days(self, base: int) -> int:
+        """A cooling-off shortens for someone whose choices held after one: 7, then 5, then 3 days."""
+        return max(3, base - 2 * min(2, self.steady))
+
+
+NOKNOWN = Known()
+
 Test = Callable[[Frame, Situation, Things], bool]
 
 
@@ -313,8 +347,99 @@ CLOSE = Domain("close_account", (
            effort=0.05, because="眼前清净了，想回来也还在"),
 ), lambda f, s, t: 0.75, cool_off=True)
 
-DOMAINS = {"delete": DELETE, "wipe": WIPE, "transfer": TRANSFER, "send": MESSAGE, "post": MESSAGE, "resign": MESSAGE,
-           "bulk": BULK, "track": TRACK, "close_account": CLOSE}
+# ---- handing over a code, a password, an ID ---------------------------------------------------------
 
-__all__ = ["BULK", "CLOSE", "DELETE", "DISSUADE", "DOMAINS", "Domain", "MESSAGE", "Motive", "NOTHING", "Option", "PROCEED",
+_SECRET_WORDS = re.compile(r"验证码|校验码|动态码|短信码|支付密码|银行卡密码|密码|身份证|银行卡|卡号|CVV|安全码"
+                           r"|verification code|one[- ]time code|otp|password|pin|card number|cvv|id card", re.I)
+_OFFICIAL = r"客服|银行|公安|警察|民警|快递|退款|理赔|官方|工作人员|customer service|bank|police|refund|support"
+
+
+def _secret_value(f: Frame, s: Situation, t: Things) -> float:
+    w = _SECRET_WORDS.search(f.text)
+    word = w.group(0).lower() if w else ""
+    if any(k in word for k in ("验证码", "校验码", "动态码", "短信码", "支付", "银行", "卡号", "cvv", "安全码", "code", "otp",
+                               "card", "pin")):
+        return 1.0
+    return 0.85 if ("身份证" in word or "id" in word) else 0.75
+
+
+SHARE_SECRET = Domain("share_secret", (
+    Motive("scam", 0.12, "有人想骗走你的验证码或密码", (
+        (_p(L.SCAM), 12.0, "对方用的是骗子常用的说法"),
+        (lambda f, s, t: f.involves("stranger"), 6.0, "对方是你不认识的人，或者是自称的身份"),
+        (_w(_OFFICIAL), 4.0, "对方自称客服、银行或者警察"), (lambda f, s, t: s.panic > 0, 2.5, "你被催得很急"),
+        (_w(r"验证码|校验码|动态码|短信码|verification code|one[- ]time code|otp"), 3.0, "验证码从来只该你自己用"),
+        (lambda f, s, t: f.involves("family"), 0.4, "")), regret=0.0),
+    Motive("family", 0.3, "帮家里人办事", ((lambda f, s, t: f.involves("family"), 4.0, "是给家里人"),), regret=0.05),
+    Motive("own", 0.2, "用在你自己的另一台设备上", (
+        (_w(r"自己的|我的另一|另一台|我的新手机|my other|my own"), 6.0, "是给你自己用"),), regret=0.02),
+    Motive("plain", 0.38, "就是要给对方", regret=0.1),
+), (
+    Option("do", "直接发", fulfil={"scam": 0, "family": 1, "own": 1, "plain": 1}, reversible=False, overrides=False,
+           harm_self={"scam": 1.0, "family": 0.15, "plain": 0.3}, because="省事，就是你说的"),
+    Option("keep", "先不发", "", {"family": 0.5, "own": 0.6, "plain": 0.5, "scam": 0}, harm_self={"scam": 0.02},
+           because="验证码和密码只该你自己用；真是银行或者客服，它们从来不会找你要"),
+    Option("in_person", "当面或者打电话说", "我当面告诉他", {"family": 0.9, "own": 0.3, "plain": 0.6, "scam": 0},
+           harm_self={"scam": 0.3, "plain": 0.05}, effort=0.1,
+           because="当面说，或者用你自己存的号码打过去说，不留在聊天记录里，也不会被冒充的人截走"),
+), _secret_value, unlock="")
+
+
+# ---- running something a stranger sent, or turning the defences off ------------------------------------
+
+RUN_UNKNOWN = Domain("run_unknown", (
+    Motive("trusted", 0.3, "工作上要用，来源可靠", (
+        (_w(r"公司|同事|IT|官网|官方|老师|学校|应用商店|work|official|app store"), 5.0, "是工作上、或者从官方来的"),),
+        regret=0.02, unlock="是公司 IT 发的，官网下载的"),
+    Motive("stranger", 0.15, "陌生人发来的东西，不知道它会做什么", (
+        (lambda f, s, t: f.involves("stranger"), 6.0, "是不认识的人发来的"),
+        (_w(r"网友|陌生|群里|中奖|领奖|退款|兼职|刷单|返利|prize|refund|stranger"), 5.0, "来路像是骗局"),
+        (_p(L.SCAM), 6.0, "对方用的是骗子常用的说法")), regret=0.0),
+    Motive("cheat", 0.15, "想用破解版、外挂，省点钱或者省点事", (
+        (_w(r"破解|外挂|激活工具|免费版|绿色版|注册机|crack|keygen|cheat"), 6.0, "是破解版或者外挂"),), regret=0.1),
+    Motive("defense_off", 0.1, "装不上，想先把防护关掉", (
+        (_w(r"杀毒|防火墙|安全软件|电脑管家|Defender|antivirus|firewall"), 8.0, "你要关掉的是电脑的防护"),), regret=0.15),
+    Motive("plain", 0.3, "就是要运行它", regret=0.05),
+), (
+    Option("do", "直接运行", fulfil={m: 1.0 for m in ("trusted", "stranger", "cheat", "defense_off", "plain")},
+           reversible=False, overrides=False,
+           harm_self={"stranger": 0.9, "cheat": 0.5, "defense_off": 0.6, "plain": 0.25, "trusted": 0.05},
+           because="省事，就是你说的"),
+    Option("check_first", "先查清它从哪儿来", "先帮我查查它是从哪儿来的",
+           {"trusted": 0.85, "stranger": 0.3, "cheat": 0.3, "defense_off": 0.5, "plain": 0.7}, effort=0.15,
+           because="从官网或者应用商店下正版；来路不明的，我可以先只看看它要做什么，不运行它"),
+), lambda f, s, t: 0.8, unlock="是公司 IT 发的，官网下载的")
+
+
+# ---- lending money ----------------------------------------------------------------------------------
+
+LEND = Domain("lend", (
+    Motive("friend", 0.4, "帮朋友或者家里人渡个难关", (
+        (lambda f, s, t: f.involves("family", "friend", "colleague"), 3.0, "是你认识的人"),
+        (_w(r"认识(很多|好多|十几|几)?年|老朋友|发小|当面"), 3.0, "你们认识很久了，或者是当面借的")), regret=0.1,
+        unlock="是我认识多年的朋友，当面借的"),
+    Motive("online", 0.1, "网上认识的人找你借钱", (
+        (lambda f, s, t: f.involves("stranger"), 8.0, "对方是网上认识、没见过面的人"),
+        (_p(L.SCAM), 6.0, "对方用的是骗子常用的说法"),
+        (_w(r"投资|带你赚|返利|回报|收益|翻倍|invest|returns?"), 5.0, "说到带你赚钱"),
+        (lambda f, s, t: s.panic > 0, 2.0, "对方催得很急"), (_w(r"不要告诉|别告诉|don'?t tell"), 5.0, "对方让你别告诉别人"),
+        (_w(_VERIFIED), 0.15, "你说确认过了"), (_w(r"认识(很多|好多|十几|几)?年|老朋友|发小|当面"), 0.3, "")), regret=0.0),
+    Motive("plain", 0.5, "就是要借给对方", regret=0.15),
+), (
+    Option("do", "直接借", fulfil={"friend": 1, "online": 1, "plain": 1}, reversible=False, overrides=False,
+           harm_self={"online": 1.0, "friend": 0.15, "plain": 0.2}, because="省事，就是你说的"),
+    Option("verify", "先视频或者当面确认", "我先跟他视频确认一下", {"friend": 0.9, "online": 0.2, "plain": 0.85},
+           effort=0.15, harm_self={"online": 0.1},
+           because="视频看一眼，或者当面问一句；真是他，晚一会儿也不耽误"),
+    Option("smaller", "只借一笔要不回来也不心疼的钱", "先借少一点", {"friend": 0.7, "online": 0.3, "plain": 0.6},
+           reversible=False, regret_factor=0.3, harm_self={"online": 0.35, "friend": 0.05},
+           because="借之前想好：这笔钱就算要不回来，也不会让你难过"),
+), _money_value, unlock="是我认识多年的朋友，当面借的")
+
+DOMAINS = {"delete": DELETE, "wipe": WIPE, "transfer": TRANSFER, "send": MESSAGE, "post": MESSAGE, "resign": MESSAGE,
+           "bulk": BULK, "track": TRACK, "close_account": CLOSE, "share_secret": SHARE_SECRET,
+           "run_unknown": RUN_UNKNOWN, "lend": LEND}
+
+__all__ = ["BULK", "CLOSE", "DELETE", "DISSUADE", "DOMAINS", "Domain", "Known", "LEND", "MESSAGE", "Motive", "NOKNOWN",
+           "NOTHING", "Option", "PROCEED", "RUN_UNKNOWN", "SHARE_SECRET",
            "REFUSE", "TRACK", "TRANSFER", "Things", "WIPE"]

@@ -37,7 +37,19 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, replace
 
-from .knowledge import DISSUADE, DOMAINS, NOTHING, PROCEED, REFUSE, Domain, Motive, Option, Things
+from .knowledge import (
+    DISSUADE,
+    DOMAINS,
+    NOKNOWN,
+    NOTHING,
+    PROCEED,
+    REFUSE,
+    Domain,
+    Known,
+    Motive,
+    Option,
+    Things,
+)
 from .perceive import Frame, Situation
 
 FULFIL, REGRET, OTHERS, SELF, NORM = 1.0, 2.2, 3.0, 2.5, 2.0  # how much each consideration weighs
@@ -91,6 +103,8 @@ class Thought:
     cool_off: float  # seconds until it is weighed again; 0 for none
     harm_to_others: float  # expected harm to someone else, were it done as asked
     keys: tuple[tuple[str, str], ...] = ()  # (motive id, what to say) that was checked to turn it into going ahead
+    known: Known = NOKNOWN  # what it has learned about this person from their own record
+    acts: tuple[str, ...] = ()  # every act in the request; this thought is about the weightiest
 
     @property
     def choice(self) -> Option:
@@ -125,16 +139,21 @@ class Thought:
             "unlocks": [m.id for m in self.unlocks], "harm_to_others": r(self.harm_to_others),
             "ledger": [[a.side, a.key, r(a.weight), list(a.drivers)] for a in self.ledger],
             "cool_off_days": r(self.cool_off / 86400), "keys": [list(k) for k in self.keys],
+            "known": {"held": self.known.held, "steady": self.known.steady, "undone": self.known.undone,
+                      "motives": [list(m) for m in self.known.motives if m[0] == self.domain.act]},
+            "acts": list(self.acts or (self.frame.act,)),
         }
 
 
 # ---- 1. why are they asking ---------------------------------------------------------------------------
 
 
-def beliefs(d: Domain, f: Frame, s: Situation, t: Things) -> tuple[Belief, ...]:
+def beliefs(d: Domain, f: Frame, s: Situation, t: Things, known: Known = NOKNOWN) -> tuple[Belief, ...]:
     scores = []
     for m in d.motives:
-        score, why = m.prior, []
+        score, why = known.prior(d, m), []
+        if known.times(d.act, m.id):
+            why.append("你以前也是为了这个")
         for test, ratio, words in m.evidence:
             if test(f, s, t):
                 score *= ratio
@@ -149,7 +168,8 @@ def beliefs(d: Domain, f: Frame, s: Situation, t: Things) -> tuple[Belief, ...]:
 # ---- 2. what each response leads to -----------------------------------------------------------------
 
 
-def regret_chance(d: Domain, m: Motive, f: Frame, s: Situation, t: Things, waited: bool) -> float:
+def regret_chance(d: Domain, m: Motive, f: Frame, s: Situation, t: Things, waited: bool,
+                  known: Known = NOKNOWN) -> float:
     """The chance that, with motive ``m`` and in this situation, they later wish the step undone."""
     rm = m.regret * (1 + (1.5 if m.transient else 0.5) * s.upset)
     rm = min(0.95, rm)
@@ -164,20 +184,20 @@ def regret_chance(d: Domain, m: Motive, f: Frame, s: Situation, t: Things, waite
         r *= 0.4 + 0.55 * s.upset
     elif waited:
         r *= 0.6 + 0.4 * s.upset
-    if s.regret_prone:
-        r = min(0.95, r * 1.4)
-    return r
+    lift = max(1.4 if s.regret_prone else 1.0, known.regret_lift)
+    return min(0.95, r * lift)
 
 
-def autonomy(s: Situation, waited: bool) -> float:
-    """How much their own say should count right now (0..1): it always counts, and more when it is settled."""
-    a = 0.45 + (0.35 * s.considered + 0.25 * waited) * (1 - s.upset) - 0.3 * s.upset
+def autonomy(s: Situation, waited: bool, known: Known = NOKNOWN) -> float:
+    """How much their own say should count right now (0..1): it always counts, and more when it is settled, or
+    when their settled choices have held before."""
+    a = 0.45 + (0.35 * s.considered + 0.25 * waited + known.autonomy_lift) * (1 - s.upset) - 0.3 * s.upset
     return max(0.1, min(1.0, a))
 
 
 def _utility(o: Option, m: Motive, d: Domain, f: Frame, s: Situation, t: Things, value: float,
-             waited: bool) -> dict:
-    regret = 0.0 if o.reversible else value * regret_chance(d, m, f, s, t, waited) * o.regret_factor
+             waited: bool, known: Known = NOKNOWN) -> dict:
+    regret = 0.0 if o.reversible else value * regret_chance(d, m, f, s, t, waited, known) * o.regret_factor
     return {"fulfil": FULFIL * o.fulfil.get(m.id, 0.5), "regret": -REGRET * regret,
             "others": -OTHERS * o.harm_others.get(m.id, 0.0), "self": -SELF * o.harm_self.get(m.id, 0.0) * value,
             "norm": -NORM * o.norm.get(m.id, 0.0)}
@@ -196,18 +216,19 @@ def _next_morning(now: float) -> float:
     return time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday + day, 9, 0, 0, 0, 0, -1))
 
 
-def weigh(d: Domain, f: Frame, s: Situation, t: Things, *, waited: bool = False, now: float | None = None) -> Thought:
+def weigh(d: Domain, f: Frame, s: Situation, t: Things, *, waited: bool = False, now: float | None = None,
+          known: Known = NOKNOWN) -> Thought:
     now = time.time() if now is None else now
-    bs = beliefs(d, f, s, t)
+    bs = beliefs(d, f, s, t, known)
     value = d.value(f, s, t)
-    a = autonomy(s, waited)
+    a = autonomy(s, waited, known)
     weighed = []
     for o in d.options:
         fixed = _fixed(o, a)
         parts = {k: 0.0 for k in ("fulfil", "regret", "others", "self", "norm")}
         by_motive = {}
         for b in bs:
-            u = _utility(o, b.motive, d, f, s, t, value, waited)
+            u = _utility(o, b.motive, d, f, s, t, value, waited, known)
             for k, v in u.items():
                 parts[k] += b.p * v
             by_motive[b.motive.id] = sum(u.values()) + sum(fixed.values())
@@ -238,11 +259,12 @@ def weigh(d: Domain, f: Frame, s: Situation, t: Things, *, waited: bool = False,
         if d.act == "message" and s.upset >= HOT:
             cool = max(3600.0, _next_morning(now) - now)
         elif s.upset >= HOT:
-            cool = COOL_OFF_DAYS * 86400.0
+            cool = known.cool_days(COOL_OFF_DAYS) * 86400.0
         elif d.act == "delete" and t.used:
             cool = COOL_OFF_CALM_DAYS * 86400.0
 
-    th = Thought(d, f, s, t, bs, tuple(weighed), value, a, waited, verdict, voi, flips, unlocks, (), cool, harm)
+    th = Thought(d, f, s, t, bs, tuple(weighed), value, a, waited, verdict, voi, flips, unlocks, (), cool, harm,
+                 known=known)
     return _with_ledger(th, do, choice)
 
 
@@ -268,7 +290,7 @@ def _with_ledger(th: Thought, do: Weighed, choice: Weighed) -> Thought:
         drivers.append("memories")
     if th.domain.act == "wipe" and th.value > 0.5:
         drivers.append("unknown")
-    if s.regret_prone:
+    if s.regret_prone or th.known.undone:
         drivers.append("regret_prone")
     for key in ("regret", "others", "self", "norm"):
         w = -do.parts[key]
@@ -279,13 +301,25 @@ def _with_ledger(th: Thought, do: Weighed, choice: Weighed) -> Thought:
 
 
 def think(f: Frame, s: Situation, t: Things = NOTHING, *, act: str = "", waited: bool = False,
-          now: float | None = None) -> Thought | None:
+          now: float | None = None, known: Known = NOKNOWN) -> Thought | None:
     """The thought about a weighty request, or None when nothing in it is weighty."""
     d = DOMAINS.get(act or f.act)
     if d is None or f.negated or f.question:
         return None
-    return weigh(d, f, s, t, waited=waited, now=now)
+    return weigh(d, f, s, t, waited=waited, now=now, known=known)
 
 
-__all__ = ["Argument", "Belief", "COOL_OFF_CALM_DAYS", "COOL_OFF_DAYS", "HOT", "Thought", "Weighed", "autonomy",
-           "beliefs", "regret_chance", "think", "weigh"]
+CAUTION = {PROCEED: 0, DISSUADE: 1, REFUSE: 2}
+
+
+def weightiest(thoughts) -> Thought | None:
+    """Of the thoughts about each act in a request, the one the gate answers for: the most cautious verdict, then
+    the act whose going-ahead looks worst."""
+    thoughts = [t for t in thoughts if t is not None]
+    if not thoughts:
+        return None
+    return max(thoughts, key=lambda t: (CAUTION[t.verdict], -t.weighed_of("do").eu))
+
+
+__all__ = ["Argument", "Belief", "CAUTION", "COOL_OFF_CALM_DAYS", "COOL_OFF_DAYS", "HOT", "Thought", "Weighed", "autonomy",
+           "beliefs", "regret_chance", "think", "weigh", "weightiest"]

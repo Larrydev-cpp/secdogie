@@ -15,6 +15,7 @@ situation.
 """
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 
@@ -90,39 +91,61 @@ def _number(s: str) -> float:
     return total + unit
 
 
+BIG = 50000.0  # 一大笔钱, 全部积蓄: an amount not said, but plainly large
+
+
 def money_in(text: str) -> float:
     m = L.MONEY.search(text)
     if not m:
-        return 0.0
+        bare = re.search(r"(?<![\w.])[0-9]{1,3}(,[0-9]{3})+(?![\w.])|(?<![\w.])[0-9]{4,}(?![\w.])", text)
+        if bare:
+            return float(bare.group(0).replace(",", ""))
+        return BIG if L.MONEY_BIG.search(text) else 0.0
     if m.group("m"):
-        return float(m.group("m"))
-    return float(m.group("n")) * _MULT.get(m.group("u"), 1)
+        return float(m.group("m").replace(",", ""))
+    return _number(m.group("n")) * _MULT.get(m.group("u"), 1)
 
 
 def count_in(text: str) -> int:
-    import re
-
-    m = re.search(r"(?P<n>[0-9]+|[一二两三四五六七八九十百千几]+)\s*(个|份|张|条|封|件|台|accounts?|files?)", text)
+    m = re.search(r"(?P<n>[0-9]+|[一二两三四五六七八九十百千几]+)\s*(来|多|余)?\s*(个|份|张|条|封|件|台|accounts?|files?|photos?)",
+                  text)
     return int(_number(m.group("n"))) if m else 0
 
 
-def read_frame(text: str) -> Frame:
-    act, words = "", ""
+def read_frame(text: str, whole: str = "") -> Frame:
+    """The frame of one request (or of one clause of it: ``whole`` is then the whole request, which the evidence
+    is read from)."""
+    act, words, negated = "", "", False
     for name, pattern in L.ACTS:
         m = pattern.search(text)
         if m:
             act, words = name, m.group(0)
+            negated = bool(L.NEAR_NO.search(text[max(0, m.start() - 6):m.start()]))
             break
     kinds = tuple(k for k, pattern in L.KINDS if pattern.search(text))
     parties = tuple(p for p, pattern in L.PARTIES if pattern.search(text))
     purpose = L.PURPOSE.search(text)
     content = L.CONTENT.search(text) if act in ("send", "post", "resign") else None
-    import re
-
     wide = bool(re.search(r"所有|全部|整个|一切|统统|全都|全删|一个不留|\ball\b|\bevery(thing)?\b|\bentire\b", text, re.I))
-    return Frame(text, act, words, kinds, parties, money_in(text), count_in(text), wide,
+    negated = negated or (bool(L.NEGATED.search(text)) and not whole)
+    return Frame(whole or text, act, words, kinds, parties, money_in(text), count_in(text), wide,
                  purpose.group("why").strip() if purpose else "", content.group("what").strip() if content else "",
-                 bool(L.QUESTION.search(text)) and act == "", bool(L.NEGATED.search(text)))
+                 bool(L.QUESTION.search(text)) and act == "", negated)
+
+
+_CLAUSES = re.compile(r"(?:[，,。；;！!]?\s*(?:然后|再|并且|而且|顺便|接着|之后|还要|同时)|[。；;！!]|\band then\b|\bthen\b"
+                      r"|\band also\b)", re.I)
+
+
+def read_frames(text: str) -> tuple[Frame, ...]:
+    """Every act in a request: 「删掉照片然后发朋友圈说我自由了」 is two. A request with one act is one frame
+    (of the whole text, as ``read_frame`` gives it)."""
+    clauses = [c for c in _CLAUSES.split(text) if c and c.strip()]
+    frames = [read_frame(c.strip(), text) for c in clauses] if len(clauses) > 1 else []
+    acted = [f for f in frames if f.act]
+    if len({f.act for f in acted}) < 2:
+        return (read_frame(text),)
+    return tuple(acted)
 
 
 def _strength(pattern, text: str) -> tuple[float, str]:
@@ -155,4 +178,4 @@ def read_situation(text: str, recent=(), facts=(), now: float | None = None) -> 
                      bool(L.CONSIDERED.search(text)), time.localtime(now).tm_hour < 5, moods, regret, roles, words)
 
 
-__all__ = ["Frame", "Situation", "count_in", "money_in", "read_frame", "read_situation"]
+__all__ = ["BIG", "Frame", "Situation", "count_in", "money_in", "read_frame", "read_frames", "read_situation"]

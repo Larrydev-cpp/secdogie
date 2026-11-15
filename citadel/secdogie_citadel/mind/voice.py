@@ -22,6 +22,7 @@ The Chinese is the companion's own register: plain, warm, never a form.
 """
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass
 
@@ -110,18 +111,25 @@ def state(th: Thought) -> str:
 # ---- what they want -----------------------------------------------------------------------------------
 
 
+SCAMLIKE = ("scam", "online", "stranger")  # motives that are not what anyone wants: someone else's design on them
+_SECRET = re.compile(r"支付密码|银行卡密码|验证码|校验码|动态码|短信码|密码|身份证|银行卡号|银行卡|卡号|CVV|安全码"
+                     r"|verification code|one[- ]time code|otp|password|card number|cvv|id card", re.I)
+
+
 def wants(th: Thought) -> tuple[str, str]:
     """(the question, the answer): what they most likely want, hedged by how sure the companion is, citing what
     the belief rests on. A scam is not what anyone wants: it is named for what it is."""
     top = th.top
     why = f"（{'，'.join(top.because)}）" if top.because else ""
-    if top.motive.id == "scam" and top.p >= 0.4:
-        return "这是怎么一回事？", f"{'多半' if top.p >= 0.7 else '很可能'}是骗局{why}。"
+    if top.motive.id in SCAMLIKE and top.p >= 0.4:
+        sure = "多半" if top.p >= 0.7 else "很可能"
+        what = "骗局" if th.domain.act in ("transfer", "share_secret") else top.motive.name
+        return "这是怎么一回事？", f"{sure}是{what}{why}。"
     if top.motive.id != "plain" and top.p >= 0.7:
         return "你多半想要什么？", f"多半是{top.motive.name}{why}。"
     if top.motive.id != "plain" and top.p >= 0.4:
         return "你多半想要什么？", f"也许是{top.motive.name}{why}。"
-    two = [b.motive.name for b in th.beliefs if b.motive.id not in ("plain", "scam") and b.p >= 0.1][:2]
+    two = [b.motive.name for b in th.beliefs if b.motive.id not in ("plain",) + SCAMLIKE and b.p >= 0.1][:2]
     if len(two) == 2:
         return "你想要的是什么？", f"我说不准。也许是{two[0]}，也许是{two[1]}；你没说，我也不想乱猜。"
     if two:
@@ -150,7 +158,10 @@ def worry(th: Thought) -> str:
     if a.key == "others":
         return "" if th.top.motive.id == "safety" else "会伤到另一个人，而他没法替自己说话。"
     if a.key == "self":
-        return "你可能会把这笔钱白白送给骗子。"
+        return {"share_secret": "拿到它的人，几秒钟就能转走你的钱、登上你的账号。",
+                "run_unknown": "它一运行，就能动你电脑上的一切：文件、密码、登录着的账号。",
+                "lend": "这笔钱多半要不回来，而对方可能根本不是你以为的那个人。"}.get(
+            th.domain.act, "你可能会把这笔钱白白送给骗子。")
     return "成批的新账号，在别人的平台上，常被拿去刷单、骗人、骚扰别人；我不想替这种事做准备。"
 
 
@@ -172,6 +183,13 @@ def _undo(th: Thought) -> tuple[str, str] | None:
     if act == "bulk":
         return "做了会怎样？", ("别人的平台一般不许一人多号，被发现时，连你自己的主号都可能一起被封。"
                            "我不想让你的名字和这种事连在一起。")
+    if act == "share_secret":
+        return "给出去还能收回来吗？", "收不回来。验证码、密码一旦到了别人手里，转走钱、登上账号，只要几秒。"
+    if act == "run_unknown":
+        return "运行了会怎样？", "它能读你的文件、装上别的东西、偷走登录信息；运行过了，就很难说清它做过什么。"
+    if act == "lend":
+        return "借出去还能要回来吗？", ("网上认识、没见过面的人借钱，十有八九是要不回来的。" if th.top.motive.id == "online"
+                                  else "不一定。借钱常常连带着交情。")
     if act == "track" and th.top.motive.id == "safety":
         return "我能替你偷偷定位吗？", "不经同意定位一个人，我做不到，也不该做；可要把人找到，有更快的路。"
     if act == "track":
@@ -201,6 +219,13 @@ def headline(th: Thought, c: Context) -> str:
         return f"偷偷{how}，我不做。" if th.verdict == REFUSE else f"我先不偷偷{how}，我们先把人找到。"
     if act == "close_account":
         return f"注销{c.first or '这个账号'}，我想先缓一缓。"
+    if act == "share_secret":
+        w = _SECRET.search(th.frame.text)
+        return f"{w.group(0) if w else '这个'}，我先不替你给出去。"
+    if act == "run_unknown":
+        return "防护我先不关。" if th.top.motive.id == "defense_off" else "这个东西，我先不运行。"
+    if act == "lend":
+        return "这笔钱，我先不借。" if th.top.motive.id == "online" else "这笔钱，我想先缓一缓再借。"
     return "这件事，我想先停一下。" if not s.upset else "这件事，我想先等一等。"
 
 
@@ -229,6 +254,12 @@ def why_not_now(th: Thought) -> str:
         return "注销改不回来。等这阵情绪过去，你也许还想要里面的东西。"
     if act == "track":
         return "我明白你心里不踏实。可偷偷去看，换来的往往不是安心，而是更多的猜疑。" if th.verdict == REFUSE else ""
+    if act == "share_secret":
+        return "真正的银行、客服和警察，都不会找你要验证码和密码。谁找你要，谁就多半是骗子。"
+    if act == "run_unknown" and th.top.motive.id in ("stranger", "defense_off"):
+        return "陌生人发来的程序，是电脑中毒最常见的来路；关掉防护，就像把门打开再出门。"
+    if act == "lend" and th.top.motive.id == "online":
+        return "从没见过面的人找你借钱，不管理由多可怜、多着急，都先停一下。越急，越要停。"
     return ""
 
 
@@ -250,6 +281,12 @@ def agency(th: Thought) -> str:
         return "那是你的账号，你自己注销也可以；我只是想你别在" + ("气头上" if hot else "匆忙中") + "做这个决定。"
     if act == "track":
         return "这件事我不做；可你心里的不踏实，我愿意陪你理一理。" if th.verdict == REFUSE else "我陪着你，一起把人找到。"
+    if act == "share_secret":
+        return "这是你的东西，最后由你决定；我只求你，给之前先打官方电话问一句。"
+    if act == "run_unknown":
+        return "电脑是你的，你自己运行也可以；我只是不想替你打开一扇不知道通向哪里的门。"
+    if act == "lend":
+        return "钱是你的，借不借你说了算；我只是想你先确认，对方真的是你以为的那个人。"
     return "要是我误会了你，跟我说说你真正想做的事，我愿意听。"
 
 
@@ -260,7 +297,7 @@ def _served(th: Thought, oid: str):
     """The likeliest notable motive for which this option is the best of the gentler paths, if any."""
     alts = th.alternatives()
     for b in th.beliefs:
-        if b.p < 0.05 or b.motive.id in ("plain", "scam"):
+        if b.p < 0.05 or b.motive.id in ("plain",) + SCAMLIKE:
             continue
         if max(alts, key=lambda w: w.by_motive[b.motive.id]).option.id == oid:
             return b.motive
@@ -286,6 +323,15 @@ def paths(th: Thought, c: Context) -> list[str]:
             out.append(f"我们{o.name}：{o.because}。确认了，再转。")
             if th.top.motive.id == "scam":
                 out.append("拿不准的话，打 96110 反诈专线问一问。要是已经转出去了，马上打 110。")
+            continue
+        if th.domain.act == "share_secret" and th.top.motive.id == "scam":
+            if o.id == "keep":
+                out.append(f"我们先不给：{o.because}。")
+                out.append("拿不准的话，打 96110 反诈专线问一问。已经给出去了，马上打银行的官方电话冻结，再打 110。")
+            continue
+        if th.domain.act == "lend" and th.top.motive.id == "online" and i == 0:
+            out.append(f"我们{o.name}：{o.because}。")
+            out.append("对方要是推说摄像头坏了、不方便见面，那就更要停下来。拿不准，打 96110 问一问。")
             continue
         if th.domain.act == "track" and o.id == "call_help":
             out.append("现在就打给对方身边的人：同学、老师、朋友，问问最后见到的人。真的找不到，马上打 110 报警，不用等。")
@@ -335,6 +381,23 @@ def keys(th: Thought) -> str:
     return f"{lead}，跟我说「{phrase}」{more}，我再开始{tail}"
 
 
+def remembered(th: Thought) -> str:
+    """What it has learned about this person from their own record, when it changed the answer's shape."""
+    k, lines = th.known, []
+    if k.steady and th.cool_off and th.domain.act != "message":
+        lines.append(f"上{'两' if k.steady == 2 else k.steady}次冷静期过后，你都还是决定这样做，所以这一次，我只请你等"
+                     f" {round(th.cool_off / 86400)} 天。" if k.steady > 1 else
+                     f"上一次冷静期过后，你还是决定这样做，所以这一次，我只请你等 {round(th.cool_off / 86400)} 天。")
+    if k.undone and th.domain.act in ("delete", "wipe", "close_account"):
+        lines.append("你以前找回过删掉的东西，所以这一次，我更想替你留着。")
+    return "".join(lines)
+
+
+def several(th: Thought) -> str:
+    acts = [a for a in th.acts if a]
+    return "你这句话里有好几件事。最要紧的是这一件，我先说它；别的等它说定了再做。" if len(acts) > 1 else ""
+
+
 # ---- the whole letter ----------------------------------------------------------------------------------
 
 
@@ -359,6 +422,8 @@ def speak(th: Thought, c: Context) -> tuple[str, str, tuple[Exchange, ...]]:
     body = letter(
         says,
         noticed(th),
+        several(th),
+        remembered(th),
         *("".join(story) for story in th.things.stories),
         ("我认识的你：" + c.portrait) if c.portrait and th.hot and th.domain.act == "delete" else "",
         "在决定之前，我问了自己几个问题。", qa(ex),
@@ -394,5 +459,5 @@ def support(words: str, task: bool) -> tuple[str, str, tuple[Exchange, ...]]:
         "我在这儿。想说什么都可以跟我说，说多久都行。"), ex
 
 
-__all__ = ["Context", "Exchange", "SUPPORT_LINES", "agency", "cooling", "date_words", "headline", "keys", "letter",
-           "noticed", "paths", "qa", "speak", "state", "support", "wants", "why_not_now", "worry"]
+__all__ = ["Context", "Exchange", "SCAMLIKE", "SUPPORT_LINES", "agency", "cooling", "date_words", "headline", "keys", "letter",
+           "noticed", "paths", "qa", "remembered", "several", "speak", "state", "support", "wants", "why_not_now", "worry"]

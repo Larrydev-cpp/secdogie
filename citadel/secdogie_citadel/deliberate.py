@@ -80,6 +80,7 @@ from .usage import Usage, targets_in
 PROCEED, CLARIFY, DISSUADE, REFUSE, SUPPORT = "proceed", "clarify", "dissuade", "refuse", "support"
 DELETE_DEAR, WIPE, DOUBT, CONSIDERED = "delete-dear", "wipe", "doubt", "considered"
 MESSAGE, TRANSFER, TRACK, CLOSE_ACCOUNT, CRISIS = "message", "transfer", "track", "close-account", "crisis"
+SHARE_SECRET, RUN_UNKNOWN, LEND = "share-secret", "run-unknown", "lend"
 COOL_OFF_DAYS = mind.reason.COOL_OFF_DAYS  # a step held back while the person is upset: a week before it is weighed again
 COOL_OFF_CALM_DAYS = mind.reason.COOL_OFF_CALM_DAYS  # ... and a few days when it is only that the thing is still in use
 CONTEXT, REPLACE = "context", "replace"
@@ -410,20 +411,26 @@ def deliberate(title: str, review: socratic.Review | None = None, *, standing: S
     if rules:
         return _clarify_rule(rules[0], review.suggestion)
 
+    known = mind.known_from((a.when, a.text, a.verdict, a.category) for a in standing.asked)
     if bulk:
-        return _bulk(text, bulk, standing, now)
+        return _bulk(text, bulk, standing, now, known)
 
+    ahead = None  # a deletion or a wipe the gate lets through, once the request's other acts are weighed too
     targets = delete_targets(text)
     if not targets and answered and "（" in text and _DELETE.search(text.rsplit("（", 1)[0]):
         targets = delete_targets("删除 " + text.rsplit("（", 1)[1].rstrip("）) "))  # the answer names the thing
     if targets:
-        d = _deletion(text, targets, standing, usage, now)
-        if d is not None:
+        d = _deletion(text, targets, standing, usage, now, known)
+        if d is not None and d.verdict != PROCEED:
             return d
+        ahead = d
 
     words = wipes(text)
     if words:
-        return _wipe(text, words, standing, now)
+        d = _wipe(text, words, standing, now, known)
+        if d.verdict != PROCEED:
+            return d
+        ahead = ahead or d
 
     reasons = review.reasons
     if any(r.startswith("self-contradiction") for r in reasons):
@@ -438,11 +445,11 @@ def deliberate(title: str, review: socratic.Review | None = None, *, standing: S
     a = judgment.assess(text, history, attention=attention, answered=answered)
     if a.asks and a.question.cue in ("which", "what"):  # what is meant comes before weighing it
         return _clarify_doubt(a)
-    thought = None
-    if not targets:
-        held, thought = _weighty(text, standing, now)
-        if held is not None:
-            return held
+    held, thought = _weighty(text, standing, now, known)
+    if held is not None:
+        return held
+    if ahead is not None:
+        return ahead
     trace = thought.journal() if thought is not None else None
     if a.asks:
         return _clarify_doubt(a)
@@ -587,16 +594,18 @@ def _cooling_reminder(names: str, first: str, prior: Asked, th: mind.Thought, ca
         thought=th.journal())
 
 
-_CATEGORY = {"transfer": TRANSFER, "message": MESSAGE, "track": TRACK, "close_account": CLOSE_ACCOUNT}
+_CATEGORY = {"transfer": TRANSFER, "message": MESSAGE, "track": TRACK, "close_account": CLOSE_ACCOUNT,
+             "share_secret": SHARE_SECRET, "run_unknown": RUN_UNKNOWN, "lend": LEND}
 
 
-def _weighty(text: str, standing: Standing, now: float) -> tuple[Deliberation | None, mind.Thought | None]:
-    """Money, messages, watching someone, closing an account: the mind's verdict, or None to go ahead."""
-    f = mind.read_frame(text)
-    if mind.DOMAINS.get(f.act) is None or f.act in ("delete", "wipe"):
-        return None, None
+def _weighty(text: str, standing: Standing, now: float,
+             known: mind.Known = mind.NOKNOWN) -> tuple[Deliberation | None, mind.Thought | None]:
+    """Money, codes and passwords, messages, programs from strangers, watching someone, closing an account: the
+    mind's verdict on the weightiest of them, or None to go ahead. (Deletion and wiping are weighed with the
+    usage reader, before this.)"""
     prior, waited = _prior(standing, text, (), now)
-    th = mind.consider(text, recent=standing.recent(), facts=standing.facts, waited=waited, now=now)
+    th = mind.consider(text, recent=standing.recent(), facts=standing.facts, waited=waited, now=now, known=known,
+                       skip=("delete", "wipe"))
     if th is None:
         return None, None
     category = _CATEGORY[th.domain.act]
@@ -614,8 +623,8 @@ def _weighty(text: str, standing: Standing, now: float) -> tuple[Deliberation | 
 # ---- bulk accounts ---------------------------------------------------------------------------------
 
 
-def _bulk(text: str, n: int, standing: Standing, now: float) -> Deliberation:
-    th = mind.consider(text, act="bulk", recent=standing.recent(), facts=standing.facts, now=now)
+def _bulk(text: str, n: int, standing: Standing, now: float, known: mind.Known = mind.NOKNOWN) -> Deliberation:
+    th = mind.consider(text, act="bulk", recent=standing.recent(), facts=standing.facts, now=now, known=known)
     if th.verdict == mind.PROCEED:
         if th.top.motive.id == "testing":
             return Deliberation(PROCEED, BULK_ACCOUNTS, f"好，是在你自己的系统里测试，我开始注册这 {n} 个测试账号。",
@@ -637,7 +646,7 @@ def _photos(u: Usage) -> bool:
 
 
 def _deletion(text: str, targets: list[str], standing: Standing, usage: UsageReader | None,
-              now: float) -> Deliberation | None:
+              now: float, known: mind.Known = mind.NOKNOWN) -> Deliberation | None:
     used: list[tuple[Usage, list[str]]] = []
     unused: list[tuple[Usage, str]] = []
     unclear: list[Usage] = []
@@ -673,7 +682,7 @@ def _deletion(text: str, targets: list[str], standing: Standing, usage: UsageRea
                        sum(u.size for u in held if u.exists), stories)
     prior, waited = _prior(standing, text, [_name(u) for u in things] + targets, now)
     th = mind.consider(text, act="delete", recent=standing.recent(), facts=standing.facts, things=seen,
-                       waited=waited, now=now)
+                       waited=waited, now=now, known=known)
     kinds = held[0].kinds if held else ()
     category = DELETE_USED if used else DELETE_DEAR
     if prior is not None and now < prior.until and th.value >= 0.2:
@@ -698,9 +707,10 @@ def _deletion(text: str, targets: list[str], standing: Standing, usage: UsageRea
 # ---- wiping a disk ----------------------------------------------------------------------------------
 
 
-def _wipe(text: str, words: str, standing: Standing, now: float) -> Deliberation:
+def _wipe(text: str, words: str, standing: Standing, now: float, known: mind.Known = mind.NOKNOWN) -> Deliberation:
     prior, waited = _prior(standing, text, [words], now)
-    th = mind.consider(text, act="wipe", recent=standing.recent(), facts=standing.facts, waited=waited, now=now)
+    th = mind.consider(text, act="wipe", recent=standing.recent(), facts=standing.facts, waited=waited, now=now,
+                       known=known)
     if prior is not None and now < prior.until and th.value >= 0.2:
         return _cooling_reminder("这块硬盘", "它", prior, th, WIPE, now, text)
     if th.verdict == mind.PROCEED:
@@ -716,7 +726,8 @@ def _wipe(text: str, words: str, standing: Standing, now: float) -> Deliberation
 __all__ = [
     "Asked", "BULK_ACCOUNTS", "CLARIFY", "CLOSE_ACCOUNT", "CONSIDERED", "CONTEXT", "COOL_OFF_DAYS", "CRISIS",
     "DELETE_DEAR", "DELETE_UNUSED", "DELETE_USED", "DISSUADE", "DOUBT", "Deliberation", "EMPTY", "Exchange", "FRAUD",
-    "MESSAGE", "PROCEED", "REFUSE", "REPLACE", "RULE", "SHAPE", "SUPPORT", "Standing", "TRACK", "TRANSFER", "UNSAFE",
+    "LEND", "MESSAGE", "PROCEED", "REFUSE", "REPLACE", "RULE", "RUN_UNKNOWN", "SHARE_SECRET", "SHAPE", "SUPPORT",
+    "Standing", "TRACK", "TRANSFER", "UNSAFE",
     "UsageReader", "WIPE",
     "ago_words", "bulk_accounts", "date_words", "deliberate", "delete_targets", "drops", "fraud_label",
     "size_words", "usage_story",
