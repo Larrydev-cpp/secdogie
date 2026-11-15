@@ -103,6 +103,32 @@ Code comments refer to these by number.
     letter gives the hotlines (12356, 400-161-9995, 120 / 110). A question
     is kept only for *what* is meant, and only when the value of asking
     exceeds the interruption. Fraud is still refused for good.
+
+    The mind also does three more things:
+    - **It learns from the person, never from training data**
+      (`mind/history.py`). Their own record is counted:
+      - times they came back calm after a cooling-off: their say weighs
+        more, and the next cooling-off is shorter (7 → 5 → 3 days);
+      - times they undid such a step: regret weighs more;
+      - reasons they gave before: they shift that motive's prior.
+    - **It weighs every act** in a request and answers for the weightiest.
+    - **It knows three more risks:** handing over a code or password (a
+      客服 asking for it is a scam, and nothing unlocks it), running what a
+      stranger sent, and lending to someone met online.
+
+    Its evaluation is about eighty situations, with metamorphic properties
+    (`citadel/tests/test_mind_eval.py`).
+
+    **The optional thinker** (`citadel/thinker.py`) is an LLM the owner may
+    plug in with an API key, and it is off without one.
+    - It can only add caution: turn going ahead into dissuading, or add a
+      reading of distress. It never lowers the gate, and a calm person who
+      said they thought it over is not overruled.
+    - It sees only the request, the trace and one portrait sentence.
+    - Providers: Claude through the official SDK (structured output,
+      refusal fallbacks), or any OpenAI-compatible endpoint.
+    - The key stays in `<profile>/thinker.json` (0600). Every consultation
+      is journaled.
 15. **The device in use is the central dispatcher** (owner, 2026-11; being
     built). Among your own devices, the one you are using now takes the
     coordinator's role (the drawing's "central server"). When you leave it,
@@ -118,9 +144,9 @@ Code comments refer to these by number.
 | C · Mind | Instruction gate and plan gate in the live loop, intent contracts, known failures, staged memory, the decision model; the mind (`citadel/mind/`) thinks weighty steps through and dissuades rather than confirms (decision 14) | ✅ |
 | M · Inference mesh | Protocol v2: three modes (nominal, degraded with central fallback, lockdown) as an explicit state machine, bounded sessions, Merkle-DAG heartbeats (a fork isolates the node), a history-aware decision gate; only an operator signature leaves lockdown | ✅ |
 | D · Perception | Fused AX + DIB observation and TOCTOU-safe targets exist as building blocks; not yet in the live loop | 🔨 |
-| G · Studio | The desktop app: wallet overview, conversation, pairing and My devices, the rules editor, the first meeting, 墨 / 宣纸, 中 / EN | ✅ |
+| G · Studio | The desktop app: wallet overview, conversation, pairing and My devices, the Gate page (how the gate thinks, your rules on every device, the thinker), the first meeting, 墨 / 宣纸, 中 / EN, all on the Aesper mist with springy motion | ✅ |
 | K · Packaging | PyInstaller builds and installers (setup.exe, .dmg, AppImage, portable zips), self-tested in CI | ✅ (unsigned) |
-| P · Policy | Bundle schema, tighten-only validator, golden vectors (Python + TS), local injection | 🔨 spreading across the mesh is next |
+| P · Policy | Bundle schema, tighten-only validator, golden vectors (Python + TS), local injection, the gate rules spreading to every one of your devices (owner signs once; each node judges; per-device state) | ✅ |
 | S · Own devices | Pairing and the mesh in the browser and in Studio (below) | 🔨 |
 | I · Ingestion | `WebStateIngestionService`: origin-sharded structured collection | 🔜 |
 | T · Tunnel hardening | Noise IK v2 handshake, rekeying, end-to-end relaying, a local control socket | 🔜 |
@@ -183,8 +209,8 @@ Open questions for the owner:
    - the API key holder's edge cache;
    - a load balancer in front of several dispatchers.
 
-   Then the optional thinker (an LLM that only adds caution, with its API
-   key in Studio) and the Aesper page redesign.
+   (The optional thinker, the Gate page, the Aesper redesign of every page
+   and the rules on every device are done.)
 1. **Close the device loop.**
    - S4: the node trusts paired devices.
    - S6: revocation.

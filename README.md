@@ -9,7 +9,10 @@ A companion that runs only on your own devices.
   are most likely asking and what each response would lead to. Then it goes
   ahead, or it talks you out of it with gentler paths. It never asks "are you
   sure?". The model needs no training data: its knowledge is written down in
-  `citadel/mind/`.
+  `citadel/mind/`. You can watch it think on Studio's Gate page. An
+  optional LLM, with your own API key, may only make it more careful.
+- **Your rules reach every device.** Sign the gate rules once. They travel
+  to each of your devices, and each device's gate keeps them.
 - **Your devices are one mesh.** Pair a phone, a tablet or another computer
   over WebRTC: compare six digits, sign an admission. There is no central
   server and no public node.
