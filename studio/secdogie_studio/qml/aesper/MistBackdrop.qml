@@ -1,7 +1,9 @@
 // The misty backdrop: soft clouds of colour that thin toward the middle, with
 // grain. Painted once for its size and world (nothing redraws per frame); it
 // drifts slowly as a whole, and holds still for someone who asked for less
-// motion.
+// motion. The clouds are nothing but soft gradients, so they are painted at a
+// third of the size and scaled up (a ninth of the work, the same to the eye);
+// the grain lies over them at full size, as a tiled image.
 import QtQuick
 import ".."
 
@@ -13,17 +15,22 @@ Item {
 
     Canvas {
         id: clouds
+        readonly property real k: 3            // painted at a third of the size, scaled up
         // a little larger than the window, so the drift never shows an edge
-        width: parent.width * 1.08
-        height: parent.height * 1.08
+        width: Math.ceil(parent.width * 1.08 / k)
+        height: Math.ceil(parent.height * 1.08 / k)
+        scale: k
+        transformOrigin: Item.TopLeft
+        smooth: true
         x: -parent.width * 0.04 + shift.dx
         y: -parent.height * 0.04 + shift.dy
         readonly property string sig: [width.toFixed(0), height.toFixed(0), Soft.mistGround, Soft.mist.join(","),
                                        backdrop.seed].join("|")
-        onSigChanged: requestPaint()
-        readonly property url grain: Qt.resolvedUrl("../grain.png")
-        Component.onCompleted: loadImage(grain)
-        onImageLoaded: requestPaint()
+        // a canvas on a hidden page only marks itself stale, and paints when it is shown: a change of world
+        // repaints what is on screen, not every page
+        property bool stale: false
+        onSigChanged: if (visible) requestPaint(); else stale = true
+        onVisibleChanged: if (visible && stale) { stale = false; requestPaint() }
 
         function rng(s) {
             let x = (s >>> 0) || 1
@@ -68,11 +75,13 @@ Item {
             v.addColorStop(1, rgba(Qt.color(Soft.mistGround), 0))
             ctx.fillStyle = v
             ctx.fillRect(0, 0, W, H)
-            if (isImageLoaded(grain)) {
-                ctx.fillStyle = ctx.createPattern(grain, "repeat")
-                ctx.fillRect(0, 0, W, H)
-            }
         }
+    }
+    Image {                                    // the grain, at full size
+        anchors.fill: parent
+        source: Qt.resolvedUrl("../grain.png")
+        fillMode: Image.Tile
+        smooth: false
     }
 
     QtObject {

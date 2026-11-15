@@ -18,16 +18,20 @@ Item {
         anchors.fill: parent
         anchors.margins: -36
         visible: panel.lift > 0
-        readonly property string sig: [width.toFixed(0), height.toFixed(0), Theme.dark, panel.lift].join("|")
-        onSigChanged: requestPaint()
+        readonly property string sig: [width.toFixed(0), height.toFixed(0), panel.lift].join("|")
+        // a canvas on a hidden page only marks itself stale, and paints when it is shown: a change of world
+        // repaints what is on screen, not every page
+        property bool stale: false
+        onSigChanged: if (visible) requestPaint(); else stale = true
+        onVisibleChanged: if (visible && stale) { stale = false; requestPaint() }
         onPaint: {
             const ctx = getContext("2d")
             ctx.reset()
             const m = 36, W = width - 2 * m, H = height - 2 * m, r = panel.radius
-            const c = Theme.dark ? "0,0,0" : "120,86,104"
+            const c = "60,40,52"  // one warm shadow for both worlds: nothing to repaint when the world changes
             for (let i = 10; i >= 1; i--) {
                 const g = 26 * panel.lift * Math.pow(i / 10, 1.5)
-                ctx.fillStyle = `rgba(${c},${Theme.dark ? 0.04 : 0.024})`
+                ctx.fillStyle = `rgba(${c},0.03)`
                 const x = m - g * 0.5, y = m + 10 * panel.lift - g * 0.3, w = W + g, h = H + g * 0.8, rr = r + g * 0.5
                 ctx.beginPath()
                 ctx.moveTo(x + rr, y)

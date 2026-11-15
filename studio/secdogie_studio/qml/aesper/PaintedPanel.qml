@@ -17,7 +17,11 @@ Canvas {
     property color paper: Soft.sheet    // the paper the tear shows
 
     readonly property string sig: [width.toFixed(0), height.toFixed(0), seed, tear, corner, paper].join("|")
-    onSigChanged: requestPaint()
+    // a canvas on a hidden page only marks itself stale, and paints when it is shown: a change of world
+    // repaints what is on screen, not every page
+    property bool stale: false
+    onSigChanged: if (visible) requestPaint(); else stale = true
+    onVisibleChanged: if (visible && stale) { stale = false; requestPaint() }
     readonly property url grain: Qt.resolvedUrl("../grain.png")
     Component.onCompleted: loadImage(grain)
     onImageLoaded: requestPaint()

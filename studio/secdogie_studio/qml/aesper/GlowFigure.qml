@@ -17,7 +17,11 @@ Item {
         anchors.fill: parent
         transformOrigin: Item.Bottom
         readonly property string sig: [width.toFixed(0), height.toFixed(0), Theme.dark].join("|")
-        onSigChanged: requestPaint()
+        // a canvas on a hidden page only marks itself stale, and paints when it is shown: a change of world
+        // repaints what is on screen, not every page
+        property bool stale: false
+        onSigChanged: if (visible) requestPaint(); else stale = true
+        onVisibleChanged: if (visible && stale) { stale = false; requestPaint() }
         readonly property url grain: Qt.resolvedUrl("../grain.png")
         Component.onCompleted: loadImage(grain)
         onImageLoaded: requestPaint()
