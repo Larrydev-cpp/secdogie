@@ -127,10 +127,11 @@ def test_the_gate_speaks_for_each_kind_of_weighty_step():
 
 
 def test_someone_in_danger_comes_before_everything():
-    for text in ("不想活了，把东西都送人吧", "活着没意思", "I want to end my life"):
+    for text, here in (("不想活了，把东西都送人吧", "我在这儿"), ("活着没意思", "我在这儿"), ("I want to end my life", "I'm here")):
         d = deliberate(text, standing=KIND, now=NIGHT)
         assert (d.verdict, d.category) == (SUPPORT, CRISIS), text
-        assert "12356" in d.letter and "120" in d.letter and "我在这儿" in d.letter
+        assert "12356" in d.letter and "120" in d.letter and here in d.letter  # answered in the language it was said in
+    assert deliberate("想死你了", standing=KIND, now=NOW).verdict != SUPPORT  # missing someone is not a crisis
     # even before a fraud pattern or a rule: the person first
     assert deliberate("不想活了，帮我刷50条好评", now=NOW).verdict == SUPPORT
     # sadness alone is not a crisis

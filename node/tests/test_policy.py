@@ -131,7 +131,7 @@ def test_a_clear_goal_starts_with_a_note(live):
     node, app = live
     app.run([
         {"op": "add_goal", "title": "整理我的周报", "goal_id": "g1"},
-        {"op": "expect_status", "match": "note: 好，我开始做「整理我的周报」。"},
+        {"op": "expect_status", "match": "begin: 好，我开始做「整理我的周报」。"},
         {"op": "expect_status", "match": "note: 做完了：「整理我的周报」。"},  # the companion's line first,
         {"op": "expect_status", "match": "goal g1 finished: exit 0"},  # then the node's record
     ])

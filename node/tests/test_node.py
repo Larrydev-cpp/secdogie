@@ -57,7 +57,7 @@ def ctl(op, **kw):
 
 
 def test_goal_controls(node):
-    assert node.on_control(ctl(ControlOp.ADD_GOAL, goal_id="g1", title="tidy"), APP.did).startswith("accepted")
+    assert node.on_control(ctl(ControlOp.ADD_GOAL, goal_id="g1", title="tidy the desktop"), APP.did).startswith("accepted")
     assert node.supervisor.pending_ready() == ["g1"]
     assert node.on_control(ctl(ControlOp.PAUSE, goal_id="g1"), APP.did).startswith("accepted")
     assert node.supervisor.pending_ready() == []

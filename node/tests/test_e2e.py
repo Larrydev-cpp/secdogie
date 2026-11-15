@@ -89,11 +89,11 @@ def test_the_stage_two_loop_end_to_end(wired, tmp_path):
         rc = run_script(ctl, [
             {"op": "confirm_memory", "key": "report-folder"},
             {"op": "expect_view", "match": 'Button "Delete"'},
-            {"op": "add_goal", "title": "tidy up", "goal_id": "g2"},
-            {"op": "add_goal", "title": "tidy up", "goal_id": "g3"},
-            {"op": "add_goal", "title": "tidy up", "goal_id": "g4"},
+            {"op": "add_goal", "title": "tidy up the desktop", "goal_id": "g2"},
+            {"op": "add_goal", "title": "tidy up the desktop", "goal_id": "g3"},
+            {"op": "add_goal", "title": "tidy up the desktop", "goal_id": "g4"},
             {"op": "expect_status", "match": "goal g4 finished"},
-            {"op": "add_goal", "title": "tidy up", "goal_id": "g5"},
+            {"op": "add_goal", "title": "tidy up the desktop", "goal_id": "g5"},
             {"op": "expect_status", "match": "goal g5 finished"},
         ], unlock=lambda: OPERATOR, emit=out.append, default_timeout=30)
         assert rc == 0, out

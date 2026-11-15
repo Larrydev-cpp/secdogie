@@ -70,7 +70,7 @@ def test_a_challenge_that_fails_the_local_review_cannot_be_approved():
 
 
 def test_only_notes_and_holds_whisper():
-    assert whisper_from(Entry("agent", DialogueType.SYSTEM_STATUS, "note: 好，我开始做「x」。"), 3, 1.0).text == \
+    assert whisper_from(Entry("agent", DialogueType.SYSTEM_STATUS, "begin: 好，我开始做「x」。"), 3, 1.0).text == \
         "好，我开始做「x」。"
     assert whisper_from(Entry("agent", DialogueType.SYSTEM_STATUS, "hold: 我停下了一步"), 4, 1.0).tone == "warm"
     assert whisper_from(Entry("agent", DialogueType.SYSTEM_STATUS, "goal g1 finished: exit 0"), 5, 1.0) is None
@@ -87,7 +87,7 @@ def test_the_transcript_reads_as_a_conversation():
         return line_from(Entry(who, kind, text), titles)
 
     status = DialogueType.SYSTEM_STATUS
-    assert said("agent", status, "note: 好，我开始做「整理周报」。") == \
+    assert said("agent", status, "begin: 好，我开始做「整理周报」。") == \
         {"who": "it", "text": "好，我开始做「整理周报」。", "tone": "calm", "key": ""}
     assert said("agent", status, "hold: 这一步我停下了")["tone"] == "warm"
     assert said("agent", status, "goal g-1 finished: exit 0 -- agent exited 0")["text"] == "「整理周报」做完了。"

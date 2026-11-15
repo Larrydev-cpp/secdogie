@@ -215,7 +215,8 @@ def headline(th: Thought, c: Context) -> str:
         what = "辞职信" if th.frame.act == "resign" else "这条动态" if th.frame.act == "post" else "这条消息"
         return f"{what}，我先替你留到明天早上。" if th.cool_off else f"{what}，我想先停一下再发。"
     if act == "track":
-        how = "定位" if "位置" in th.frame.text or "定位" in th.frame.text else "看别人的手机"
+        t = th.frame.text
+        how = "定位别人" if "位置" in t or "定位" in t else "跟着别人" if re.search(r"跟踪|尾随|跟着", t) else "看别人的手机"
         return f"偷偷{how}，我不做。" if th.verdict == REFUSE else f"我先不偷偷{how}，我们先把人找到。"
     if act == "close_account":
         return f"注销{c.first or '这个账号'}，我想先缓一缓。"

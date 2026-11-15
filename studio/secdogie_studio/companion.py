@@ -10,6 +10,8 @@ what the person does into what goes back:
                                        fields it commits to, the passphrase
   a memory the node would keep      -> a memory card: keep it, or not
   "note: ..." / "hold: ..." lines   -> whispers (calm / warm)
+  "begin: ..."                      -> a task started (a calm whisper; counts as work in progress)
+  "say: ..."                        -> an answer in words to something that was not a task
   "letter: ..." (a refusal at length) -> its first paragraph as a warm whisper; the
                                        whole letter in the home window's conversation
   everything else                   -> the inner log only
@@ -208,13 +210,16 @@ def line_from(entry, titles: dict[str, str], lang: str = "zh") -> dict | None:
         return line("note", entry.text)
     if entry.text.startswith("letter: "):
         return line("it", entry.text[len("letter: "):], "letter")
+    if entry.text.startswith("say: "):  # an answer in words: not a task, nothing was started
+        said = entry.text[len("say: "):]
+        return line("it", said, "letter" if "\n\n" in said else "calm")
     if entry.text == "answer adopted":
         return None
     if entry.text.startswith("no answer in time"):
         return line("note", pick(lang, "没等到你的回答，这件事先放着。", "No answer came, so this waits."))
     if entry.kind is DialogueType.SOCRATIC_QUESTION:
         return line("it", entry.text, "ask")
-    for prefix, tone in (("note: ", "calm"), ("hold: ", "warm")):
+    for prefix, tone in (("note: ", "calm"), ("begin: ", "calm"), ("hold: ", "warm")):
         if entry.text.startswith(prefix):
             return line("it", entry.text[len(prefix):], tone)
     done = _FINISHED.match(entry.text)
@@ -229,7 +234,7 @@ def line_from(entry, titles: dict[str, str], lang: str = "zh") -> dict | None:
         if done.group(2) == "0":
             return line("it", f"{what}做完了。", "calm")
         return line("it", f"{what}没做成（退出码 {done.group(2)}）。", "warm")
-    if entry.text.startswith(("accepted: ", "refused: ")):
+    if entry.text.startswith(("accepted: ", "refused: ", "answered: ")):
         return None
     return line("note", entry.text)
 
@@ -237,11 +242,13 @@ def line_from(entry, titles: dict[str, str], lang: str = "zh") -> dict | None:
 def whisper_from(entry, index: int, now: float) -> Whisper | None:
     if entry.kind is not DialogueType.SYSTEM_STATUS:
         return None
-    for prefix, tone in (("note: ", "calm"), ("hold: ", "warm")):
+    for prefix, tone in (("note: ", "calm"), ("begin: ", "calm"), ("hold: ", "warm")):
         if entry.text.startswith(prefix):
             return Whisper(f"w{index}", entry.text[len(prefix):], tone, now)
     if entry.text.startswith("letter: "):  # the first paragraph in passing; the rest is read in the home window
         return Whisper(f"w{index}", entry.text[len("letter: "):].split("\n\n", 1)[0], "warm", now)
+    if entry.text.startswith("say: "):
+        return Whisper(f"w{index}", entry.text[len("say: "):].split("\n\n", 1)[0], "calm", now)
     return None
 
 
@@ -301,13 +308,13 @@ class Companion:
         started = finished = 0
         for e in self.ctl.transcript():
             if e.kind is DialogueType.SYSTEM_STATUS:
-                started += e.text.startswith("note: 好，我开始做")
+                started += e.text.startswith("begin: ")  # the node's own mark that a task started
                 finished += e.text.startswith("goal ") and " finished: " in e.text
         return started > finished
 
     def log_lines(self, n: int = 40) -> list[str]:
         def plain(text: str) -> str:
-            for prefix in ("note: ", "hold: "):
+            for prefix in ("note: ", "begin: ", "say: ", "hold: "):
                 if text.startswith(prefix):
                     return text[len(prefix):]
             return text
@@ -451,7 +458,7 @@ def check_rules(body: dict, mesh: str, lang: str = "zh") -> list[str]:
     return explain_errors(errors, lang)
 
 
-VERDICT_WORDS = {"proceed": ("照做", "Goes ahead"), "clarify": ("先问一句", "Asks one thing"),
+VERDICT_WORDS = {"proceed": ("照做", "Goes ahead"), "clarify": ("先问一句", "Asks one thing"), "talk": ("回话", "Answers in words"),
                  "dissuade": ("劝一劝", "Talks you out of it"), "refuse": ("不做", "Won't do it"),
                  "support": ("先陪你", "You first")}
 

@@ -24,6 +24,7 @@ from secdogie_citadel.deliberate import (
     PROCEED,
     REFUSE,
     RULE,
+    TALK,
     Asked,
     Standing,
     bulk_accounts,
@@ -62,7 +63,8 @@ def test_fraud_is_refused_for_good_and_says_why():
     assert (d.verdict, d.category, d.final) == (REFUSE, FRAUD, True)
     assert d.says == "这件事我不做。" and "刷单刷评" in d.letter and "记在我的日志里" in d.letter
     assert [e.question for e in d.exchanges][:1] == ["这件事会伤到谁？"]
-    assert deliberate("这条短信是不是诈骗？", standing=KIND, now=NOW).verdict == PROCEED
+    asked = deliberate("这条短信是不是诈骗？", standing=KIND, now=NOW)  # asked about, not asked for
+    assert (asked.verdict, asked.category) == (TALK, "risk")
 
 
 def test_bulk_accounts_follow_who_is_asking():
@@ -130,7 +132,7 @@ def test_several_things_by_one_name_are_asked_about():
 
 
 def test_shape_findings_go_ahead_with_a_note_and_unsafe_ones_ask():
-    long = "a " * 400
+    long = "整理下载文件夹，" * 100
     assert deliberate(long, socratic.review(long), now=NOW).verdict == PROCEED
     d = deliberate("只读地看一下文件，然后删除它", now=NOW)
     assert d.verdict == CLARIFY and "一边说只读" in d.says

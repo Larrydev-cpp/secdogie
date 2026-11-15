@@ -70,7 +70,7 @@ from dataclasses import dataclass, field
 
 from secdogie_citadel import socratic
 from secdogie_citadel.consolidate import confirm_and_promote, retract_memory
-from secdogie_citadel.decision import ASK, DROP, HOLD, REPHRASE, START, DecisionModel
+from secdogie_citadel.decision import ASK, DROP, HOLD, REPHRASE, SAY, START, DecisionModel
 from secdogie_citadel.deliberate import CONTEXT, DISSUADE, REFUSE, Asked, Standing, deliberate, drops
 from secdogie_citadel.journal import Journal
 from secdogie_citadel.lessons import MemoryClass
@@ -313,6 +313,11 @@ class Node:
         """A decision-model note for the person: one line, shown in passing."""
         self._send(system_status(f"{involvement.disposition}: {involvement.says}"))
 
+    def _say(self, text: str) -> None:
+        """An answer in words to something that was not a task (a greeting, a feeling, a question, a sentence it
+        could not follow). Nothing is queued."""
+        self._send(system_status(f"say: {text}"))
+
     def _letter(self, text: str) -> None:
         """A refusal at length: the first paragraph is what the person sees in
         passing, the rest is for when they read it."""
@@ -393,7 +398,7 @@ class Node:
     def _queue(self, goal_id: str, title: str, says: str = "") -> None:
         self.supervisor.add_goal(goal_id, title=title)
         self._wake.set()
-        self._send(system_status(f"note: {says or f'好，我开始做「{title}」。'}"))
+        self._send(system_status(f"begin: {says or f'好，我开始做「{title}」。'}"))  # "begin": a task has started
 
     def intake(self, goal_id: str, title: str) -> str:
         """Gate 1 meets a new goal: the review, then the automatic Socratic
@@ -406,6 +411,9 @@ class Node:
         if involvement.disposition == HOLD:
             self._letter(involvement.letter or involvement.says)
             return f"refused: goal {goal_id}: {d.category or 'held'}"
+        if involvement.disposition == SAY:
+            self._say(involvement.letter or involvement.says)
+            return f"answered: goal {goal_id}: {d.category or 'talk'}"
         if involvement.disposition != ASK:
             self._queue(goal_id, title, involvement.says)
             return f"accepted: goal {goal_id} queued"
@@ -438,6 +446,9 @@ class Node:
             if involvement.disposition == HOLD:
                 self._letter(involvement.letter or involvement.says)
                 return
+            if involvement.disposition == SAY:
+                self._say(involvement.letter or involvement.says)
+                return
             if involvement.disposition != ASK:
                 self._queue(goal_id, title, involvement.says)
                 return
@@ -468,6 +479,9 @@ class Node:
             involvement = DecisionModel(rules).intake(title, review, d)
             if involvement.disposition == HOLD:
                 self._letter(involvement.letter or involvement.says)
+                return
+            if involvement.disposition == SAY:
+                self._say(involvement.letter or involvement.says)
                 return
             if involvement.disposition != ASK:
                 self._queue(goal_id, title, involvement.says)

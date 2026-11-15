@@ -416,14 +416,14 @@ RUN_UNKNOWN = Domain("run_unknown", (
 LEND = Domain("lend", (
     Motive("friend", 0.4, "帮朋友或者家里人渡个难关", (
         (lambda f, s, t: f.involves("family", "friend", "colleague"), 3.0, "是你认识的人"),
-        (_w(r"认识(很多|好多|十几|几)?年|老朋友|发小|当面"), 3.0, "你们认识很久了，或者是当面借的")), regret=0.1,
+        (_w(r"认识(很多|好多|十几|几)?年|老朋友|发小|当面|known (him|her|them) for years|old friend|in person"), 3.0, "你们认识很久了，或者是当面借的")), regret=0.1,
         unlock="是我认识多年的朋友，当面借的"),
     Motive("online", 0.1, "网上认识的人找你借钱", (
         (lambda f, s, t: f.involves("stranger"), 8.0, "对方是网上认识、没见过面的人"),
         (_p(L.SCAM), 6.0, "对方用的是骗子常用的说法"),
         (_w(r"投资|带你赚|返利|回报|收益|翻倍|invest|returns?"), 5.0, "说到带你赚钱"),
         (lambda f, s, t: s.panic > 0, 2.0, "对方催得很急"), (_w(r"不要告诉|别告诉|don'?t tell"), 5.0, "对方让你别告诉别人"),
-        (_w(_VERIFIED), 0.15, "你说确认过了"), (_w(r"认识(很多|好多|十几|几)?年|老朋友|发小|当面"), 0.3, "")), regret=0.0),
+        (_w(_VERIFIED), 0.15, "你说确认过了"), (_w(r"认识(很多|好多|十几|几)?年|老朋友|发小|当面|known (him|her|them) for years|old friend|in person"), 0.3, "")), regret=0.0),
     Motive("plain", 0.5, "就是要借给对方", regret=0.15),
 ), (
     Option("do", "直接借", fulfil={"friend": 1, "online": 1, "plain": 1}, reversible=False, overrides=False,

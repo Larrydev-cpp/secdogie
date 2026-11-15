@@ -32,11 +32,28 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from . import converse, principles, voice
+from .concepts import language
 from .history import known_from
 from .knowledge import DISSUADE, DOMAINS, NOKNOWN, NOTHING, PROCEED, REFUSE, Known, Things
+from .meaning import Meaning, read
 from .perceive import Frame, Situation, read_frame, read_frames, read_situation
 from .reason import Thought, think, weightiest
-from .voice import Context, Exchange, date_words, speak, support
+from .voice import Context, Exchange, date_words, support
+
+
+def voice_for(lang: str):
+    """The voice that writes in ``lang``: the same parts (noticed, why_not_now, paths, speak…), in that language."""
+    if lang == "en":
+        from . import voice_en
+
+        return voice_en
+    return voice
+
+
+def speak(th: Thought, c: Context, lang: str = "zh"):
+    """(says, letter, the questions it asked itself) for a thought that does not go ahead, in ``lang``."""
+    return voice_for(lang).speak(th, c)
 
 
 def _thought(text, act, recent, facts, things, waited, now, known, skip) -> Thought | None:
@@ -77,6 +94,10 @@ def consider(text: str, *, act: str = "", recent=(), facts=(), things: Things = 
     phrases = [(m.id, m.unlock) for m in th.unlocks if m.unlock and not (th.cool_off and m.unlock == th.domain.unlock)]
     if not th.cool_off and th.domain.unlock:
         phrases.append(("", th.domain.unlock))
+    if language(text) == "en":  # the words they could say, in the language they are writing in
+        from .knowledge_en import UNLOCK
+
+        phrases = [(mid, UNLOCK[p]) for mid, p in phrases if p in UNLOCK]
     keys, seen = [], set()
     for mid, phrase in phrases:
         if phrase in seen:
@@ -88,6 +109,6 @@ def consider(text: str, *, act: str = "", recent=(), facts=(), things: Things = 
     return replace(th, keys=tuple(keys))
 
 
-__all__ = ["Context", "DISSUADE", "DOMAINS", "Exchange", "Frame", "Known", "NOKNOWN", "PROCEED", "REFUSE", "Situation",
-           "Things", "Thought", "consider", "date_words", "known_from", "read_frame", "read_frames", "read_situation",
-           "speak", "support", "think"]
+__all__ = ["Context", "DISSUADE", "DOMAINS", "Exchange", "Frame", "Known", "Meaning", "NOKNOWN", "PROCEED", "REFUSE",
+           "Situation", "Things", "Thought", "consider", "converse", "date_words", "known_from", "principles", "read",
+           "read_frame", "read_frames", "read_situation", "speak", "support", "think", "voice_for"]

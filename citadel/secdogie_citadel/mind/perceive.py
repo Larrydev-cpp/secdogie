@@ -20,6 +20,7 @@ import time
 from dataclasses import dataclass, field
 
 from . import lexicon as L
+from .concepts import mask
 
 _CN = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10, "百": 100,
        "千": 1000, "万": 10000, "几": 3}
@@ -116,8 +117,9 @@ def read_frame(text: str, whole: str = "") -> Frame:
     """The frame of one request (or of one clause of it: ``whole`` is then the whole request, which the evidence
     is read from)."""
     act, words, negated = "", "", False
+    masked = mask(text)
     for name, pattern in L.ACTS:
-        m = pattern.search(text)
+        m = pattern.search(masked)
         if m:
             act, words = name, m.group(0)
             negated = bool(L.NEAR_NO.search(text[max(0, m.start() - 6):m.start()]))

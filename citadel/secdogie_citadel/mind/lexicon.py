@@ -40,13 +40,16 @@ ACTS = (
                  r"|(track|spy on|read) (his|her|my (boy|girl)friend's|my (husband|wife)'s|my ex'?s?)")),
     ("transfer", rx(r"转账|转给|(?<!跳)转(到|入|进)(?!下一|上一)|转\s*[0-9]+\s*给|红包给|发红包|转(一大笔|一笔|很多|好多|些|点)?钱|把.{0,10}钱.{0,4}转|转(过去)?\s*[0-9一二两三四五六七八九十百千万几]+\s*(块|元|万|千)|给.{1,10}转(钱|账)?\s*[0-9一二两三四五六七八九十百千万几]*"
                     r"|打钱|汇款|垫付|充值到|\bwire\b|transfer\b.{0,20}\b(money|funds|to)\b|send (him |her |them )?money|venmo|zelle"
-                    r"|paypal (him|her)|\btransfer [0-9]")),
+                    r"|paypal (him|her)|\btransfer [0-9]"
+                    r"|\b(move|put|deposit|send|pay|wire)\b.{0,30}\b(to|into) (an? |the |their |his |her |that )?(safe|secure|security"
+                    r"|new|different|other|another|offshore) account|\b(move|send|wire)\s+[$¥]?[0-9][0-9,.]*\s*(k|usd|dollars|yuan|rmb)?\s+to\b")),
     ("close_account", rx(r"注销|销号|删号|delete my (\w+ )?account|close my (\w+ )?account|deactivate my (\w+ )?account")),
     ("resign", rx(r"辞职|离职|递辞呈|quit my job|resign")),
     ("post", rx(r"发布|发帖|发(到|个|条|一条)?(朋友圈|微博|动态|推特|小红书|抖音|公众号|群里)|公开|\bpost\b|publish|tweet")),
 
     ("send", rx(r"发(给|送|出去)|发(个|封|一封|条|一条)?(邮件|消息|短信|微信)|回复|转发|寄给|告诉(他|她|老板|领导|妈|爸)"
-                r"|\bsend\b|\breply\b|\bforward\b|\be-?mail\b|\btext (him|her)\b|\bmessage (him|her|them)\b")),
+                r"|\bsend\b|\breply\b|\bforward\b|(?<!my )(?<!her )(?<!his )(?<!the )(?<!our )(?<!their )(?<!an )\be-?mail\b(?! account| address)"
+                r"|\btext (him|her)\b|\bmessage (him|her|them)\b")),
     ("sell", rx(r"卖掉|卖了|挂(到)?闲鱼|出掉|二手卖|\bsell\b")),
     ("buy", rx(r"(?<!新)买(?!的)|下单|购买|订(一?张|个)?(票|机票|酒店|外卖)|续费|\bbuy\b|purchase|order")),
     ("delete", rx(r"删除|删掉|删了|删去|删一下|删干净|删光|删个干净|清空|清掉|扔掉|丢掉|抹掉|移除|\brm\b|\bdelete\b|\bremove\b|\berase\b")),
@@ -77,7 +80,7 @@ PARTIES = (
 )
 
 # ---- feelings, pressure, and having thought it over --------------------------------------------------------
-CRISIS = rx(r"不想活|想死|去死吧?我|自杀|轻生|结束(自己|生命)|活着没意思|活不下去|不如死了|跳楼|割腕|安眠药|吞药"
+CRISIS = rx(r"不想活|想死(?!你|他|她|我了)|去死吧?我|自杀|轻生|结束(自己|生命)|活着没意思|活不下去|不如死了|跳楼|割腕|安眠药|吞药"
             r"|kill myself|suicide|end my life|don'?t want to live|better off dead")
 SAD = rx(r"难过|伤心|心痛|心碎|想哭|哭了|失恋|好累|绝望|孤单|没意思|\bsad\b|heartbroken|crying|lonely|hopeless|devastated|miserable")
 ANGRY = rx(r"生气|气死|恨死?|烦死|受够了|一刀两断|滚|讨厌死|忍不了|吵架|吵了一架|mad|angry|furious|hate|sick of|fed up")

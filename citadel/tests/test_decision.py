@@ -27,13 +27,14 @@ def test_a_clear_goal_starts_with_a_fading_note():
 
 
 def test_an_unclear_goal_becomes_one_question_in_prose():
-    inv = DecisionModel().intake("x", socratic.review("只读地看一下文件，然后删除它"))
+    text = "只读地看一下文件，然后删除它"
+    inv = DecisionModel().intake(text, socratic.review(text))
     assert inv.disposition == ASK and inv.urgency == GAP and inv.needs_person
     assert "一边说只读" in inv.says and inv.options == () and "换个说法告诉我" in inv.letter  # no buttons
 
 
 def test_a_long_goal_goes_ahead_one_piece_at_a_time():
-    text = "a " * 400
+    text = "整理下载文件夹，" * 100
     inv = DecisionModel().intake(text, socratic.review(text))
     assert inv.disposition == NOTE and "一件件来" in inv.says
 
@@ -78,7 +79,7 @@ def test_proposers_only_raise_and_never_touch_holds_or_signatures():
     m = DecisionModel(proposers=[lower, broken, fake_sign, raise_to_ask])
     inv = m.step(click, GateDecision("allow"), blocked=False)
     assert inv.disposition == ASK and inv.says.startswith("这一步我拿不准")
-    intake = m.intake("x", socratic.review("只读地看，然后删除"))
+    intake = m.intake("只读地看，然后删除", socratic.review("只读地看，然后删除"))
     assert intake.disposition == ASK and "一边说只读" in intake.says  # not lowered
     refused = m.intake("帮我刷50条好评", socratic.review("帮我刷50条好评"))
     assert refused.disposition == HOLD  # a refusal is final

@@ -349,7 +349,10 @@ def read_person(text: str, recent=(), now: float | None = None, kinds=()) -> Rea
 
 def wipes(text: str) -> str:
     """The words, when ``text`` asks to wipe a disk or a whole system (emptying the trash is not that)."""
-    m = _WIPE.search(text)
+    from .mind import lexicon as L
+    from .mind.concepts import mask
+
+    m = dict(L.ACTS)["wipe"].search(mask(text)) or _WIPE.search(mask(text))
     return m.group(0) if m and not _TRASH.search(text) else ""
 
 
