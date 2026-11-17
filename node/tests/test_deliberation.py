@@ -25,7 +25,14 @@ from secdogie_dialogue.app import AppController, run_script  # noqa: E402
 from secdogie_dialogue.session import DialogueSession, SessionRouter  # noqa: E402
 from secdogie_identity import Allowlist, Identity  # noqa: E402
 from secdogie_node import Node, NodeConfig  # noqa: E402
-from secdogie_transport import ChannelMux, DirectUDPTransport, Endpoint, PeerIdentity, Session, UDPChannel  # noqa: E402
+from secdogie_transport import (  # noqa: E402
+    ChannelMux,
+    DirectUDPTransport,
+    Endpoint,
+    PeerIdentity,
+    Session,
+    UDPChannel,
+)
 
 NODE, APP, OPERATOR = (Identity.generate() for _ in range(3))
 NOW = time.time()

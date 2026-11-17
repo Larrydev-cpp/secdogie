@@ -20,7 +20,14 @@ from secdogie_identity import Allowlist, Identity, MasterSet  # noqa: E402
 from secdogie_node import Node, NodeConfig  # noqa: E402
 from secdogie_node.policy_host import PolicyClient, PolicyHost  # noqa: E402
 from secdogie_policy import create_bundle, sign_bundle  # noqa: E402
-from secdogie_transport import ChannelMux, DirectUDPTransport, Endpoint, PeerIdentity, Session, UDPChannel  # noqa: E402
+from secdogie_transport import (  # noqa: E402
+    ChannelMux,
+    DirectUDPTransport,
+    Endpoint,
+    PeerIdentity,
+    Session,
+    UDPChannel,
+)
 
 NODE, APP, OPERATOR, OUTSIDER = (Identity.generate() for _ in range(4))
 MASTERS = [Identity.generate() for _ in range(3)]
