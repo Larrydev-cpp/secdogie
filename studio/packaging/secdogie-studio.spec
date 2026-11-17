@@ -27,7 +27,8 @@ REPO = os.path.dirname(ROOT)
 SOURCES = [os.path.join(REPO, d) for d in ("studio", "node", "dialogue", "citadel", "policy", "transport", "identity")]
 WINDOWED = sys.platform in ("win32", "darwin")  # no console window behind the app
 
-datas = collect_data_files("secdogie_studio", includes=["qml/*.qml", "qml/qmldir", "qml/*.png", "qml/fonts/*.ttf", "qml/fonts/*.txt", "qml/aesper/*.qml", "qml/aesper/qmldir"])
+datas = collect_data_files("secdogie_studio", includes=["qml/*.qml", "qml/qmldir", "qml/*.png", "qml/fonts/*.ttf", "qml/fonts/*.txt", "qml/aesper/*.qml", "qml/aesper/qmldir",
+                                                        "pairpage/*.html", "pairpage/*.js", "pairpage/*.css", "pairpage/client/*.js"])
 # The decision model: the generation it ships with (synapses, kept experiences, its elders), the lessons it
 # was born from and the frozen exam its growth is measured on.
 datas += collect_data_files("secdogie_citadel", includes=["cortex/lessons/*.tsv", "cortex/exam/*.jsonl", "cortex/born/*",

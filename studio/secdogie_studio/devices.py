@@ -58,6 +58,8 @@ class Devices:
         self._lock = threading.Lock()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._mesh = None  # MeshNode while online
+        self._local = None  # LocalPairing while an invitation is open on this machine's network
+        self._pair_host: str | None = None  # the address to serve on (tests pin it; else this machine's own)
         self._pair: dict = {"phase": "idle"}
         self._join: dict = {"phase": "idle"}
         self._notes: list[dict] = []
@@ -116,11 +118,27 @@ class Devices:
 
     # ---- the loop -------------------------------------------------------------------------
 
-    def _run(self, coro):
+    def _ensure_loop(self) -> asyncio.AbstractEventLoop:
         if self._loop is None:
             self._loop = asyncio.new_event_loop()
             threading.Thread(target=self._loop.run_forever, daemon=True, name="studio-devices").start()
-        return asyncio.run_coroutine_threadsafe(coro, self._loop)
+        return self._loop
+
+    def _run(self, coro):
+        return asyncio.run_coroutine_threadsafe(coro, self._ensure_loop())
+
+    def _here(self):
+        """Signaling and the pairing page on this machine's network, started once and kept while pairing."""
+        from .local_pairing import LocalPairing
+
+        if self._local is None or not self._local.running:
+            self._local = LocalPairing(self._ensure_loop(), host=self._pair_host).start()
+        return self._local
+
+    def _stop_here(self) -> None:
+        local, self._local = self._local, None
+        if local is not None:
+            local.stop()
 
     def _set(self, which: str, **fields) -> None:
         with self._lock:
@@ -128,8 +146,12 @@ class Devices:
 
     # ---- inviting a device ----------------------------------------------------------------
 
-    def write_invite(self, passphrase: str, signal: str, page: str) -> None:
-        """Unlock the operator key, write an invitation, and wait for its device."""
+    def write_invite(self, passphrase: str, signal: str = "", page: str = "") -> None:
+        """Unlock the operator key, write an invitation, and wait for its device.
+
+        With no gateway given (the usual way), Studio runs signaling and the pairing page on this machine's
+        own network, so nothing need be set up or typed. A ``ws://`` or ``wss://`` address instead uses the
+        owner's own gateway, for a device that is not on this network."""
         from secdogie_dialogue.keystore import KeystoreError, unseal_identity
         from secdogie_transport.pairing import create_admission, create_invite, encode_invite
 
@@ -138,11 +160,20 @@ class Devices:
             self._set("_pair", phase="ended", reason=w("这台电脑是别人网格的成员，只有主人能请新设备。",
                                                        "This computer is a member of someone else's mesh; only its owner can invite."))
             return
-        if not signal.startswith(("ws://", "wss://")):
+        here = not signal.strip()
+        if here:
+            try:
+                local = self._here()
+                signal, page = local.signal_url, local.page_url
+            except OSError as e:
+                self._set("_pair", phase="ended", reason=w(f"本机网络起不来：{e}", f"Could not start on this network: {e}"))
+                return
+        elif not signal.startswith(("ws://", "wss://")):
             self._set("_pair", phase="ended", reason=w("信令地址要以 ws:// 或 wss:// 开头。",
                                                        "The signaling address starts with ws:// or wss://."))
             return
-        self.set_settings(signal, page)
+        else:
+            self.set_settings(signal, page)  # a custom gateway is remembered; the on-network one is not
         try:
             owner = unseal_identity(self.profile.operator_keystore, passphrase.encode("utf-8"))
         except (KeystoreError, ValueError, OSError):
@@ -159,7 +190,7 @@ class Devices:
         token = encode_invite(invite)
         link = f"{page.rstrip('#')}#invite={token}" if page else ""
         self._set("_pair", phase="waiting", link=link, token=token, qr=qr_rows(link) if link else [],
-                  expires=invite["expires_at"])
+                  here=here, expires=invite["expires_at"])
         roster = {"mesh": self._state["mesh"], "admissions": [self._state["self"], *self._state["devices"]]}
         self._task = self._run(self._invite(owner, invite, roster))
 
@@ -200,6 +231,7 @@ class Devices:
     def withdraw(self) -> None:
         if self._task is not None:
             self._task.cancel()
+        self._stop_here()
         self._set("_pair", phase="idle")
 
     # ---- being invited --------------------------------------------------------------------
@@ -343,6 +375,7 @@ class Devices:
 
     def close(self) -> None:
         self.go_offline()
+        self._stop_here()
         if self._task is not None:
             self._task.cancel()
 

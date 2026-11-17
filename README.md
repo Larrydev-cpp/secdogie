@@ -12,6 +12,19 @@ measurably better and no less safe.
 
 The plan, the decisions and what comes next are in [`PLAN.md`](PLAN.md).
 
+## Try it in a few minutes
+
+1. Download Studio for your system from the
+   [releases](https://github.com/Larrydev-cpp/secdogie/releases), open it, and
+   give it a name and a passphrase. (Run it once with `--self-test` first if
+   you want to see it check itself.)
+2. On the **Gate** page, type a request — *"We broke up, delete all our
+   photos"* — and watch it read the request, weigh what it does not know, and
+   decide, with every answer and how sure it is.
+3. On the **Devices** page, tap *Show the code*. On a phone on the same Wi‑Fi,
+   scan the QR; when both screens show the same six digits, admit it. Nothing
+   to set up, no address to type.
+
 ✅ works today · 🔨 partly built · 🗺 planned
 
 ## What stands out
@@ -101,10 +114,13 @@ Studio's Mind page shows the same, and how it grew:
 
 ### 2. Your devices are one body 🔨
 
-- ✅ **Only your own devices.** Pair a phone, a tablet or another computer
-  over WebRTC: compare six digits, sign an admission. There is no central
-  server and no public node. Devices meet as a mesh, and every frame is
-  signed.
+- ✅ **Only your own devices, and nothing to set up.** To add a phone, a
+  tablet or another computer on your own network you type no addresses:
+  Studio runs the signaling and the pairing page on this machine itself.
+  Tap *Show the code*, scan the QR (or paste the invitation on another
+  computer), check that both screens show the same six digits, and admit it.
+  There is no central server and no public node, and every frame is signed.
+  A device across the internet uses your own gateway (the advanced option).
 - ✅ **Your rules reach every device.** Sign the gate rules once. They travel
   to each of your devices, and each device's gate keeps them.
 - 🗺 **One device off, the rest go on.** Generations and kept experiences

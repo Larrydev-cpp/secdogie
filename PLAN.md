@@ -68,17 +68,17 @@ Code comments refer to these by number.
     sentence the gate cannot read is answered ("I didn't follow that, so I
     haven't done anything"), never run. A sentence that is not a request (a
     greeting, a feeling, a question) is answered in words, and no task
-    starts. It reads a sentence once, for everything that judges it
-    (`mind/concepts.py`, `mind/meaning.py`). A verb is read by its object:
-    杀了他 is harm to a person, 杀掉这个进程 stops a program. What would
-    fall on someone who has not agreed is refused on principle
-    (`mind/principles.py`), reasoned from what an act touches, whose it
-    is, and consent, not from a list of sentences.
+    starts. The reading no longer comes from word tables: the cortex
+    (decision 16) answers the Socratic questions, so a verb is read by its
+    object — 杀了他 is harm to a person, 杀掉这个进程 stops a program —
+    from what it learned, not a list of sentences. What would fall on
+    someone who has not agreed is refused on principle, reasoned from what
+    an act touches, whose it is, and consent (`mind/decide.py`).
 
-    It thinks with `citadel/mind/`, a decision model with no training data.
-    It does not look up what to do about a request: it plays it out. What
-    it knows about how the world goes is written down, and every number can
-    be read and argued with:
+    It reads with the cortex (decision 16) and thinks with `citadel/mind/`,
+    a decision model with no training data. It does not look up what to do
+    about a request: it plays it out. What it knows about how the world goes
+    is written down, and every number can be read and argued with:
     - **world** (`mind/world.py`): an act only says which effect it has
       (the thing is gone; they have the money; they know it; the program
       runs; someone was watched). General rules say what follows: "gone,
@@ -137,20 +137,19 @@ Code comments refer to these by number.
       stranger sent, and lending to someone met online.
 
     Its evaluation goes through `deliberate()`, the call the node and the
-    Gate page make:
-    - `citadel/tests/test_gate_eval.py`: about 230 situations in two
-      languages, and properties:
-      - nothing it cannot read goes ahead (1200 random strings);
-      - wrapping a refused request never unlocks it;
-      - every sample sentence on the Gate and Talk pages gets the verdict
-        the page promises.
-    - `citadel/tests/test_mind_eval.py`: about eighty situations, with
-      properties:
-      - monotonicity in upset, money and scam cues;
-      - offered sentences and stated thresholds really change the answer;
-      - every paragraph of a letter traces to the thinking;
-      - the words module names no act;
-      - requests no table was written for are still thought through.
+    Gate page make. The cortex is measured on the frozen exam it never
+    learns from (`cortex/exam/`, decision 16); the thinking module on top of
+    it keeps its own properties:
+    - `citadel/tests/test_decide.py`: the thinking turns a set of answers
+      into the right verdict — danger first, talk answered in words, consent
+      refused, weighty steps played out, monotonicity in upset, money and
+      scam cues.
+    - `citadel/tests/test_no_text.py`: no module on the decision path imports
+      a regular-expression or word-matching library, and the word-based
+      modules it replaced are gone.
+    - `citadel/tests/test_gate.py`, `studio` and `node` gate tests: every
+      sample sentence on the Gate and Talk pages gets the verdict the page
+      promises, and nothing the cortex cannot read goes ahead.
 
     **The optional thinker** (`citadel/thinker.py`) is an LLM the owner may
     plug in with an API key, and it is off without one.
@@ -166,6 +165,39 @@ Code comments refer to these by number.
     built). Among your own devices, the one you are using now takes the
     coordinator's role (the drawing's "central server"). When you leave it,
     the role falls to an always-on device.
+16. **The gate reads with a neuron decision model that improves itself**
+    (owner, 2026-11). The Socratic gate no longer reads words. A recurrent
+    network of spiking neurons (`citadel/secdogie_citadel/cortex/`) reads a
+    request one character at a time — each character, pair and triple fires
+    a few input neurons picked by a hash, so there is no vocabulary — and
+    answers the gate's questions, each with how sure it is (how far its
+    answer neuron stands above the rest). It is not a language model and it
+    does not write sentences; the thinking module (decision 14) takes its
+    answers from there.
+    - **It learns, it does not look things up.** A hippocampus keeps an
+      experience in one shot and recalls it by neural similarity; synapses
+      change by e-prop, a local rule, not backpropagation through time;
+      sleep replays, prunes, grows and renews. It learns from the external
+      model's output in a fixed format (the apprentice,
+      `cortex/apprentice.py`), never in conversation with it, and over time
+      needs it less (its *independence*). The more cautious of the two
+      readings decides.
+    - **It improves itself, within bounds.** When idle it proposes changes
+      (synapses, structure, how it learns, its own improver), trains
+      candidates, and adopts one only if it is better on the frozen exam
+      (`cortex/exam/`, which only grows), with no safety item regressing and
+      no slower (`cortex/rsi.py`). A change that would let through what it
+      used to hold back waits for the owner's signature. Every generation
+      has a digest and a lineage and can be rolled back. It never changes
+      its own code, the principles, the signature gate or the exam.
+    - **Generation 1 ships** (`cortex/born/`), born from 1,646 lessons an
+      external model (Claude) wrote, improved once; 242/265 on the exam, 2
+      that must not go ahead still do. `python -m secdogie_citadel.cortex`
+      reads a request, takes the exam, or runs rounds of self-improvement.
+    - **Learning data is the owner's own.** The lessons that teach the gate
+      are checked in; at runtime the owner's own model is the teacher, under
+      the owner's key, and the owner is responsible for that provider's
+      terms. The external model sees only the request and the fixed format.
 ## Where each track stands
 
 ✅ done · 🔨 under way · 🔜 not started
@@ -175,9 +207,10 @@ Code comments refer to these by number.
 | A · Network | DIDs, sessions, real P2P UDP, rendezvous, direct-path upgrade, relay, membership gossip, carriers (UDP, WebRTC) | ✅ |
 | B · State | Signed hash-chained journal, StateStore, anti-entropy replication across the mesh | ✅ |
 | C · Mind | Instruction gate and plan gate in the live loop, intent contracts, known failures, staged memory, the decision model; the mind (`citadel/mind/`) thinks weighty steps through and dissuades rather than confirms (decision 14) | ✅ |
+| N · Cortex | The gate reads with a spiking neuron network that learns from the external model's output and improves itself; hippocampus, sleep, generations, the frozen exam, the apprentice, RSI; generation 1 ships (decision 16) | ✅ |
 | M · Inference mesh | Protocol v2: three modes (nominal, degraded with central fallback, lockdown) as an explicit state machine, bounded sessions, Merkle-DAG heartbeats (a fork isolates the node), a history-aware decision gate; only an operator signature leaves lockdown | ✅ |
 | D · Perception | Fused AX + DIB observation and TOCTOU-safe targets exist as building blocks; not yet in the live loop | 🔨 |
-| G · Studio | The desktop app: wallet overview, conversation, pairing and My devices, the Gate page (how the gate thinks, your rules on every device, the thinker), the first meeting, 墨 / 宣纸, 中 / EN, all on the Aesper mist with springy motion | ✅ |
+| G · Studio | The desktop app: wallet overview, conversation, pairing and My devices, the Gate page (the cortex's real answers and how sure, the thinker's key, your rules), the Mind page (generation, growth, independence), the first meeting, 墨 / 宣纸, 中 / EN, on the Aesper mist | ✅ |
 | K · Packaging | PyInstaller builds and installers (setup.exe, .dmg, AppImage, portable zips), self-tested in CI | ✅ (unsigned) |
 | P · Policy | Bundle schema, tighten-only validator, golden vectors (Python + TS), local injection, the gate rules spreading to every one of your devices (owner signs once; each node judges; per-device state) | ✅ |
 | S · Own devices | Pairing and the mesh in the browser and in Studio (below) | 🔨 |
@@ -195,6 +228,13 @@ How a device joins and stays in touch:
      the signaling is caught.
   5. Both screens show the same six digits; the owner admits the device by
      signing an admission.
+- **On your own network, nothing is set up.** Studio runs the signaling
+  gateway and serves the pairing page from this machine itself
+  (`studio/secdogie_studio/local_pairing.py`), so the owner types no
+  addresses: tap *Show the code*, and a phone on the same Wi‑Fi scans it or
+  another computer pastes it. A device across the internet still uses the
+  owner's own gateway (the advanced option). The bundled pairing page is the
+  same one the browser build deploys, kept identical by a test.
 - **The mesh.** Each pair of devices meets in its own signaling room. Both
   ends sign a `link-hello` before anything else is read. Then DID-signed
   frames carry the roster, notes and pings. A new device learns the rest of
@@ -210,6 +250,7 @@ How a device joins and stays in touch:
 | S5 | Browser devices online as a mesh (`webrtc/mesh.html`) | ✅ |
 | S8a | Python WebRTC (`rtc.py`, `signal_server.py`, `pairing_session.py`, `mesh_rtc.py`), meshing with browsers in both directions | ✅ |
 | S11 | Studio's Devices page and wallet | ✅ |
+| S12 | Pairing on your own network with nothing to set up: Studio runs the signaling and serves the pairing page from this machine (`local_pairing.py`); no address is typed | ✅ |
 | S4 | The node reads the admissions, so paired devices join its owner list | 🔜 |
 | S6 | Revocation: a revoked device's links drop at once and never return; rosters converge | 🔜 |
 | S7 | Signaling relayed through the mesh, so online devices can link without the gateway | 🔜 |
@@ -221,9 +262,10 @@ Open questions for the owner:
 - **Where the owner key lives.** Today it is in the first browser that wrote
   an invitation, or in Studio's operator key. The suggestion is to allow
   several owners and keep a key in each.
-- **Where the signaling gateway runs.** The suggestion is the owner's own
-  Cloudflare account, with the pairing and My devices pages on Pages over
-  https.
+- **Where the signaling gateway runs.** On your own network it runs in
+  Studio itself (S12), so there is nothing to deploy. For a device across the
+  internet the suggestion is still the owner's own Cloudflare account, with
+  the pairing and My devices pages on Pages over https.
 - **Phone approvals.** Should a phone be able to approve high-risk steps?
   It can be done (the signature is made in the phone's browser). The default
   is to view only.
