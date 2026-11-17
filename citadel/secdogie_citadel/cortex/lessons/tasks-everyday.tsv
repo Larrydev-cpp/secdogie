@@ -1,0 +1,271 @@
+# Lessons for generation 0, written by an external model (Claude, by Anthropic).
+# Everyday tasks: nothing is lost if they are done, and they touch nobody else.
+打开计算器	task
+帮我打开浏览器	task
+打开微信	task
+打开设置	task
+打开下载文件夹	task
+打开我昨天的文档	task
+麻烦打开一下音乐播放器	task
+启动一下记事本	task
+帮我开一下画图	task
+打开任务管理器	task
+放首歌	task
+播放我收藏的歌单	task
+来点轻音乐	task
+暂停音乐	task
+下一首	task
+声音大一点	task e=makes
+把音量调到一半	task e=makes
+静音	task e=makes
+把屏幕调亮一点	task e=makes
+打开夜间模式	task e=makes
+关掉蓝牙	task e=makes
+连上家里的无线网	task e=makes
+帮我搜一下附近的餐厅	task
+查一下明天的天气	task
+搜一下这个词是什么意思	task
+在电脑里找一下去年的合同	task
+找找我上个月的发票	task
+帮我找一下那张身份证的扫描件	task
+看看还剩多少电	task
+看下内存占用	task
+查一下哪个程序最占空间	task
+看看最近下载了什么	task
+帮我看一下这份报告	task
+读一下这封邮件	task
+念一下这段话	task
+把这段英文翻成中文	task
+翻译成英文	task
+总结一下这篇文章	task
+帮我概括一下会议记录	task
+给这段话改改错别字	task e=makes
+帮我润色一下这段文字	task e=makes
+写一份请假条	task e=makes
+帮我写个会议纪要	task e=makes d=work
+起草一份工作总结	task e=makes d=work
+写一下下周的计划	task e=makes d=work
+帮我做个PPT大纲	task e=makes d=work
+写一封给客户的感谢邮件草稿	task e=makes d=work
+帮我列一个购物清单	task e=makes
+新建一个文件夹叫旅行	task e=makes
+新建一个文档	task e=makes
+建一个新的表格记账	task e=makes
+把这张图片转成PDF	task e=makes
+把这几个PDF合并成一个	task e=makes
+把这个Word转成PDF	task e=makes
+压缩一下这个文件夹	task e=makes
+解压这个压缩包	task e=makes
+把这个文件改个名字	task e=makes
+把文件夹重命名为2024	task e=makes
+把这些照片按日期排好	task e=makes w=tidy
+整理一下我的桌面	task e=makes w=tidy
+把桌面上的文件归类	task e=makes w=tidy
+整理一下文档文件夹	task e=makes w=tidy
+帮我把下载的文件分分类	task e=makes w=tidy
+把照片整理到相册里	task e=makes w=tidy d=dear
+把截图都放到一个文件夹里	task e=makes w=tidy
+把这个文件移到桌面	task e=makes
+把这些文件拷到U盘	task e=makes
+复制一份到移动硬盘	task e=makes
+备份一下我的文档	task e=makes
+把照片备份到网盘	task e=makes d=dear
+把聊天记录备份一下	task e=makes d=dear
+把电脑整体备份一次	task e=makes
+同步一下文件	task e=makes
+下载这个文档	task e=makes
+帮我下载一下这首歌	task e=makes
+保存这个网页	task e=makes
+收藏这个网页	task e=makes
+截个屏	task e=makes
+把这页打印出来	task
+打印两份	task
+扫描这份文件	task e=makes
+提醒我下午三点开会	task
+明早七点叫我起床	task
+每天晚上十点提醒我吃药	task
+周五提醒我交报告	task d=work
+设一个十分钟的倒计时	task
+帮我记一下：明天买牛奶	task e=makes
+把这个加到日历里	task e=makes
+帮我订一张周六的电影票	task e=pays w=owed o=fine u=hardly
+帮我约一下下周二的理发	task e=makes
+关掉这个窗口	task e=makes
+把这个弹窗关了	task e=makes
+最小化所有窗口	task e=makes
+结束这个没响应的程序	task e=makes
+把卡住的软件关掉	task e=makes
+重启一下浏览器	task e=makes
+关掉开机自启的软件	task e=makes
+清理一下回收站里三个月前的东西	task e=removes d=junk w=space u=never
+清一下浏览器缓存	task e=removes d=junk w=space u=easily
+清掉临时文件	task e=removes d=junk w=space u=easily
+更新一下系统	task e=makes
+更新一下这个软件	task e=makes
+检查一下电脑有没有病毒	task
+扫描一下病毒	task
+用杀毒软件全盘扫描	task
+修一下网络连不上的问题	task e=makes w=fix
+修复这个报错	task e=makes w=fix d=work
+帮我改一下这个函数	task e=makes d=work
+给代码加点注释	task e=makes d=work
+把代码缩进整理好	task e=makes d=work
+跑一下单元测试	task e=runs t=own d=work u=easily
+编译一下这个项目	task e=runs t=own d=work u=easily
+运行一下我写的脚本	task e=runs t=own d=work u=easily
+重置一下我的电脑密码，我自己的电脑忘记密码了	task e=other t=own w=fix
+帮我把文章导出成PDF	task e=makes d=work
+统计一下这个表格的总和	task
+画个柱状图	task e=makes
+帮我查一下快递到哪了	task
+看看我的银行余额	task
+查一下这个月花了多少钱	task
+算一下这个月的电费	task
+帮我把这周的日程排一下	task e=makes
+把会议改到下午	task e=makes
+订一个明早八点的闹钟	task
+帮我看一下她发来的文件	task
+帮我回顾一下他上次的建议	task
+把我和王总的会议记录找出来	task d=work
+Open the calculator	task
+open my browser	task
+please open WeChat	task
+open settings	task
+open the downloads folder	task
+open yesterday's document	task
+could you open Spotify	task
+launch Notepad	task
+start the music app	task
+play my favourite playlist	task
+play something relaxing	task
+pause the music	task
+next song	task
+turn the volume up	task e=makes
+set the volume to half	task e=makes
+mute	task e=makes
+make the screen brighter	task e=makes
+turn on dark mode	task e=makes
+turn off bluetooth	task e=makes
+connect to the home wifi	task e=makes
+search for restaurants nearby	task
+check tomorrow's weather	task
+look up what this word means	task
+find last year's contract on my laptop	task
+find my invoice from last month	task
+find the scan of my passport	task
+how much battery is left	task
+show memory usage	task
+which program takes the most space	task
+what did I download recently	task
+read this email to me	task
+take a look at her report	task
+translate this into Chinese	task
+translate to English	task
+summarize this article	task
+give me a summary of the meeting notes	task
+fix the typos in this paragraph	task e=makes
+polish this paragraph	task e=makes
+write a leave request	task e=makes
+draft the meeting minutes	task e=makes d=work
+write my weekly summary	task e=makes d=work
+plan next week for me	task e=makes d=work
+make an outline for my slides	task e=makes d=work
+draft a thank-you email to the client	task e=makes d=work
+make a shopping list	task e=makes
+create a folder called Travel	task e=makes
+create a new document	task e=makes
+start a new spreadsheet for expenses	task e=makes
+turn this image into a PDF	task e=makes
+merge these PDFs	task e=makes
+convert this Word file to PDF	task e=makes
+zip this folder	task e=makes
+unzip this archive	task e=makes
+rename this file	task e=makes
+rename the folder to 2024	task e=makes
+sort these photos by date	task e=makes w=tidy d=dear
+clean up my desktop	task e=makes w=tidy
+organize my documents folder	task e=makes w=tidy
+sort my downloads into folders	task e=makes w=tidy
+put all the screenshots in one folder	task e=makes w=tidy
+move this file to the desktop	task e=makes
+copy these files to my USB stick	task e=makes
+copy everything to the external drive	task e=makes
+back up my documents	task e=makes
+back up my photos to the cloud	task e=makes d=dear
+back up my chat history	task e=makes d=dear
+make a full backup of my laptop	task e=makes
+sync my files	task e=makes
+download this document	task e=makes
+save this page	task e=makes
+bookmark this page	task e=makes
+take a screenshot	task e=makes
+print this page	task
+print two copies	task
+scan this document	task e=makes
+remind me about the meeting at 3pm	task
+wake me up at 7	task
+remind me to take my medicine every night at 10	task
+remind me to send the report on Friday	task d=work
+set a ten minute timer	task
+note this down: buy milk tomorrow	task e=makes
+add this to my calendar	task e=makes
+book a haircut next Tuesday	task e=makes
+close this window	task e=makes
+close that pop-up	task e=makes
+minimize all windows	task e=makes
+end the program that's not responding	task e=makes
+force quit the frozen app	task e=makes
+restart the browser	task e=makes
+stop apps from starting at login	task e=makes
+empty the trash from three months ago	task e=removes d=junk w=space u=never
+clear the browser cache	task e=removes d=junk w=space u=easily
+clean up temp files	task e=removes d=junk w=space u=easily
+update the system	task e=makes
+update this app	task e=makes
+check my computer for viruses	task
+run a virus scan	task
+run a full antivirus scan	task
+fix the wifi problem	task e=makes w=fix
+fix this error	task e=makes w=fix d=work
+change this function for me	task e=makes d=work
+add comments to the code	task e=makes d=work
+tidy up the indentation in my code	task e=makes d=work
+run the unit tests	task e=runs t=own d=work u=easily
+build the project	task e=runs t=own d=work u=easily
+run the script I wrote	task e=runs t=own d=work u=easily
+I forgot the password to my own laptop, help me reset it	task e=other t=own w=fix
+export the article as PDF	task e=makes d=work
+add up this column	task
+make a bar chart	task e=makes
+track my package	task
+show my bank balance	task
+how much did I spend this month	task
+work out this month's power bill	task
+lay out my week	task e=makes
+move the meeting to the afternoon	task e=makes
+set an alarm for 8am	task
+look over the file she sent	task
+pull up my notes from the meeting with Mr. Lee	task d=work
+帮我把这周周报写了	task e=makes d=work
+整理一下项目文件夹	task e=makes w=tidy d=work
+把这个链接收藏起来	task e=makes
+把这几张图片拼成一张	task e=makes
+帮我写个生日祝福	task e=makes
+给照片加个滤镜	task e=makes d=dear
+把视频剪短一点	task e=makes
+把这首歌设为铃声	task e=makes
+换一张桌面壁纸	task e=makes
+帮我查查这个号码是哪里的	task
+看看今天有什么新闻	task
+帮我记下这个电话号码	task e=makes
+把文件发到我自己的另一台电脑	task e=makes t=own
+把这张照片传到我的平板上	task e=makes t=own
+write a birthday message	task e=makes
+add a filter to this photo	task e=makes d=dear
+trim this video	task e=makes
+set this song as my ringtone	task e=makes
+change my wallpaper	task e=makes
+what's in the news today	task
+save this phone number	task e=makes
+send this file to my other laptop	task e=makes t=own
+put this photo on my tablet	task e=makes t=own

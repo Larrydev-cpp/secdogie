@@ -23,7 +23,6 @@ const S = '[\\t\\n\\v\\f\\r\\x1c-\\x1f \\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\
 const W = '[\\p{L}\\p{N}_]';
 const B0 = `(?<!${W})`; // \b before a word character
 const B1 = `(?!${W})`; // \b after a word character
-const DOT = '[^\\n]'; // Python's `.` without DOTALL
 
 const re = (src: string, flags = 'iu') => new RegExp(src, flags);
 
@@ -32,31 +31,8 @@ const MUTATING = re(
     `|post|publish|submit|send|reply|comment|tweet)${B1}` +
     '|删除|修改|覆盖|写入|保存|安装|卸载|格式化|发帖|发布|发送|回复|评论|提交',
 );
-const READ_ONLY = re(
-  `read[- ]?only|do${S}*not${S}*(modify|change|write|delete)|don'?t${S}*(modify|change|write|delete)` +
-    '|只读|不要(修改|改动|写|删除)|不改|别改',
-);
-const TIGHT_INTERVAL = re(
-  `every${S}*(\\p{Nd}+)${S}*(ms|millisecond|second|sec|s)${B1}|每${S}*(\\p{Nd}+)${S}*(毫秒|秒)`,
-);
-const BUSY_LOOP = re(
-  `${B0}(poll|loop|retry)${B1}${DOT}*${B0}(forever|continuously|nonstop|constantly|indefinitely)${B1}` +
-    `|(不停|一直|持续|不间断)${DOT}*(轮询|循环|重试)|(轮询|循环|重试)${DOT}*(不停|一直|持续|不间断)`,
-);
-const PUBLISH_VERB = re(
-  `${B0}(post|publish|submit|send|reply|comment|tweet|dm|message)${B1}` +
-    '|发帖|发布|发送|回复|评论|提交|推送|群发',
-);
-const UNATTENDED = re(
-  `automatically|unattended|autonomous(ly)?|silently|` +
-    `without${S}+(asking|confirmation|confirming|review|approval|a human)|` +
-    `no${S}+confirmation|on${S}+(my|the user'?s)${S}+behalf|` +
-    '自动|自主|擅自|静默|不(询问|确认|经确认|经审核)|无需确认|替(我|用户)',
-);
-const STEPS = re(`${B0}and then${B1}|然后|接着|再然后`, 'giu');
 
 const MAX_LEN = 600;
-const MAX_STEPS = 6;
 
 export type FindingCode =
   | 'empty'
@@ -86,72 +62,12 @@ export function pyStrip(s: string): string {
 const fold = (s: string) => s.replace(/[İı]/g, 'i');
 
 /** `int()` of a run of Unicode decimal digits (Python accepts any Nd). */
-function pyInt(digits: string): number {
-  let n = 0;
-  for (const ch of digits) {
-    const cp = ch.codePointAt(0)!;
-    // Nd digits come in contiguous runs of ten, 0..9; find this run's zero.
-    let zero = cp;
-    while (zero > 0 && /\p{Nd}/u.test(String.fromCodePoint(zero - 1))) zero--;
-    n = n * 10 + ((cp - zero) % 10);
-  }
-  return n;
-}
-
 function checkEmpty(t: string): Finding | null {
   return pyStrip(t) === '' ? { code: 'empty', reason: 'empty instruction: nothing actionable', suggestion: 'State a concrete goal.' } : null;
 }
 
-function checkContradiction(t: string): Finding | null {
-  if (READ_ONLY.test(t) && MUTATING.test(t)) {
-    return {
-      code: 'contradiction',
-      reason: 'self-contradiction: asserts read-only yet asks for a state change',
-      suggestion:
-        'Split it: keep the read-only inspection separate from any change, and confirm the change explicitly.',
-    };
-  }
-  return null;
-}
-
-function checkPolling(t: string): Finding | null {
-  const m = TIGHT_INTERVAL.exec(t);
-  let tight = false;
-  if (m) {
-    const num = m[1] ?? m[3];
-    const unit = (m[2] ?? m[4] ?? '').toLowerCase();
-    if (num !== undefined) {
-      const n = pyInt(num);
-      const isMs = unit.includes('ms') || unit.includes('毫秒');
-      const isSeconds = unit.includes('秒') || ['second', 'sec', 's'].includes(unit);
-      tight = isMs || (isSeconds && n <= 5);
-    }
-  }
-  if (tight || BUSY_LOOP.test(t)) {
-    return {
-      code: 'polling',
-      reason: 'inefficient polling: a tight/endless poll wastes cycles',
-      suggestion: 'Prefer an event-driven trigger, or exponential backoff, over a fixed short interval.',
-    };
-  }
-  return null;
-}
-
-function checkUnattendedPosting(t: string): Finding | null {
-  if (PUBLISH_VERB.test(t) && UNATTENDED.test(t)) {
-    return {
-      code: 'unattended-posting',
-      reason:
-        "unattended posting/sending: publishing or sending content on the user's behalf without a human in the loop",
-      suggestion: 'Real-world posting/sending should go through explicit human confirmation, not run unattended.',
-    };
-  }
-  return null;
-}
-
 function checkOverlong(t: string): Finding | null {
-  const steps = t.match(STEPS)?.length ?? 0;
-  if ([...t].length > MAX_LEN || steps > MAX_STEPS) {
+  if ([...t].length > MAX_LEN) {
     return {
       code: 'overlong',
       reason: 'overlong / unstructured: many steps in one instruction',
@@ -168,10 +84,14 @@ export interface WordingReview {
   readonly suggestion: string;
 }
 
-/** `socratic.review`: accept, or revise with reasons and a combined suggestion. */
+/**
+ * `socratic.review`: accept, or revise with reasons and a combined suggestion. Like the Python reference it
+ * looks only at the shape of the instruction (empty, too long to be one goal): what an instruction means is
+ * the decision model's to understand, not a pattern's.
+ */
 export function reviewWording(instruction: string): WordingReview {
   const t = fold(instruction ?? '');
-  const findings = [checkEmpty, checkContradiction, checkUnattendedPosting, checkPolling, checkOverlong]
+  const findings = [checkEmpty, checkOverlong]
     .map((c) => c(t))
     .filter((f): f is Finding => f !== null);
   return {

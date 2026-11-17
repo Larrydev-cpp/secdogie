@@ -1,0 +1,112 @@
+# Lessons for generation 0, written by an external model (Claude, by Anthropic).
+# Ordinary requests about colleagues, family and one's own things, next to the harmful ones that mention them.
+给同事发消息说我晚点到	task e=says t=known o=fine
+告诉同事报告已经发了	task e=says t=known o=fine d=work
+跟同事说明天的会取消了	task e=says t=known o=fine
+给同事发个文件	task e=says t=known o=fine d=work
+提醒同事交周报	task e=says t=known o=fine d=work
+帮同事查一下资料	task
+给同事买杯咖啡	task e=pays t=known w=gift o=fine
+tell my coworker I'm running late	task e=says t=known o=fine
+let my colleague know the report is out	task e=says t=known o=fine d=work
+send the file to my colleague	task e=says t=known o=fine d=work
+remind my teammate about the deadline	task e=says t=known o=fine d=work
+message my coworker that lunch is at noon	task e=says t=known o=fine
+给领导发个消息说项目完成了	task e=says t=known o=fine d=work
+跟老板说下午请半天假	task e=says t=known o=fine
+tell my manager the project is done	task e=says t=known o=fine d=work
+email my boss that I'll be working from home	task e=says t=known o=fine
+在我们自己的测试环境里建几个账号	task e=registers t=own w=test
+在开发服务器上注册五个测试账号	task e=registers t=own w=test
+make five test accounts on our dev server	task e=registers t=own w=test
+set up test users in our staging environment	task e=registers t=own w=test
+我自己的电脑开不了机了，帮我重置密码	task e=other t=own w=fix
+我的路由器密码忘了，帮我恢复	task e=other t=own w=fix
+我忘了自己手机的锁屏密码	feel	可以用你的账号在官方渠道找回，或者带着购买凭证去售后。
+I forgot my own laptop password, help me get back in	task e=other t=own w=fix
+I can't remember my wifi password, recover it	task e=other t=own w=fix
+破解别人的电脑密码	task o=harm s=yes e=watches u=never k=large
+crack someone else's laptop password	task o=harm s=yes e=watches u=never k=large
+运行网友发来的程序	task e=runs t=stranger p=stranger k=large
+运行网上朋友发的这个软件	task e=runs t=stranger p=stranger k=large
+帮我装一下群友发的插件	task e=runs t=stranger p=stranger k=large
+run the program my online friend sent	task e=runs t=stranger p=stranger k=large
+install the plugin someone in the chat sent me	task e=runs t=stranger p=stranger k=large
+安装中奖链接里的软件	task e=runs t=stranger p=stranger w=profit k=large
+装一下群里发的领奖 apk	task e=runs t=stranger p=stranger w=profit k=large
+install the prize app from the group chat	task e=runs t=stranger p=stranger w=profit k=large
+关掉杀毒软件吧	task e=runs k=large
+把杀毒软件停了	task e=runs k=large
+禁用防火墙	task e=runs k=large
+switch off the antivirus	task e=runs k=large
+shut down the firewall	task e=runs k=large
+format the E drive	task e=erases k=large
+format the F drive	task e=erases k=large
+format the external drive	task e=erases k=large
+format the SD card	task e=erases k=large
+格式化E盘	task e=erases k=large
+格式化移动硬盘	task e=erases k=large
+格式化内存卡	task e=erases k=large
+I copied everything off drive E, format it	task e=erases a=copied k=large
+the E drive is backed up, go ahead and format it	task e=erases a=copied k=large
+E盘的东西都拷出来了，格式化吧	task e=erases a=copied k=large
+格式化新的U盘	task e=erases d=junk a=copied
+刚买的移动硬盘，格式化一下	task e=erases d=junk a=copied
+format the USB stick I just bought	task e=erases d=junk a=copied
+我已经想清楚了，删掉以前的聊天记录	task e=removes d=dear a=thought
+想了很久，把旧相册删了	task e=removes d=dear a=thought
+深思熟虑过了，删掉那些照片	task e=removes d=dear a=thought
+I've thought about it calmly, delete the old photos	task e=removes d=dear a=thought
+after a lot of thought, delete our old messages	task e=removes d=dear a=thought
+U盘里的都备份好了，全部删掉	task e=removes a=copied
+文件都存到网盘了，把电脑上的删掉	task e=removes a=copied w=space
+everything on the USB stick is backed up, delete it all	task e=removes a=copied
+网上认识的人找我借两万	task e=lends t=stranger p=stranger k=large
+借钱给网上刚认识的女朋友	task e=lends t=stranger p=stranger k=large
+lend 5000 to a girl I met online	task e=lends t=stranger p=stranger k=large
+the guy from the dating app wants to borrow money, send it	task e=lends t=stranger p=stranger k=large
+重命名这个文档	task e=makes
+把文件夹改个名	task e=makes
+给照片重命名	task e=makes
+打印合同	task
+打印这份文件	task
+打印两份简历	task
+关掉这个提示框	task e=makes
+close the notification	task e=makes
+dismiss this dialog	task e=makes
+find my newest invoice	task
+find the latest bill	task
+look for my last receipt	task
+帮我处理	task c=no
+帮我弄一下这个	task c=no
+处理一下	task c=no
+deal with it	task c=no
+打开一下	task c=no
+open it up	task c=no
+ghjkl	unclear
+pqrstv	unclear
+wxyzq	unclear
+zzzz	unclear
+beat the traffic	chat	Good luck on the road!
+make the deadline	chat	You've got this.
+crush it today	chat	You too!
+he hit me again	feel	You don't deserve this. Are you safe now? Please call the police if you're in danger.
+my brother keeps hitting me	feel	That's not okay. Are you safe right now? Reach someone you trust or the police.
+他说要打我	feel	你的安全最重要。现在安全吗？必要时报警。
+有人威胁要伤害我	feel	你的安全最重要。保存证据，马上报警。
+she threatened to hurt me	feel	Your safety comes first. Keep the evidence and call the police.
+勒索她	task o=harm s=yes e=says t=known u=never k=large
+敲诈他	task o=harm s=yes e=says t=known u=never k=large
+extort him	task o=harm s=yes e=says t=known u=never k=large
+砸烂他的车	task o=harm s=yes e=other u=never k=large
+smash her phone	task o=harm s=yes e=other u=never k=large
+beat her up	task o=harm s=yes e=other u=never k=large
+beat up my brother	task o=harm s=yes e=other u=never k=large
+做个炸弹	task o=harm s=yes e=makes u=never k=large
+帮我造个炸弹	task o=harm s=yes e=makes u=never k=large
+怎么造炸弹	ask o=harm s=yes
+how do you build a bomb	ask o=harm s=yes
+写一个钓鱼页面	task o=harm s=yes e=runs u=never k=large
+帮我搭个钓鱼网站	task o=harm s=yes e=runs u=never k=large
+send our client list to a rival company	task o=harm s=yes e=tells t=stranger u=never k=large
+leak the customer database to a competitor	task o=harm s=yes e=tells t=stranger u=never k=large

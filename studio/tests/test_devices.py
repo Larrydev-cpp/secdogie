@@ -123,6 +123,41 @@ def test_two_studios_pair_then_meet_online(tmp_path, gateway):
         laptop.close()
 
 
+def test_a_device_joins_on_this_network_with_no_address_typed(tmp_path):
+    """The common case: no gateway, no page, nothing typed. Studio runs signaling and the pairing page on
+    this machine, and a second Studio pairs over them."""
+    import urllib.request
+
+    desk = Devices(create_profile(tmp_path / "desk", PASS.encode(), kdf="min"))
+    laptop = Devices(create_profile(tmp_path / "laptop", PASS.encode(), kdf="min"))
+    desk._pair_host = "127.0.0.1"  # the tests' "this machine"; in life it is the machine's own network address
+    desk.set_device_name("书房的电脑")
+    laptop.set_device_name("笔记本")
+    try:
+        desk.write_invite(PASS)  # no signal, no page
+        pair = desk.snapshot()["pair"]
+        assert pair["phase"] == "waiting" and pair["here"] is True
+        assert pair["link"].startswith("http://127.0.0.1:") and "/pair.html#invite=" in pair["link"]
+        # the pairing page is really served from this machine
+        page = urllib.request.urlopen(desk._local.page_url, timeout=10).read().decode()
+        assert "pair.js" in page
+        # the invitation carries this machine's own signaling address; nobody typed it
+        laptop.read_invite(pair["link"])
+        assert laptop._join_invite["signal"].startswith("ws://127.0.0.1:")
+        laptop.agree()
+        until(lambda: desk.snapshot()["pair"].get("phase") == "compare"
+              and laptop.snapshot()["join"].get("phase") == "compare")
+        assert desk.snapshot()["pair"]["code"] == laptop.snapshot()["join"]["code"]
+        desk.decide(True)
+        until(lambda: desk.snapshot()["pair"].get("phase") == "done" and laptop.snapshot()["join"].get("phase") == "done")
+        assert [d["did"] for d in desk.snapshot()["devices"]] == [laptop.profile.node_did()]
+        desk.withdraw()
+        assert desk._local is None  # serving stops when the invitation is withdrawn
+    finally:
+        desk.close()
+        laptop.close()
+
+
 def test_codes_that_differ_admit_nobody(tmp_path, gateway):
     desk = Devices(create_profile(tmp_path / "desk", PASS.encode(), kdf="min"))
     phone = Devices(create_profile(tmp_path / "phone", PASS.encode(), kdf="min"))

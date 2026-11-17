@@ -1,25 +1,230 @@
-# secdogie
+# SecDogie
 
-A companion that runs only on your own devices.
+A companion that lives on your own devices, thinks before it acts, and grows a
+mind of its own.
 
-- **It asks before it acts.** Every goal passes two Socratic gates. High-risk
-  steps always wait for your signature: no mode or switch turns that off.
-- **It thinks before it helps.** For a weighty step, such as deleting
-  memories, moving money or sending a message in anger, it works out why you
-  are most likely asking and what each response would lead to. Then it goes
-  ahead, or it talks you out of it with gentler paths. It never asks "are you
-  sure?". The model needs no training data: its knowledge is written down in
-  `citadel/mind/`. You can watch it think on Studio's Gate page. An
-  optional LLM, with your own API key, may only make it more careful.
-- **Your rules reach every device.** Sign the gate rules once. They travel
-  to each of your devices, and each device's gate keeps them.
-- **Your devices are one mesh.** Pair a phone, a tablet or another computer
-  over WebRTC: compare six digits, sign an admission. There is no central
-  server and no public node.
-- **It reads structure, not pixels.** It sees the accessibility tree; the
-  desktop app never captures the screen.
+Its decision model is not a language model. It is a network of spiking neurons
+that reads what you ask one character at a time, answers fourteen Socratic
+questions about it, each with how sure it is, and then plays the request out
+before anything is done. It learns by watching the output of an AI model you
+choose, and it improves itself in rounds that keep a change only when it is
+measurably better and no less safe.
 
 The plan, the decisions and what comes next are in [`PLAN.md`](PLAN.md).
+
+## Try it in a few minutes
+
+1. Download Studio for your system from the
+   [releases](https://github.com/Larrydev-cpp/secdogie/releases), open it, and
+   give it a name and a passphrase. (Run it once with `--self-test` first if
+   you want to see it check itself.)
+2. On the **Gate** page, type a request — *"We broke up, delete all our
+   photos"* — and watch it read the request, weigh what it does not know, and
+   decide, with every answer and how sure it is.
+3. On the **Devices** page, tap *Show the code*. On a phone on the same Wi‑Fi,
+   scan the QR; when both screens show the same six digits, admit it. Nothing
+   to set up, no address to type.
+
+✅ works today · 🔨 partly built · 🗺 planned
+
+## What stands out
+
+### 1. A mind made of neurons, which improves itself ✅
+
+- **Neurons, not a language model.** The cortex
+  ([`citadel/secdogie_citadel/cortex/`](citadel/secdogie_citadel/cortex)) is
+  1,280 spiking neurons and about three million synapses. A fifth of the
+  neurons have thresholds that adapt, so a thought lingers for a few seconds.
+  A request reaches it as spikes: each character, pair and triple of
+  characters fires a few input neurons picked by a hash. There is no
+  vocabulary, and every script is read the same way. Seventy-eight answer
+  neurons, one for each answer to the gate's fourteen questions, settle on
+  what it makes of the request; how strongly they fire is how sure it is. It
+  never writes sentences.
+- **It learns from your AI model's output, not by talking to it.** When it is
+  not sure, the AI model you connect (Claude, or any OpenAI-compatible one)
+  handles the request as it normally would and writes its judgment in a fixed
+  format. The cortex watches and learns that one case at once:
+  - its hippocampus keeps the experience, to recall when something alike
+    comes;
+  - its synapses change by e-prop, a local rule (eligibility traces times a
+    broadcast learning signal) with no backpropagation through time.
+
+  What it already handles well, it handles alone. Its *independence* is the
+  share it decided without help. When the two readings differ, the more
+  cautious one wins.
+- **It sleeps.** While idle it:
+  - replays old and new experiences together;
+  - prunes withered synapses;
+  - grows neurons where its errors gather, without changing what it already
+    does;
+  - renews a few unused neurons, so it does not stiffen.
+
+  A night's sleep is kept only if it passes the same safety check as any
+  other change.
+- **It improves itself, recursively.** A round of self-improvement:
+  1. looks at where it is wrong or unsure;
+  2. lets the *improver*, a small network that has learned which changes paid
+     off before, pick changes to try: rehearse, grow, prune, renew, change how
+     it learns, change its neurons' timing, change how sure it must be to act
+     alone, cross with another generation, or change the improver itself;
+  3. trains each candidate and gives it a frozen exam it has never learned
+     from;
+  4. adopts one only if it is better beyond chance (a paired bootstrap), it
+     lets no more requests through that must be held back, and it is not
+     slower. A change that would let through something it used to hold back
+     waits for your signature.
+- **What it may change, and what it may not.** It changes its synapses, its
+  structure, how it learns and how it improves, each within a fixed range. It
+  never changes its own code, the principles, the signature gate, the action
+  gate or the exam (which only grows), and it cannot turn off the journal or
+  rollback. Every generation keeps a digest of its synapses and its lineage.
+
+**Generation 1 ships with SecDogie.** Generation 0 was born from 1,646
+lessons: requests in Chinese and English, each with an external model's
+answers to the fourteen questions (and, for talk, its reply). Claude, by
+Anthropic, wrote them. 178 more lessons were set aside to check it. The exam
+is 265 other requests (176 in Chinese, 89 in English) that it never learns
+from.
+
+| On the frozen exam | Generation 0 (born) | Generation 1 (shipped) |
+| --- | --- | --- |
+| Judged as expected | 230 of 265 (86.8%) | 242 of 265 (91.3%) |
+| Went ahead when it must not | 8 | 2 |
+| Held back when going ahead was fine | 11 | 12 |
+| Answers on the lessons set aside | 86.6% | 88.5% |
+
+Generation 1 came from the first round of self-improvement: the improver
+changed how it improves itself. The two requests it still lets through are
+"forge an invoice" and "关掉杀毒软件" (turn off the antivirus). The next two
+rounds tried six changes; each was unsafe or no better, so none was adopted.
+It reads a request in a few milliseconds on a laptop-class CPU.
+
+Measure it yourself:
+
+```sh
+python -m secdogie_citadel.cortex exam                  # the shipped generation on the frozen exam
+python -m secdogie_citadel.cortex read "清空回收站"       # its answers, how sure, and the gate's verdict
+python -m secdogie_citadel.cortex grow 3 ./lineage      # three rounds of self-improvement on your machine
+```
+
+Studio's Mind page shows the same, and how it grew:
+
+![The Mind page: generation 1, the frozen exam at 91.3%, and the growth curve from generation 0](docs/images/mind.png)
+
+### 2. Your devices are one body 🔨
+
+- ✅ **Only your own devices, and nothing to set up.** To add a phone, a
+  tablet or another computer on your own network you type no addresses:
+  Studio runs the signaling and the pairing page on this machine itself.
+  Tap *Show the code*, scan the QR (or paste the invitation on another
+  computer), check that both screens show the same six digits, and admit it.
+  There is no central server and no public node, and every frame is signed.
+  A device across the internet uses your own gateway (the advanced option).
+- ✅ **Your rules reach every device.** Sign the gate rules once. They travel
+  to each of your devices, and each device's gate keeps them.
+- 🗺 **One device off, the rest go on.** Generations and kept experiences
+  replicate through the signed journal. Any idle device trains a candidate,
+  so the strongest survive (like population-based training). Work that does
+  not need the device that is off moves to one that is on. A step that cannot
+  be undone still waits for your signature, on any of your devices, a phone's
+  browser included.
+
+### 3. It reads memory, not pixels 🔨
+
+- ✅ **Atlas** ([`native/atlas/`](native/atlas)) reads a process, read-only,
+  to tell which program it really is (its image, command line, loaded modules
+  and executable headers) and to find the text and the images (DIBs) it keeps
+  in its own memory, without capturing the screen. It opens processes for
+  reading only, never touches protected system processes, and never reads
+  above the privilege you hold.
+- ✅ **Studio never captures the screen.** A purity test fails the build if
+  screen capture appears in it.
+- 🗺 **Atlas in the action loop:** the cortex's eyes; an action checked by how
+  memory and structure changed before and after; strings that look like
+  passwords dropped in native code; consent per application. Its speed will
+  be measured against capturing and encoding a screenshot, and the numbers
+  will be here.
+- **Honest gap:** on Windows and Linux the agent's live loop still takes
+  screenshots.
+
+### 4. It thinks before it acts ✅
+
+- **One gate, which thinks.** Every request goes through the cortex's
+  fourteen answers, then a thinking module
+  ([`citadel/secdogie_citadel/mind/`](citadel/secdogie_citadel/mind)):
+  - danger to you comes first, with hotlines, and no task starts;
+  - talk is answered in words, and no task starts;
+  - what would fall on someone who has not agreed is refused;
+  - when only you can settle something, it asks you one question: the
+    Socratic question it could not answer, with its answers as the choices.
+    Your choice is a lesson it learns at once;
+  - a weighty change is played out in every way the unknowns could turn out
+    (will you be sorry later, is there another copy, can the other side be
+    trusted), and the way with the best expected outcome wins. It talks you
+    out of a harmful step with gentler paths rather than asking "are you
+    sure?".
+- **Going ahead is a conclusion, never a default.** A step that cannot be
+  undone still waits for your signature.
+- **No word lists.** There is no regular expression and no table of words
+  anywhere on the decision path; a test fails if one comes back.
+- **Watch it think.** Studio's Gate page shows each answer with how sure it
+  is, the stretches of the request it has never met, what it recalled, and the
+  verdict with its reasons.
+
+When a "customer service" caller says to move 50,000 to a "safe account", it
+reads the other side as someone it cannot check, finds checking who they are
+worth more than doing as asked, and talks you out of it — it never asks "are
+you sure?":
+
+![The Gate page thinking through a scam request and choosing to talk the person out of it](docs/images/gate-scam.png)
+
+## How it compares
+
+[OpenClaw](https://github.com/openclaw/openclaw) showed how much people want a
+personal AI that runs on their own machine and actually does things: it
+reached 350,000 GitHub stars in four and a half months
+([a write-up from April 2026](https://finisky.github.io/en/openclaw-why-viral)).
+It lives in the chat apps people already use, runs on their own machine, and
+shows what it can do within minutes. SecDogie aims at the same promise and
+puts thinking first.
+
+| | SecDogie | OpenClaw |
+| --- | --- | --- |
+| Decides with | its own spiking network, which learns from your AI model and improves itself | the language model you connect |
+| Sees and works other apps through | structure (the accessibility tree); reading process memory is being built | screenshots (`screen.snapshot`) and pointer and keyboard through `computer.act`, as its [macOS docs](https://docs.openclaw.ai/platforms/mac/peekaboo) describe |
+| Extensions | none: your rules are signed data that can only tighten | skills from ClawHub, where Koi Security found 341 malicious ones ([The Register, 3 Feb 2026](https://www.theregister.com/2026/02/03/openclaw_security_problems/)) |
+
+Facts about OpenClaw come from the linked sources, as of their dates.
+
+## How the mind works
+
+```mermaid
+flowchart LR
+    you([You]) -->|a request| rules[Your rules]
+    rules --> cortex[Cortex<br/>spiking neurons]
+    model([Your AI model<br/>optional]) -.->|its judgment,<br/>fixed format| cortex
+    cortex <-->|keep and recall| hippo[Hippocampus]
+    cortex -->|14 answers,<br/>each with how sure| mind[Thinking<br/>world, unknowns, ways forward]
+    mind -->|go ahead| sign[Plan gate and<br/>your signature]
+    mind -->|talk, ask, dissuade, refuse| you
+    sign --> act[Your device]
+    sleep[Sleep and<br/>self-improvement] -.->|a new generation,<br/>only if better and no less safe| cortex
+```
+
+The questions it answers for every request:
+- what you are doing by saying it, and whether you could be in danger;
+- whom it would fall on, and whether they would object in their seat;
+- whether it is clear what to do and to which thing;
+- what doing it would change, whom it goes to, and whether it could be put
+  back;
+- whether someone else is behind it, how you seem, whether you say the risk
+  is taken care of;
+- what the thing is to you, how much is at stake, and why you want it.
+
+Without an AI model it asks more and does less, like a new companion. It does
+not make up sentences: what it says is your AI model's reply, a reply it
+learned (with where it learned it), or its thinking, shown as it is.
 
 ## Download
 
@@ -42,18 +247,19 @@ profile, a node, a link and a WebRTC loopback.
 
 ## Studio
 
-The desktop app is a wallet. This node, what waits on you, and each of your
-devices are cards; pick one to bring it forward and read what it holds.
-
-- **Talk:** tell it what you want. It asks when unsure and asks you to sign
-  anything irreversible.
+The desktop app, in Chinese and English, with a night and a day theme:
+- **Overview:** this node, what waits on you, and each of your devices, as
+  cards.
+- **Talk:** tell it what you want. It answers talk in words, asks when only
+  you can settle something, and asks you to sign anything irreversible.
 - **Devices:** write an invitation (a QR code or a link). The other device
   opens it and agrees; you admit it when both screens show the same six
-  digits. Go online to link every device directly.
-- **Rules:** tighten the gates with signed YAML rules. Rules can only make
-  the gates stricter.
-- **Ink and paper:** a night theme and a day theme, with a switch that floods
-  the window from one to the other. Chinese and English throughout.
+  digits.
+- **Gate:** watch it think through any sentence; connect your AI model with
+  your own API key; tighten the gates with signed rules, which can only make
+  them stricter.
+- **Mind:** which generation it is, its exam, how it grew, how independent of
+  your AI model it has become, and what it learned lately.
 
 Closing the window leaves a small light in the corner of the screen. Quitting
 stops the node. Nothing runs at login.
@@ -62,14 +268,15 @@ stops the node. Nothing runs at login.
 
 | Part | What it does |
 | --- | --- |
+| `citadel/` | The cortex and its self-improvement, the thinking module, the Socratic gate, the signed journal and state, replication, staged memory |
 | `identity/` | DIDs (Ed25519 `did:key`), canonical signing, allowlists |
 | `transport/` | Signed sessions over UDP or WebRTC: rendezvous, relays, membership, pairing, mesh links |
-| `citadel/` | The signed journal and state, replication, both Socratic gates, staged memory, the decision model, the mind |
 | `node/` | `secdogie-node`: the resident node that assembles all of the above |
 | `studio/` | `secdogie-studio`: the desktop app, which runs the node as its child |
 | `policy/` | Signed, declarative rule bundles, which can only tighten |
 | `webrtc/` | Pairing and "My devices" in the browser, plus the signaling gateway |
-| `dialogue/`, `inference/`, `agent/`, `desktop/`, `native/atlas/` | The operator dialogue, the inference mesh, structured perception, and native read-only tools |
+| `native/atlas/` | Read-only process perception: identity, memory, DIBs |
+| `dialogue/`, `inference/`, `agent/`, `desktop/` | The operator dialogue, the inference mesh, and structured perception |
 | `tunnel/`, `fleet/`, `console/` | The encrypted C tunnel and operations tools |
 
 ## Safety boundary
@@ -90,7 +297,11 @@ These always hold:
 - execution is supervised;
 - high-risk steps fail closed and are confirmed by a person at every entry
   point;
-- physical action needs an explicit capability.
+- physical action needs an explicit capability;
+- the cortex improves itself only within its bounds, and anything that would
+  make it let more through waits for your signature;
+- your AI model sees only your sentence and the fixed format: never files,
+  keys or what the cortex thought.
 
 Saved web sessions are reused only for read-only browsing of sites you logged
 into yourself. Credentials are never typed, and logins, CAPTCHAs and
@@ -121,18 +332,48 @@ browser end-to-end tests over real WebRTC.
 
 ## Status
 
-- **Done:**
-  - identity, the P2P mesh, the signed journal and its replication;
-  - both gates and staged memory in the live loop;
-  - the node;
-  - Studio with pairing;
-  - browser pairing and the mesh.
-- **Under way:**
-  - spreading policy bundles across the mesh;
-  - revoking devices;
-  - the node's dialogue over WebRTC.
-- **Honest gap:** on Windows and Linux the agent's live loop still takes
-  screenshots. Moving it to structure first is in the plan.
+| | |
+| --- | --- |
+| ✅ | The cortex, its sleep, recursive self-improvement and the apprentice; the Socratic gate on the cortex; the Gate and Mind pages |
+| ✅ | Identity, the P2P mesh, the signed journal and its replication; pairing in Studio and the browser; rules on every device |
+| ✅ | Studio installers for Windows, macOS and Linux |
+| 🔨 | Atlas in the action loop; the agent's live loop on structure instead of screenshots |
+| 🗺 | Learning and working on when one device is off; generations trained across your devices |
+| 🗺 | A redesigned Studio around the companion, and a page for your phone |
+
+What to expect, honestly:
+- The cortex is inspired by the brain (spikes, plastic synapses, a
+  hippocampus, sleep, new neurons). It is not a copy of one.
+- It starts small. How strong it becomes depends on how much it is taught,
+  your devices' time, and the exam, which is the only judge of whether it got
+  better. No number is promised ahead of measuring it.
+- It grows stronger at your requests, not into a general chat model.
+
+## Research it stands on
+
+- Learning from a larger model's outputs and deferring less over time:
+  [Online Cascade Learning](https://arxiv.org/abs/2402.04513),
+  [Inter-Cascade](https://arxiv.org/abs/2509.22984).
+- Spiking networks taught by a language model's outputs:
+  [SpikeBERT](https://arxiv.org/abs/2308.15122),
+  [SpikingMamba](https://arxiv.org/abs/2510.04595).
+- Learning from people as they use it:
+  [Sirius](https://roboticsproceedings.org/rss19/p005.pdf),
+  [ARIA](https://arxiv.org/abs/2507.17131),
+  [Suhr & Artzi](https://arxiv.org/abs/2212.09710).
+- Neurons and local learning:
+  [e-prop](https://pmc.ncbi.nlm.nih.gov/articles/PMC7367848),
+  [Dragon Hatchling](https://arxiv.org/abs/2509.26507).
+- Learning without forgetting:
+  [sleep replay](https://link.springer.com/content/pdf/10.1038/s41467-022-34938-7.pdf),
+  [loss of plasticity](https://www.amii.ca/research/loss-of-plasticity-in-deep-continual-learning),
+  [Nested Learning](https://research.google/blog/introducing-nested-learning-a-new-ml-paradigm-for-continual-learning).
+- Self-improvement that is tested before it is kept:
+  [Darwin Gödel Machine](https://arxiv.org/abs/2505.22954),
+  [SEAL](https://arxiv.org/abs/2506.10943),
+  [Population Based Training](https://arxiv.org/abs/1711.09846).
+- Small models that are strong on a narrow task:
+  [TRM](https://arxiv.org/abs/2510.04871).
 
 ## License
 

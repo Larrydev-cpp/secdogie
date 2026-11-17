@@ -19,7 +19,7 @@ def ask(config: ThinkerConfig, system: str, question: str):
         "model": config.model_name,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": question}],
         "response_format": {"type": "json_object"},
-        "max_tokens": 600,
+        "max_tokens": 900,
     }).encode("utf-8")
     request = urllib.request.Request(f"{config.base}/chat/completions", data=body, method="POST", headers={
         "Content-Type": "application/json", "Authorization": f"Bearer {config.api_key}"})

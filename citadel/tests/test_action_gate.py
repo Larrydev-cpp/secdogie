@@ -178,20 +178,10 @@ def test_signed_grant_drives_the_gate_end_to_end():
     assert ag.OUT_OF_CAPABILITY in gate(_click(generation=1), ctx_later).findings
 
 
-def test_unattended_posting_instruction_is_rejected():
-    a = PlannedAction(kind="post", text="hello world", expected_observation="the post appears")
-    ctx = GateContext(instruction="automatically post this to the forum without asking me")
-    d = gate(a, ctx)
-    assert d.verdict == ag.REJECT and ag.UNATTENDED_POSTING in d.findings
-
-
-def test_attended_posting_instruction_is_not_flagged_for_that():
-    a = PlannedAction(kind="post", text="hello", expected_observation="the post appears")
-    ctx = GateContext(instruction="draft a post and let me review it before sending")
-    assert ag.UNATTENDED_POSTING not in gate(a, ctx).findings
-
-
-# --- rewrite (more cautious, never wider) -----------------------------------
+def test_posting_in_the_persons_name_always_needs_their_signature():
+    # Words sent or posted cannot be taken back: whatever the instruction says, the step goes to Gate 2.
+    for kind in ("post", "send", "reply", "comment"):
+        assert PlannedAction(kind=kind, text="hello", expected_observation="it is sent").destructive
 
 
 def test_missing_verification_is_rewritten_with_an_expectation():

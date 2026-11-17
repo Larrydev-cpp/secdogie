@@ -132,10 +132,10 @@ test('after maxRounds without alignment the machine declines', () => {
   assert.equal(s.kind, 'declined');
 });
 
-test('wording findings come first: unattended posting is questioned', () => {
-  const { m, reply } = setup('automatically post a reply on my behalf');
+test('wording findings come first: an instruction too long to be one goal is questioned', () => {
+  const { m, reply } = setup('整理下载文件夹，'.repeat(100));
   const s1 = m.start();
-  assert.ok(s1.kind === 'probe' && s1.finding.code === 'unattended-posting');
+  assert.ok(s1.kind === 'probe' && s1.finding.code === 'overlong');
   const s2 = m.answer(reply(s1.probe.probeId, OPT.stop), 'did:op');
   assert.ok(s2.kind === 'declined');
 });

@@ -7,6 +7,8 @@ does not report every step and it does not ask permission for everything. It
 speaks when the work needs the person:
 
   proceed   carry on quietly
+  say       answer in words; nothing is started (a greeting, a feeling, a
+            question, a sentence it could not follow)
   note      leave one line that fades: "I've started on ...", "I skipped a step"
   ask       one Socratic question (Gate 1): something only the person can settle,
             in prose, answered in their own words
@@ -47,15 +49,15 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from .action_gate import GateDecision, PlannedAction
-from .deliberate import CLARIFY, DISSUADE, REFUSE, SUPPORT, Deliberation, deliberate
+from .deliberate import CLARIFY, DISSUADE, REFUSE, SUPPORT, TALK, Deliberation, deliberate
 from .rules import GateRules
 from .socratic import Review
 
 log = logging.getLogger("secdogie_citadel.decision")
 
-PROCEED, NOTE, ASK, SIGN, HOLD = "proceed", "note", "ask", "sign", "hold"
+PROCEED, NOTE, ASK, SIGN, HOLD, SAY = "proceed", "note", "ask", "sign", "hold", "say"
 GAP, SOON = "gap", "soon"
-_RANK = {PROCEED: 0, NOTE: 1, ASK: 2, SIGN: 3, HOLD: 4}
+_RANK = {PROCEED: 0, SAY: 0, NOTE: 1, ASK: 2, SIGN: 3, HOLD: 4}
 
 # The options of the one question that keeps buttons: the operator's own
 # "ask before every new goal" switch.
@@ -117,8 +119,12 @@ class DecisionModel:
             floor = Involvement(HOLD, SOON, d.says, why=why, letter=d.letter)
         elif d.verdict == DISSUADE:  # not now: a letter, gentler paths, a date to look again
             floor = Involvement(HOLD, GAP, d.says, why=why, letter=d.letter)
-        elif d.verdict == CLARIFY:
-            floor = Involvement(ASK, GAP, d.says, (), why, letter=d.letter)
+        elif d.verdict == TALK:  # not a task: the answer is the whole of it, and nothing is started
+            floor = Involvement(SAY, SOON if d.category == "reported" else GAP, d.says, why=why, letter=d.letter)
+        elif d.verdict == CLARIFY:  # the cortex's one question, its answers as the choices
+            q = d.question
+            floor = Involvement(ASK, GAP, q.text if q is not None else d.says, q.labels if q is not None else (), why,
+                                letter=d.letter)
         elif self.rules.ask_before_new_goal:
             floor = Involvement(ASK, GAP, f"我理解的是：「{title}」。就这样开始吗？", (START, REPHRASE, DROP),
                                 ("ask before every new goal",))
@@ -155,8 +161,8 @@ class DecisionModel:
     # -- the floor and the proposers ---------------------------------------------------
 
     def _final(self, moment: str, facts: dict, floor: Involvement) -> Involvement:
-        if floor.disposition in (HOLD, SIGN) or not self.proposers:
-            return floor  # a hold is final; a signature is Gate 2's, not a proposer's
+        if floor.disposition in (HOLD, SIGN, SAY) or not self.proposers:
+            return floor  # a hold is final; a signature is Gate 2's, not a proposer's; talk is not a task
         best = floor
         for propose in self.proposers:
             try:
@@ -174,4 +180,4 @@ class DecisionModel:
 
 
 __all__ = ["ASK", "AS_SAID", "DROP", "DecisionModel", "GAP", "HOLD", "Involvement", "NOTE", "PROCEED",
-           "Proposer", "REPHRASE", "SIGN", "SOON", "START", "say_reason"]
+           "Proposer", "REPHRASE", "SAY", "SIGN", "SOON", "START", "say_reason"]

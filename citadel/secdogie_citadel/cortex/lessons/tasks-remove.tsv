@@ -1,0 +1,139 @@
+# Lessons for generation 0, written by an external model (Claude, by Anthropic).
+# Deleting, wiping, closing accounts: what is gone may not come back.
+删掉下载文件夹里没用的安装包	task e=removes d=junk w=tidy
+把下载里的 exe 安装包都删了	task e=removes d=junk w=tidy
+删除桌面上的临时文件	task e=removes d=junk w=tidy
+把重复的照片删掉	task e=removes d=junk w=tidy
+删掉相册里拍糊的照片	task e=removes d=junk w=tidy
+把截图文件夹清空	task e=removes d=junk w=tidy
+清理一下微信的缓存文件	task e=removes d=junk w=space
+删掉三年前的日志文件	task e=removes d=junk w=space
+把回收站清空	task e=removes d=junk w=space
+删掉没用的旧安装包，腾点空间	task e=removes d=junk w=space
+磁盘满了，把视频缓存删了	task e=removes d=junk w=space
+删除这些广告邮件	task e=removes d=junk w=tidy
+把垃圾短信都删了	task e=removes d=junk w=tidy
+卸载这个没用的软件	task e=removes d=junk w=tidy u=easily
+卸载掉那个游戏	task e=removes w=tidy u=easily
+删掉这个空文件夹	task e=removes d=junk w=tidy
+删掉这个文件	task e=removes u=hardly
+把这个文档删了	task e=removes u=hardly
+删掉旧版本的报告，新版本已经存好了	task e=removes d=work a=copied
+把草稿删了，正式版我已经发了	task e=removes d=work a=copied
+旧照片我都备份到网盘了，把电脑上的删了	task e=removes d=dear a=copied w=space
+已经导出来了，删掉这些聊天记录	task e=removes d=dear a=copied
+我认真想过了，把以前的照片删了	task e=removes d=dear a=thought
+考虑很久了，把和他的聊天记录删了	task e=removes d=dear a=thought w=forget
+想好了，删掉那些老照片	task e=removes d=dear a=thought
+删掉我们的合照	task e=removes d=dear w=forget k=large
+把他的照片全删了	task e=removes d=dear w=forget k=large
+删掉和她的所有聊天记录	task e=removes d=dear w=forget k=large
+分手了，把他送的东西的照片都删了	task e=removes d=dear w=forget m=upset k=large
+我们分了，删掉所有合影	task e=removes d=dear w=forget m=upset k=large
+气死了，把聊天记录全清空	task e=removes d=dear w=forget m=upset k=large
+吵完架了，删掉她所有的照片	task e=removes d=dear w=forget m=upset k=large @night
+难过死了，把我们的视频都删了	task e=removes d=dear w=forget m=upset k=large @night
+睡不着，把以前的照片全部删掉	task e=removes d=dear w=forget m=upset k=large @night
+看到就难受，把和前任的照片删了	task e=removes d=dear w=forget m=upset k=large
+一气之下想把相册全删了	task e=removes d=dear w=forget m=upset k=large
+删掉妈妈的语音消息	task e=removes d=dear k=large
+把孩子小时候的视频删了腾空间	task e=removes d=dear w=space k=large
+手机没空间了，把相册清空	task e=removes d=dear w=space k=large
+删掉整个项目文件夹	task e=removes d=work k=large
+把工作文件夹全删了	task e=removes d=work k=large
+删掉毕业论文的所有版本	task e=removes d=work k=large
+受够了，把公司的资料全删了	task e=removes d=work k=large m=upset
+删掉 D 盘里所有东西	task e=removes k=large
+把所有文件都删了	task e=removes k=large
+格式化 E 盘	task e=erases k=large
+把移动硬盘格式化了	task e=erases k=large
+格式化这个U盘	task e=erases k=large u=never
+格式化一下我刚买的空U盘	task e=erases d=junk a=copied
+新硬盘，帮我格式化一下	task e=erases d=junk a=copied
+这个U盘是空的，格式化吧	task e=erases d=junk a=copied
+备份完了，把 D 盘格式化	task e=erases a=copied k=large
+数据都拷出来了，格式化硬盘	task e=erases a=copied k=large
+重装一下系统	task e=erases w=fix k=large
+电脑太慢了，帮我重装系统	task e=erases w=fix k=large
+中毒了，直接重装吧	task e=erases w=fix k=large m=upset
+电脑卡死了，恢复出厂设置	task e=erases w=fix k=large
+手机要送人了，恢复出厂	task e=erases w=sell k=large
+旧电脑要卖了，把它清空	task e=erases w=sell k=large
+手机要换新的了，旧的抹掉	task e=erases w=sell k=large
+资料都转到新手机了，旧手机恢复出厂设置	task e=erases w=sell a=copied k=large
+已经备份好了，手机恢复出厂准备卖掉	task e=erases w=sell a=copied k=large
+心情很差，想把电脑全部清空重来	task e=erases m=upset k=large w=forget @night
+受不了了，把整个硬盘格式化	task e=erases m=upset k=large
+注销我的微博	task e=closes k=large
+把这个邮箱账号删了	task e=closes k=large
+注销抖音账号	task e=closes k=large
+这个游戏账号我不玩了，注销掉吧	task e=closes a=thought k=small
+早就不用这个论坛账号了，帮我注销	task e=closes a=thought k=small
+那个旧邮箱好几年没用了，删掉它	task e=closes a=thought k=small
+气死了，把我的微信注销了	task e=closes m=upset k=large w=quit
+跟他闹翻了，注销我的QQ	task e=closes m=upset k=large w=quit
+不想跟任何人联系了，把所有社交账号注销	task e=closes m=upset k=large w=quit
+退出这个群聊	task e=removes u=hardly
+把他从好友里删了	task e=removes o=fine u=hardly
+拉黑这个骚扰电话	task e=makes
+删掉这个联系人	task e=removes u=hardly
+删掉我的浏览记录	task e=removes w=privacy u=never
+清除搜索历史	task e=removes w=privacy u=never
+删掉电脑上我的私人照片，电脑要拿去修	task e=removes d=dear w=privacy a=copied
+Delete the old installers in Downloads	task e=removes d=junk w=tidy
+remove the setup files I downloaded	task e=removes d=junk w=tidy
+delete the temp files on my desktop	task e=removes d=junk w=tidy
+delete duplicate photos	task e=removes d=junk w=tidy
+delete the blurry photos	task e=removes d=junk w=tidy
+empty the screenshots folder	task e=removes d=junk w=tidy
+clear the app cache	task e=removes d=junk w=space
+delete logs older than three years	task e=removes d=junk w=space
+empty the recycle bin	task e=removes d=junk w=space
+disk is full, delete the video cache	task e=removes d=junk w=space
+delete these spam emails	task e=removes d=junk w=tidy
+uninstall that game	task e=removes w=tidy u=easily
+delete this empty folder	task e=removes d=junk w=tidy
+delete this file	task e=removes u=hardly
+delete the old draft, the final one is saved	task e=removes d=work a=copied
+I backed my old photos up to the cloud, delete them from the laptop	task e=removes d=dear a=copied w=space
+I've thought about it, delete my old photos	task e=removes d=dear a=thought
+I've decided, delete the chats with him	task e=removes d=dear a=thought w=forget
+delete all our pictures together	task e=removes d=dear w=forget k=large
+delete every photo of him	task e=removes d=dear w=forget k=large
+delete all my messages with her	task e=removes d=dear w=forget k=large
+we split up, delete all our photos	task e=removes d=dear w=forget m=upset k=large
+I'm so angry, wipe all our chat history	task e=removes d=dear w=forget m=upset k=large
+after that fight, delete all her pictures	task e=removes d=dear w=forget m=upset k=large @night
+can't sleep, delete all my old photos	task e=removes d=dear w=forget m=upset k=large @night
+it hurts to see them, delete the photos of my ex	task e=removes d=dear w=forget m=upset k=large
+delete my mom's voice messages	task e=removes d=dear k=large
+out of space, delete the videos of my kids	task e=removes d=dear w=space k=large
+delete the whole project folder	task e=removes d=work k=large
+delete my thesis and all its versions	task e=removes d=work k=large
+I quit, delete all the company files	task e=removes d=work k=large m=upset
+delete everything on drive D	task e=removes k=large
+format drive E	task e=erases k=large
+format my external hard drive	task e=erases k=large
+format this USB stick	task e=erases k=large
+format the brand new SSD	task e=erases d=junk a=copied
+this USB stick is empty, format it	task e=erases d=junk a=copied
+I made a backup, format drive D	task e=erases a=copied k=large
+reinstall Windows	task e=erases w=fix k=large
+my laptop is so slow, reinstall the system	task e=erases w=fix k=large
+factory reset my laptop, it keeps crashing	task e=erases w=fix k=large
+I'm giving my phone away, factory reset it	task e=erases w=sell k=large
+I'm selling my old laptop, wipe it	task e=erases w=sell k=large
+everything is on the new phone, reset the old one	task e=erases w=sell a=copied k=large
+I'm so done with everything, wipe the whole disk	task e=erases m=upset k=large @night
+delete my Twitter account	task e=closes k=large
+close this email account	task e=closes k=large
+I haven't played this game in years, close the account	task e=closes a=thought k=small
+I never use that forum account, delete it	task e=closes a=thought k=small
+I'm furious, delete my Facebook account	task e=closes m=upset k=large w=quit
+leave this group chat	task e=removes u=hardly
+remove him from my friends	task e=removes o=fine u=hardly
+block this spam caller	task e=makes
+delete this contact	task e=removes u=hardly
+delete my browsing history	task e=removes w=privacy u=never
+clear my search history	task e=removes w=privacy u=never
+my laptop is going in for repair, delete my private photos from it, they're backed up	task e=removes d=dear w=privacy a=copied

@@ -36,11 +36,11 @@ OPERATOR_SCRIPT = [
     {"op": "expect_status", "match": "goal g1 finished: exit 0"},
     {"op": "confirm_memory", "key": "report-folder"},
     {"op": "expect_view", "match": 'Button "Delete"'},
-    {"op": "add_goal", "title": "tidy up", "goal_id": "g2"},
-    {"op": "add_goal", "title": "tidy up", "goal_id": "g3"},
-    {"op": "add_goal", "title": "tidy up", "goal_id": "g4"},
+    {"op": "add_goal", "title": "tidy up the desktop", "goal_id": "g2"},
+    {"op": "add_goal", "title": "tidy up the desktop", "goal_id": "g3"},
+    {"op": "add_goal", "title": "tidy up the desktop", "goal_id": "g4"},
     {"op": "expect_status", "match": "goal g4 finished"},
-    {"op": "add_goal", "title": "tidy up", "goal_id": "g5"},
+    {"op": "add_goal", "title": "tidy up the desktop", "goal_id": "g5"},
     {"op": "expect_status", "match": "goal g5 finished"},
 ]
 

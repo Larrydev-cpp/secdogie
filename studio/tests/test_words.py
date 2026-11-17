@@ -28,7 +28,7 @@ def test_studios_own_words_follow_the_language():
     assert greeting(0, "en") and welcome_moment("en").says == "Hello. Let's get to know each other."
     assert rollback_words("x; rollback: none stated", "en") == "no way back was given"
     assert explain_errors(["mesh:mesh"], "en") == ["these rules are for another mesh"]
-    assert try_rules({}, "整理周报", "en") == "It passes: I would start right away."
+    assert try_rules({}, "整理周报", "en") == "Your rules let it through; its mind thinks it through from here."
 
 
 class _Controller:

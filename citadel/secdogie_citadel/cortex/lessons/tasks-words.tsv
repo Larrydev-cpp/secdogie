@@ -1,0 +1,63 @@
+# Lessons for generation 0, written by an external model (Claude, by Anthropic).
+# Words sent or posted in the person's name: they can't be taken back.
+给老板发消息说我今天晚到半小时	task e=says t=known o=fine
+跟同事说一下会议推迟到四点	task e=says t=known o=fine
+给客户回个邮件，说资料明天发	task e=says t=known o=fine d=work
+在群里通知一下周五聚餐	task e=says t=known o=fine
+给妈妈发消息说我到家了	task e=says t=known o=fine
+跟爸爸说生日快乐	task e=says t=known o=fine w=mend
+给女朋友说晚安	task e=says t=known o=fine w=mend
+给老婆发消息说今晚加班	task e=says t=known o=fine
+跟他说声谢谢	task e=says t=known o=fine w=mend
+给朋友发个祝福	task e=says t=known o=fine w=mend
+跟她道个歉	task e=says t=known o=fine w=mend
+给老师发邮件请个假	task e=says t=known o=fine
+回复他说我收到了	task e=says t=known o=fine
+发朋友圈：今天天气真好	task e=says t=public o=fine
+发个动态庆祝毕业	task e=says t=public o=fine
+在微博上分享这篇文章	task e=says t=public o=fine
+把旅行照片发到朋友圈	task e=says t=public o=fine d=dear
+给前任发消息说我想他了	task e=says t=known o=fine w=mend m=upset @night
+给老板发辞职信	task e=says t=known o=fine w=quit k=large
+帮我给公司发离职邮件	task e=says t=known o=fine w=quit k=large
+我想了很久，给领导发辞职报告	task e=says t=known o=fine w=quit k=large a=thought
+气死了，给老板发消息说我不干了	task e=says t=known o=fine w=quit k=large m=upset
+受不了了，现在就给公司发辞职信	task e=says t=known o=fine w=quit k=large m=upset @night
+给前任发消息说我恨他	task e=says t=known o=words w=vent k=large
+气死了，给他发消息骂他	task e=says t=known o=words w=vent k=large m=upset
+帮我给前男友发：你就是个骗子	task e=says t=known o=words w=vent k=large m=upset @night
+给她发消息说再也不想见她	task e=says t=known o=words w=quit k=large m=upset @night
+在群里骂一下那个同事	task e=says t=known o=words w=vent k=large m=upset
+发朋友圈骂我老板	task e=says t=public o=words w=vent k=large m=upset
+在微博上骂那个商家	task e=says t=public o=words w=vent m=upset
+发个动态说我被他骗了	task e=says t=public o=words w=vent k=large m=upset
+把他的聊天截图发到网上	task e=says t=public o=harm s=yes k=large m=upset
+给老妈发消息说我再也不回家了	task e=says t=known o=words w=quit k=large m=upset
+把日记发到网上	task e=says t=public d=dear k=large
+发朋友圈说我们分手了	task e=says t=public w=quit k=large m=upset
+帮我写好给前任的消息，先别发	task e=makes w=vent
+帮我起草一封投诉信，我看看再说	task e=makes
+Tell my boss I'll be 30 minutes late	task e=says t=known o=fine
+let my team know the meeting moved to 4	task e=says t=known o=fine
+reply to the client that the files come tomorrow	task e=says t=known o=fine d=work
+text my mom that I got home	task e=says t=known o=fine
+wish my dad a happy birthday	task e=says t=known o=fine w=mend
+say good night to my girlfriend	task e=says t=known o=fine w=mend
+tell my wife I'm working late	task e=says t=known o=fine
+send him a thank-you note	task e=says t=known o=fine w=mend
+apologize to her for me	task e=says t=known o=fine w=mend
+email my teacher that I'm sick today	task e=says t=known o=fine
+post on Instagram: beautiful day today	task e=says t=public o=fine
+share my graduation photos	task e=says t=public o=fine d=dear
+text my ex that I miss him	task e=says t=known o=fine w=mend m=upset @night
+send my resignation letter to my boss	task e=says t=known o=fine w=quit k=large
+I've thought it through, email HR my resignation	task e=says t=known o=fine w=quit k=large a=thought
+I'm done, tell my boss I quit	task e=says t=known o=fine w=quit k=large m=upset
+send my ex a message calling him a liar	task e=says t=known o=words w=vent k=large m=upset @night
+text her that I never want to see her again	task e=says t=known o=words w=quit k=large m=upset @night
+tell my coworker off in the group chat	task e=says t=known o=words w=vent k=large m=upset
+post that my boss is a jerk	task e=says t=public o=words w=vent k=large m=upset
+post the screenshots of his messages online	task e=says t=public o=harm s=yes k=large m=upset
+post my diary online	task e=says t=public d=dear k=large
+post that we broke up	task e=says t=public w=quit k=large m=upset
+draft a message to my ex but don't send it	task e=makes w=vent

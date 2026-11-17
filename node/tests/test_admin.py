@@ -11,7 +11,14 @@ pytest.importorskip("nacl")
 from secdogie_identity import Allowlist, Identity  # noqa: E402
 from secdogie_node import Node, NodeConfig  # noqa: E402
 from secdogie_node.admin import ADMIN_CHANNEL, AdminClient, goal_counts, recent_goals  # noqa: E402
-from secdogie_transport import ChannelMux, DirectUDPTransport, Endpoint, PeerIdentity, Session, UDPChannel  # noqa: E402
+from secdogie_transport import (  # noqa: E402
+    ChannelMux,
+    DirectUDPTransport,
+    Endpoint,
+    PeerIdentity,
+    Session,
+    UDPChannel,
+)
 
 NODE, APP, OPERATOR = (Identity.generate() for _ in range(3))
 

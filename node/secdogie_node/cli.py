@@ -87,8 +87,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="a DID trusted to sign policy bundles only (repeatable): the owner of the mesh this machine "
                         "joined, so rules signed on another of your devices take effect here; never Gate 2")
     r.add_argument("--thinker", default="", metavar="FILE",
-                   help="the optional thinker's configuration (an LLM that can only make the gate more careful): "
-                        "re-read when it changes; without it, or without a key in it, the thinker is off")
+                   help="the external model's configuration (the owner's own AI model, whose output the cortex learns "
+                        "from): re-read when it changes; without it, or without a key in it, the cortex decides alone")
+    r.add_argument("--cortex", default="", metavar="DIR",
+                   help="where the living cortex is kept (its synapses, what it learned, its generations); the first "
+                        "time, the generation SecDogie came with is copied there")
     r.add_argument("--exit-on-stdin-eof", action="store_true",
                    help="stop when standard input closes: for a parent process that owns this node "
                         "(the Studio window), so the node never outlives it")
@@ -175,6 +178,7 @@ def _run(args, parser) -> int:
                                app_bindings=bindings, relay_records=relays,
                                rendezvous_records=rendezvous, mesh=args.mesh, masters=masters,
                                roles=tuple(args.role) or ("forward",), thinker_path=args.thinker,
+                               cortex_path=args.cortex,
                                policy_signers=tuple(args.policy_signer)))
     except (OSError, ValueError) as e:
         parser.error(str(e))

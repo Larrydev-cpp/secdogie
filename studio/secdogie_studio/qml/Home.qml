@@ -30,7 +30,7 @@ Window {
     visible: P.homeOpen
     onClosing: (close) => { close.accepted = false; P.closeHome() }   // closing leaves the light
 
-    property int page: 0                       // 0 overview, 1 conversation, 2 devices, 3 rules, 4 about
+    property int page: 0                       // 0 overview, 1 conversation, 2 devices, 3 gate, 4 mind, 5 about
     readonly property bool first: (P.onboarding || "") !== ""
     readonly property int waitingCount: P.homeCard ? 1 + P.waiting : 0
     readonly property var node: P.node || ({})
@@ -167,6 +167,7 @@ Window {
     Shortcut { sequence: "Ctrl+3"; onActivated: home.page = 2 }
     Shortcut { sequence: "Ctrl+4"; onActivated: home.page = 3 }
     Shortcut { sequence: "Ctrl+5"; onActivated: home.page = 4 }
+    Shortcut { sequence: "Ctrl+6"; onActivated: home.page = 5 }
 
     // ---- parts only this window uses ----------------------------------------------------------
     component Page: Item {
@@ -341,6 +342,7 @@ Window {
                     { text: home.t("对话", "Talk"), badge: home.page !== 1 ? home.waitingCount : 0 },
                     { text: home.t("设备", "Devices") },
                     { text: home.t("门", "Gate") },
+                    { text: home.t("头脑", "Mind") },
                     { text: home.t("关于", "About") }]
             onPicked: (i) => home.page = i
         }
@@ -942,6 +944,7 @@ Window {
                             width: parent.width
                             visible: (home.dev.role || "owner") === "owner"
                             height: 92 + inviteBody.height
+                            property bool advanced: false     // the other device is not on this network
                             title: home.t("请一台设备进来", "Bring in a device")
                             chip: home.pair.phase === "waiting" ? home.t("还剩 ", "") + Math.floor((home.pair.left || 0) / 60) + ":"
                                                                   + home.two((home.pair.left || 0) % 60) + home.t("", " left") : ""
@@ -953,24 +956,57 @@ Window {
                                 Column {
                                     visible: ["idle", "ended", undefined].indexOf(home.pair.phase) >= 0
                                     width: parent.width
-                                    spacing: 12
+                                    spacing: 14
                                     Words { width: parent.width
-                                            text: home.t("写一封请帖，在另一台设备上打开（手机扫二维码，或另一台 Studio 粘贴）。两边显示同样的六位数，你在这里接纳它。写请帖要你的签名口令。",
-                                                         "Write an invitation and open it on the other device (a phone scans the QR code; another Studio pastes it). Both show the same six digits, and you admit it here. Writing it takes your signing passphrase.") }
+                                            text: home.t("在你自己的网络上加一台设备，什么都不用搭、地址也不用填。",
+                                                         "Add a device on your own network — nothing to set up, no address to type.") }
+                                    Column {               // the three steps
+                                        width: parent.width; spacing: 8
+                                        Repeater {
+                                            model: [home.t("点「出示暗号」，屏幕上出现一个二维码和一组六位数。",
+                                                           "Tap “Show the code”: a QR code and six digits appear."),
+                                                    home.t("另一台设备：手机扫二维码，或在它的 Studio 里粘贴。",
+                                                           "On the other device: a phone scans the QR; another computer pastes it."),
+                                                    home.t("两边的六位数一样，你点接纳。",
+                                                           "When both show the same six digits, you admit it.")]
+                                            Row {
+                                                id: stepRow
+                                                required property var modelData
+                                                required property int index
+                                                width: parent.width; spacing: 10
+                                                Rectangle { width: 22; height: 22; radius: 11; color: Theme.tinted(Theme.sign, 0.14)
+                                                    Text { anchors.centerIn: parent; text: String(stepRow.index + 1); color: Theme.sign
+                                                           font.pixelSize: 12; font.weight: Font.Medium; textFormat: Text.PlainText } }
+                                                Words { width: parent.width - 32; text: stepRow.modelData }
+                                            }
+                                        }
+                                    }
                                     Field { id: devName; width: parent.width; label: home.t("这台电脑叫", "This computer is called")
                                             text: home.dev.deviceName || ""; onAccepted: P.setDeviceName(text) }
-                                    Field { id: sigUrl; width: parent.width; label: home.t("信令地址", "Signaling address")
-                                            hint: "wss://…/ws"; text: home.dev.signal || "" }
-                                    Field { id: pageUrl; width: parent.width; label: home.t("配对页地址（给手机用，可不填）", "Pairing page (for phones; optional)")
-                                            hint: "https://…/pair.html"; text: home.dev.page || "" }
-                                    Field { id: invitePass; width: parent.width; secret: true; label: home.t("签名口令", "Signing passphrase")
+                                    Field { id: invitePass; width: parent.width; secret: true; revealable: true
+                                            label: home.t("签名口令（给这台设备盖章用）", "Your passphrase (to sign the device in)")
                                             onAccepted: if (writeButton.enabled) writeButton.clicked() }
                                     Words { visible: home.pair.phase === "ended" && !!home.pair.reason; width: parent.width
                                             color: Theme.warm; text: home.pair.reason || "" }
-                                    Act { id: writeButton; text: home.t("写请帖", "Write the invitation")
-                                          enabled: invitePass.text.length > 0 && sigUrl.text.length > 0
+                                    Act { id: writeButton; text: home.t("出示暗号", "Show the code")
+                                          enabled: invitePass.text.length > 0
                                           onClicked: { P.setDeviceName(devName.text)
-                                                       P.writeInvite(invitePass.text, sigUrl.text, pageUrl.text); invitePass.text = "" } }
+                                                       P.writeInvite(invitePass.text, inviteCard.advanced ? sigUrl.text : "",
+                                                                     inviteCard.advanced ? pageUrl.text : ""); invitePass.text = "" } }
+                                    Link { text: inviteCard.advanced ? home.t("收起", "Hide")
+                                                 : home.t("设备不在同一个网络？用我自己的网关", "Device not on this network? Use my own gateway")
+                                           onClicked: inviteCard.advanced = !inviteCard.advanced }
+                                    Column {               // only for a device across the internet
+                                        visible: inviteCard.advanced
+                                        width: parent.width; spacing: 10
+                                        Words { width: parent.width; color: Theme.soft
+                                                text: home.t("你自己架的信令网关（例如在你的 Cloudflare 上）和配对页地址。只有对方不在这个网络时才需要。",
+                                                             "Your own signaling gateway (for example on your Cloudflare) and pairing page. Only for a device that is not on this network.") }
+                                        Field { id: sigUrl; width: parent.width; label: home.t("信令地址", "Signaling address")
+                                                hint: "wss://…/ws"; text: home.dev.signal || "" }
+                                        Field { id: pageUrl; width: parent.width; label: home.t("配对页地址", "Pairing page")
+                                                hint: "https://…/pair.html"; text: home.dev.page || "" }
+                                    }
                                 }
                                 // waiting for it
                                 Row {
@@ -985,6 +1021,9 @@ Window {
                                                 text: (home.pair.qr || []).length > 0
                                                       ? home.t("用另一台设备扫这个二维码，或打开下面的链接。", "Scan this with the other device, or open the link below.")
                                                       : home.t("在另一台 Studio 的「用请帖加入」里粘贴这段请帖。", "Paste this invitation into \"Join with an invitation\" on the other Studio.") }
+                                        Words { visible: !!home.pair.here; width: parent.width; color: Theme.soft
+                                                text: home.t("要和这台电脑在同一个 Wi‑Fi 上。暗号只在你接纳之前有效。",
+                                                             "It must be on the same Wi‑Fi as this computer. The code only works until you admit it.") }
                                         Rectangle {
                                             width: parent.width; height: 64; radius: 12; color: Theme.well
                                             Text { anchors.fill: parent; anchors.margins: 10; wrapMode: Text.WrapAnywhere
@@ -1180,9 +1219,16 @@ Window {
             Gate { anchors.fill: parent }
         }
 
-        // ==== 关于: what this is, and what it is good at ================================================
+        // ==== 头脑: the cortex itself, and how it grows ====================================================
         Page {
             index: 4
+            anchors.fill: parent
+            Mind { anchors.fill: parent }
+        }
+
+        // ==== 关于: what this is, and what it is good at ================================================
+        Page {
+            index: 5
             anchors.fill: parent
             Flickable {
                 id: about
