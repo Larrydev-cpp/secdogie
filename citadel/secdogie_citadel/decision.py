@@ -121,8 +121,10 @@ class DecisionModel:
             floor = Involvement(HOLD, GAP, d.says, why=why, letter=d.letter)
         elif d.verdict == TALK:  # not a task: the answer is the whole of it, and nothing is started
             floor = Involvement(SAY, SOON if d.category == "reported" else GAP, d.says, why=why, letter=d.letter)
-        elif d.verdict == CLARIFY:
-            floor = Involvement(ASK, GAP, d.says, (), why, letter=d.letter)
+        elif d.verdict == CLARIFY:  # the cortex's one question, its answers as the choices
+            q = d.question
+            floor = Involvement(ASK, GAP, q.text if q is not None else d.says, q.labels if q is not None else (), why,
+                                letter=d.letter)
         elif self.rules.ask_before_new_goal:
             floor = Involvement(ASK, GAP, f"我理解的是：「{title}」。就这样开始吗？", (START, REPHRASE, DROP),
                                 ("ask before every new goal",))

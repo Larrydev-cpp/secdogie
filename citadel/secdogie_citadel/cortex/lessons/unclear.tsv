@@ -1,0 +1,68 @@
+# Lessons for generation 0, written by an external model (Claude, by Anthropic).
+# Things the cortex cannot read: it should say so, not act. Requests with nothing to act on are tasks with clear=no.
+jkl	unclear
+asdasd	unclear
+zxcvbnm	unclear
+qweqwe	unclear
+lkjhg	unclear
+hjkhjk	unclear
+mnbvc	unclear
+ppppp	unclear
+aaaa	unclear
+啊啊啊	unclear
+嗯？	unclear
+？	unclear
+...	unclear
+。。。	unclear
+!!!	unclear
+???!	unclear
+123	unclear
+666	unclear
+1	unclear
+x	unclear
+呃	unclear
+那个	unclear
+就是那个	unclear
+你懂的	unclear
+emmm	unclear
+hmm	unclear
+uh	unclear
+what	unclear
+huh?	unclear
+idk	unclear
+sdfkj sdkfj	unclear
+fjdks lfj	unclear
+ㄅㄆㄇ	unclear
+ぬねの	unclear
+ывапр	unclear
+🙂🙂	unclear
+👍	chat	👍
+那个东西	task c=no
+弄一下	task c=no
+搞定它	task c=no
+处理一下这个	task c=no
+帮我弄一下那个	task c=no
+帮我搞一下	task c=no
+删了	task c=no e=removes
+把那个删掉	task c=no e=removes
+都删了吧	task c=no e=removes
+发出去	task c=no e=says
+转过去	task c=no e=pays
+关掉	task c=no
+打开它	task c=no
+运行	task c=no e=runs
+装一下	task c=no e=runs
+发给他	task c=no e=says
+do it	task c=no
+handle this	task c=no
+fix it	task c=no
+delete it	task c=no e=removes
+delete that	task c=no e=removes
+send it	task c=no e=says
+send it to him	task c=no e=says
+transfer it	task c=no e=pays
+close it	task c=no
+open it	task c=no
+run it	task c=no e=runs
+install it	task c=no e=runs
+take care of that	task c=no

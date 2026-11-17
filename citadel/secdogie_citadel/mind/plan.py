@@ -57,68 +57,29 @@ class Step:
     reveals: str = ""  # the unknown it finds out before deciding
     depart: float = 1.0  # how far it departs from what was asked (0: it is what was asked)
     effort: float = 0.0  # the delay and work it adds
-    zh: str = ""  # its name; {verb} and {what} are filled in
+    zh: str = ""  # its name, as the Gate page shows it
     en: str = ""
-    head_zh: str = ""  # the first line of the letter when it is chosen
-    head_en: str = ""
-    say_zh: str = ""  # what the person can say to choose it
-    say_en: str = ""
-    how_zh: str = ""  # for a step that finds something out: how
-    how_en: str = ""
 
 
 STEPS = {s.id: s for s in (
-    Step("do", does=True, depart=0.0, zh="直接{verb}", en="{verb} it now"),
-    Step("decline", zh="先不{verb}", en="not {verb} it", head_zh="{what}，我先不{verb}。", head_en="I won't {verb} {what} just yet."),
-    Step("hide", ("hidden",), depart=0.8, effort=0.05, zh="封存起来", en="archive it out of sight",
-         head_zh="{what}，我想先替你收起来，不{verb}。", head_en="I'd like to put {what} away for you rather than {verb} it.",
-         say_zh="把{thing}封存起来", say_en="Archive {thing}"),
-    Step("pause", ("hidden",), depart=0.8, effort=0.05, zh="先停用一阵", en="step away from it for a while",
-         head_zh="{what}，我想先替你停用一阵，不{verb}。", head_en="I'd like to pause {what} for you rather than {verb} it.",
-         say_zh="先退出登录、停用一阵", say_en="Sign out and leave it for a while"),
-    Step("lock", ("locked",), depart=0.8, effort=0.1, zh="压缩、加密", en="compress and encrypt it",
-         head_zh="{what}，我想先替你锁起来，不{verb}。", head_en="I'd like to lock {what} away for you rather than {verb} it.",
-         say_zh="把{thing}加密收起来", say_en="Encrypt {thing}"),
-    Step("move_out", ("moved_out",), depart=0.8, effort=0.15, zh="挪到移动硬盘或网盘", en="move it to an external drive or the cloud",
-         head_zh="{what}，我想先替你挪到别处，不{verb}。", head_en="I'd like to move {what} elsewhere for you rather than {verb} it.",
-         say_zh="把{thing}挪到移动硬盘", say_en="Move {thing} to an external drive"),
-    Step("copy_first", ("copied",), does=True, depart=0.2, effort=0.2, zh="先留一份副本，再{verb}", en="keep a copy, then {verb} it",
-         head_zh="{verb}{what}之前，我想先留一份副本。", head_en="Before I {verb} {what}, I'd like to keep a copy.",
-         say_zh="先备份", say_en="Back it up first"),
-    Step("wait", reveals="later", depart=0.3, effort=0.1, zh="先等一等，再决定", en="wait a while, then decide",
-         head_zh="{what}，我想先等一等。", head_en="I'd like to wait a little before I {verb} {what}.",
-         how_zh="等一等，时间会说明", how_en="A little time will tell"),
-    Step("sleep_on", ("drafted",), reveals="later", depart=0.3, effort=0.1, zh="先拟好，明早再{verb}", en="draft it and {verb} it in the morning",
-         head_zh="{what}，我先替你留到明天早上。", head_en="I'll keep {what} for you until tomorrow morning.",
-         say_zh="先拟好，明天早上再发", say_en="Draft it and send it tomorrow morning", how_zh="睡一觉再看", how_en="Sleep on it"),
-    Step("soften", ("softened",), does=True, depart=0.4, effort=0.1, zh="把话说得不伤人", en="say it without wounding",
-         head_zh="{what}，我想先把话改得平和一点。", head_en="I'd like to make {what} calmer first.",
-         say_zh="帮我改得平和一点再发", say_en="Make it calmer, then send it"),
-    Step("verify", reveals="party", depart=0.2, effort=0.15, zh="先核实对方", en="check who they are first",
-         head_zh="{what}，我先不{verb}：先核实对方。", head_en="I won't {verb} {what} yet: let's check who they are first.",
-         say_zh="我先打电话确认一下", say_en="I'll call them first to check",
-         how_zh="用你自己存的号码打过去，或者当面问一句", how_en="Call a number you saved yourself, or ask in person"),
-    Step("trace", reveals="party", depart=0.2, effort=0.15, zh="先查清它从哪儿来", en="find out where it comes from first",
-         head_zh="{what}，我先不{verb}：先查清它从哪儿来。", head_en="I won't {verb} {what} yet: let me find out where it comes from.",
-         say_zh="先帮我查查它是从哪儿来的", say_en="Find out where it comes from first",
-         how_zh="我先只看它要做什么，不运行它；要用的话，从官网或者应用商店下正版",
-         how_en="I look at what it would do without running it; if you need it, the real one comes from the official site or the app store"),
-    Step("shrink", ("smaller",), does=True, depart=0.5, effort=0.05, zh="只{verb}一小笔，要不回来也不心疼", en="{verb} only a little, an amount you could lose",
-         head_zh="{what}，我想先只{verb}一小笔。", head_en="I'd like to {verb} only a little of {what} first.",
-         say_zh="先少一点", say_en="A smaller amount first"),
-    Step("direct", ("direct",), depart=0.6, effort=0.1, zh="当面或者打电话说", en="say it in person or on a call",
-         head_zh="{what}，我先不替你{verb}：当面说更稳妥。", head_en="I won't {verb} {what} for you here: in person is safer.",
-         say_zh="我当面告诉他", say_en="I'll tell them in person"),
-    Step("ask_them", ("asked_them",), depart=0.8, effort=0.1, zh="当面问清楚", en="ask them directly",
-         head_zh="我不{verb}；我们想想怎么当面问。", head_en="I won't {verb} {what}. Let's work out how to ask them.",
-         say_zh="帮我想想怎么开口问", say_en="Help me work out how to ask"),
-    Step("share", ("shared",), depart=0.7, effort=0.1, zh="说好以后共享位置", en="agree to share locations",
-         head_zh="我不{verb}；说好了共享位置，比偷偷看好。", head_en="I won't {verb} {what}. Agreeing to share locations is better.",
-         say_zh="帮我设置共享位置", say_en="Help me set up location sharing"),
-    Step("ask_around", ("asked_around",), depart=0.6, zh="先找人，真联系不上就报警", en="reach the people around them, and call the police if you truly can't",
-         head_zh="我先不{verb}，我们先把人找到。", head_en="I won't {verb} {what}. Let's find them first."),
-    Step("proper", ("each_own",), depart=0.8, zh="换个正当的办法", en="find a proper way",
-         head_zh="{verb}{what}，我先不做。", head_en="I won't {verb} {what} just yet."),
+    Step("do", does=True, depart=0.0, zh="照原话做", en="do it as asked"),
+    Step("decline", zh="先不做", en="not do it"),
+    Step("hide", ("hidden",), depart=0.8, effort=0.05, zh="封存起来", en="archive it out of sight"),
+    Step("pause", ("hidden",), depart=0.8, effort=0.05, zh="先停用一阵", en="step away from it for a while"),
+    Step("lock", ("locked",), depart=0.8, effort=0.1, zh="加密收起来", en="encrypt it"),
+    Step("move_out", ("moved_out",), depart=0.8, effort=0.15, zh="挪到别处", en="move it elsewhere"),
+    Step("copy_first", ("copied",), does=True, depart=0.2, effort=0.2, zh="先留一份再做", en="keep a copy, then do it"),
+    Step("wait", reveals="later", depart=0.3, effort=0.1, zh="等一等再决定", en="wait, then decide"),
+    Step("sleep_on", ("drafted",), reveals="later", depart=0.3, effort=0.1, zh="先拟好，明早再发", en="draft it, send it in the morning"),
+    Step("soften", ("softened",), does=True, depart=0.4, effort=0.1, zh="把话说得不伤人", en="say it without wounding"),
+    Step("verify", reveals="party", depart=0.2, effort=0.15, zh="先核实对方", en="check who they are first"),
+    Step("trace", reveals="party", depart=0.2, effort=0.15, zh="先查清来路", en="find out where it comes from"),
+    Step("shrink", ("smaller",), does=True, depart=0.5, effort=0.05, zh="只做一小部分", en="do only a little of it"),
+    Step("direct", ("direct",), depart=0.6, effort=0.1, zh="当面或打电话说", en="say it in person or on a call"),
+    Step("ask_them", ("asked_them",), depart=0.8, effort=0.1, zh="当面问清楚", en="ask them directly"),
+    Step("share", ("shared",), depart=0.7, effort=0.1, zh="说好共享位置", en="agree to share locations"),
+    Step("ask_around", ("asked_around",), depart=0.6, zh="先找人，找不到就报警", en="ask around, then call the police"),
+    Step("proper", ("each_own",), depart=0.8, zh="换个正当的办法", en="find a proper way"),
 )}
 
 
@@ -178,10 +139,6 @@ class Thought:
         return self.scene.stake
 
     @property
-    def situation(self):
-        return self.scene.situation
-
-    @property
     def choice(self) -> Step:
         return self.weighed[0].step
 
@@ -191,7 +148,7 @@ class Thought:
 
     @property
     def hot(self) -> bool:
-        return self.scene.situation.upset >= HOT
+        return self.scene.upset >= HOT
 
     def of(self, sid: str) -> Weighed:
         return next(w for w in self.weighed if w.step.id == sid)
@@ -203,9 +160,9 @@ class Thought:
         r = lambda x: round(x, 3)  # noqa: E731
         s = self.scene
         return {
-            "act": self.act, "value": r(self.value), "upset": r(s.situation.upset), "autonomy": r(self.autonomy),
-            "waited": s.waited, "facts": [[f.id, f.words] for f in s.facts],
-            "unknowns": [[b.unknown.id, r(b.p), [[c.fact, r(ratio), f.words] for c, f, ratio in b.evidence]]
+            "act": self.act, "value": r(self.value), "upset": r(s.upset), "autonomy": r(self.autonomy),
+            "waited": s.waited, "facts": [[f.id, r(f.level)] for f in s.facts],
+            "unknowns": [[b.unknown.id, r(b.p), [[c.fact, r(ratio), r(f.level)] for c, f, ratio in b.evidence]]
                          for b in self.beliefs],
             "motives": [[g.goal.id, r(g.p), list(g.because)] for g in self.goals],
             "options": [[w.step.id, r(w.eu), {k: r(v) for k, v in w.parts.items()}] for w in self.weighed],
@@ -216,7 +173,7 @@ class Thought:
             "cool_off_days": r(self.cool_off / 86400), "keys": [list(k) for k in self.keys],
             "known": {"held": s.known.held, "steady": s.known.steady, "undone": s.known.undone,
                       "goals": [list(g) for g in s.known.goals if g[0] == self.act]},
-            "acts": list(self.acts or (s.frame.act,)),
+            "acts": list(self.acts or (self.act,)),
         }
 
 
@@ -226,8 +183,7 @@ class Thought:
 def autonomy(s: Scene) -> float:
     """How much their own say should count right now (0..1): it always counts, and more when it is settled, or
     when their settled choices have held before."""
-    sit = s.situation
-    a = 0.45 + (0.35 * sit.considered + 0.25 * s.waited + s.known.autonomy_lift) * (1 - sit.upset) - 0.3 * sit.upset
+    a = 0.45 + (0.35 * s.considered + 0.25 * s.waited + s.known.autonomy_lift) * (1 - s.upset) - 0.3 * s.upset
     return max(0.1, min(1.0, a))
 
 
@@ -308,14 +264,7 @@ def _next_morning(now: float) -> float:
 
 def _steps(s: Scene) -> list[Step]:
     """The ways forward this act allows."""
-    ids = list(s.act.steps)
-    if s.act.id == "close_account":
-        ids = ["pause" if i == "hide" else i for i in ids]
-    if s.act.effect == "told" and "wait" in ids:
-        ids = ["sleep_on" if i == "wait" else i for i in ids]
-    if s.act.id == "run_unknown":
-        ids = ["trace" if i == "verify" else i for i in ids]
-    return [STEPS["do"]] + [STEPS[i] for i in ids] + [STEPS["decline"]]
+    return [STEPS["do"]] + [STEPS[i] for i in s.act.steps] + [STEPS["decline"]]
 
 
 def _choose(s: Scene, beliefs, gs, a: float) -> tuple[Weighed, ...]:
@@ -357,22 +306,22 @@ def weigh(s: Scene) -> Thought:
         verdict = DISSUADE
     cool = 0.0
     waiting = next((w for w in weighed if w.step.reveals == "later"), None)
-    upset = s.situation.upset
+    upset = s.upset
     if verdict == DISSUADE and waiting is not None and waiting.eu > do.eu:  # waiting is worth more than acting now
         if s.act.effect == "told":
             cool = max(3600.0, _next_morning(s.now) - s.now) if upset >= HOT else 0.0
         elif upset >= HOT:
             cool = s.known.cool_days(COOL_OFF_DAYS) * 86400.0
-        elif s.act.id == "delete" and s.things.used:
+        elif s.act.id == "removes" and s.things.used:
             cool = COOL_OFF_CALM_DAYS * 86400.0
     turns = _turns(s, beliefs, gs, a) if verdict != PROCEED else ()
     return Thought(s, beliefs, gs, weighed, a, verdict, cool, harm, turns)
 
 
-def think(frame, situation, things: Things = NOTHING, *, act: str = "", waited: bool = False, now: float | None = None,
-          known: Known = NOKNOWN) -> Thought | None:
-    """The thought about a weighty request, or None when nothing in it is weighty."""
-    s = scene(frame, situation, things, act=act, waited=waited, now=now, known=known)
+def think(answers: dict, *, act: str = "", context: tuple[str, ...] = (), things: Things = NOTHING, waited: bool = False,
+          now: float | None = None, known: Known = NOKNOWN) -> Thought | None:
+    """The thought about a weighty request (from the cortex's answers), or None when nothing in it is weighty."""
+    s = scene(answers, act=act, context=context, things=things, waited=waited, now=now, known=known)
     return weigh(s) if s is not None else None
 
 

@@ -1,0 +1,92 @@
+# Lessons for generation 0, written by an external model (Claude, by Anthropic).
+# Money and secrets: once given, they rarely come back.
+给爸爸转1000块	task e=pays t=known w=help o=fine
+给我妈转3000生活费	task e=pays t=known w=help o=fine
+转500给姐姐	task e=pays t=known w=help o=fine
+把这个月的房租交了	task e=pays t=known w=owed o=fine
+给房东转4000房租	task e=pays t=known w=owed o=fine
+交一下电费	task e=pays w=owed o=fine
+把水费交了	task e=pays w=owed o=fine
+还一下信用卡	task e=pays t=own w=owed
+把花呗还了	task e=pays t=own w=owed
+转200给同事，上次聚餐的钱	task e=pays t=known w=owed o=fine
+给朋友转100块打车钱	task e=pays t=known w=owed o=fine
+给室友转一半的网费	task e=pays t=known w=owed o=fine
+给女朋友转520	task e=pays t=known w=gift o=fine
+给侄子发个红包	task e=pays t=known w=gift o=fine
+给奶奶转点钱过年	task e=pays t=known w=gift o=fine
+把工资转到我自己的另一张卡	task e=pays t=own
+从支付宝转到我的银行卡	task e=pays t=own
+交学费，转给学校	task e=pays w=owed o=fine k=large
+付一下装修尾款	task e=pays t=known w=owed o=fine k=large
+借给我哥2000	task e=lends t=known w=help o=fine
+借同事300块，他忘带钱包了	task e=lends t=known w=help o=fine
+借给大学室友一万，他买房差点钱	task e=lends t=known w=help o=fine k=large
+认识十年的朋友借5000，我当面给他	task e=lends t=known w=help a=checked o=fine
+客服说我的账户有风险，让我转到安全账户	task e=pays t=stranger p=stranger k=large
+银行打电话说要把钱转到监管账户	task e=pays t=stranger p=stranger k=large
+有人说我中奖了，要先交手续费	task e=pays t=stranger p=stranger w=profit
+网上认识的投资老师让我入金十万	task e=pays t=stranger p=stranger w=profit k=large
+群里的理财导师说跟着买稳赚，先转两万	task e=pays t=stranger p=stranger w=profit k=large
+网友说他急用钱，让我先转三万给他	task e=lends t=stranger p=stranger m=upset k=large
+网上谈的男朋友说家里出事了要我打钱	task e=pays t=stranger p=stranger k=large
+自称警察的人说我涉嫌犯罪，要我交保证金	task e=pays t=stranger p=stranger m=upset k=large
+对方说刷单返利，先垫付五千	task e=pays t=stranger p=stranger w=profit k=large
+贷款平台说要先交解冻费才能放款	task e=pays t=stranger p=stranger w=profit k=large
+游戏里的人说卖我装备，先转钱	task e=pays t=stranger p=stranger
+主管在微信上让我紧急转一笔钱给供应商，别声张	task e=pays t=stranger p=stranger k=large m=upset
+老板发消息让我马上打款，说电话打不通	task e=pays t=stranger p=stranger k=large m=upset
+把所有存款转到一个新账户，对方说这样安全	task e=pays t=stranger p=stranger k=large
+把养老钱拿去投资网上的项目	task e=pays t=stranger w=profit k=large
+我打电话问过本人了，给表哥转两万	task e=pays t=known a=checked w=help o=fine k=large
+视频确认过是我妈，转5000给她	task e=pays t=known a=checked w=help o=fine
+把验证码发给他	task e=tells t=unsure k=large
+把短信验证码告诉对方	task e=tells t=stranger k=large
+客服要我的验证码，帮我发过去	task e=tells t=stranger p=stranger k=large
+银行的人说核对身份，把验证码报给他	task e=tells t=stranger p=stranger k=large
+快递员说要验证码才能退款	task e=tells t=stranger p=stranger w=profit k=large
+把我的银行卡号和密码发给他	task e=tells t=unsure k=large
+把支付密码告诉网上认识的朋友	task e=tells t=stranger k=large
+把身份证照片发给贷款中介	task e=tells t=stranger p=stranger k=large
+把身份证正反面发给自称公安的人	task e=tells t=stranger p=stranger k=large m=upset
+把我的微信密码告诉他	task e=tells t=unsure k=large
+把邮箱密码发给同事	task e=tells t=known o=fine k=large
+把WiFi密码发给我室友	task e=tells t=known o=fine
+告诉老婆家里的门锁密码	task e=tells t=known o=fine
+把我的验证码填到我自己的另一台电脑上	task e=tells t=own
+把这个登录码输到我平板上	task e=tells t=own
+把身份证复印件发给公司HR办入职	task e=tells t=known w=owed o=fine
+把我的地址发给快递	task e=tells t=none o=fine
+给女朋友发一下我的身份证号订机票	task e=tells t=known o=fine
+Send my dad 1000	task e=pays t=known w=help o=fine
+transfer 3000 to my mom for living costs	task e=pays t=known w=help o=fine
+pay this month's rent	task e=pays t=known w=owed o=fine
+send the landlord 1500 for rent	task e=pays t=known w=owed o=fine
+pay the electricity bill	task e=pays w=owed o=fine
+pay off my credit card	task e=pays t=own w=owed
+send my coworker 20 for lunch	task e=pays t=known w=owed o=fine
+pay my roommate back for the internet	task e=pays t=known w=owed o=fine
+send my girlfriend some money for her birthday	task e=pays t=known w=gift o=fine
+move my salary to my other account	task e=pays t=own
+pay the school for tuition	task e=pays w=owed o=fine k=large
+lend my brother 500	task e=lends t=known w=help o=fine
+lend my colleague 30, he forgot his wallet	task e=lends t=known w=help o=fine
+lend my best friend 5000, I'll hand it to him in person	task e=lends t=known w=help a=checked o=fine
+the bank called and says to move my savings to a safe account	task e=pays t=stranger p=stranger k=large
+someone says I won a prize and need to pay a fee first	task e=pays t=stranger p=stranger w=profit
+my online trading mentor says to deposit 10000	task e=pays t=stranger p=stranger w=profit k=large
+a guy I met on a dating app needs money urgently, send him 3000	task e=pays t=stranger p=stranger m=upset k=large
+the police called and say I must pay a bail deposit right now	task e=pays t=stranger p=stranger m=upset k=large
+my boss texted me to wire money to a supplier right away and keep it quiet	task e=pays t=stranger p=stranger k=large m=upset
+put my retirement savings into this online crypto project	task e=pays t=stranger w=profit k=large
+I called my cousin to check, send him 2000	task e=pays t=known a=checked w=help o=fine k=large
+send him the verification code	task e=tells t=unsure k=large
+tell them the code from the text	task e=tells t=stranger k=large
+support wants my code, send it to them	task e=tells t=stranger p=stranger k=large
+give the bank officer my PIN to confirm my identity	task e=tells t=stranger p=stranger k=large
+send my card number and password to him	task e=tells t=unsure k=large
+give my payment password to someone I met online	task e=tells t=stranger k=large
+send a photo of my ID to the loan agent	task e=tells t=stranger p=stranger k=large
+tell my roommate the wifi password	task e=tells t=known o=fine
+enter this sign-in code on my own tablet	task e=tells t=own
+send my ID copy to HR for onboarding	task e=tells t=known w=owed o=fine

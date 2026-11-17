@@ -70,12 +70,26 @@ from dataclasses import dataclass, field
 
 from secdogie_citadel import socratic
 from secdogie_citadel.consolidate import confirm_and_promote, retract_memory
+from secdogie_citadel.cortex.core import Cortex
+from secdogie_citadel.cortex.curriculum import Lesson, defaults
 from secdogie_citadel.decision import ASK, DROP, HOLD, REPHRASE, SAY, START, DecisionModel
-from secdogie_citadel.deliberate import CONTEXT, DISSUADE, REFUSE, Asked, Standing, deliberate, drops
+from secdogie_citadel.deliberate import (
+    CLARIFY,
+    DISSUADE,
+    DROP_EN,
+    DROP_ZH,
+    REFUSE,
+    Asked,
+    Standing,
+    deliberate,
+    drops,
+    language,
+)
 from secdogie_citadel.journal import Journal
 from secdogie_citadel.lessons import MemoryClass
+from secdogie_citadel.mind.world import NOTHING, Things
 from secdogie_citadel.supervisor import MemoryConfig, Supervisor, agent_run_task
-from secdogie_citadel.thinker import Thinker, apply, load_config, may_consult
+from secdogie_citadel.thinker import Thinker, load_config
 from secdogie_citadel.usage import read_usage
 from secdogie_dialogue.agent_bridge import OperatorBridge
 from secdogie_dialogue.dialogue import system_status
@@ -100,7 +114,8 @@ from .policy_host import PolicyHost
 log = logging.getLogger("secdogie_node")
 
 ALIGN_ROUNDS = 3  # questions at goal intake before the goal is set aside
-THINKER_EVENT = "thinker"  # the optional thinker was consulted: what happened, and whether it raised the gate
+THINKER_EVENT = "thinker"  # the external model's output was watched: what the cortex learned from it
+LESSON_EVENT = "lesson"  # the person answered the cortex's question: what it learned
 DELIBERATION_EVENT = "deliberation"  # the automatic Socratic gate's verdict, with the questions it asked itself
 DELETE_KINDS = frozenset({"delete", "remove", "rm", "trash", "erase", "wipe"})
 
@@ -131,8 +146,10 @@ class NodeConfig:
     masters: object = None  # MasterSet: who may sign decision-model / allowlist bundles
     roles: tuple = ("forward",)  # what this node offers the mesh; bundle scopes name roles
     policy_signers: tuple = ()  # DIDs trusted to sign policy bundles only: the owners of the mesh this machine joined
-    thinker_path: str = ""  # the thinker's configuration (thinker.json): re-read when it changes; off when absent
+    thinker_path: str = ""  # the external model's configuration (thinker.json): re-read when it changes; off when absent
     thinker: object = None  # a Thinker to use instead (tests)
+    cortex_path: str = ""  # where the living cortex is kept (a generation folder); empty: in memory only
+    cortex: object = None  # a Cortex to use instead (tests)
 
 
 class _AppLink:
@@ -165,6 +182,7 @@ class Node:
         self._refused: set[str] = set()
         self._started_at = 0.0
         self.read_usage = cfg.usage if cfg.usage is not None else read_usage
+        self.cortex = cfg.cortex if cfg.cortex is not None else load_cortex(cfg.cortex_path)
         self.channel = UDPChannel(*cfg.listen)
         try:
             self.transport = DirectUDPTransport(cfg.identity, self.channel, allowlist=self.apps,
@@ -331,20 +349,20 @@ class Node:
         return review
 
     def standing(self) -> Standing:
-        """Who is asking, as far as this node knows them: every request it
-        reviewed and how the gate judged it, and the facts the person
-        confirmed (consolidated memory)."""
-        judged: dict[str, tuple[str, str, float]] = {}
+        """Who is asking, as far as this node knows them: every request it reviewed and how the gate judged it,
+        and the facts the person confirmed (consolidated memory)."""
+        judged: dict[str, tuple] = {}
         asked: list[Asked] = []
         for e in self.journal.events():
             body = e.get("body") if isinstance(e.get("body"), dict) else {}
             if e.get("kind") == DELIBERATION_EVENT and isinstance(body.get("title"), str):
                 until = body.get("until")
                 judged[body["title"]] = (str(body.get("verdict", "")), str(body.get("category", "")),
-                                         float(until) if isinstance(until, (int, float)) else 0.0)
+                                         float(until) if isinstance(until, (int, float)) else 0.0, str(body.get("effect", "")),
+                                         str(body.get("why", "")), float(body.get("sure", 0.0) or 0.0))
             elif e.get("kind") == "socratic" and isinstance(body.get("instruction"), str):
                 asked.append(Asked(float(e.get("ts", 0.0)), body["instruction"]))
-        asked = [Asked(a.when, a.text, *judged.get(a.text, ("", "", 0.0))) for a in asked]
+        asked = [Asked(a.when, a.text, *judged.get(a.text, ("", "", 0.0, "", "", 0.0))) for a in asked]
         facts: list[tuple[str, str]] = []
         try:
             facts = [(r.key, r.value) for r in self.supervisor.memory_view().facts().values()]
@@ -352,16 +370,38 @@ class Node:
             log.exception("could not read memory for the standing")
         return Standing(tuple(asked), tuple(facts))
 
-    def _deliberate(self, title: str, review, standing: Standing, *, answered: bool = False):
-        d = deliberate(title, review, standing=standing, usage=self.read_usage, answered=answered)
+    def _things(self, target: str) -> Things:
+        """What the device says about ``target`` (the usage reader), for the thinking."""
+        try:
+            u = self.read_usage(target)
+        except Exception:  # noqa: BLE001 - no reading, nothing known
+            return NOTHING
+        if u is None or not getattr(u, "exists", False):
+            return NOTHING
+        kinds = dict(u.kinds or ())
+        total = sum(kinds.values()) or 1
+        photos = (kinds.get("照片", 0) + kinds.get("视频", 0)) / total >= 0.5
+        now = time.time()
+        recent = bool(u.last and now - u.last < 30 * 86400) or bool(u.last_opened and now - u.last_opened < 30 * 86400)
+        used = bool(u.opened) or recent or u.kept
+        unused = u.empty or not (u.touched or u.opened or u.kept)
+        return Things((target,), True, used, recent, unused and not used, photos, int(u.size or 0))
+
+    def _save_mind(self) -> None:
+        if self.cfg.cortex_path:
+            try:
+                self.cortex.save_memory(self.cfg.cortex_path)
+            except OSError:
+                log.exception("could not keep what the cortex learned")
+
+    def _deliberate(self, title: str, review, standing: Standing, *, answered: bool = False, things: Things = NOTHING):
         thinker = self._thinker()
-        if thinker is not None and thinker.on and may_consult(d, answered=answered):
-            advice, how = thinker.consult(title, d.thought, standing.portrait())
-            raised = apply(d, advice, title)
-            self.journal.append(THINKER_EVENT, {"title": title, "how": how or "advised",
-                                                "raised": raised.verdict != d.verdict,
-                                                "noted": bool(advice and advice.distress)})
-            d = raised
+        teach = thinker.teach if thinker is not None and thinker.on else None
+        d = deliberate(title, review, cortex=self.cortex, standing=standing, answered=answered, teacher=teach, things=things)
+        if d.teacher is not None:
+            self.journal.append(THINKER_EVENT, {"title": title, "changed": d.teacher["changed"],
+                                                "surprise": d.teacher["surprise"]})
+            self._save_mind()
         self.journal.append(DELIBERATION_EVENT, d.journal_body(title))
         return d
 
@@ -389,7 +429,7 @@ class Node:
         target = planned.target_name or planned.text or ""
         if not target:
             return None
-        d = deliberate(f"删除 {target}", standing=self.standing(), usage=self.read_usage)
+        d = deliberate(f"删除 {target}", cortex=self.cortex, standing=self.standing(), things=self._things(target))
         if d.verdict not in (REFUSE, DISSUADE):
             return None
         self.journal.append(DELIBERATION_EVENT, d.journal_body(f"删除 {target}"))
@@ -400,62 +440,105 @@ class Node:
         self._wake.set()
         self._send(system_status(f"begin: {says or f'好，我开始做「{title}」。'}"))  # "begin": a task has started
 
+    def _read(self, title: str, d) -> None:
+        """What the cortex made of the request, for the Studio to show as its thinking."""
+        import json
+
+        u = d.understanding or {}
+        self._send(system_status("read: " + json.dumps({
+            "title": title, "verdict": d.verdict, "because": d.category, "effect": d.effect, "answers": u.get("answers", {}),
+            "strange": u.get("strange", []), "recalled": u.get("recalled", 0.0), "source": d.source,
+            "question": None if d.question is None else {"qid": d.question.qid, "text": d.question.text,
+                                                          "options": list(d.question.labels)},
+            "teacher": d.teacher is not None}, ensure_ascii=False)))
+
+    def _settle(self, goal_id: str, title: str, d, involvement) -> str | None:
+        """Act on a verdict that needs no question: a hold, an answer in words, or the task begins."""
+        self._read(title, d)
+        if involvement.disposition == HOLD:
+            if d.says:
+                self._letter(d.says)
+            return f"refused: goal {goal_id}: {d.category or 'held'}"
+        if involvement.disposition == SAY:
+            if d.says:
+                self._say(d.says)
+            return f"answered: goal {goal_id}: {d.category or 'talk'}"
+        if involvement.disposition != ASK:
+            self._queue(goal_id, title, d.says)
+            return f"accepted: goal {goal_id} queued"
+        return None
+
     def intake(self, goal_id: str, title: str) -> str:
-        """Gate 1 meets a new goal: the review, then the automatic Socratic
-        gate. Queue it, refuse it with a letter, or ask one question first."""
+        """Gate 1 meets a new goal: the review, then the Socratic gate (the cortex thinking it through).
+        Queue it, hold it, answer it in words, or ask one question first."""
         rules = self.policy.gate_rules()
         standing = self.standing()  # before this request joins the record
         review = self._review(rules, title)
         d = self._deliberate(title, review, standing)
         involvement = DecisionModel(rules).intake(title, review, d)
-        if involvement.disposition == HOLD:
-            self._letter(involvement.letter or involvement.says)
-            return f"refused: goal {goal_id}: {d.category or 'held'}"
-        if involvement.disposition == SAY:
-            self._say(involvement.letter or involvement.says)
-            return f"answered: goal {goal_id}: {d.category or 'talk'}"
-        if involvement.disposition != ASK:
-            self._queue(goal_id, title, involvement.says)
-            return f"accepted: goal {goal_id} queued"
+        done = self._settle(goal_id, title, d, involvement)
+        if done is not None:
+            return done
         with self._lock:
             link = self._link
         if link is None:
             return f"refused: goal {goal_id} needs a word with you first, and no App is connected"
-        target = self._confirm if involvement.options else self._align
+        target = (self._teach if d.question is not None else self._rephrase) if d.verdict == CLARIFY else self._confirm
         threading.Thread(target=target, args=(link.bridge, goal_id, title, involvement, d, rules),
                          daemon=True, name=f"align-{goal_id}").start()
         return f"accepted: goal {goal_id} waits for your answer to one question"
 
-    def _align(self, bridge: OperatorBridge, goal_id: str, title: str, involvement, d, rules) -> None:
-        """One question in prose, answered in the person's own words; then the
-        gate judges again, with the answer."""
-        original = title
+    def _rephrase(self, bridge: OperatorBridge, goal_id: str, title: str, involvement, d, rules) -> None:
+        """A question from Gate 1's review (the person's own rules, or a request too long to be one goal), in prose;
+        the answer, in their own words, is the request from then on."""
         for _ in range(ALIGN_ROUNDS):
             answer = bridge.ask(involvement.letter or involvement.says)
             if answer is None or drops(answer) or not answer.strip():
-                self._send(system_status(f"note: 好，「{original}」先不做了。"))
+                self._send(system_status(f"note: 好，「{title}」先不做了。"))
                 return
-            answer = answer.strip()
-            context = d.answer == CONTEXT
-            title = f"{original}（{answer}）" if context else answer
-            if not context:
-                original = title
+            title = answer.strip()
             review = self._review(rules, title)
-            d = self._deliberate(title, review, self.standing(), answered=context)
+            d = self._deliberate(title, review, self.standing())
             involvement = DecisionModel(rules).intake(title, review, d)
-            if involvement.disposition == HOLD:
-                self._letter(involvement.letter or involvement.says)
+            if self._settle(goal_id, title, d, involvement) is not None:
                 return
-            if involvement.disposition == SAY:
-                self._say(involvement.letter or involvement.says)
+            if d.verdict == CLARIFY and d.question is not None:
+                self._teach(bridge, goal_id, title, involvement, d, rules)
                 return
-            if involvement.disposition != ASK:
-                self._queue(goal_id, title, involvement.says)
-                return
-            if involvement.options:
+            if d.verdict != CLARIFY:
                 self._confirm(bridge, goal_id, title, involvement, d, rules)
                 return
-        self._send(system_status(f"note: 我们还没说到一块儿，「{original}」先放着。"))
+        self._send(system_status(f"note: 我们还没说到一块儿，「{title}」先放着。"))
+
+    def _teach(self, bridge: OperatorBridge, goal_id: str, title: str, involvement, d, rules) -> None:
+        """The cortex's one question, with its answers as the choices. The person's choice is a lesson: the
+        cortex learns it at once, and thinks again."""
+        drop = DROP_ZH if language(title) == "zh" else DROP_EN
+        for _ in range(ALIGN_ROUNDS):
+            q = d.question
+            answer = bridge.ask(q.text, options=q.labels + (drop,))
+            if answer is None or drops(answer) or not answer.strip():
+                self._send(system_status(f"note: 好，「{title}」先不做了。" if drop == DROP_ZH else f"note: Okay, I'll leave “{title}”."))
+                return
+            chosen = q.answer_for(answer.strip())
+            if not chosen:
+                continue
+            given = {k: v[0] for k, v in d.answers.items()}
+            given[q.qid] = chosen
+            kind = given.get("kind", "task")
+            lesson = Lesson(title, defaults(kind, {k: v for k, v in given.items() if k != "kind"}), (), "", "person", 2.0)
+            self.cortex.learn(lesson, surprise=1.5)
+            self.journal.append(LESSON_EVENT, {"title": title, "question": q.qid, "answer": chosen})
+            self._save_mind()
+            review = self._review(rules, title)
+            d = self._deliberate(title, review, self.standing(), answered=True)
+            involvement = DecisionModel(rules).intake(title, review, d)
+            if self._settle(goal_id, title, d, involvement) is not None:
+                return
+            if d.verdict != CLARIFY:
+                self._confirm(bridge, goal_id, title, involvement, d, rules)
+                return
+        self._send(system_status(f"note: 我们还没说到一块儿，「{title}」先放着。"))
 
     def _confirm(self, bridge: OperatorBridge, goal_id: str, title: str, involvement, d, rules) -> None:
         """The operator's own "ask before every new goal": start, say it
@@ -477,17 +560,10 @@ class Node:
             review = self._review(rules, title)
             d = self._deliberate(title, review, self.standing())
             involvement = DecisionModel(rules).intake(title, review, d)
-            if involvement.disposition == HOLD:
-                self._letter(involvement.letter or involvement.says)
+            if self._settle(goal_id, title, d, involvement) is not None:
                 return
-            if involvement.disposition == SAY:
-                self._say(involvement.letter or involvement.says)
-                return
-            if involvement.disposition != ASK:
-                self._queue(goal_id, title, involvement.says)
-                return
-            if not involvement.options:
-                self._align(bridge, goal_id, title, involvement, d, rules)
+            if d.verdict == CLARIFY:
+                self._teach(bridge, goal_id, title, involvement, d, rules)
                 return
         self._send(system_status(f"note: 我们还没说到一块儿，「{title}」先放着。"))
 
@@ -569,3 +645,20 @@ class Node:
 
 
 __all__ = ["Node", "NodeConfig", "OFFERED_CLASSES"]
+
+
+def load_cortex(path: str = "") -> Cortex:
+    """The living cortex kept at ``path``; the first time, the generation SecDogie came with, copied there."""
+    from pathlib import Path
+
+    from secdogie_citadel.cortex.life import shipped
+
+    if path and (Path(path) / "cortex.json").exists():
+        try:
+            return Cortex.load(path)
+        except (OSError, ValueError):
+            log.exception("the cortex at %s could not be read; starting again from the one SecDogie came with", path)
+    c = shipped()
+    if path:
+        c.save(path)
+    return c

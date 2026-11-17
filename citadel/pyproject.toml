@@ -5,14 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "secdogie-citadel"
 version = "0.5.0"
-description = "The Citadel state substrate: a signed, append-only event journal (DID-authored, hash-chained, convergent) and a DAG goal tree projected from it."
+description = "The Citadel: SecDogie's cortex (a spiking-neuron decision model that learns and improves itself), the thinking module, the Socratic gate, and the signed journal."
 requires-python = ">=3.10"
 license = { text = "MIT" }
-# Signing/verification only; storage is stdlib sqlite3, no network here.
-dependencies = ["secdogie-identity"]
+# Signing/verification; numpy for the cortex's neurons. Storage is stdlib sqlite3, no network here.
+dependencies = ["secdogie-identity", "numpy>=1.26"]
 
 [project.optional-dependencies]
-# The optional thinker on Claude (thinker_claude.py); the OpenAI-compatible one needs nothing more.
+# The external model on Claude (thinker_claude.py); the OpenAI-compatible one needs nothing more.
 thinker = ["anthropic>=2.6"]
 
 [project.scripts]
@@ -20,3 +20,7 @@ secdogie-citadel = "secdogie_citadel.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["secdogie_citadel*"]
+
+[tool.setuptools.package-data]
+# The cortex's lessons, its frozen exam, and the generation SecDogie comes with.
+secdogie_citadel = ["cortex/lessons/*.tsv", "cortex/exam/*.jsonl", "cortex/born/*"]

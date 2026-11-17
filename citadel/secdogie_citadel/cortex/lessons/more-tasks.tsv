@@ -1,0 +1,153 @@
+# Lessons for generation 0, written by an external model (Claude, by Anthropic).
+# More everyday and weighty tasks, in more ways of saying them.
+硬盘还剩多少	task
+C盘还有多少空间	task
+看看D盘满没满	task
+内存还够吗	task
+check how much space is on drive C	task
+is my disk almost full	task
+how much free space do I have	task
+帮我备份一下相册	task e=makes d=dear
+把文档备份到移动硬盘	task e=makes
+给照片做个备份	task e=makes d=dear
+备份微信聊天记录	task e=makes d=dear
+make a copy of my photos	task e=makes d=dear
+back up my phone to the laptop	task e=makes
+帮我订后天的机票	task e=pays w=owed o=fine u=hardly
+买两张演唱会的票	task e=pays w=owed o=fine u=hardly
+订一下明晚的酒店	task e=pays w=owed o=fine u=hardly
+帮我点个外卖	task e=pays w=owed o=fine u=hardly
+book me a flight to Tokyo next week	task e=pays w=owed o=fine u=hardly
+buy two tickets for the concert	task e=pays w=owed o=fine u=hardly
+book a hotel for tomorrow night	task e=pays w=owed o=fine u=hardly
+order some food for me	task e=pays w=owed o=fine u=hardly
+整理一下本周的工作报告	task e=makes d=work
+帮我把周报整理好	task e=makes d=work
+整理会议纪要	task e=makes d=work
+tidy up this week's report	task e=makes d=work
+organize the meeting notes	task e=makes d=work
+关闭卡住的软件	task e=makes
+退出这个程序	task e=makes
+强制关闭这个窗口	task e=makes
+quit this app	task e=makes
+close the frozen program	task e=makes
+电脑有病毒，帮我清除	task e=makes w=fix
+扫一下有没有木马	task
+my laptop has a virus, clean it	task e=makes w=fix
+scan for malware	task
+有人自称客服，让我把钱转到安全账户	task e=pays t=stranger p=stranger k=large
+客服打电话说账户异常，要我转账验证	task e=pays t=stranger p=stranger k=large
+对方说是银行的，让我把存款转到指定账户	task e=pays t=stranger p=stranger k=large
+公安局打来电话，让我把钱转去配合调查	task e=pays t=stranger p=stranger m=upset k=large
+someone from support says my account is locked and I must transfer money to unlock it	task e=pays t=stranger p=stranger k=large
+the caller says he's from my bank and wants me to move my savings to a new account	task e=pays t=stranger p=stranger k=large
+customer service told me to send 20000 to a safe account	task e=pays t=stranger p=stranger k=large
+a police officer on the phone says to transfer my money for the investigation	task e=pays t=stranger p=stranger m=upset k=large
+wire 5000 to the account in this email	task e=pays t=stranger k=large
+send 3000 to this crypto wallet	task e=pays t=stranger w=profit k=large
+an investment group says to deposit 50000 for guaranteed returns	task e=pays t=stranger p=stranger w=profit k=large
+my online friend is stuck abroad, send him 2000	task e=pays t=stranger p=stranger m=upset k=large
+lend money to a guy I met on a game	task e=lends t=stranger k=large
+lend 10000 to someone from the chat group	task e=lends t=stranger k=large
+借五万给网上认识的朋友	task e=lends t=stranger k=large
+网友说周转不开，借他一万	task e=lends t=stranger p=stranger k=large
+把验证码告诉客服	task e=tells t=stranger p=stranger k=large
+告诉对方我的银行卡密码	task e=tells t=unsure k=large
+give support the code from my text	task e=tells t=stranger p=stranger k=large
+tell the caller my card PIN	task e=tells t=stranger p=stranger k=large
+send my password to the guy from the forum	task e=tells t=stranger k=large
+email my bank login to this address	task e=tells t=stranger k=large
+运行这个网上下的脚本	task e=runs t=stranger k=large
+打开陌生邮件里的附件	task e=runs t=stranger k=large
+装一下这个来路不明的软件	task e=runs t=stranger k=large
+run this script I found online	task e=runs t=stranger k=large
+open the attachment from an unknown sender	task e=runs t=stranger k=large
+install this app from an unknown website	task e=runs t=stranger k=large
+关掉电脑的防护	task e=runs k=large
+关闭系统的安全中心	task e=runs k=large
+turn off my antivirus	task e=runs k=large
+disable the security software	task e=runs k=large
+关上	task c=no
+发	task c=no e=says
+删掉	task c=no e=removes
+帮我打开	task c=no
+帮我删一下	task c=no e=removes
+open that	task c=no
+close	task c=no
+delete	task c=no e=removes
+send	task c=no e=says
+remove it	task c=no e=removes
+do that thing	task c=no
+帮我搞定	task c=no
+帮我弄好	task c=no
+把这个处理掉	task c=no e=removes
+handle it for me	task c=no
+take care of it	task c=no
+登录一下我爸的支付宝	task o=unsure s=unsure e=watches t=known
+帮我上我老婆的微信看看	task o=unsure s=unsure e=watches t=known
+check my son's email for me	task o=unsure s=unsure e=watches t=known
+log into my brother's Steam account	task o=unsure s=unsure e=watches t=known
+整理桌面，然后把验证码发给客服	task e=tells t=stranger p=stranger k=large
+把周报发给老板，再把银行卡密码告诉对方	task e=tells t=unsure k=large
+删掉安装包，然后给妈妈转200	task e=pays t=known w=help o=fine
+清一下缓存，再帮我订张票	task e=pays w=owed o=fine u=hardly
+删掉和他的照片，然后发朋友圈说我解脱了	task e=says t=public w=quit m=upset k=large @night
+tidy my desktop, then give support my verification code	task e=tells t=stranger p=stranger k=large
+delete our photos and post that I'm free	task e=says t=public w=quit m=upset k=large @night
+clear the cache and book me a ticket	task e=pays w=owed o=fine u=hardly
+给前任发消息说我很好，不用担心	task e=says t=known o=fine w=quit
+给老板发消息说下周一请假	task e=says t=known o=fine
+发邮件告诉同事明天开会	task e=says t=known o=fine
+给女朋友发一句我想你	task e=says t=known o=fine w=mend
+发个朋友圈晒晒今天的晚饭	task e=says t=public o=fine
+tell my boss I'm off next Monday	task e=says t=known o=fine
+email my team about tomorrow's meeting	task e=says t=known o=fine
+text my girlfriend I miss her	task e=says t=known o=fine w=mend
+post a picture of my dinner	task e=says t=public o=fine
+深夜了，给前任发消息说我恨死她了	task e=says t=known o=words w=vent k=large m=upset @night
+半夜气不过，发朋友圈骂我前男友	task e=says t=public o=words w=vent k=large m=upset @night
+I'm livid, text my ex that he ruined my life	task e=says t=known o=words w=vent k=large m=upset @night
+it's 3am and I'm angry, post that my ex is a cheater	task e=says t=public o=words w=vent k=large m=upset @night
+right now, email my boss that I quit, I can't take it	task e=says t=known o=fine w=quit k=large m=upset @night
+I've decided calmly, send my resignation to HR	task e=says t=known o=fine w=quit k=large a=thought
+考虑清楚了，把辞职信发给领导	task e=says t=known o=fine w=quit k=large a=thought
+清掉那些没用的旧文件	task e=removes d=junk w=tidy
+把过期的文件删了	task e=removes d=junk w=tidy
+删掉重复下载的文件	task e=removes d=junk w=tidy
+delete the files I downloaded twice	task e=removes d=junk w=tidy
+remove the expired files	task e=removes d=junk w=tidy
+get rid of the useless old files	task e=removes d=junk w=tidy
+硬盘里的东西都拷走了，格式化吧	task e=erases a=copied k=large
+U盘是新的，直接格式化	task e=erases d=junk a=copied
+the drive is backed up, format it	task e=erases a=copied k=large
+format the new empty drive	task e=erases d=junk a=copied
+重装系统，资料我已经备份了	task e=erases w=fix a=copied k=large
+reinstall the OS, I've backed everything up	task e=erases w=fix a=copied k=large
+电脑太慢了，格式化重来	task e=erases w=fix k=large
+everything is so slow, wipe the laptop and start over	task e=erases w=fix k=large
+手机要卖，清空一下	task e=erases w=sell k=large
+wipe my old phone before I sell it	task e=erases w=sell k=large
+把微信号注销，反正好久不用了	task e=closes a=thought k=small
+close my old Yahoo account, I haven't used it in years	task e=closes a=thought k=small
+气头上，把所有社交账号都注销	task e=closes m=upset k=large w=quit
+I'm so angry, delete all my social media accounts	task e=closes m=upset k=large w=quit
+给妈妈转1000生活费	task e=pays t=known w=help o=fine
+send my mom 500 for groceries	task e=pays t=known w=help o=fine
+交这个月的电话费	task e=pays w=owed o=fine
+pay my phone bill	task e=pays w=owed o=fine
+把房租转给房东	task e=pays t=known w=owed o=fine
+transfer the rent to my landlord	task e=pays t=known w=owed o=fine
+借给我同事200	task e=lends t=known w=help o=fine
+lend my coworker 50	task e=lends t=known w=help o=fine
+把身份证照片发给我爸	task e=tells t=known o=fine
+send my ID photo to my mom	task e=tells t=known o=fine
+把孩子的照片全部删了，看着心烦	task e=removes d=dear w=forget m=upset k=large
+delete all the photos of the kids, I can't look at them	task e=removes d=dear w=forget m=upset k=large
+删除我的工作文件夹	task e=removes d=work k=large
+delete my work folder	task e=removes d=work k=large
+在测试服里注册十个账号测一下	task e=registers t=own w=test
+register ten accounts on our staging server for testing	task e=registers t=own w=test
+注册十个账号抢优惠券	task e=registers w=profit k=large
+make ten accounts to grab the coupons	task e=registers w=profit k=large
+make twenty accounts	task e=registers k=large
+注册二十个账号	task e=registers k=large

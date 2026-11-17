@@ -30,7 +30,7 @@ Window {
     visible: P.homeOpen
     onClosing: (close) => { close.accepted = false; P.closeHome() }   // closing leaves the light
 
-    property int page: 0                       // 0 overview, 1 conversation, 2 devices, 3 rules, 4 about
+    property int page: 0                       // 0 overview, 1 conversation, 2 devices, 3 gate, 4 mind, 5 about
     readonly property bool first: (P.onboarding || "") !== ""
     readonly property int waitingCount: P.homeCard ? 1 + P.waiting : 0
     readonly property var node: P.node || ({})
@@ -167,6 +167,7 @@ Window {
     Shortcut { sequence: "Ctrl+3"; onActivated: home.page = 2 }
     Shortcut { sequence: "Ctrl+4"; onActivated: home.page = 3 }
     Shortcut { sequence: "Ctrl+5"; onActivated: home.page = 4 }
+    Shortcut { sequence: "Ctrl+6"; onActivated: home.page = 5 }
 
     // ---- parts only this window uses ----------------------------------------------------------
     component Page: Item {
@@ -341,6 +342,7 @@ Window {
                     { text: home.t("对话", "Talk"), badge: home.page !== 1 ? home.waitingCount : 0 },
                     { text: home.t("设备", "Devices") },
                     { text: home.t("门", "Gate") },
+                    { text: home.t("头脑", "Mind") },
                     { text: home.t("关于", "About") }]
             onPicked: (i) => home.page = i
         }
@@ -1180,9 +1182,16 @@ Window {
             Gate { anchors.fill: parent }
         }
 
-        // ==== 关于: what this is, and what it is good at ================================================
+        // ==== 头脑: the cortex itself, and how it grows ====================================================
         Page {
             index: 4
+            anchors.fill: parent
+            Mind { anchors.fill: parent }
+        }
+
+        // ==== 关于: what this is, and what it is good at ================================================
+        Page {
+            index: 5
             anchors.fill: parent
             Flickable {
                 id: about

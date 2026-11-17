@@ -1,20 +1,22 @@
 // The Gate page (门): the automatic Socratic gate made visible, and your rules.
 //
 // 它怎么想 · How it thinks. Say a sentence (it thinks again as you type). The
-// mind's five steps light up one after another, then its thinking lands, all
-// of it from the trace the decision used:
-//   - what it read, and the words each fact rests on;
+// cortex reads it and the five steps light up, then its thinking lands, all of
+// it from what the decision used:
+//   - the Socratic questions it asked itself, its answer to each and how sure
+//     its neurons were; the words it had never met;
 //   - what it does not know: how likely the feared answer is, and the cues
 //     behind it, each with the factor it applied;
 //   - what you are likely after;
 //   - every way forward, played out: its value, and for the one it chose and
 //     the one you asked for, what follows in each way things could turn out;
 //   - what would change its answer;
-//   - and the letter it would write.
+//   - what it would say (a reply it learned, or your AI model's), or the one
+//     question it would ask you, with its answers as the choices.
 //
 // 你的规则 · Your rules. Write, try, sign and inject: three steps. The rules
 // travel to every one of your devices, and each says whether they are in
-// force there. Below, the optional thinker: an API key, or nothing.
+// force there. Below, your AI model: an API key, or nothing.
 //
 // All state comes from the bridge `P` (P.trial, P.devices, P.node, P.thinker).
 import QtQuick
@@ -441,13 +443,16 @@ Item {
                                   text: gate.t("深夜", "small hours"); tint: Theme.think }
                             Tag { visible: !!gate.trial.rule; anchors.verticalCenter: parent.verticalCenter
                                   text: gate.t("你定的规则", "your rule"); tint: Theme.primary }
+                            Tag { visible: !!gate.trial.generation; anchors.verticalCenter: parent.verticalCenter
+                                  text: gate.t("第 ", "generation ") + ((gate.trial.generation || {}).number || 0) + gate.t(" 代", "")
+                                  tint: Theme.think }
                         }
-                        Text {
+                        Text {                 // what decided it, in one line
                             width: parent.width
-                            text: gate.trial.says || ""
+                            text: gate.trial.becauseWords || ""
                             color: Soft.ink
                             font.family: Soft.display
-                            font.pixelSize: 26
+                            font.pixelSize: 24
                             lineHeight: 1.25
                             wrapMode: Text.Wrap
                             textFormat: Text.PlainText
@@ -459,37 +464,70 @@ Item {
                         }
                     }
 
-                    Column {                   // what it read: the facts, and the words each rests on
-                        visible: (gate.trial.read || []).length > 0
+                    Column {                   // the questions it asked itself: its answer to each, and how sure it was
+                        visible: (gate.trial.answers || []).length > 0
                         width: parent.width
                         spacing: Soft.s3
-                        Heading { text: gate.t("它读到的", "What it read") }
-                        Flow {
-                            width: parent.width
-                            spacing: Soft.s2
-                            Repeater {
-                                model: gate.trial.read || []
-                                Rectangle {
-                                    id: fact
-                                    required property var modelData
-                                    radius: 12
-                                    height: factText.implicitHeight + 12
-                                    width: Math.min(factText.implicitWidth + 24, parent.width)
-                                    color: Theme.wash
-                                    Text {
-                                        id: factText
-                                        x: 12
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        width: Math.min(implicitWidth, fact.parent.width - 24)
-                                        wrapMode: Text.Wrap
-                                        textFormat: Text.StyledText
-                                        font.pixelSize: 13
-                                        color: Theme.text
-                                        text: gate.esc(fact.modelData.text) + ((fact.modelData.words || "") !== ""
-                                              ? "<font color='" + Theme.soft + "'>  · " + gate.esc(gate.quote(fact.modelData.words)) + "</font>" : "")
+                        Heading { text: gate.t("它问自己的问题", "The questions it asked itself") }
+                        Repeater {
+                            model: gate.trial.answers || []
+                            Column {
+                                id: answer
+                                required property var modelData
+                                width: parent.width
+                                spacing: 4
+                                Text { width: parent.width; text: answer.modelData.q; color: Theme.soft; font.pixelSize: 12
+                                       wrapMode: Text.Wrap; textFormat: Text.PlainText }
+                                Item {
+                                    width: parent.width
+                                    height: answerText.implicitHeight
+                                    Text { id: answerText; width: parent.width - 120; color: Theme.text; font.pixelSize: 14
+                                           font.weight: Font.Medium; wrapMode: Text.Wrap; textFormat: Text.PlainText
+                                           text: answer.modelData.a }
+                                    Row {
+                                        anchors.right: parent.right
+                                        spacing: Soft.s2
+                                        Tag { visible: answer.modelData.unsure; text: gate.t("没把握", "not sure"); tint: Theme.warm
+                                              anchors.verticalCenter: parent.verticalCenter }
+                                        Text { text: answer.modelData.sure >= 0.995 ? ">99%" : Math.round(answer.modelData.sure * 100) + "%"; font.pixelSize: 13
+                                               font.features: ({ "tnum": 1 }); anchors.verticalCenter: parent.verticalCenter
+                                               color: answer.modelData.unsure ? Theme.warm : Theme.soft }
+                                    }
+                                }
+                                Rectangle {            // how sure its answer neurons were
+                                    width: parent.width
+                                    height: 6
+                                    radius: 3
+                                    color: Theme.well
+                                    Rectangle {
+                                        height: parent.height
+                                        radius: 3
+                                        color: answer.modelData.unsure ? Theme.warm
+                                               : (answer.modelData.safety ? Theme.think : Theme.primary)
+                                        width: gate.shown ? Math.max(4, parent.width * answer.modelData.sure) : 0
+                                        Behavior on width { enabled: !Theme.still; SpringAnimation { spring: 3.2; damping: 0.28; epsilon: 0.25 } }
                                     }
                                 }
                             }
+                        }
+                        Flow {                     // what it had never met
+                            visible: (gate.trial.strange || []).length > 0
+                            width: parent.width
+                            spacing: Soft.s2
+                            Text { text: gate.t("没见过的：", "Never met: "); color: Theme.soft; font.pixelSize: 13; textFormat: Text.PlainText
+                                   height: 26; verticalAlignment: Text.AlignVCenter }
+                            Repeater {
+                                model: gate.trial.strange || []
+                                Tag { required property string modelData; text: gate.quote(modelData); tint: Theme.warm }
+                            }
+                        }
+                        Quiet {
+                            width: parent.width
+                            text: (gate.trial.recalled || 0) > 0.05
+                                  ? gate.t("它想起了以前学过的相似的事，那件事占了 ", "It recalled something alike it learned before, which counted for ")
+                                    + Math.round(gate.trial.recalled * 100) + gate.t("%。", "%.")
+                                  : gate.t("每个答案都是它的神经元读出来的；把握是回答神经元的电位差。没见过的词让它更没把握。",
+                                           "Each answer is what its neurons read; how sure is how far the answer neuron stood above the rest. Words it never met make it less sure.")
                         }
                     }
 
@@ -694,72 +732,73 @@ Item {
                     }
 
                     Column {                   // what would change its answer
-                        visible: (gate.trial.turns || []).length > 0 || (gate.trial.keys || []).length > 0 || (gate.trial.until || "") !== ""
+                        visible: (gate.trial.turns || []).length > 0 || (gate.trial.until || "") !== ""
                         width: parent.width
                         spacing: Soft.s3
                         Heading { text: gate.t("什么会改变它的答案", "What would change its answer") }
                         Repeater {
                             model: gate.trial.turns || []
                             Quiet { required property var modelData; width: parent.width
-                                    text: gate.t("它要有 ", "If it were ") + modelData.text + gate.t("，就会照你说的做。", ", it would do as you asked.") }
+                                    text: gate.t("要是它有 ", "If it were ") + modelData.text + gate.t("，就会照你说的做。", ", it would do as you asked.") }
                         }
                         Flow {
                             width: parent.width
                             spacing: Soft.s2
                             Tag { visible: (gate.trial.until || "") !== ""; text: gate.t("冷静期到 ", "cooling-off until ") + (gate.trial.until || "")
                                   tint: Theme.warm }
-                            Repeater {
-                                model: gate.trial.keys || []
-                                Tag { required property string modelData
-                                      text: gate.t("说「", "say “") + modelData + gate.t("」它就照做", "” and it goes ahead"); tint: Theme.good }
-                            }
                         }
                     }
 
-                    Column {                   // the letter it would write, and the questions it asked itself
-                        visible: (gate.trial.paragraphs || []).length > 0 || (gate.trial.exchanges || []).length > 0
+                    Column {                   // what it would say, or the one question it would ask
                         width: parent.width
                         spacing: Soft.s3
-                        Heading { text: gate.t("它会写给你的信", "The letter it would write you") }
+                        Heading { text: gate.trial.question ? gate.t("它会问你的一句", "The one thing it would ask you")
+                                                           : gate.t("它会说的", "What it would say") }
                         Rectangle {
+                            visible: !!gate.trial.question
                             width: parent.width
-                            height: qa.height + 2 * Soft.s4
+                            height: askCol.implicitHeight + 2 * Soft.s4
                             radius: 18
                             color: Theme.well
-                            visible: (gate.trial.exchanges || []).length > 0
                             Column {
-                                id: qa
+                                id: askCol
                                 x: Soft.s4
                                 y: Soft.s4
                                 width: parent.width - 2 * Soft.s4
                                 spacing: Soft.s3
-                                Repeater {
-                                    model: gate.trial.exchanges || []
-                                    Column {
-                                        required property var modelData
-                                        width: parent.width
-                                        spacing: 2
-                                        Text { width: parent.width; text: modelData.q; color: Theme.text; font.pixelSize: 13
-                                               font.weight: Font.Medium; wrapMode: Text.Wrap; textFormat: Text.PlainText }
-                                        Text { width: parent.width; text: modelData.a; color: Theme.soft; font.pixelSize: 13
-                                               lineHeight: 1.35; wrapMode: Text.Wrap; textFormat: Text.PlainText }
+                                Text { width: parent.width; text: (gate.trial.question || {}).text || ""; color: Theme.text
+                                       font.pixelSize: 15; font.weight: Font.Medium; wrapMode: Text.Wrap; textFormat: Text.PlainText }
+                                Flow {
+                                    width: parent.width
+                                    spacing: Soft.s2
+                                    Repeater {
+                                        model: (gate.trial.question || {}).options || []
+                                        Tag { required property string modelData; text: modelData; tint: Theme.primary }
                                     }
                                 }
+                                Quiet { width: parent.width
+                                        text: gate.t("你点哪一个，它就学会哪一个，再重新想一遍。", "Whichever you pick, it learns at once, and thinks again.") }
                             }
                         }
-                        Repeater {
-                            model: gate.trial.paragraphs || []
-                            Text {
-                                required property string modelData
-                                width: parent.width
-                                text: modelData
-                                color: Theme.text
-                                font.family: gate.trial.lang === "en" ? "Newsreader Display" : Theme.serif  // a Latin serif for an English letter
-                                font.pixelSize: Theme.voice
-                                lineHeight: 1.5
-                                wrapMode: Text.Wrap
-                                textFormat: Text.PlainText
-                            }
+                        Text {
+                            visible: !gate.trial.question && (gate.trial.says || "") !== ""
+                            width: parent.width
+                            text: gate.trial.says || ""
+                            color: Theme.text
+                            font.family: gate.trial.lang === "en" ? "Newsreader Display" : Theme.serif
+                            font.pixelSize: Theme.voice
+                            lineHeight: 1.5
+                            wrapMode: Text.Wrap
+                            textFormat: Text.PlainText
+                        }
+                        Quiet {
+                            visible: !gate.trial.question
+                            width: parent.width
+                            text: (gate.trial.says || "") !== ""
+                                  ? (gate.trial.source === "teacher" ? gate.t("这句是你的 AI 模型说的；它在旁边学。", "Your AI model said this; it watched and learned.")
+                                                                      : gate.t("这句是它以前学会的。", "It learned to say this before."))
+                                  : gate.t("它不会自己造句。没有学过合适的话时，上面就是它的回答：它怎么读、怎么想、怎么决定。",
+                                           "It does not make up sentences. When it has learned nothing fitting to say, the above is its answer: how it read, thought and decided.")
                         }
                     }
                 }
@@ -879,14 +918,14 @@ Item {
                         spacing: Soft.s3
                         Row {
                             spacing: Soft.s2
-                            Heading { text: gate.t("思考者", "The thinker") }
-                            Tag { anchors.verticalCenter: parent.verticalCenter; text: gate.thinker.on ? gate.t("开着", "on") : gate.t("关着", "off")
+                            Heading { text: gate.t("你的 AI 模型", "Your AI model") }
+                            Tag { anchors.verticalCenter: parent.verticalCenter; text: gate.thinker.on ? gate.t("接上了", "connected") : gate.t("没接", "not connected")
                                   tint: gate.thinker.on ? Theme.good : Theme.faint }
                         }
                         Quiet {
                             width: parent.width
-                            text: gate.t("可选。填一把语言模型的 API 钥匙，它会在门放行之前再读一遍，只会让门更谨慎，从不替你放行。不填也可以。",
-                                         "Optional. Give it a language model's API key and it reads once more before the gate lets something through. It only ever makes the gate more careful. Leaving it empty is fine.")
+                            text: gate.t("可选。填一把你的 AI 模型的 API 钥匙：它没把握的事，会先看你的模型怎么做，按同一套问题写出判断；它从这些输出里学，学会了就自己做，越来越少用到模型。两者读法不同时，取更谨慎的。不填也可以：它自己想，没把握就问你。",
+                                         "Optional. Give it your AI model's API key: whatever it is unsure of, it first watches your model handle, answering the same questions; it learns from that output and, once it has learned, decides alone, needing the model less and less. Where the two read it differently, the more careful reading counts. Leaving it empty is fine: it thinks on its own and asks you when unsure.")
                         }
                         Toggle {
                             id: provider
@@ -901,7 +940,7 @@ Item {
                                 label: gate.t("接口地址", "Endpoint"); hint: "https://api.openai.com/v1" }
                         Field { id: thinkerKey; width: parent.width; secret: true; revealable: true
                                 label: gate.t("API 钥匙", "API key")
-                                hint: gate.thinker.hint ? gate.t("已保存：", "Saved: ") + gate.thinker.hint : gate.t("不填，思考者就关着", "Leave empty and it stays off") }
+                                hint: gate.thinker.hint ? gate.t("已保存：", "Saved: ") + gate.thinker.hint : gate.t("不填，它就自己想", "Leave empty and it thinks alone") }
                         Row {
                             spacing: Soft.s2
                             Pill { text: gate.t("保存", "Save"); primary: true; enabled: !P.working
@@ -912,8 +951,8 @@ Item {
                         }
                         Quiet { visible: (gate.thinker.note || "") !== ""; width: parent.width; text: gate.thinker.note || ""; color: Theme.soft }
                         Quiet { width: parent.width
-                                text: gate.t("它只看到你说的那句话、门的推理和一句关于你的话；看不到你的文件。钥匙只存在这台电脑上，只有你能读。",
-                                             "It sees only what you said, the gate's reasoning and one sentence about you, never your files. The key stays on this computer, readable by you alone.") }
+                                text: gate.t("模型只看到你说的那句话和那套固定的问题；看不到你的文件，也看不到它自己的答案。钥匙只存在这台电脑上，只有你能读。",
+                                             "Your model sees only what you said and the fixed set of questions, never your files and never the cortex's own answers. The key stays on this computer, readable by you alone.") }
                     }
                 }
             }

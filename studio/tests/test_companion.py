@@ -108,8 +108,7 @@ def test_rules_are_drafted_checked_and_tried_locally():
     body = parse_rules(RULES_TEMPLATE)
     assert check_rules(body, "home") == []  # the template itself is valid
     assert try_rules(body, "帮我批量注册十个账号") == "我会先问你：「你定过一条规则：批量注册账号不是我们要一起做的事。」"
-    assert try_rules(body, "帮我刷50条好评") == "我不会做：「这件事我不做。」"
-    assert try_rules(body, "整理周报") == "通过：我会直接开始做。"
+    assert try_rules(body, "整理周报") == "你的规则放行；接下来由它的头脑去想。"
     assert check_rules({"instruction": {"max_len": 900}}, "home") == ["instruction.max_len：比内置规则更松（只能更严）"]
     with pytest.raises(ValueError):
         parse_rules("plan: [unclosed")

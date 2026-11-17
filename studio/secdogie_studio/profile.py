@@ -138,6 +138,11 @@ class Profile:
     def thinker_config(self) -> Path:
         return self.path("thinker.json")
 
+    @property
+    def cortex(self) -> Path:
+        """Where the living cortex is kept: its synapses, what it learned, its generations."""
+        return self.path("cortex")
+
     def set_setting(self, key: str, value) -> None:
         """Change one setting in studio.json (atomically)."""
         settings = self.settings()
@@ -180,6 +185,7 @@ class Profile:
                 *[arg for role in roles for arg in ("--role", role)],
                 *[arg for did in self.mesh_owners() for arg in ("--policy-signer", did)],
                 "--thinker", str(self.thinker_config),
+                "--cortex", str(self.cortex),
                 "--exit-on-stdin-eof"]
 
 

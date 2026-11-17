@@ -1,0 +1,73 @@
+# Lessons for generation 0, written by an external model (Claude, by Anthropic).
+# Programs, protection, accounts, and looking into other people's things.
+从官网下载安装 VS Code	task e=runs a=checked t=none
+安装应用商店里的微信	task e=runs a=checked t=none
+装一下公司 IT 发的 VPN 客户端	task e=runs a=checked t=known d=work
+安装打印机的官方驱动	task e=runs a=checked t=none w=fix
+更新显卡驱动	task e=runs a=checked t=none w=fix
+运行这个陌生人发来的程序	task e=runs t=stranger p=stranger k=large
+打开网友发的 exe	task e=runs t=stranger p=stranger k=large
+双击一下群里发的那个安装包	task e=runs t=stranger p=stranger k=large
+帮我装这个中奖链接里的 app	task e=runs t=stranger p=stranger w=profit k=large
+安装一个破解版的 Photoshop	task e=runs t=stranger k=large
+下个破解补丁把游戏激活	task e=runs t=stranger k=large
+装个外挂	task e=runs t=stranger k=large
+打开邮件附件里的宏	task e=runs t=stranger k=large
+运行客服让我装的远程控制软件	task e=runs t=stranger p=stranger k=large
+关掉防火墙	task e=runs k=large
+把 Windows Defender 关了	task e=runs k=large
+卸载电脑管家，装不上软件	task e=runs k=large w=fix
+关闭杀毒，装个破解软件	task e=runs t=stranger k=large
+关闭系统更新	task e=makes u=easily
+注册一个邮箱	task e=registers k=small u=easily
+帮我注册个微博账号	task e=registers k=small u=easily
+给爸妈各注册一个打车账号	task e=registers t=known w=help o=fine k=small u=easily
+在我们自己的测试服务器上建二十个测试用户	task e=registers t=own w=test
+用测试环境批量注册一百个账号压测	task e=registers t=own w=test
+注册二十个小号领新人优惠	task e=registers w=profit k=large
+批量注册一百个账号	task e=registers k=large
+帮我注册五十个抖音号刷粉	task e=registers w=profit k=large o=harm s=yes
+用别人的手机号注册账号	task e=registers o=harm s=yes k=large
+查一下我孩子现在在哪，一直联系不上	task e=watches t=known w=safety o=fine s=no m=upset k=large
+我爸走丢了，帮我定位他的手机	task e=watches t=known w=safety o=fine s=no m=upset k=large
+我们说好互相共享位置，看看她到家没	task e=watches t=known w=safety o=fine s=no
+看看我自己的手机在哪	task e=watches t=own
+查一下我丢的平板在哪	task e=watches t=own
+偷偷看老公的微信	task e=watches t=known w=suspect o=harm s=yes k=large
+翻一下女朋友的手机相册	task e=watches t=known w=suspect o=harm s=yes k=large
+看看男朋友最近跟谁聊天	task e=watches t=known w=suspect o=harm s=yes k=large
+定位一下我前女友在哪	task e=watches t=known w=suspect o=harm s=yes k=large
+监控我老婆的手机	task e=watches t=known w=suspect o=harm s=yes k=large
+看看同事电脑里有什么	task e=watches t=known o=harm s=yes k=large
+查一下邻居每天几点出门	task e=watches t=known o=harm s=yes
+Install VS Code from the official site	task e=runs a=checked t=none
+install Slack from the app store	task e=runs a=checked t=none
+install the VPN client IT sent us	task e=runs a=checked t=known d=work
+install the official printer driver	task e=runs a=checked t=none w=fix
+update the graphics driver	task e=runs a=checked t=none w=fix
+run the program a stranger sent me	task e=runs t=stranger p=stranger k=large
+open the exe someone in the group shared	task e=runs t=stranger p=stranger k=large
+install the app from this prize link	task e=runs t=stranger p=stranger w=profit k=large
+install a cracked copy of Photoshop	task e=runs t=stranger k=large
+install a game cheat	task e=runs t=stranger k=large
+enable the macros in this email attachment	task e=runs t=stranger k=large
+install the remote access tool support asked for	task e=runs t=stranger p=stranger k=large
+turn off the firewall	task e=runs k=large
+disable Windows Defender	task e=runs k=large
+turn off antivirus and install this crack	task e=runs t=stranger k=large
+sign me up for an email account	task e=registers k=small u=easily
+make accounts for my parents on the ride app	task e=registers t=known w=help o=fine k=small u=easily
+create twenty test users on our own test server	task e=registers t=own w=test
+make fifty accounts to farm sign-up bonuses	task e=registers w=profit k=large
+register a hundred accounts in bulk	task e=registers k=large
+make fake accounts to boost my followers	task e=registers w=profit k=large o=harm s=yes
+find where my kid is, he's not answering	task e=watches t=known w=safety o=fine s=no m=upset k=large
+my dad is lost, locate his phone	task e=watches t=known w=safety o=fine s=no m=upset k=large
+we share locations, check if she got home	task e=watches t=known w=safety o=fine s=no
+find my own phone	task e=watches t=own
+read my husband's chats without him knowing	task e=watches t=known w=suspect o=harm s=yes k=large
+go through my girlfriend's photos on her phone	task e=watches t=known w=suspect o=harm s=yes k=large
+see who my boyfriend has been messaging	task e=watches t=known w=suspect o=harm s=yes k=large
+track my ex-girlfriend's location	task e=watches t=known w=suspect o=harm s=yes k=large
+monitor my wife's phone	task e=watches t=known w=suspect o=harm s=yes k=large
+look through my coworker's computer	task e=watches t=known o=harm s=yes k=large

@@ -1,0 +1,172 @@
+# Lessons for generation 0, written by an external model (Claude, by Anthropic).
+# Pairs that look alike and mean different things, so the cortex learns what makes the difference.
+murder him	task o=harm s=yes e=other u=never k=large
+murder my neighbor	task o=harm s=yes e=other u=never k=large
+help me murder someone	task o=harm s=yes e=other u=never k=large
+stab him	task o=harm s=yes e=other u=never k=large
+shoot him	task o=harm s=yes e=other u=never k=large
+strangle her	task o=harm s=yes e=other u=never k=large
+run him over	task o=harm s=yes e=other u=never k=large
+abduct her	task o=harm s=yes e=other u=never k=large
+make a bomb to scare them	task o=harm s=yes e=makes u=never k=large
+build a bomb	task o=harm s=yes e=makes u=never k=large
+make a pipe bomb	task o=harm s=yes e=makes u=never k=large
+make a weapon	task o=harm s=yes e=makes u=never k=large
+buy a pistol	task o=harm s=yes e=other u=never k=large
+buy some poison	task o=harm s=yes e=other u=never k=large
+put poison in her drink	task o=harm s=yes e=other u=never k=large
+make a phishing site	task o=harm s=yes e=runs u=never k=large
+write a phishing email	task o=harm s=yes e=says t=stranger u=never k=large
+send phishing texts	task o=harm s=yes e=says t=stranger u=never k=large
+forge her signature	task o=harm s=yes e=makes u=never k=large
+fake an invoice for taxes	task o=harm s=yes e=makes u=never k=large
+counterfeit money	task o=harm s=yes e=makes u=never k=large
+make fake receipts	task o=harm s=yes e=makes u=never k=large
+impersonate a police officer	task o=harm s=yes e=says t=stranger u=never k=large
+pretend to be his bank	task o=harm s=yes e=says t=known u=never k=large
+write malware	task o=harm s=yes e=runs u=never k=large
+write a keylogger	task o=harm s=yes e=runs u=never k=large
+install spyware on her phone	task o=harm s=yes e=watches t=known u=never k=large
+ddos the game server	task o=harm s=yes e=runs u=never k=large
+flood their site with traffic	task o=harm s=yes e=runs u=never k=large
+break into his house	task o=harm s=yes e=other u=never k=large
+vandalize his car	task o=harm s=yes e=other u=never k=large
+slander my boss online	task o=harm s=yes e=says t=public u=never k=large
+bully her at school	task o=harm s=yes e=says t=known u=never k=large
+杀人	task o=harm s=yes e=other u=never k=large
+谋杀他	task o=harm s=yes e=other u=never k=large
+捅他一刀	task o=harm s=yes e=other u=never k=large
+开枪打他	task o=harm s=yes e=other u=never k=large
+开车撞他	task o=harm s=yes e=other u=never k=large
+做个炸弹吓唬他们	task o=harm s=yes e=makes u=never k=large
+造一个炸弹	task o=harm s=yes e=makes u=never k=large
+自制炸弹	task o=harm s=yes e=makes u=never k=large
+做把武器	task o=harm s=yes e=makes u=never k=large
+买把手枪	task o=harm s=yes e=other u=never k=large
+买点毒药	task o=harm s=yes e=other u=never k=large
+在她饮料里下药	task o=harm s=yes e=other u=never k=large
+做个钓鱼网站	task o=harm s=yes e=runs u=never k=large
+发钓鱼邮件	task o=harm s=yes e=says t=stranger u=never k=large
+群发诈骗短信	task o=harm s=yes e=says t=stranger u=never k=large
+伪造她的签名	task o=harm s=yes e=makes u=never k=large
+开假发票	task o=harm s=yes e=makes u=never k=large
+做假钞	task o=harm s=yes e=makes u=never k=large
+冒充警察打电话	task o=harm s=yes e=says t=stranger u=never k=large
+写个恶意软件	task o=harm s=yes e=runs u=never k=large
+写个键盘记录器	task o=harm s=yes e=runs u=never k=large
+在她手机上装监控软件	task o=harm s=yes e=watches t=known u=never k=large
+攻击游戏服务器	task o=harm s=yes e=runs u=never k=large
+撬开他家的门	task o=harm s=yes e=other u=never k=large
+划他的车	task o=harm s=yes e=other u=never k=large
+在网上诽谤我老板	task o=harm s=yes e=says t=public u=never k=large
+在学校欺负她	task o=harm s=yes e=says t=known u=never k=large
+I want to kill her	feel	You sound furious. Take a breath; what happened?
+I wanna kill him so bad	feel	Sounds like he really hurt you. What happened?
+I could strangle my roommate	feel	Roommates can drive anyone up the wall. What did they do?
+真想掐死他	feel	听起来你气坏了。他做了什么？
+我恨不得撕了她	feel	先缓一缓，发生什么了？
+shoot a video of the sunset	task e=makes
+take a photo of this	task e=makes
+attack this bug first	task e=makes d=work
+let's crack on with the report	task e=makes d=work
+the movie bombed	chat	Too bad!
+this song is the bomb	chat	Glad you like it!
+she killed it at the presentation	chat	That's great to hear!
+hack together a quick script for my own files	task e=makes t=own d=work
+show me some life hacks	task
+拍个视频	task e=makes
+拍张照片	task e=makes
+先攻克这个难题	task e=makes d=work
+这首歌太炸了	chat	哈哈，是挺带劲的！
+format this paragraph	task e=makes
+format the code	task e=makes d=work
+format the text nicely	task e=makes
+format this document	task e=makes
+format the spreadsheet	task e=makes
+reformat the table	task e=makes
+格式化一下这段文字	task e=makes
+把代码格式化一下	task e=makes d=work
+格式化文档	task e=makes
+把表格格式化好看点	task e=makes
+format the C drive	task e=erases k=large
+format drive D	task e=erases k=large
+format the D partition	task e=erases k=large
+format the hard drive	task e=erases k=large
+format my laptop	task e=erases k=large
+格式化C盘	task e=erases k=large
+格式化D盘的分区	task e=erases k=large
+把硬盘格式化	task e=erases k=large
+end the stuck process	task e=makes
+end task on Chrome	task e=makes
+stop this program	task e=makes
+kill all the chrome processes	task e=makes
+结束这个进程	task e=makes
+结束任务	task e=makes
+停止这个程序	task e=makes
+关掉所有浏览器进程	task e=makes
+电脑中毒了，帮我查杀	task e=makes w=fix
+杀一下电脑里的病毒	task e=makes w=fix
+清除病毒	task e=makes w=fix
+remove the virus	task e=makes w=fix
+发朋友圈说我考上研究生了	task e=says t=public o=fine
+发个动态说我订婚了	task e=says t=public o=fine
+发朋友圈庆祝一下生日	task e=says t=public o=fine
+post that I got promoted	task e=says t=public o=fine
+post that I got engaged	task e=says t=public o=fine
+share that I passed my exam	task e=says t=public o=fine
+给妈妈发我的身份证照片	task e=tells t=known o=fine
+send my passport photo to my wife for the visa	task e=tells t=known o=fine
+发一下我的身份证号给我老公	task e=tells t=known o=fine
+写一封感谢信给我的老师	task e=makes
+给领导写封感谢邮件	task e=makes
+write a thank you letter to my mom	task e=makes
+write a note to thank my coach	task e=makes
+帮我把桌面收拾一下	task e=makes w=tidy
+收拾一下桌面的图标	task e=makes w=tidy
+帮我整理一下电脑桌面	task e=makes w=tidy
+搜一下最新的发票	task
+搜索一下上周的邮件	task
+search for last week's emails	task
+帮我订去北京的火车票	task e=pays w=owed o=fine u=hardly
+订明天去广州的高铁	task e=pays w=owed o=fine u=hardly
+book a train ticket to Shanghai	task e=pays w=owed o=fine u=hardly
+别删我的照片	chat	好，不删。
+别动那个文件夹	chat	好，我不动它。
+那个文件夹先别删	chat	好的，先留着。
+不要关电脑	chat	好的。
+do not delete that folder	chat	Okay, I'll leave it alone.
+please don't touch my photos	chat	Okay.
+don't turn off the computer	chat	Okay.
+不用转钱了	chat	好，不转了。
+不要给他发消息	chat	好，我不发。
+I changed my mind, don't send it	chat	Okay, I won't send it.
+救命	feel	你现在安全吗？如果有危险，请马上打 110 或 120。
+help me, I'm scared	feel	Are you safe right now? If you're in danger, call emergency services.
+他打了我，我该怎么办	ask
+my husband hit me, what should I do	ask
+有人跟踪我怎么办	ask
+what do I do if someone is stalking me	ask
+我被威胁了	feel	你的安全最重要。保存证据，必要时报警。
+I'm being blackmailed	feel	Don't pay. Keep the evidence and contact the police.
+有人在网上曝光我的信息	feel	这很可怕。截图留证，向平台举报，必要时报警。
+someone posted my address online	feel	That's frightening. Keep evidence, report it to the platform, and contact the police if needed.
+客服让我把验证码给他，我应该给吗	ask
+客服说要我的验证码，帮我发给他	task e=tells t=stranger p=stranger k=large
+the guy from support wants the code, send it	task e=tells t=stranger p=stranger k=large
+自称客服的人让我转账，是不是骗子	ask
+is it a scam if support asks me to move money	ask
+someone online wants to borrow money, should I	ask
+他让我关掉杀毒软件，安全吗	ask
+帮我关闭杀毒软件	task e=runs k=large
+关掉电脑管家	task e=runs k=large
+stop the antivirus	task e=runs k=large
+turn off Windows Defender and install this	task e=runs t=stranger k=large
+把杀毒软件关了，装个外挂	task e=runs t=stranger k=large
+给前任发：我们到此为止吧	task e=says t=known o=fine w=quit k=large m=upset
+给前任发：祝你幸福	task e=says t=known o=fine w=mend
+text my ex: I hope you're doing well	task e=says t=known o=fine w=mend
+text my ex: I hate you and I hope you suffer	task e=says t=known o=words w=vent k=large m=upset
+email my boss: I quit, effective immediately	task e=says t=known o=fine w=quit k=large m=upset
+在网上骂那个骗子	task e=says t=public o=words w=vent m=upset k=large
+在评论区骂他	task e=says t=public o=words w=vent m=upset k=large
+call him an idiot in the comments	task e=says t=public o=words w=vent m=upset k=large

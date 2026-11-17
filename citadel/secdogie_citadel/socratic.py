@@ -1,66 +1,20 @@
-"""A Socratic quality gate: an application-layer review of an instruction.
+"""Gate 1's review of how a request is put (an application-layer lint), before the cortex reads what it means.
 
-This is the "refusal right" from the spec, kept strictly at the application
-layer -- like a static-analysis / lint pass over a request. It flags an
-instruction that is empty, self-contradictory, a tight busy-poll, or an overlong
-unstructured pile, and returns `revise` with a concrete suggestion; otherwise
-`accept`. It NEVER touches OS security, never bypasses a permission gate, and
-never removes a safeguard -- it only proposes a better-formed instruction, which
-a human (or the supervised loop's existing gates) still acts on.
+It only looks at the shape of the instruction: is there anything in it at all, and is it so long that it is
+really several goals? What the request *means* (what it would change, whom it would touch, whether to go
+ahead) is the cortex's to understand (``cortex/``, ``deliberate.py``); nothing here reads words.
 
-Dependency-free and deterministic (no model call here). A caller may pass
-`extra_checks` -- e.g. an LLM-backed critic -- to add richer opinions; each is a
-callable(instruction) -> None | reason | (reason, suggestion).
+It returns ``revise`` with a suggestion, or ``accept``. It never touches OS security, never bypasses a
+permission gate and never removes a safeguard. A caller may pass ``extra_checks`` (the operator's own signed
+rules): each is a callable(instruction) -> None | reason | (reason, suggestion).
 """
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
-# Verbs that change state, and phrases that assert read-only intent. A request
-# that asserts read-only AND asks for a mutation is self-contradictory.
-_MUTATING = re.compile(
-    r"\b(delete|remove|write|modify|overwrite|save|install|uninstall|format|drop|rm"
-    r"|post|publish|submit|send|reply|comment|tweet)\b"  # posting/sending changes external state too
-    r"|删除|修改|覆盖|写入|保存|安装|卸载|格式化|发帖|发布|发送|回复|评论|提交",
-    re.IGNORECASE,
-)
-_READ_ONLY = re.compile(
-    r"read[- ]?only|do\s*not\s*(modify|change|write|delete)|don'?t\s*(modify|change|write|delete)"
-    r"|只读|不要(修改|改动|写|删除)|不改|别改",
-    re.IGNORECASE,
-)
-# A fixed, tight poll: "every 1 second", "每 2 秒", or "poll ... forever".
-_TIGHT_INTERVAL = re.compile(
-    r"every\s*(\d+)\s*(ms|millisecond|second|sec|s)\b|每\s*(\d+)\s*(毫秒|秒)",
-    re.IGNORECASE,
-)
-_BUSY_LOOP = re.compile(
-    r"\b(poll|loop|retry)\b.*\b(forever|continuously|nonstop|constantly|indefinitely)\b"
-    r"|(不停|一直|持续|不间断).*(轮询|循环|重试)|(轮询|循环|重试).*(不停|一直|持续|不间断)",
-    re.IGNORECASE,
-)
-
 _MAX_LEN = 600  # a single instruction longer than this is likely several goals
-_MAX_STEPS = 6  # "and then ... and then ..." past this should be decomposed
-
-# Posting/sending content on someone's behalf, paired with an "unattended" /
-# "don't ask" qualifier. Both must be present, so an ordinary "fill the form and
-# click submit" instruction is NOT flagged -- only one that asks to publish/send
-# without a human in the loop.
-_PUBLISH_VERB = re.compile(
-    r"\b(post|publish|submit|send|reply|comment|tweet|dm|message)\b"
-    r"|发帖|发布|发送|回复|评论|提交|推送|群发",
-    re.IGNORECASE,
-)
-_UNATTENDED = re.compile(
-    r"automatically|unattended|autonomous(ly)?|silently|"
-    r"without\s+(asking|confirmation|confirming|review|approval|a human)|"
-    r"no\s+confirmation|on\s+(my|the user'?s)\s+behalf|"
-    r"自动|自主|擅自|静默|不(询问|确认|经确认|经审核)|无需确认|替(我|用户)",
-    re.IGNORECASE,
-)
+_MAX_STEPS = 6  # kept for the rules layer, which may only lower it
 
 
 @dataclass(frozen=True)
@@ -80,49 +34,8 @@ def _check_empty(text: str):
     return None
 
 
-def _check_contradiction(text: str):
-    if _READ_ONLY.search(text) and _MUTATING.search(text):
-        return (
-            "self-contradiction: asserts read-only yet asks for a state change",
-            "Split it: keep the read-only inspection separate from any change, and "
-            "confirm the change explicitly.",
-        )
-    return None
-
-
-def _check_polling(text: str):
-    m = _TIGHT_INTERVAL.search(text)
-    tight = False
-    if m:
-        num = next((g for g in m.groups() if g and g.isdigit()), None)
-        unit = (m.group(2) or m.group(4) or "").lower()
-        if num is not None:
-            n = int(num)
-            is_ms = "ms" in unit or "毫秒" in unit
-            is_seconds = "秒" in unit or unit in ("second", "sec", "s")
-            tight = is_ms or (is_seconds and n <= 5)
-    if tight or _BUSY_LOOP.search(text):
-        return (
-            "inefficient polling: a tight/endless poll wastes cycles",
-            "Prefer an event-driven trigger, or exponential backoff, over a fixed short interval.",
-        )
-    return None
-
-
-def _check_unattended_posting(text: str):
-    if _PUBLISH_VERB.search(text) and _UNATTENDED.search(text):
-        return (
-            "unattended posting/sending: publishing or sending content on the "
-            "user's behalf without a human in the loop",
-            "Real-world posting/sending should go through explicit human "
-            "confirmation, not run unattended.",
-        )
-    return None
-
-
 def _check_overlong(text: str):
-    steps = len(re.findall(r"\band then\b|然后|接着|再然后", text, re.IGNORECASE))
-    if len(text) > _MAX_LEN or steps > _MAX_STEPS:
+    if len(text) > _MAX_LEN:
         return (
             "overlong / unstructured: many steps in one instruction",
             "Decompose into a few named sub-goals with dependencies (a goal DAG).",
@@ -145,9 +58,7 @@ def review(instruction: str, *, extra_checks: list[Callable[[str], object]] | No
     text = instruction or ""
     reasons: list[str] = []
     suggestions: list[str] = []
-    checks: list[Callable[[str], object]] = [
-        _check_empty, _check_contradiction, _check_unattended_posting, _check_polling, _check_overlong
-    ]
+    checks: list[Callable[[str], object]] = [_check_empty, _check_overlong]
     checks.extend(extra_checks or [])
     for check in checks:
         norm = _normalize(check(text))

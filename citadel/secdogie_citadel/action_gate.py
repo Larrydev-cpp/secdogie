@@ -40,7 +40,6 @@ from dataclasses import dataclass, field
 
 from secdogie_identity.capability import allows as capability_allows
 
-from . import socratic
 from .authz import action_hash, verify_authorization
 
 # --- Verdicts ---------------------------------------------------------------
@@ -144,7 +143,8 @@ class PlannedAction:
 
     @property
     def destructive(self) -> bool:
-        return self.high_risk or self.kind in _DESTRUCTIVE_KINDS
+        # words sent or posted in the person's name cannot be taken back: a signature, like a deletion
+        return self.high_risk or self.kind in _DESTRUCTIVE_KINDS or self.kind in _POSTING_KINDS
 
     def signature(self) -> tuple[str, str, str]:
         """What makes two actions "the same" for repeat / no-op detection."""
@@ -333,23 +333,6 @@ def _check_capability(a: PlannedAction, ctx: GateContext) -> Finding | None:
     return None
 
 
-def _check_unattended_posting(a: PlannedAction, ctx: GateContext) -> Finding | None:
-    # Reuse the instruction gate: a posting/sending action whose originating
-    # instruction asks to publish/send unattended is refused here too, so the
-    # two Socratic layers cannot disagree about auto-posting.
-    if a.kind not in _POSTING_KINDS or not ctx.instruction.strip():
-        return None
-    review = socratic.review(ctx.instruction)
-    if any(r.startswith("unattended posting") for r in review.reasons):
-        return Finding(
-            UNATTENDED_POSTING,
-            "the instruction asks to post/send unattended -- real-world posting needs a human",
-            REJECT,
-            risk=0.9,
-        )
-    return None
-
-
 def _check_authorization(a: PlannedAction, ctx: GateContext) -> Finding | None:
     """Gate 2: a destructive / irreversible action needs a valid operator-signed
     authorization token bound to it. When enforcement is on and the action is
@@ -437,7 +420,6 @@ _CHECKS = (
     _check_missing_verification,
     _check_excessive_cost,
     _check_capability,
-    _check_unattended_posting,
     _check_intent_unproven,
     _check_intent_contradiction,
     _check_preconditions,

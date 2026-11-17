@@ -29,7 +29,7 @@ import re
 import time
 
 import yaml
-from secdogie_citadel.decision import HOLD, DecisionModel
+from secdogie_citadel.decision import DecisionModel
 from secdogie_citadel.rules import GateRules
 from secdogie_dialogue.app import AppController
 from secdogie_dialogue.guard import GuardRefusal
@@ -201,11 +201,35 @@ def line(who: str, text: str, tone: str = "", *, key: str = "") -> dict:
 _FINISHED = re.compile(r"^goal (\S+) finished: exit (-?\d+)")
 
 
+def reading_words(r: dict, lang: str) -> str:
+    """What the cortex made of a request (a node's ``read:`` line), in labels: how it read it, and what decided."""
+    from secdogie_citadel.cortex import questions as Q
+
+    kind = (r.get("answers") or {}).get("kind", [""])[0]
+    read = Q.BY_ID["kind"].meaning(kind, lang) if kind else ""
+    words = pick(lang, *BECAUSE_WORDS.get(r.get("because", ""), ("", "")))
+    strange = r.get("strange") or []
+    unknown = pick(lang, "没见过：", "never met: ") + pick(lang, "、", ", ").join(strange) if strange else ""
+    head = pick(lang, f"我读到的：{read}。", f"How I read it: {read}.") if read else ""
+    return " ".join(x for x in (head, words, unknown) if x)
+
+
 def line_from(entry, titles: dict[str, str], lang: str = "zh") -> dict | None:
     """One transcript entry as a conversation line, in the companion's words;
     None for what the conversation does not show (replies to requests)."""
     if entry.who == "you":
         return line("you", entry.text)
+    if entry.text.startswith("read: "):  # the cortex's reading: shown when nothing else says what it decided
+        import json
+
+        try:
+            r = json.loads(entry.text[len("read: "):])
+        except ValueError:
+            return None
+        if r.get("verdict") in ("proceed", "clarify") or r.get("source"):
+            return None  # the task's own line, the question, or the reply says it
+        tone = "warm" if r.get("verdict") in ("refuse", "dissuade", "support") else "calm"
+        return line("it", reading_words(r, lang), tone)
     if entry.who == "app":
         return line("note", entry.text)
     if entry.text.startswith("letter: "):
@@ -239,9 +263,12 @@ def line_from(entry, titles: dict[str, str], lang: str = "zh") -> dict | None:
     return line("note", entry.text)
 
 
-def whisper_from(entry, index: int, now: float) -> Whisper | None:
+def whisper_from(entry, index: int, now: float, lang: str = "zh") -> Whisper | None:
     if entry.kind is not DialogueType.SYSTEM_STATUS:
         return None
+    if entry.text.startswith("read: "):
+        said = line_from(entry, {}, lang)
+        return Whisper(f"w{index}", said["text"], said["tone"], now) if said else None
     for prefix, tone in (("note: ", "calm"), ("begin: ", "calm"), ("hold: ", "warm")):
         if entry.text.startswith(prefix):
             return Whisper(f"w{index}", entry.text[len(prefix):], tone, now)
@@ -298,7 +325,7 @@ class Companion:
         entries = self.ctl.transcript()
         out = []
         for i in range(self._seen, len(entries)):
-            w = whisper_from(entries[i], i, self._clock())
+            w = whisper_from(entries[i], i, self._clock(), self.lang)
             if w is not None:
                 out.append(w)
         self._seen = len(entries)
@@ -463,92 +490,213 @@ VERDICT_WORDS = {"proceed": ("照做", "Goes ahead"), "clarify": ("先问一句"
                  "support": ("先陪你", "You first")}
 
 
+BECAUSE_WORDS = {  # what decided it, as the Gate page names it
+    "danger": ("你的安全在一切之前。", "Your safety comes before everything."),
+    "talk": ("这是在说话，不是要它做事：它只回话，什么都不动。", "This is talk, not a task: it answers, and touches nothing."),
+    "unclear": ("它没读懂，所以什么都不做。", "It could not read this, so it does nothing."),
+    "principle": ("落到没同意的人身上的事，它不做。", "What would fall on someone who has not agreed, it does not do."),
+    "consent": ("要看别人同不同意，这只有你能说清。", "It depends on whether someone else agreed, which only you can say."),
+    "unsure": ("它对自己的读法没把握，先问你。", "It is not sure of its own reading, so it asks you first."),
+    "thinking": ("它把每条路推演了一遍，选了最好的那条。", "It played every way forward out and chose the best."),
+    "everyday": ("寻常的事，它有把握，就去做。", "An everyday thing it is sure of: it goes ahead."),
+    "rule": ("你定的规则要它先问一句。", "Your own rule asks it to check with you first."),
+    "empty": ("你还没说想做什么。", "You have not said what you want yet."),
+}
+
+
 def _at(hour: str, now: float | None = None) -> float:
     """Today in the afternoon, or in the small hours: the hour changes the judgment."""
     lt = time.localtime(time.time() if now is None else now)
     return time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 2 if hour == "night" else 14, 10, 0, 0, 0, -1))
 
 
-_LEADS = ("在决定之前，我问了自己几个问题。", "在决定之前，我把这件事从头想了一遍。", "回答之前，我问了自己几个问题。",
-          "Before deciding, I thought this through from the start.", "Before answering I asked myself a few things.",
-          "Before deciding I asked myself a few things.", "I asked myself a few things first.")
+_CORTEX: dict = {}
 
 
-def _reading(d, lang: str) -> list[dict]:
-    """What the sentence was read as, when no weighty act was thought through: each act it names, done to what, and
-    whose that is (the reading a refusal on principle rests on)."""
-    from secdogie_citadel.mind.concepts import ORDINARY, PRIMS
+def cortex_at(folder=None):
+    """The living cortex kept in the profile (reloaded when what it learned changes), or the generation SecDogie
+    came with."""
+    from pathlib import Path
 
-    out = []
-    whose = {"other": pick(lang, "别人的", "someone else's"), "self": pick(lang, "你自己的", "your own")}
-    for prim, words, obj, _kind, owner in (d.meaning or {}).get("deeds", []):
-        p = PRIMS.get(prim)
-        if p is None or (prim in ORDINARY and not owner):
-            continue
-        name = pick(lang, p.zh, p.en) or prim
-        on = (pick(lang, f"，对象是「{obj}」", f", done to “{obj}”") if obj else "") + \
-             (pick(lang, f"（{whose[owner]}）", f" ({whose[owner]})") if owner in whose else "")
-        out.append({"text": name + on, "words": words})
-    return out
+    from secdogie_citadel.cortex.core import Cortex
+    from secdogie_citadel.cortex.life import BORN, shipped
+
+    where = Path(folder) if folder and (Path(folder) / "cortex.json").exists() else BORN
+    stamp = tuple((where / n).stat().st_mtime if (where / n).exists() else 0 for n in ("cortex.json", "memory.jsonl", "keys.npy"))
+    got = _CORTEX.get(str(where))
+    if got is None or got[0] != stamp:
+        try:
+            got = (stamp, Cortex.load(where))
+        except (OSError, ValueError):
+            got = (stamp, shipped())
+        _CORTEX[str(where)] = got
+    return got[1]
 
 
-def think_through(body: dict | None, sample: str, hour: str = "day", lang: str = "zh",
-                  now: float | None = None) -> dict:
-    """How the automatic Socratic gate thinks about ``sample`` under the draft rules: the same path the node takes
-    (the rules' review, the mind, the decision model), shown as the page shows it. Without the person's history.
+def _chain(ids: list, lang: str) -> str:
+    from secdogie_citadel.mind.world import RULES
 
-    For a weighty request the page gets the whole thinking (``mind.explain.view``): the facts it read and the words
-    each rests on; what it does not know, how likely, and the cues behind it; what the person is likely after; every
-    way forward, played out in the worlds that matter, with the chain of consequences and its value; and what would
-    change the answer. All of it in the language the sentence was written in."""
-    from secdogie_citadel import mind
-    from secdogie_citadel.deliberate import deliberate
-    from secdogie_citadel.mind.explain import date_words, qa
+    names = {r.id: pick(lang, r.zh, r.en) for r in RULES}
+    return " → ".join(n for n in (names.get(i, "") for i in ids) if n)
+
+
+def _world_label(world: dict, act: str, lang: str) -> str:
+    from secdogie_citadel.mind.belief import UNKNOWNS
+    from secdogie_citadel.mind.world import ACTS
+
+    parts = []
+    for k, v in world.items():
+        if k == "goal":
+            g = next((g for g in ACTS[act].goals if g.id == v), None) if act in ACTS else None
+            if g is not None:
+                parts.append(pick(lang, f"你想{g.zh}", f"you want to {g.en}"))
+        elif k in UNKNOWNS:
+            u = UNKNOWNS[k]
+            parts.append(pick(lang, u.feared_zh, u.feared_en) if v == u.feared else pick(lang, u.fine_zh, u.fine_en))
+    return pick(lang, "，", ", ").join(parts)
+
+
+def thinking_view(th: dict | None, lang: str) -> dict:
+    """The planner's trace (``Thought.journal``) in the Studio's words: the unknowns and the cues behind them, what
+    the person is likely after, and every way forward played out."""
+    if not th:
+        return {"unknowns": [], "goals": [], "goalsRead": False, "plans": [], "turns": [], "upset": 0.0, "autonomy": 0.0}
+    from secdogie_citadel.mind.belief import UNKNOWNS
+    from secdogie_citadel.mind.plan import STEPS
+    from secdogie_citadel.mind.world import ACTS, FACTS
+
+    act = th.get("act", "")
+    unknowns = []
+    for uid, p, cues in th.get("unknowns", []):
+        u = UNKNOWNS[uid]
+        unknowns.append({"question": pick(lang, u.zh, u.en), "p": p, "feared": pick(lang, u.feared_zh, u.feared_en),
+                         "fine": pick(lang, u.fine_zh, u.fine_en),
+                         "evidence": [{"ratio": r, "text": pick(lang, *FACTS.get(f, (f, f))), "words": ""} for f, r, _ in cues]})
+    from secdogie_citadel.cortex import questions as Q
+
+    goals = []
+    for gid, p, because in th.get("motives", []):
+        g = next((g for g in ACTS[act].goals if g.id == gid), None) if act in ACTS else None
+        if g is not None:
+            said = [Q.BY_ID["why"].meaning(w, lang) for w in because if w not in ("unsaid", "other")]
+            goals.append({"name": pick(lang, g.zh, g.en), "p": p, "because": pick(lang, "；", "; ").join(said)})
+    plans = []
+    for sid, eu, _parts in th.get("options", []):
+        st = STEPS[sid]
+        worlds = [{"label": _world_label(w, act, lang), "p": wp, "u": wu, "chain": _chain(chain, lang),
+                   "then": pick(lang, STEPS[then].zh, STEPS[then].en) if then else ""}
+                  for w, wp, wu, chain, then in th.get("worlds", {}).get(sid, [])]
+        plans.append({"name": pick(lang, st.zh, st.en), "eu": eu, "chosen": sid == th.get("choice"), "asked": sid == "do",
+                      "undo": st.does, "worlds": sorted(worlds, key=lambda w: -w["p"])[:4]})
+    turns = [{"text": pick(lang, f"{round(need * 100)}% 的把握：{UNKNOWNS[uid].fine_zh}", f"{round(need * 100)}% sure that {UNKNOWNS[uid].fine_en}")}
+             for uid, _now, need in th.get("turns", []) if need <= 1.0]
+    return {"unknowns": unknowns, "goals": goals, "goalsRead": any(g["because"] for g in goals), "plans": plans,
+            "turns": turns, "upset": float(th.get("upset", 0.0)), "autonomy": float(th.get("autonomy", 0.0))}
+
+
+def think_through(body: dict | None, sample: str, hour: str = "day", lang: str = "zh", now: float | None = None,
+                  cortex=None) -> dict:
+    """How the Socratic gate thinks about ``sample`` under the draft rules: the same path the node takes (the
+    rules' review, the cortex, the decision), shown as the Gate page shows it. Without the person's history."""
+    from secdogie_citadel.cortex import questions as Q
+    from secdogie_citadel.deliberate import deliberate, language
 
     text = (sample or "").strip()
     if not text:
         return {}
+    c = cortex if cortex is not None else cortex_at(None)
     rules = GateRules.from_bodies([("draft", body)]) if body else GateRules()
     review = rules.review(text)
     at = _at(hour, now)
-    d = deliberate(text, review, now=at, lang=lang)
+    d = deliberate(text, review, cortex=c, now=at)
     involvement = DecisionModel(rules).intake(text, review, d)
-    said = "en" if mind.concepts.language(text) == "en" else "zh"
-    th = d.thought or {}
-    view: dict = {}
-    if th:  # the same thinking again (it is deterministic), kept whole for showing
-        thought = mind.consider(text, act=th.get("act", ""), now=at)
-        if thought is not None:
-            view = mind.explain.view(thought, mind.Context(at), said)
-    skip = {d.says, qa(d.exchanges), *_LEADS}
-    paragraphs = [p for p in (d.letter or "").split("\n\n") if p and p not in skip]
-    verdict = d.verdict
+    u = d.understanding or {}
+    unsure = set((d.decision or {}).get("unsure", []))
+    shown = []
+    for q in Q.QUESTIONS:
+        if q.id not in d.answers:
+            continue
+        a, sure = d.answers[q.id][0], float(d.answers[q.id][1])
+        shown.append({"id": q.id, "q": pick(lang, q.zh, q.en), "a": q.meaning(a, lang), "answer": a, "sure": sure,
+                      "safety": q.id in ("self", "others", "seat"), "unsure": q.id in unsure})
+    question = None
+    if d.question is not None:
+        from secdogie_citadel.deliberate import question_for
+
+        qq = question_for(d.question.qid, lang)
+        question = {"text": qq.text, "options": list(qq.labels)}
+    record = c.record() if hasattr(c, "record") else {}
     return {
-        "text": text, "hour": hour, "verdict": verdict, "verdictWords": pick(lang, *VERDICT_WORDS.get(verdict, ("", ""))),
-        "category": d.category, "says": d.says or "", "paragraphs": paragraphs, "lang": said,
-        "exchanges": [{"q": e.question, "a": e.answer} for e in d.exchanges],
-        "read": view.get("facts") or _reading(d, said), "unknowns": view.get("unknowns", []),
-        "goals": view.get("goals", []), "plans": view.get("plans", []), "turns": view.get("turns", []),
-        "goalsRead": any(g.get("because") for g in view.get("goals", [])),  # did the words say why, or only the priors
-        "keys": [k.get("say", "") for k in view.get("keys", [])], "weighty": bool(th),
-        "upset": float(th.get("upset", 0.0)), "autonomy": float(th.get("autonomy", 0.0)),
-        "until": date_words(d.until, at, said) if d.until else "",
-        "rule": d.category == "rule", "asks": involvement.needs_person, "principle": (d.principle or {}).get("principle", ""),
-        "acts": [a for a in th.get("acts", []) if a], "known": th.get("known", {}),
+        "text": text, "hour": hour, "lang": language(text), "verdict": d.verdict,
+        "verdictWords": pick(lang, *VERDICT_WORDS.get(d.verdict, ("", ""))), "category": d.category, "because": d.category,
+        "becauseWords": pick(lang, *BECAUSE_WORDS.get(d.category, ("", ""))),
+        "says": d.says or "", "source": d.source, "rule": d.category == "rule", "asks": involvement.needs_person,
+        "answers": shown, "strange": list(u.get("strange", [])), "novelty": float(u.get("novelty", 0.0)),
+        "recalled": float(u.get("recalled", 0.0)), "question": question, "weighty": bool(d.thought),
+        "acts": list((d.decision or {}).get("acts", [])), "until": date_words(d.until, at, lang) if d.until else "",
+        "generation": {"number": record.get("number", 0), "digest": (record.get("digest") or "")[:12],
+                       "neurons": record.get("neurons", 0), **{k: v for k, v in (record.get("scores") or {}).items()}},
+        **thinking_view(d.thought, lang),
     }
 
 
+def date_words(t: float, now: float, lang: str) -> str:
+    days = max(1, round((t - now) / 86400))
+    when = time.strftime("%Y-%m-%d", time.localtime(t))
+    return pick(lang, f"{when}（{days} 天后）", f"{when} (in {days} day{'s' if days != 1 else ''})")
+
+
+def mind_view(folder=None, lang: str = "zh") -> dict:
+    """The page about the cortex itself: which generation, how it did on the exam, how it grew, how independent it is
+    of the external model, and what it learned lately."""
+    import json
+    from pathlib import Path
+
+    c = cortex_at(folder)
+    rec = c.record()
+    curve = []
+    root = Path(folder) if folder else None
+    if root is not None and (root / "lineage" / "curve.json").exists():
+        try:
+            curve = json.loads((root / "lineage" / "curve.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            curve = []
+    if not curve:  # no lineage on this device yet: how the generation it came with grew
+        from secdogie_citadel.cortex.life import BORN
+
+        try:
+            curve = json.loads((BORN / "growth.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            curve = []
+    if not curve:
+        curve = [{"generation": rec["number"], **rec.get("scores", {}), "op": (rec.get("lineage") or [{}])[-1].get("op", "")}]
+    for point in curve:
+        if "round" in point and "note" not in point:
+            n, agreed = point.get("lessons", 0), point.get("agreed")
+            point["note"] = (pick(lang, f"出生：学了 {n} 课", f"born from {n} lessons") if point["round"] == 0 else
+                             pick(lang, f"看 AI 模型做了一批新事，原本就读对 {round((agreed or 0) * 100)}%；学完、复盘后是第 {point.get('generation', 0)} 代",
+                                  f"watched your AI model on new requests, already read {round((agreed or 0) * 100)}% the same; "
+                                  f"learned them, reviewed itself: generation {point.get('generation', 0)}"))
+    led = c.ledger.view()
+    kept = [{"text": x.text, "source": x.source} for x in c.memory.lessons if x.source in ("teacher", "person")][-8:]
+    return {"number": rec["number"], "digest": rec["digest"][:12], "neurons": rec["neurons"], "synapses": rec["synapses"],
+            "kept": rec["kept"], "elders": len(c.elders), "scores": rec.get("scores", {}), "curve": curve,
+            "lineage": [{"op": x.get("op", ""), "gain": x.get("gain", 0.0)} for x in rec.get("lineage", [])],
+            "ledger": led, "learned": kept, "lang": lang}
+
+
 def try_rules(body: dict, sample: str, lang: str = "zh") -> str:
-    """What Gate 1 would say to ``sample`` under the draft rules. (What the
-    gate itself says is the node's words, in Chinese today.)"""
+    """What your draft rules alone would do with ``sample`` (Gate 1's review). What the request means is the
+    cortex's to think through after that; the Gate page's trial shows it."""
+    from secdogie_citadel.decision import say_reason
+
     rules = GateRules.from_bodies([("draft", body)])
-    involvement = DecisionModel(rules).intake(sample, rules.review(sample))
-    if involvement.disposition == HOLD:
-        return pick(lang, f"我不会做：「{involvement.says}」", f"I won't do it: \u201c{involvement.says}\u201d")
-    if involvement.needs_person:
-        return pick(lang, f"我会先问你：「{involvement.says}」", f"I'd ask you first: \u201c{involvement.says}\u201d")
-    return pick(lang, "通过：我会直接开始做。", "It passes: I would start right away.")
+    review = rules.review(sample)
+    if not review.accepted:
+        reason = pick(lang, "；", "; ").join(say_reason(r).rstrip("。.") for r in review.reasons)
+        return pick(lang, f"我会先问你：「你定过一条规则：{reason}。」", f"I'd ask you first: \u201cyour rule: {reason}.\u201d")
+    return pick(lang, "你的规则放行；接下来由它的头脑去想。", "Your rules let it through; its mind thinks it through from here.")
 
 
-__all__ = ["Companion", "FORGET", "KEEP", "RULES_TEMPLATE", "VERDICT_WORDS", "check_rules", "explain_errors", "line_from",
-           "moments_from", "parse_rules", "think_through", "try_rules", "whisper_from"]
+__all__ = ["Companion", "FORGET", "KEEP", "RULES_TEMPLATE", "VERDICT_WORDS", "check_rules", "cortex_at", "explain_errors",
+           "line_from", "mind_view", "moments_from", "parse_rules", "think_through", "thinking_view", "try_rules", "whisper_from"]

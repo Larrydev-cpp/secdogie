@@ -39,6 +39,26 @@ def _bundle(body=RULES, *, signer=OPERATOR, kind="gate-rules", version=1, supers
     return sign_bundle(signer, b)
 
 
+class Everyday:
+    """A cortex that reads every request as an everyday task it is sure of: these tests are about the rules."""
+
+    def __init__(self):
+        from secdogie_citadel.cortex import genome as G
+        from secdogie_citadel.cortex.apprentice import Ledger
+
+        self.genome, self.ledger = G.default(), Ledger()
+
+    def understand(self, texts, contexts=None, recall=True):
+        from secdogie_citadel.cortex import questions as Q
+        from secdogie_citadel.cortex.core import Understanding
+
+        def one(q, a):
+            return a, 0.98, tuple(0.98 if c == a else 0.02 / (len(q.answers) - 1) for c in q.choices)
+
+        a = {q.id: one(q, {"kind": "task", "effect": "makes"}.get(q.id, q.default)) for q in Q.QUESTIONS}
+        return [Understanding(t, a) for t in texts]
+
+
 def _node(tmp_path, **kw):
     def run_task(task, **_):
         return 0, "done"
@@ -47,7 +67,7 @@ def _node(tmp_path, **kw):
         identity=NODE, apps=Allowlist({APP.did}), operators=Allowlist({OPERATOR.did}),
         authorized=Allowlist({NODE.did}), unrestricted=True, run_task=run_task,
         journal_path=str(tmp_path / "node.db"), candidates_path=str(tmp_path / "memory.db"),
-        probe_ttl=20.0, idle_poll=0.05, masters=MasterSet([m.did for m in MASTERS], 2), **kw,
+        probe_ttl=20.0, idle_poll=0.05, masters=MasterSet([m.did for m in MASTERS], 2), cortex=Everyday(), **kw,
     ))
 
 
@@ -157,23 +177,26 @@ def test_a_goal_the_rules_question_waits_for_an_answer(live):
     assert reviews == ["revise", "revise", "accept"]  # every review is on the record
     verdicts = [(e["body"]["verdict"], e["body"]["category"]) for e in node.journal.events()
                 if e["kind"] == "deliberation"]
-    assert verdicts == [("clarify", "rule"), ("clarify", "rule"), ("proceed", "")]  # and every verdict
+    assert verdicts == [("clarify", "rule"), ("clarify", "rule"), ("proceed", "everyday")]  # and every verdict
+
+
+TOO_MUCH = "整理下载文件夹，" * 100
 
 
 def test_the_built_in_review_asks_in_prose_with_no_buttons(live):
     node, app = live
-    app.run([{"op": "add_goal", "title": "只读地看一下文件，然后删除它", "goal_id": "g1"},
-             {"op": "answer", "match": "一边说只读", "text": "先不做了"}])
+    app.run([{"op": "add_goal", "title": TOO_MUCH, "goal_id": "g1"},
+             {"op": "answer", "match": "拆成几步", "text": "先不做了"}])
     assert app.ctl.conversation.pending() == ()
-    (probe,) = [e for e in app.ctl.conversation._entries if "一边说只读" in e.text]
-    assert probe.options == () and "换个说法告诉我" in probe.text
+    (probe,) = [e for e in app.ctl.conversation._entries if "拆成几步" in e.text]
+    assert probe.options == () and "sub-goals" in probe.text
     assert "g1" not in node.supervisor._tree().nodes
 
 
 def test_without_an_app_a_questionable_goal_is_refused(tmp_path):
     node = _node(tmp_path)
     try:
-        assert node.intake("g1", "只读地看一下文件，然后删除它").startswith("refused: goal g1 needs a word with you")
+        assert node.intake("g1", TOO_MUCH).startswith("refused: goal g1 needs a word with you")
         assert "g1" not in node.supervisor._tree().nodes
     finally:
         node.stop()

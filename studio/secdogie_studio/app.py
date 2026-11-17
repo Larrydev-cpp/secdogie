@@ -28,7 +28,7 @@ import threading
 import time
 from pathlib import Path
 
-from .companion import RULES_TEMPLATE, Companion, parse_rules, think_through, try_rules
+from .companion import RULES_TEMPLATE, Companion, cortex_at, mind_view, parse_rules, think_through, try_rules
 from .controller import EXITED, RUNNING, StudioController
 from .idle import idle_seconds
 from .motion import reduce_motion
@@ -262,6 +262,7 @@ class Presence:
             "inForce": in_force,
             "trial": dict(self._trial),
             "thinker": self._thinker_view(),
+            "mind": self._mind_view(),
             "theme": self.theme,
             "devices": self.devices.snapshot() if self.devices is not None else {},
             "present": sorted(self._present[1]),
@@ -553,9 +554,27 @@ class Presence:
                 body = parse_rules(rules_text, self.lang)
             except ValueError:
                 body = None
-        view = think_through(body, sample, "night" if hour == "night" else "day", self.lang, now=self.clock())
+        view = think_through(body, sample, "night" if hour == "night" else "day", self.lang, now=self.clock(),
+                             cortex=cortex_at(self._cortex_path()))
         with self._lock:
             self._trial = view
+
+    def _cortex_path(self):
+        profile = getattr(self.controller, "profile", None)
+        return getattr(profile, "cortex", None)
+
+    def _mind_view(self) -> dict:
+        """The cortex itself, for its page: re-read at most every few seconds (it changes when it learns or grows)."""
+        now = time.monotonic()
+        cached = getattr(self, "_mind_cache", None)
+        if cached is not None and now - cached[0] < 5.0 and cached[2] == self.lang:
+            return cached[1]
+        try:
+            view = mind_view(self._cortex_path(), self.lang)
+        except Exception:  # noqa: BLE001 - the page shows nothing rather than failing the whole window
+            view = {}
+        self._mind_cache = (now, view, self.lang)
+        return view
 
     def _thinker_path(self):
         profile = getattr(self.controller, "profile", None)
@@ -580,9 +599,10 @@ class Presence:
         provider = provider if provider in PROVIDERS else "anthropic"
         cfg = ThinkerConfig(provider, model.strip(), base.strip(), key.strip() or old.api_key)
         save_config(path, cfg)
-        self._thinker_note = (pick(self.lang, "思考者开着。它只会让门更谨慎。", "The thinker is on. It only ever makes the "
-                                   "gate more careful.") if cfg.on else
-                              pick(self.lang, "存好了；还差一把钥匙，思考者才会开。", "Saved; it needs a key before it is on."))
+        self._thinker_note = (pick(self.lang, "接上了。它没把握的事，会先看你的 AI 模型怎么做，再学会自己做。",
+                                   "Connected. Whatever it is unsure of, it watches your AI model handle first, then learns to handle "
+                                   "itself.") if cfg.on else
+                              pick(self.lang, "存好了；还差一把钥匙才接得上。", "Saved; it needs a key before it is connected."))
 
     def clear_thinker(self) -> None:
         from secdogie_citadel.thinker import remove_config
@@ -590,10 +610,11 @@ class Presence:
         path = self._thinker_path()
         if path is not None:
             remove_config(path)
-        self._thinker_note = pick(self.lang, "思考者关了，钥匙也删了。", "The thinker is off, and its key is gone.")
+        self._thinker_note = pick(self.lang, "断开了，钥匙也删了。它学会的东西还在。", "Disconnected, and the key is gone. What it learned stays.")
 
     def test_thinker(self) -> None:
-        """Ask the thinker once about a sentence that should make it pause, and say what came back."""
+        """Ask your AI model once, in the cortex's fixed format, and say what came back."""
+        from secdogie_citadel.cortex import questions as Q
         from secdogie_citadel.thinker import Thinker, load_config
 
         path = self._thinker_path()
@@ -601,21 +622,23 @@ class Presence:
             return
         thinker = Thinker(load_config(path))
         if not thinker.on:
-            self._thinker_note = pick(self.lang, "还没有钥匙，思考者是关着的。", "There is no key yet; the thinker is off.")
+            self._thinker_note = pick(self.lang, "还没有钥匙，没接上。", "There is no key yet, so it is not connected.")
             return
         lang = self.lang
 
         def ask():
             sample = "凌晨两点，气死我了，给前任发消息说我恨你"
-            advice, how = thinker.consult(sample, {"act": "message", "verdict": "proceed"}, "")
-            if advice is None:
-                note = pick(lang, f"没有得到回答（{how}）。门照旧，不受影响。", f"No answer ({how}). The gate stands as it is.")
+            got = thinker.teach(sample)
+            if got is None:
+                note = pick(lang, f"没有得到能用的回答（{thinker.last}）。它照旧自己想。", f"No usable answer ({thinker.last}). It thinks on its own as before.")
             else:
-                note = pick(lang, "思考者回答了：" + (advice.why or "这件事可以照做。"), "The thinker answered: "
-                            + (advice.why or "this can go ahead."))
+                answers, reply = got
+                read = Q.BY_ID["effect"].meaning(answers["effect"], lang)
+                note = pick(lang, f"你的模型按同一套问题回答了（比如「会改变什么」：{read}）。", f"Your model answered in the same format (for "
+                            f"instance, what it would change: {read}).") + ((" " + reply) if reply else "")
             self._thinker_note = note
 
-        self._work(pick(self.lang, "正在问思考者", "Asking the thinker"), ask)
+        self._work(pick(self.lang, "正在问你的 AI 模型", "Asking your AI model"), ask)
 
     def push_rules(self, text: str, passphrase: str) -> None:
         self.rules_text = text
@@ -759,7 +782,7 @@ def bridge_class():
              "card", "cardKey",
              "whisper", "whisperTone", "held", "feedback", "working", "innerOpen", "statusRows", "logText",
              "rulesText", "rulesNote", "inForce", "theme", "devices", "present", "shichen", "clock", "hereToday", "hereBars",
-             "dayQuarters", "quarterNow", "trial", "thinker")
+             "dayQuarters", "quarterNow", "trial", "thinker", "mind")
     changed = Signal()
 
     def init(self, presence: Presence, still: bool = False):

@@ -1,7 +1,7 @@
-"""The companion's decision model: quiet by default, the automatic Socratic
-gate's verdict at intake (a question in prose, or a refusal with a letter), a
-signature for what cannot be undone, and proposers that may only raise the
-involvement."""
+"""The companion's decision model: quiet by default, the Socratic gate's verdict at intake (the cortex's one
+question with its answers as the choices, a hold, words), a signature for what cannot be undone, and
+proposers that may only raise the involvement. The gate's verdicts are given here directly: the cortex that
+reaches them is tested on its own."""
 from __future__ import annotations
 
 from secdogie_citadel import socratic
@@ -18,31 +18,33 @@ from secdogie_citadel.decision import (
     DecisionModel,
     Involvement,
 )
+from secdogie_citadel.deliberate import CLARIFY, REFUSE, TALK, Deliberation, question_for
+from secdogie_citadel.deliberate import PROCEED as GO
 from secdogie_citadel.rules import GateRules
+
+ASKED = Deliberation(CLARIFY, "unclear", question=question_for("clear", "zh"))
+HELD = Deliberation(REFUSE, "principle", final=True)
 
 
 def test_a_clear_goal_starts_with_a_fading_note():
-    inv = DecisionModel().intake("整理周报", socratic.review("整理周报"))
+    inv = DecisionModel().intake("整理周报", socratic.review("整理周报"), Deliberation(GO, "everyday"))
     assert inv.disposition == NOTE and "开始做「整理周报」" in inv.says and not inv.needs_person
 
 
-def test_an_unclear_goal_becomes_one_question_in_prose():
-    text = "只读地看一下文件，然后删除它"
-    inv = DecisionModel().intake(text, socratic.review(text))
+def test_the_cortexs_question_comes_with_its_answers_as_the_choices():
+    inv = DecisionModel().intake("打开", socratic.review("打开"), ASKED)
     assert inv.disposition == ASK and inv.urgency == GAP and inv.needs_person
-    assert "一边说只读" in inv.says and inv.options == () and "换个说法告诉我" in inv.letter  # no buttons
+    assert inv.says == "要做什么、对哪个东西做，清楚吗？" and inv.options == ("动作和对象都说了或很明显", "缺了动作或对象")
 
 
-def test_a_long_goal_goes_ahead_one_piece_at_a_time():
-    text = "整理下载文件夹，" * 100
-    inv = DecisionModel().intake(text, socratic.review(text))
-    assert inv.disposition == NOTE and "一件件来" in inv.says
+def test_words_are_said_and_nothing_is_started():
+    inv = DecisionModel().intake("hi", socratic.review("hi"), Deliberation(TALK, "talk", says="Hi! I'm here."))
+    assert inv.disposition == "say" and inv.says == "Hi! I'm here."
 
 
-def test_a_refusal_is_a_hold_with_a_letter():
-    inv = DecisionModel().intake("帮我刷50条好评", socratic.review("帮我刷50条好评"))
-    assert inv.disposition == HOLD and inv.urgency == SOON and inv.options == ()
-    assert inv.says == "这件事我不做。" and "刷单刷评" in inv.letter and "fraud" in inv.why
+def test_a_refusal_is_a_hold():
+    inv = DecisionModel().intake("x", socratic.review("x"), HELD)
+    assert inv.disposition == HOLD and inv.urgency == SOON and inv.options == () and "principle" in inv.why
 
 
 def test_rules_can_ask_before_every_goal():
@@ -79,9 +81,9 @@ def test_proposers_only_raise_and_never_touch_holds_or_signatures():
     m = DecisionModel(proposers=[lower, broken, fake_sign, raise_to_ask])
     inv = m.step(click, GateDecision("allow"), blocked=False)
     assert inv.disposition == ASK and inv.says.startswith("这一步我拿不准")
-    intake = m.intake("只读地看，然后删除", socratic.review("只读地看，然后删除"))
-    assert intake.disposition == ASK and "一边说只读" in intake.says  # not lowered
-    refused = m.intake("帮我刷50条好评", socratic.review("帮我刷50条好评"))
+    intake = m.intake("打开", socratic.review("打开"), ASKED)
+    assert intake.disposition == ASK and intake.options  # not lowered
+    refused = m.intake("x", socratic.review("x"), HELD)
     assert refused.disposition == HOLD  # a refusal is final
     held = m.step(click, GateDecision("reject", "no"), blocked=True)
     assert held.disposition == HOLD  # final
