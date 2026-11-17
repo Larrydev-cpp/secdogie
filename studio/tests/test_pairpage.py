@@ -24,5 +24,5 @@ def test_the_bundled_pairing_page_matches_the_browser_source(name):
 
 
 def test_the_bundle_has_exactly_the_files_the_page_needs():
-    present = {str(p.relative_to(BUNDLED)) for p in BUNDLED.rglob("*") if p.is_file()}
+    present = {p.relative_to(BUNDLED).as_posix() for p in BUNDLED.rglob("*") if p.is_file()}  # as_posix: same on Windows
     assert present == set(FILES)
