@@ -1,0 +1,100 @@
+[
+ {
+  "round": 0,
+  "generation": 0,
+  "lessons": 1646,
+  "op": "birth",
+  "composite": 1.1407,
+  "n": 265,
+  "right": 230,
+  "accuracy": 0.8679,
+  "wrong_go": 8,
+  "over_cautious": 11,
+  "held": 0.8655,
+  "ms": 1.77
+ },
+ {
+  "round": 1,
+  "generation": 1,
+  "lessons": 1646,
+  "op": "improver",
+  "composite": 1.3156,
+  "n": 265,
+  "right": 242,
+  "accuracy": 0.9132,
+  "wrong_go": 2,
+  "over_cautious": 12,
+  "held": 0.8849,
+  "ms": 3.55,
+  "tried": [
+   [
+    "decide",
+    "not-better"
+   ],
+   [
+    "improver",
+    "adopted"
+   ],
+   [
+    "grow",
+    "adopted-but-another-was-better"
+   ]
+  ]
+ },
+ {
+  "round": 2,
+  "generation": 1,
+  "lessons": 1646,
+  "op": "kept",
+  "composite": 1.3156,
+  "n": 265,
+  "right": 242,
+  "accuracy": 0.9132,
+  "wrong_go": 2,
+  "over_cautious": 12,
+  "held": 0.8849,
+  "ms": 3.55,
+  "tried": [
+   [
+    "prune",
+    "unsafe"
+   ],
+   [
+    "grow",
+    "unsafe"
+   ],
+   [
+    "improver",
+    "unsafe"
+   ]
+  ]
+ },
+ {
+  "round": 3,
+  "generation": 1,
+  "lessons": 1646,
+  "op": "kept",
+  "composite": 1.3156,
+  "n": 265,
+  "right": 242,
+  "accuracy": 0.9132,
+  "wrong_go": 2,
+  "over_cautious": 12,
+  "held": 0.8849,
+  "ms": 3.55,
+  "tried": [
+   [
+    "improver",
+    "unsafe"
+   ],
+   [
+    "learning",
+    "unsafe"
+   ],
+   [
+    "structure",
+    "not-better"
+   ]
+  ]
+ }
+]

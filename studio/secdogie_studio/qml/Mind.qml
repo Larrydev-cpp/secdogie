@@ -35,6 +35,7 @@ Item {
             crossover: [mindPage.t("杂交", "crossed"), mindPage.t("和另一代合并", "merged with another generation")],
             improver: [mindPage.t("改改进法", "new way to improve"), mindPage.t("调整了怎么改进自己", "changed how it improves itself")],
             start: [mindPage.t("起点", "start"), ""],
+            kept: [mindPage.t("没改", "kept"), mindPage.t("试过的改动不是不安全就是没变好，照旧", "every change it tried was unsafe or no better, so it stayed as it was")],
         }
         return words[op] || [op || "", ""]
     }

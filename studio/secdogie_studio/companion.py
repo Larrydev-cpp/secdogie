@@ -670,13 +670,16 @@ def mind_view(folder=None, lang: str = "zh") -> dict:
             curve = []
     if not curve:
         curve = [{"generation": rec["number"], **rec.get("scores", {}), "op": (rec.get("lineage") or [{}])[-1].get("op", "")}]
-    for point in curve:
-        if "round" in point and "note" not in point:
-            n, agreed = point.get("lessons", 0), point.get("agreed")
-            point["note"] = (pick(lang, f"出生：学了 {n} 课", f"born from {n} lessons") if point["round"] == 0 else
-                             pick(lang, f"看 AI 模型做了一批新事，原本就读对 {round((agreed or 0) * 100)}%；学完、复盘后是第 {point.get('generation', 0)} 代",
-                                  f"watched your AI model on new requests, already read {round((agreed or 0) * 100)}% the same; "
-                                  f"learned them, reviewed itself: generation {point.get('generation', 0)}"))
+    for point in curve:  # a round of self-improvement alone is named by what it adopted (the page's own words)
+        if "round" not in point or "note" in point:
+            continue
+        n, agreed = point.get("lessons", 0), point.get("agreed")
+        if point["round"] == 0:
+            point["note"] = pick(lang, f"出生：学了 {n} 课", f"born from {n} lessons")
+        elif agreed is not None:
+            point["note"] = pick(lang, f"看 AI 模型做了一批新事，原本就读对 {round(agreed * 100)}%；学完、复盘后是第 {point.get('generation', 0)} 代",
+                                 f"watched your AI model on new requests, already read {round(agreed * 100)}% the same; "
+                                 f"learned them, reviewed itself: generation {point.get('generation', 0)}")
     led = c.ledger.view()
     kept = [{"text": x.text, "source": x.source} for x in c.memory.lessons if x.source in ("teacher", "person")][-8:]
     return {"number": rec["number"], "digest": rec["digest"][:12], "neurons": rec["neurons"], "synapses": rec["synapses"],

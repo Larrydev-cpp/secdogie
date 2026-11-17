@@ -23,4 +23,4 @@ include = ["secdogie_citadel*"]
 
 [tool.setuptools.package-data]
 # The cortex's lessons, its frozen exam, and the generation SecDogie comes with.
-secdogie_citadel = ["cortex/lessons/*.tsv", "cortex/exam/*.jsonl", "cortex/born/*"]
+secdogie_citadel = ["cortex/lessons/*.tsv", "cortex/exam/*.jsonl", "cortex/born/*", "cortex/born/*/*"]

@@ -28,9 +28,14 @@ SOURCES = [os.path.join(REPO, d) for d in ("studio", "node", "dialogue", "citade
 WINDOWED = sys.platform in ("win32", "darwin")  # no console window behind the app
 
 datas = collect_data_files("secdogie_studio", includes=["qml/*.qml", "qml/qmldir", "qml/*.png", "qml/fonts/*.ttf", "qml/fonts/*.txt", "qml/aesper/*.qml", "qml/aesper/qmldir"])
+# The decision model: the generation it ships with (synapses, kept experiences, its elders), the lessons it
+# was born from and the frozen exam its growth is measured on.
+datas += collect_data_files("secdogie_citadel", includes=["cortex/lessons/*.tsv", "cortex/exam/*.jsonl", "cortex/born/*",
+                                                          "cortex/born/*/*"])
 hidden = (
     collect_submodules("secdogie_studio")
     + collect_submodules("secdogie_node")
+    + collect_submodules("secdogie_citadel")  # the cortex is loaded on first use
     + collect_submodules("secdogie_transport")
     # PyNaCl (keys, sealing) loads its C bindings through cffi, which static analysis does not see
     + collect_submodules("nacl")
