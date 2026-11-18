@@ -79,7 +79,9 @@ class Stand:
         self.table = dict(READINGS)
 
     def understand(self, texts, contexts=None, recall=True):
-        return [Understanding(t, self.table[t], 0.0, (), 0.0, (), "test", REPLIES.get(t, ""), "birth" if t in REPLIES else "")
+        return [Understanding(t, self.table[t], 0.0, (), 0.0, (), "test", REPLIES.get(t, ""),
+                              "birth" if t in REPLIES else "",
+                              self.table[t].get("kind", ("",))[0] if t in REPLIES else "", False)
                 for t in texts]
 
     def learn(self, lesson, surprise=1.0):

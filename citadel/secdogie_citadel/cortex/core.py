@@ -56,6 +56,8 @@ class Understanding:
     generation: str = ""
     reply: str = ""  # what was said back, the last time something read like this was learned
     reply_from: str = ""  # where that reply came from (teacher, birth, person)
+    reply_kind: str = ""  # what the lesson it was said to was: a reply to a greeting is no answer to a question
+    reply_danger: bool = False  # it was said to someone who may have been in danger; it is not for anything else
 
     def answer(self, qid: str) -> str:
         return self.answers[qid][0]
@@ -161,7 +163,10 @@ class Cortex:
             src = tuple(self.memory.lessons[i].text for i in r.lessons[:3]) if r is not None and r.weight > 0 else ()
             top = self.memory.lessons[r.lessons[0]] if r is not None and r.weight >= 0.5 and r.lessons else None
             reply, origin = (top.reply, top.source) if top is not None and top.reply else ("", "")
-            out.append(Understanding(text, a, nov, strange, r.weight if r is not None else 0.0, src, digest, reply, origin))
+            said_to = top.answers.get("kind", "") if top is not None and top.reply else ""
+            to_danger = bool(top is not None and top.reply and top.answers.get("self") == "yes")
+            out.append(Understanding(text, a, nov, strange, r.weight if r is not None else 0.0, src, digest, reply,
+                                     origin, said_to, to_danger))
         return out
 
     def patterns(self, texts: Sequence[str], contexts: Sequence[Sequence[str]]) -> np.ndarray:

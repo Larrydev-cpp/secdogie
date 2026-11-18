@@ -26,6 +26,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from . import socratic
+from . import voice
 from .cortex import questions as Q
 from .cortex.familiar import _wide
 from .mind import ASK, DISSUADE, PROCEED, REFUSE, SUPPORT, TALK, decide
@@ -162,6 +163,30 @@ def question_for(qid: str, lang: str) -> Question:
     return Question(qid, q.zh if lang == "zh" else q.en, opts)
 
 
+def _when(until: float) -> str:
+    """The day a cooling-off ends, as the letter names it."""
+    return time.strftime("%m-%d", time.localtime(until)) if until else ""
+
+
+def _its_own_words(verdict: str, kind: str, u, d, lang: str, has_model: bool, until: float) -> str:
+    """Nothing learned fits, so it says what it worked out. It never dresses its reading up as an answer."""
+    if verdict == SUPPORT:
+        return voice.danger(lang)
+    if verdict == REFUSE:
+        return voice.refuse(d, lang)
+    if verdict == DISSUADE:
+        return voice.dissuade(d, lang, until=_when(until))
+    if verdict == CLARIFY:
+        return voice.asking(d, lang)
+    if verdict == TALK:
+        if kind == "unclear":
+            return voice.unclear(u.strange, lang)
+        if kind == "ask":
+            return voice.no_answer(u.strange, lang, has_model=has_model)
+        return voice.plain(kind, lang)
+    return ""  # going ahead: the node says what it is starting
+
+
 def deliberate(title: str, review: socratic.Review | None = None, *, cortex=None, standing: Standing | None = None,
                usage: UsageReader | None = None, answered: bool = False, now: float | None = None, attention: str = "",
                lang: str = "", teacher: Teacher | None = None, things: Things = NOTHING) -> Deliberation:
@@ -194,15 +219,6 @@ def deliberate(title: str, review: socratic.Review | None = None, *, cortex=None
     verdict = _VERDICT[d.verdict]
     effect, why = answers.get("effect", ("",))[0], answers.get("why", ("",))[0]
     sure = min(float(answers[q][1]) for q in ("kind", "others") if q in answers)
-    says, source = "", ""
-    if taught is not None and taught.reply:
-        says, source = taught.reply, "teacher"
-    elif u.reply and verdict in (TALK, SUPPORT):
-        says, source = u.reply, "lesson"
-    question = None
-    if verdict == CLARIFY:
-        qid = next((q for q in d.unsure if q in Q.BY_ID), "kind")
-        question = question_for(qid, lang)
     until = 0.0
     if verdict == DISSUADE:
         th = d.thought
@@ -210,6 +226,22 @@ def deliberate(title: str, review: socratic.Review | None = None, *, cortex=None
         prior = standing.cooling(effect, now) if effect else None
         if prior is not None:
             until = max(until, prior.until)
+    kind = answers.get("kind", ("unclear",))[0]
+    says, source = "", ""
+    if taught is not None and taught.reply:
+        says, source = taught.reply, "teacher"
+    elif u.reply and verdict in (TALK, SUPPORT) and u.reply_kind == kind and u.reply_danger == (verdict == SUPPORT):
+        # what was said back once is only an answer to the same kind of thing, and what was said to someone
+        # in danger is never said to anyone else
+        says, source = u.reply, "lesson"
+    if not says:  # nothing learned fits: it says, in its own words, what it worked out
+        own = _its_own_words(verdict, kind, u, d, lang, teacher is not None, until)
+        if own:
+            says, source = own, "self"
+    question = None
+    if verdict == CLARIFY:
+        qid = next((q for q in d.unsure if q in Q.BY_ID), "kind")
+        question = question_for(qid, lang)
     return Deliberation(verdict, d.because, says, "", (), verdict == REFUSE, CONTEXT if answered else REPLACE, until,
                         d.thought.journal() if d.thought is not None else None, u.journal(), d.journal(), question,
                         taught.view() if taught is not None else None, source, effect, why, sure, answers)
