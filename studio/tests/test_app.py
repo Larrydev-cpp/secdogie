@@ -141,7 +141,7 @@ def qt():
     return app, messages
 
 
-def _windows(qt, presence, names=("Presence.qml", "Home.qml"), *, still=False):
+def _windows(qt, presence, names=("Home.qml",), *, still=False):
     from PySide6.QtCore import QUrl
     from PySide6.QtQml import QQmlApplicationEngine
     from secdogie_studio.app import bridge_class
@@ -154,11 +154,6 @@ def _windows(qt, presence, names=("Presence.qml", "Home.qml"), *, still=False):
     roots = engine.rootObjects()
     assert len(roots) == len(names)
     return engine, bridge, roots
-
-
-def _window(qt, presence):
-    engine, bridge, (root,) = _windows(qt, presence, ("Presence.qml",))
-    return engine, bridge, root
 
 
 def _pump(qt, bridge, pred, timeout=5.0):
@@ -180,31 +175,6 @@ def _qml_problems(messages):
     return [m for m in messages if any(k in m for k in markers)]
 
 
-def test_the_window_is_a_quiet_light_that_opens_for_a_question(qt):
-    from PySide6.QtCore import Qt
-
-    _, messages = qt
-    messages.clear()
-    comp = FakeCompanion()
-    clock = [100.0]
-    presence = Presence(FakeController(), idle=lambda: 10.0, clock=lambda: clock[0],
-                        companion_factory=lambda profile, ready: comp)
-    presence.close_home()  # the light is what is left once the home window is closed
-    engine, bridge, root = _window(qt, presence)
-    flags = root.flags()
-    assert flags & Qt.FramelessWindowHint and flags & Qt.WindowStaysOnTopHint
-    assert _pump(qt, bridge, lambda: root.property("shape") in ("compact", "whisper"))
-    comp.m = [Moment("probe:1", "ask", "开始之前，我想先弄清楚一点", ("我换个说法", "先不做了"), free_text=True,
-                     arrived=clock[0])]
-    assert _pump(qt, bridge, lambda: root.property("shape") == "open" and root.width() == 468)
-    bridge.answer("probe:1", "先不做了")
-    assert comp.answers == [("probe:1", "先不做了")]
-    clock[0] += 10
-    assert _pump(qt, bridge, lambda: root.property("shape") != "open", timeout=5)
-    assert _qml_problems(messages) == []
-    del engine
-
-
 def test_the_problem_filter_catches_qml_errors_and_ignores_platform_notes():
     assert _qml_problems(["file:///x/Presence.qml:12: TypeError: Cannot read property 'c' of undefined",
                           "QFontDatabase: Cannot find font directory C:/x/fonts.",
@@ -212,39 +182,58 @@ def test_the_problem_filter_catches_qml_errors_and_ignores_platform_notes():
         ["file:///x/Presence.qml:12: TypeError: Cannot read property 'c' of undefined"]
 
 
-def test_studio_opens_on_the_home_window_and_closing_it_leaves_the_light(qt):
+def test_studio_opens_on_its_window_and_closing_it_puts_the_window_away(qt):
     _, messages = qt
     messages.clear()
     comp = FakeCompanion()
     clock = [100.0]
     presence = Presence(FakeController(), idle=lambda: 10.0, clock=lambda: clock[0],
                         companion_factory=lambda profile, ready: comp)
-    engine, bridge, (light, home) = _windows(qt, presence)
-    assert _pump(qt, bridge, lambda: home.isVisible() and not light.isVisible())
+    presence.has_tray = True                             # as on a desktop with a task-bar icon
+    engine, bridge, (home,) = _windows(qt, presence)
+    assert _pump(qt, bridge, lambda: home.isVisible())
     assert _pump(qt, bridge, lambda: presence.tick()["node"]["work"] == "正在做 1 件")
-    # what waits on the person shows in the home window while it is open
+    # what waits on the person shows in the window
     comp.m = [Moment("probe:1", "ask", "开始之前，我想先弄清楚一点", ("我换个说法", "先不做了"), free_text=True,
                      arrived=clock[0])]
     assert _pump(qt, bridge, lambda: presence.tick()["homeCardKey"] == "probe:1")
     bridge.closeHome()                                   # the window's close button
-    assert _pump(qt, bridge, lambda: light.isVisible() and not home.isVisible())
-    bridge.openHome()                                    # a click on the light
-    assert _pump(qt, bridge, lambda: home.isVisible() and not light.isVisible())
-    home.close()                                         # closing it never quits: it leaves the light
-    assert _pump(qt, bridge, lambda: light.isVisible() and not home.isVisible())
+    assert _pump(qt, bridge, lambda: not home.isVisible())
+    bridge.openHome()                                    # a click on the icon in the task bar
+    assert _pump(qt, bridge, lambda: home.isVisible())
+    home.close()                                         # closing never quits: the companion keeps running
+    assert _pump(qt, bridge, lambda: not home.isVisible())
     assert _qml_problems(messages) == []
     del engine
 
 
-def test_a_cold_start_opens_the_home_window_on_the_first_meeting(qt):
+def test_without_a_tray_the_window_is_minimised_rather_than_hidden(qt):
+    """Nothing may leave the person with a running companion and no way back to it."""
+    from PySide6.QtCore import Qt
+
+    _, messages = qt
+    messages.clear()
+    presence = Presence(FakeController(), idle=lambda: 10.0, companion_factory=lambda profile, ready: FakeCompanion())
+    presence.has_tray = False
+    engine, bridge, (home,) = _windows(qt, presence)
+    assert _pump(qt, bridge, lambda: home.isVisible())
+    home.close()
+    assert _pump(qt, bridge, lambda: bool(home.windowState() & Qt.WindowMinimized))
+    assert presence.tick()["homeOpen"], "it is only minimised, so it is still the open window"
+    assert _qml_problems(messages) == []
+    del engine
+
+
+def test_a_cold_start_opens_the_window_on_the_first_meeting(qt):
     _, messages = qt
     messages.clear()
     presence = Presence(FakeController(initialized=False), idle=lambda: 10.0)
-    engine, bridge, (light, home) = _windows(qt, presence)
+    presence.has_tray = True
+    engine, bridge, (home,) = _windows(qt, presence)
     assert _pump(qt, bridge, lambda: home.isVisible() and home.property("first"))
     assert presence.tick()["homeCard"]["kind"] == "welcome"
-    bridge.closeHome()                                   # closed before the keys exist: the light says hello
-    assert _pump(qt, bridge, lambda: light.isVisible() and light.property("shape") == "open")
+    bridge.closeHome()
+    assert _pump(qt, bridge, lambda: not home.isVisible())
     assert _qml_problems(messages) == []
     del engine
 
@@ -253,7 +242,7 @@ def test_a_still_light_for_someone_who_asked_for_less_motion(qt):
     _, messages = qt
     messages.clear()
     presence = Presence(FakeController(initialized=False), idle=lambda: 10.0)
-    engine, bridge, (light, home) = _windows(qt, presence, still=True)
+    engine, bridge, (home,) = _windows(qt, presence, still=True)
     assert bridge.property("still") is True
     assert _pump(qt, bridge, lambda: home.isVisible() and home.property("first"))
     assert _qml_problems(messages) == []
@@ -268,7 +257,7 @@ def test_the_ink_switch_changes_the_world_and_back(qt):
     _, messages = qt
     messages.clear()
     presence = Presence(FakeController(), idle=lambda: 10.0, companion_factory=lambda profile, ready: FakeCompanion())
-    engine, bridge, (light, home) = _windows(qt, presence, still=True)
+    engine, bridge, (home,) = _windows(qt, presence, still=True)
     assert _pump(qt, bridge, lambda: home.isVisible())
     switch = home.findChild(QObject, "themeSwitch")
     assert presence.tick()["theme"] == "dark"
@@ -325,7 +314,7 @@ def test_the_overview_is_a_wallet(qt):
     load_fonts(app)
     assert "Google Sans" in QFontDatabase.families()
     presence = Presence(FakeController(), idle=lambda: 10.0, companion_factory=lambda profile, ready: FakeCompanion())
-    engine, bridge, (light, home) = _windows(qt, presence, still=True)
+    engine, bridge, (home,) = _windows(qt, presence, still=True)
     assert _pump(qt, bridge, lambda: home.isVisible())
     wallet = home.findChild(QQuickItem, "homeWallet")
     assert _pump(qt, bridge, lambda: wallet.property("count") >= 3)   # this node, waiting, an empty slot
@@ -373,7 +362,7 @@ def test_the_gate_page_shows_how_it_thinks_in_both_worlds_and_languages(qt):
     _, messages = qt
     messages.clear()
     presence = Presence(FakeController(), idle=lambda: 10.0, companion_factory=lambda profile, ready: FakeCompanion())
-    engine, bridge, (light, home) = _windows(qt, presence, still=True)
+    engine, bridge, (home,) = _windows(qt, presence, still=True)
     assert _pump(qt, bridge, lambda: home.isVisible())
     home.setProperty("page", 3)
     gate = home.findChild(QObject, "gatePage")

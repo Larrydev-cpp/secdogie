@@ -16,9 +16,9 @@ import "."
 
 Item {
     id: meet
-    property int step: 0                         // 0 hello, 1 what it is, 2 a name, 3 the passphrase
+    property int step: 0                         // 0 hello, 1 what it is, 2 a name, 3 the passphrase, 5 your AI model
     readonly property string phase: P.onboarding || ""
-    readonly property int shown: phase === "making" || phase === "ready" ? 4 : step
+    readonly property int shown: step === 5 ? 5 : (phase === "making" || phase === "ready" ? 4 : step)
     readonly property int strength: score(pass1.text)
     readonly property bool longEnough: pass1.text.length >= 8
     readonly property bool same: pass2.text.length > 0 && pass1.text === pass2.text
@@ -280,7 +280,48 @@ Item {
                     Fact { width: parent.width; labelWidth: 120; label: Theme.t("你的签名钥匙", "Your signing key"); value: (P.keys || {}).operator || "" }
                 }
                 Item { width: 1; height: 2 }
-                Pill { anchors.horizontalCenter: parent.horizontalCenter; width: 260; primary: true; text: Theme.t("开始吧", "Let's begin")
+                Pill { anchors.horizontalCenter: parent.horizontalCenter; width: 260; primary: true
+                       text: Theme.t("下一步", "Next"); onClicked: meet.step = 5 }
+            }
+            Step {                               // your AI model: it learns from how that model answers
+                id: model
+                index: 5
+                Title { text: Theme.t("接上你的 AI 模型", "Connect your AI model") }
+                Lead { text: Theme.t("我自己的脑子是从零长起来的，还小。接上你的模型，我就能跟着它的回答学，越来越少用到它。不接也行，我会多问少做。",
+                                     "My own mind started from nothing and is still small. Connect your model and I'll learn from how it answers, and need it less over time. You can skip this: I'll just ask more and do less.") }
+                Column {
+                    width: parent.width
+                    spacing: 12
+                    Row {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        spacing: 8
+                        Pill { text: "Claude"; primary: model.provider === "anthropic"; onClicked: model.provider = "anthropic" }
+                        Pill { text: Theme.t("OpenAI 兼容", "OpenAI-compatible"); primary: model.provider === "openai"
+                               onClicked: model.provider = "openai" }
+                    }
+                    Field { id: modelName; width: parent.width; visible: model.provider === "openai"
+                            label: Theme.t("模型名", "Model"); hint: "gpt-4o-mini" }
+                    Field { id: modelBase; width: parent.width; visible: model.provider === "openai"
+                            label: Theme.t("接口地址", "Endpoint"); hint: "https://api.openai.com/v1" }
+                    Field { id: modelKey; width: parent.width; secret: true; revealable: true
+                            label: Theme.t("API key", "API key"); onAccepted: if (modelKey.text.length) model.save() }
+                    Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.Wrap
+                           textFormat: Text.PlainText; color: Theme.faint; font.pixelSize: Theme.meta
+                           text: Theme.t("钥匙只存在这台电脑上（权限 0600）。模型只看得到你说的那一句话。",
+                                         "The key stays on this computer (mode 0600). The model only ever sees the sentence you wrote.") }
+                }
+                property string provider: "anthropic"
+                function save() {
+                    P.setThinker(model.provider, modelName.text, modelBase.text, modelKey.text)
+                    modelKey.text = ""
+                    P.finishOnboarding()
+                }
+                Item { width: 1; height: 2 }
+                Pill { anchors.horizontalCenter: parent.horizontalCenter; width: 260; primary: true
+                       enabled: modelKey.text.length > 0
+                       text: Theme.t("保存，开始吧", "Save and begin"); onClicked: model.save() }
+                Link { anchors.horizontalCenter: parent.horizontalCenter
+                       text: Theme.t("先跳过，以后在设置里接", "Skip for now; connect it later in the settings")
                        onClicked: P.finishOnboarding() }
             }
         }
@@ -290,9 +331,9 @@ Item {
             spacing: 6
             opacity: meet.voice
             Accessible.role: Accessible.ProgressBar
-            Accessible.name: Theme.t("第 " + (meet.shown + 1) + " 步，共 5 步", "Step " + (meet.shown + 1) + " of 5")
+            Accessible.name: Theme.t("第 " + (meet.shown + 1) + " 步，共 6 步", "Step " + (meet.shown + 1) + " of 6")
             Repeater {
-                model: 5
+                model: 6
                 Rectangle {
                     required property int index
                     width: index === meet.shown ? 20 : 6

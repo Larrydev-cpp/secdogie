@@ -7,9 +7,9 @@
 // your rules on every device), and what the project is. Two worlds, 墨 (ink) and 宣纸 (rice paper), changed by the
 // switch at the top right with ink (or paper) flooding up the window.
 //
-// Opening Studio opens it. Closing it leaves the companion as a light in the
-// corner of the screen (Presence.qml); clicking the light brings this window
-// back. Before there is a profile, the whole window is the first meeting
+// Opening Studio opens it. Closing it puts the window away and leaves the
+// companion in the task bar; clicking it there brings this window back.
+// Before there is a profile, the whole window is the first meeting
 // (Onboarding.qml). All state comes from the bridge `P` (secdogie_studio/app.py);
 // the tokens are in Theme.qml.
 import QtQuick
@@ -28,7 +28,13 @@ Window {
     minimumHeight: 680
     color: Soft.mistGround
     visible: P.homeOpen
-    onClosing: (close) => { close.accepted = false; P.closeHome() }   // closing leaves the light
+    // Closing puts it away: into the task bar where there is a tray icon, otherwise just minimised.
+    // It keeps running either way, and comes back from the tray or the task bar.
+    onClosing: (close) => {
+        close.accepted = false
+        if (P.hasTray) P.closeHome()
+        else home.showMinimized()
+    }
 
     property int page: 0                       // 0 overview, 1 conversation, 2 devices, 3 gate, 4 mind, 5 about
     readonly property bool first: (P.onboarding || "") !== ""

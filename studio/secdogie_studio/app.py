@@ -1,11 +1,12 @@
-"""Studio's two windows: the home window, and the light it leaves behind.
+"""Studio's window and the icon it leaves in the task bar.
 
-Opening Studio opens the home window (``qml/Home.qml``): the conversation, and
-this node and its mesh. Closing it leaves the companion as a faint, breathing
-light in the corner of the screen (``qml/Presence.qml``); clicking the light
-opens the home window again. While the home window is open, what waits on the
-person (a question, a signature, a memory) shows inside it. While it is
-closed, the light's own cards take over, and ``presence.Stage`` decides when.
+Opening Studio opens the window (``qml/Home.qml``): the conversation, and this
+node and its mesh. Closing it puts the window away and leaves the companion in
+the task bar, still running; clicking the icon there opens it again, and "let
+it rest" in that icon's menu is what quits. On a desktop with no tray the
+window minimises instead, so the person can always get back to it.
+
+What waits on them (a question, a signature, a memory) shows in the window.
 
 This module is the thin bridge. On a timer it reads the controller (profile,
 node), the companion (the dialogue with the node), the OS idle counter and,
@@ -14,9 +15,8 @@ while the home window is open, the node's own status (``admin/v1``). Slow work
 threads, and its result arrives on the next tick, so Qt is never touched from
 another thread.
 
-Neither window takes the keyboard focus by itself: the home window opens
-because the person opened Studio or clicked the light, and the light's cards
-fade in without taking focus.
+The window never takes the keyboard focus by itself: it opens because the
+person opened Studio or clicked the icon in the task bar.
 
 Qt is imported lazily, so the rest of the package (and its tests) runs without
 PySide6.
@@ -831,6 +831,7 @@ def bridge_class():
         ns[name] = Slot(*types, name=name)(act(fn))
     ns["rest"] = Slot(name="rest")(lambda self: QGuiApplication.quit())
     ns["copy"] = Slot(str, name="copy")(lambda self, text: QGuiApplication.clipboard().setText(text))
+    ns["hasTray"] = Property(bool, lambda self: bool(getattr(self.presence, "has_tray", False)), notify=changed)
     return type("Bridge", (QObject,), ns)
 
 
@@ -845,33 +846,62 @@ def load_fonts(app) -> None:
     app.setFont(font)
 
 
+def _tray_for(app, bridge, presence):
+    """The companion in the task bar while its window is away. None where the desktop has no tray."""
+    from PySide6.QtGui import QIcon
+    from PySide6.QtWidgets import QMenu, QSystemTrayIcon
+
+    if not QSystemTrayIcon.isSystemTrayAvailable():
+        return None
+    icon = QIcon(str(QML_DIR / "mark.png"))
+    tray = QSystemTrayIcon(icon)
+    menu = QMenu()
+    menu.addAction(pick(presence.lang, "打开 secdogie", "Open secdogie"), presence.open_home)
+    menu.addSeparator()
+    menu.addAction(pick(presence.lang, "让我休息", "Let it rest"), app.quit)
+    tray.setContextMenu(menu)
+    tray.setToolTip("secdogie")
+    # A click on the tray brings the window back. It is shown, never raised over what the person is doing.
+    tray.activated.connect(lambda reason: presence.open_home()
+                           if reason != QSystemTrayIcon.ActivationReason.Context else None)
+    tray.show()
+    return tray
+
+
 def run_gui(root: Path, *, kdf: str = "moderate") -> int:
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
     from PySide6.QtCore import QTimer, QUrl
-    from PySide6.QtGui import QGuiApplication
+    from PySide6.QtGui import QIcon
     from PySide6.QtQml import QQmlApplicationEngine
+    from PySide6.QtWidgets import QApplication
 
     Bridge = bridge_class()
 
-    app = QGuiApplication.instance() or QGuiApplication([])
+    # QApplication, not QGuiApplication: the task-bar icon is a widget class.
+    app = QApplication.instance() or QApplication([])
     app.setApplicationName("secdogie")
-    app.setQuitOnLastWindowClosed(False)  # closing the home window leaves the light; "让我休息" quits
+    app.setDesktopFileName("secdogie-studio")
+    app.setWindowIcon(QIcon(str(QML_DIR / "mark.png")))
+    app.setQuitOnLastWindowClosed(False)  # closing the window puts it away; "让我休息" quits
     load_fonts(app)
     presence = Presence(StudioController(root, kdf=kdf))
     bridge = Bridge(presence, reduce_motion(app))
     engine = QQmlApplicationEngine()
     engine.rootContext().setContextProperty("P", bridge)
-    for name in ("Presence.qml", "Home.qml"):
-        engine.load(QUrl.fromLocalFile(str(QML_DIR / name)))
-    if len(engine.rootObjects()) != 2:
+    engine.load(QUrl.fromLocalFile(str(QML_DIR / "Home.qml")))
+    if len(engine.rootObjects()) != 1:
         presence.shutdown()
         return 1
+    tray = _tray_for(app, bridge, presence)
+    presence.has_tray = tray is not None
     timer = QTimer()
     timer.timeout.connect(bridge.refresh)
     timer.start(250)
     app.aboutToQuit.connect(presence.shutdown)
     code = app.exec()
     timer.stop()
+    if tray is not None:
+        tray.hide()
     del engine  # the engine goes before the bridge it reads, so nothing reads a dead object
     return code
 
