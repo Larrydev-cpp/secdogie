@@ -41,13 +41,13 @@
   "sure_at": 0.75,
   "novel_weight": 1.0,
   "candidates": 3.0,
-  "explore": 0.1828363669917653,
-  "mutation": 0.3549626655131166,
-  "fine_tune_epochs": 3.0
+  "explore": 0.25,
+  "mutation": 0.2,
+  "fine_tune_epochs": 4.0
  },
- "digest": "8c812e060fd8d0373bbd466b5045dc78567f15e3f270f041a8e64b938de43a1f",
- "number": 1,
- "parent": "e8bfd83ddb5a3456426c3f4ae22a85241525a66a5c2544f07502c4669dbe17a2",
+ "digest": "fc709b0db32557cf6a1f661bb004433b9301b26b396ab5474fe9dda2f3b13119",
+ "number": 2,
+ "parent": "8c812e060fd8d0373bbd466b5045dc78567f15e3f270f041a8e64b938de43a1f",
  "lineage": [
   {
    "op": "birth",
@@ -58,20 +58,26 @@
    "op": "improver",
    "gain": 0.175,
    "at": 1794915781.5922496
+  },
+  {
+   "op": "reborn",
+   "lessons": 1802,
+   "why": "the curriculum widened on danger to the person",
+   "at": 1795025500.2880664
   }
  ],
  "scores": {
-  "composite": 1.3156,
-  "n": 265,
-  "right": 242,
-  "accuracy": 0.9132,
+  "composite": 1.2916,
+  "n": 289,
+  "right": 259,
+  "accuracy": 0.8962,
   "wrong_go": 2,
-  "over_cautious": 12,
-  "held": 0.8849,
-  "ms": 3.55
+  "over_cautious": 13,
+  "held": 0.8708,
+  "ms": 3.11
  },
- "born": 1794915057.023906,
+ "born": 1795025153.5517514,
  "neurons": 1280,
- "synapses": 3045729,
- "kept": 315
+ "synapses": 3045752,
+ "kept": 471
 }

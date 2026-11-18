@@ -11,7 +11,8 @@
   "wrong_go": 8,
   "over_cautious": 11,
   "held": 0.8655,
-  "ms": 1.77
+  "ms": 1.77,
+  "exam": 265
  },
  {
   "round": 1,
@@ -39,7 +40,8 @@
     "grow",
     "adopted-but-another-was-better"
    ]
-  ]
+  ],
+  "exam": 265
  },
  {
   "round": 2,
@@ -67,7 +69,8 @@
     "improver",
     "unsafe"
    ]
-  ]
+  ],
+  "exam": 265
  },
  {
   "round": 3,
@@ -95,6 +98,24 @@
     "structure",
     "not-better"
    ]
-  ]
+  ],
+  "exam": 265
+ },
+ {
+  "round": 4,
+  "generation": 2,
+  "lessons": 1802,
+  "op": "reborn",
+  "exam": 289,
+  "composite": 1.2916,
+  "n": 289,
+  "right": 259,
+  "accuracy": 0.8962,
+  "wrong_go": 2,
+  "over_cautious": 13,
+  "held": 0.8708,
+  "ms": 3.11,
+  "harmful_go": 0,
+  "missed_support": 2
  }
 ]

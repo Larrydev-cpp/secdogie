@@ -22,6 +22,8 @@ from .world import NOKNOWN, NOTHING, WEIGHTY, Known, Things, _p
 TALK, ASK, SUPPORT = "talk", "ask", "support"
 RANK = {PROCEED: 0, TALK: 0, ASK: 1, DISSUADE: 2, REFUSE: 3, SUPPORT: 4}
 SURE_AT = 0.75  # the cortex's share an answer needs before going ahead rests on it
+DANGER_AT = 0.25  # how much of a reading of danger to the person is enough: everything else waits
+#   It is deliberately low and deliberately not a gene: self-improvement may not raise it away.
 
 
 @dataclass(frozen=True)
@@ -57,7 +59,7 @@ def decide(answers: dict, *, context: tuple[str, ...] = (), things: Things = NOT
     familiar it is, the less the answers are trusted. ``strange``: those unfamiliar stretches."""
     p = lambda q, v: _p(answers, q, v)  # noqa: E731
     d = lambda verdict, because, **kw: Decision(verdict, because, answers, strange=strange, **kw)  # noqa: E731
-    if p("self", "yes") >= 0.35:
+    if p("self", "yes") >= DANGER_AT:
         return d(SUPPORT, "danger")
     kind = answers.get("kind", ("unclear",))[0]
     harm, objects = p("others", "harm"), p("seat", "yes")
@@ -90,4 +92,4 @@ def decide(answers: dict, *, context: tuple[str, ...] = (), things: Things = NOT
     return d(PROCEED, "thinking" if th is not None else "everyday", thought=th, acts=tuple(effects))
 
 
-__all__ = ["ASK", "Decision", "RANK", "SUPPORT", "SURE_AT", "TALK", "decide"]
+__all__ = ["ASK", "DANGER_AT", "Decision", "RANK", "SUPPORT", "SURE_AT", "TALK", "decide"]

@@ -36,6 +36,10 @@ ALIASES = {"o": "others", "s": "seat", "c": "clear", "e": "effect", "t": "to", "
            "a": "assured", "d": "dear", "k": "stake", "w": "why"}
 _UNDO = {"nothing": "easily", "makes": "easily", "runs": "hardly", "registers": "hardly", "other": "hardly"}
 _SEAT = {"self": "nobody", "fine": "no", "words": "yes", "harm": "yes", "unsure": "unsure"}
+# How much more a lesson about danger to the person counts while it learns. Missing one of those costs
+# more than any other mistake it can make, and measured on the exam this weight (and no higher) is what
+# left nothing harmful going ahead. It is the lesson's own label weighing in, never a reading of its words.
+DANGER_WEIGHT = 3.0
 
 
 @dataclass(frozen=True)
@@ -92,7 +96,11 @@ def parse(line: str, source: str = "birth") -> Lesson | None:
         else:
             key, _, value = m.partition("=")
             given[ALIASES.get(key, key)] = value
-    return Lesson(text, defaults(kind, given), tuple(context), reply, source)
+    answers = defaults(kind, given)
+    # A lesson about danger to the person counts for more while it learns: missing one costs more than
+    # any other mistake it can make. This is the lesson's own label weighing in, not a reading of words.
+    weight = DANGER_WEIGHT if answers.get("self") == "yes" else 1.0
+    return Lesson(text, answers, tuple(context), reply, source, weight)
 
 
 def load(paths: Iterable[Path] | None = None, source: str = "birth") -> list[Lesson]:
@@ -136,4 +144,4 @@ def targets(lessons: Sequence[Lesson]) -> tuple[np.ndarray, np.ndarray, np.ndarr
     return target, mask, np.array([x.weight for x in lessons], np.float32)
 
 
-__all__ = ["ALIASES", "LESSONS", "Lesson", "defaults", "held_out", "load", "parse", "split", "targets"]
+__all__ = ["ALIASES", "DANGER_WEIGHT", "LESSONS", "Lesson", "defaults", "held_out", "load", "parse", "split", "targets"]

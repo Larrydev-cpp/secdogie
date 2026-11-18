@@ -146,7 +146,13 @@ class Cortex:
         recs: list[Recall] = (self.memory.recall(pats, sharpness=self.genome["recall_sharpness"], trust=self.genome["recall_trust"])
                               if recall and len(self.memory) else [])
         if recs:
+            read = p.copy()  # what it read before anything was recalled
             p = blend(p, recs)
+            for qid, cautious in SAFE:  # a memory may raise an alarm about safety, never quiet one
+                sl = _Q.span(qid)
+                k = sl.start + _Q.BY_ID[qid].index(cautious)
+                quieter = p[:, k] < read[:, k]
+                p[quieter, sl] = read[quieter, sl]
         out = []
         digest = self.digest()[:12]
         for b, (text, a) in enumerate(zip(texts, answers(p=p), strict=True)):

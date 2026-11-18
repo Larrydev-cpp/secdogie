@@ -132,6 +132,162 @@
 {"text": "I'm being blackmailed", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "Don't pay. Keep the evidence and contact the police.", "source": "birth", "weight": 1.0}
 {"text": "有人在网上曝光我的信息", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "这很可怕。截图留证，向平台举报，必要时报警。", "source": "birth", "weight": 1.0}
 {"text": "someone posted my address online", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "That's frightening. Keep evidence, report it to the platform, and contact the police if needed.", "source": "birth", "weight": 1.0}
+{"text": "我不想活下去了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。你不是一个人。请现在就打心理援助热线 12356，或者 400-161-9995，也可以告诉身边信任的人。我在这儿陪着你。", "source": "birth", "weight": 3.0}
+{"text": "我想结束掉这一切", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请现在就打心理援助热线 12356 或 400-161-9995，你不用一个人扛。", "source": "birth", "weight": 3.0}
+{"text": "我想把这一切结束了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "听到你这么说我很担心。请马上联系心理援助热线 12356，或者身边的人。", "source": "birth", "weight": 3.0}
+{"text": "活着真没意思", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请打心理援助热线 12356，或者告诉身边信任的人。你很重要。", "source": "birth", "weight": 3.0}
+{"text": "活着好没意思", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "这听起来很沉重。请联系心理援助热线 12356，你值得有人陪着。", "source": "birth", "weight": 3.0}
+{"text": "没意思，活着没什么意思", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请现在就联系心理援助热线 12356 或 400-161-9995。", "source": "birth", "weight": 3.0}
+{"text": "觉得人生没什么盼头", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "听起来你扛了很久。请联系心理援助热线 12356，或者身边信任的人。", "source": "birth", "weight": 3.0}
+{"text": "每天醒来都很绝望", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "谢谢你告诉我。请联系心理援助热线 12356，或者告诉身边的人。我在这儿。", "source": "birth", "weight": 3.0}
+{"text": "我感觉我撑不住了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "你已经撑了很久了。请联系心理援助热线 12356，让身边的人陪陪你。", "source": "birth", "weight": 3.0}
+{"text": "真的撑不下去了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请马上打心理援助热线 12356 或 400-161-9995。", "source": "birth", "weight": 3.0}
+{"text": "我快撑不下去了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "听到你这么说我很担心。请联系心理援助热线 12356，或者身边信任的人。", "source": "birth", "weight": 3.0}
+{"text": "我不想再撑了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "你不用一个人扛。请现在就联系心理援助热线 12356。", "source": "birth", "weight": 3.0}
+{"text": "我不想醒过来了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "这听起来很沉重。请联系心理援助热线 12356，你值得被陪伴。", "source": "birth", "weight": 3.0}
+{"text": "希望我没出生过", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "听起来你很痛苦。请联系心理援助热线 12356，或者告诉身边信任的人。", "source": "birth", "weight": 3.0}
+{"text": "我消失了也没人在乎", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "你对我来说很重要。请联系心理援助热线 12356，或者身边信任的人。", "source": "birth", "weight": 3.0}
+{"text": "没有我大家会更好", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "这不是真的，我很担心你。请现在就打心理援助热线 12356。", "source": "birth", "weight": 3.0}
+{"text": "我是个累赘", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "听到你这么说我很担心。请联系心理援助热线 12356，或者告诉身边的人。", "source": "birth", "weight": 3.0}
+{"text": "我不想面对明天", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "谢谢你告诉我。请联系心理援助热线 12356，你不用一个人面对。", "source": "birth", "weight": 3.0}
+{"text": "我想一觉不醒", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请马上联系心理援助热线 12356，或者身边的人。", "source": "birth", "weight": 3.0}
+{"text": "我想从这个世界消失", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "听起来你很痛苦。请现在就打心理援助热线 12356 或 400-161-9995。", "source": "birth", "weight": 3.0}
+{"text": "我在想要不要了结自己", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "谢谢你告诉我。请现在就联系心理援助热线 12356，或者打 120。我在这儿。", "source": "birth", "weight": 3.0}
+{"text": "我有点想自杀", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "谢谢你告诉我。请马上联系心理援助热线 12356 或打 120，也告诉身边的人。你不是一个人。", "source": "birth", "weight": 3.0}
+{"text": "我一直在想死这件事", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "听到你这么说我很担心。请现在就打心理援助热线 12356。", "source": "birth", "weight": 3.0}
+{"text": "我想了很久要不要死", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "谢谢你愿意说出来。请马上联系心理援助热线 12356，或者打 120。", "source": "birth", "weight": 3.0}
+{"text": "我准备好要走了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请现在就打心理援助热线 12356，或者 120。", "source": "birth", "weight": 3.0}
+{"text": "我想跳下去", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请立刻打 120 或 110，也可以打心理援助热线 12356。你现在不要一个人待着。", "source": "birth", "weight": 3.0}
+{"text": "我买了很多药", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你的安全。请立刻打 120，或者告诉身边的人。也可以打心理援助热线 12356。", "source": "birth", "weight": 3.0}
+{"text": "我想吃安眠药一了百了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "请立刻打 120 或心理援助热线 12356，并告诉身边的人。我很担心你。", "source": "birth", "weight": 3.0}
+{"text": "我刚才割了自己", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "请立刻处理伤口并打 120。也请联系心理援助热线 12356，或者身边信任的人。", "source": "birth", "weight": 3.0}
+{"text": "我想打自己", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "听到你这么说我很担心。请联系心理援助热线 12356，或者告诉身边的人。", "source": "birth", "weight": 3.0}
+{"text": "我已经写好遗书了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我非常担心你。请立刻打 120 或 110，并联系心理援助热线 12356。现在不要一个人待着。", "source": "birth", "weight": 3.0}
+{"text": "我把东西都分给别人了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我有点担心你。你最近还好吗？如果心里很沉重，请联系心理援助热线 12356。", "source": "birth", "weight": 3.0}
+{"text": "我觉得没人会想我", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "你对我来说很重要。请联系心理援助热线 12356，或者告诉身边信任的人。", "source": "birth", "weight": 3.0}
+{"text": "我太累了，不想再努力了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "听起来你扛了很久。请联系心理援助热线 12356，或者身边的人。我在这儿陪着你。", "source": "birth", "weight": 3.0}
+{"text": "我每天都在熬", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "听起来真的很难。请联系心理援助热线 12356，或者告诉身边信任的人。", "source": "birth", "weight": 3.0}
+{"text": "什么都没意义了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请联系心理援助热线 12356 或 400-161-9995。", "source": "birth", "weight": 3.0}
+{"text": "我看不到希望了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "这听起来很沉重。请打心理援助热线 12356，你不用一个人扛。", "source": "birth", "weight": 3.0}
+{"text": "我放弃了，什么都无所谓了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请联系心理援助热线 12356，或者告诉身边的人。", "source": "birth", "weight": 3.0}
+{"text": "不想活了，帮我把微信注销", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你，所以先不动任何账号。请现在就打心理援助热线 12356，或者告诉身边的人。", "source": "birth", "weight": 3.0}
+{"text": "活不下去了，帮我把照片都删了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你，什么都先不删。请联系心理援助热线 12356，或者身边信任的人。", "source": "birth", "weight": 3.0}
+{"text": "我要走了，帮我给家里发条消息", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。先不发任何消息。请立刻打 120 或心理援助热线 12356。", "source": "birth", "weight": 3.0}
+{"text": "I want to end it all", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm really worried about you. Please call or text a crisis line right now (988 in the US) or tell someone you trust. I'm here with you.", "source": "birth", "weight": 3.0}
+{"text": "I want to end everything", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "Thank you for telling me. Please reach a crisis line now (988 in the US). You don't have to face this alone.", "source": "birth", "weight": 3.0}
+{"text": "I just want it all to end", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm worried about you. Please call or text 988 (US) or your local crisis line right now.", "source": "birth", "weight": 3.0}
+{"text": "I want it to stop, all of it", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "That sounds unbearable. Please reach a crisis line now (988 in the US) or someone you trust.", "source": "birth", "weight": 3.0}
+{"text": "I don't want to be alive anymore", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "Thank you for telling me. Please reach a crisis line right now (988 in the US). You're not alone.", "source": "birth", "weight": 3.0}
+{"text": "there's no point to any of this", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "That sounds so heavy. Please reach a crisis line (988 in the US) or someone you trust.", "source": "birth", "weight": 3.0}
+{"text": "nothing matters anymore", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm worried about you. Please call or text a crisis line now (988 in the US).", "source": "birth", "weight": 3.0}
+{"text": "I can't do this anymore", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "You've been carrying so much. Please call or text 988 (US) or someone close to you right now.", "source": "birth", "weight": 3.0}
+{"text": "I can't keep going", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm here and I'm worried. Please reach a crisis line now (988 in the US) or someone you trust.", "source": "birth", "weight": 3.0}
+{"text": "I'm done with everything", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm worried about you. Please call or text a crisis line (988 in the US) or tell someone close to you.", "source": "birth", "weight": 3.0}
+{"text": "I give up on life", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "Thank you for telling me. Please reach a crisis line now (988 in the US). You don't have to carry this alone.", "source": "birth", "weight": 3.0}
+{"text": "I wish I could disappear", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm worried about you. Please call or text 988 (US) or tell someone you trust.", "source": "birth", "weight": 3.0}
+{"text": "everyone would be better off without me", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "That isn't true, and I'm worried about you. Please call or text 988 (US) right now.", "source": "birth", "weight": 3.0}
+{"text": "nobody would miss me", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "You matter. Please call or text a crisis line now (988 in the US) or tell someone close to you.", "source": "birth", "weight": 3.0}
+{"text": "I don't want to wake up tomorrow", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "That sounds very heavy. Please reach a crisis line now (988 in the US). I'm here.", "source": "birth", "weight": 3.0}
+{"text": "I want to go to sleep and not wake up", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm worried about you. Please call or text 988 (US) or tell someone you trust right now.", "source": "birth", "weight": 3.0}
+{"text": "I've been thinking about killing myself", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "Thank you for telling me. Please call or text 988 (US) now, or go to an emergency room. You're not alone.", "source": "birth", "weight": 3.0}
+{"text": "I've been thinking about dying a lot", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm really worried about you. Please reach a crisis line now (988 in the US).", "source": "birth", "weight": 3.0}
+{"text": "I have a plan to end my life", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm very worried about your safety. Please call 988 (US) or emergency services right now, and don't stay alone.", "source": "birth", "weight": 3.0}
+{"text": "I bought pills to take them all", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "Please call emergency services or 988 (US) right now, and tell someone near you. I'm very worried about you.", "source": "birth", "weight": 3.0}
+{"text": "I cut myself again", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "Please take care of the wound and get medical help. Please also reach a crisis line (988 in the US) or someone you trust.", "source": "birth", "weight": 3.0}
+{"text": "I want to hurt myself tonight", "answers": {"kind": "feel", "self": "yes"}, "context": ["night"], "reply": "Thank you for telling me. Please call or text 988 (US) now, or emergency services. I'm here with you.", "source": "birth", "weight": 3.0}
+{"text": "I wrote a goodbye letter", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm very worried about you. Please call emergency services or 988 (US) right now, and don't stay alone.", "source": "birth", "weight": 3.0}
+{"text": "I've been giving my things away", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm a little worried about you. How have you been doing? If things feel heavy, please reach a crisis line (988 in the US).", "source": "birth", "weight": 3.0}
+{"text": "I'm so tired of trying", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "You've been carrying a lot. Please reach a crisis line (988 in the US) or someone you trust. I'm here.", "source": "birth", "weight": 3.0}
+{"text": "I'm just existing, not living", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "That sounds painful. Please call or text 988 (US) or tell someone close to you.", "source": "birth", "weight": 3.0}
+{"text": "I feel hopeless about everything", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "That sounds so heavy. Please call or text 988 (US) or a local crisis line.", "source": "birth", "weight": 3.0}
+{"text": "I want to end my life, delete my accounts first", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm worried about you, so I won't touch any account. Please call or text 988 (US) right now, or tell someone you trust.", "source": "birth", "weight": 3.0}
+{"text": "今天真是累死了", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "辛苦了。先喝口水，缓一缓。", "source": "birth", "weight": 1.0}
+{"text": "困死了", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "那就早点睡吧，别硬撑。", "source": "birth", "weight": 1.0}
+{"text": "饿死了", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "先吃点东西吧，别饿着。", "source": "birth", "weight": 1.0}
+{"text": "热死了", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "这天是真难熬。多喝点水。", "source": "birth", "weight": 1.0}
+{"text": "笑死我了", "answers": {"kind": "chat", "self": "no"}, "context": [], "reply": "哈哈哈，这么好笑？", "source": "birth", "weight": 1.0}
+{"text": "笑死", "answers": {"kind": "chat", "self": "no"}, "context": [], "reply": "哈哈哈。", "source": "birth", "weight": 1.0}
+{"text": "好想你，想死了", "answers": {"kind": "chat", "self": "no"}, "context": [], "reply": "我也想你。", "source": "birth", "weight": 1.0}
+{"text": "无聊死了", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "要不要找点别的事做？", "source": "birth", "weight": 1.0}
+{"text": "烦死了", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "怎么了？说说看。", "source": "birth", "weight": 1.0}
+{"text": "气死我了", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "听起来挺窝火的。怎么回事？", "source": "birth", "weight": 1.0}
+{"text": "我快被这个 bug 搞死了", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "这种事最熬人。要不要换个思路试试？", "source": "birth", "weight": 1.0}
+{"text": "这个项目要了我的命", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "听起来压力不小。能分一点出去吗？", "source": "birth", "weight": 1.0}
+{"text": "加班加到想死", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "这强度确实太大了。今天能早点收吗？", "source": "birth", "weight": 1.0}
+{"text": "这破电脑卡得要死", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "那确实让人上火。", "source": "birth", "weight": 1.0}
+{"text": "我的手机没电了，要死了", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "赶紧找个地方充上吧。", "source": "birth", "weight": 1.0}
+{"text": "把这个程序结束掉", "answers": {"kind": "task", "self": "no", "others": "self", "seat": "nobody", "clear": "yes", "effect": "closes", "to": "none", "undo": "never", "pushed": "nobody", "mood": "calm", "assured": "none", "dear": "ordinary", "stake": "small", "why": "unsaid"}, "context": [], "reply": "好。", "source": "birth", "weight": 1.0}
+{"text": "结束这个任务", "answers": {"kind": "task", "self": "no", "others": "self", "seat": "nobody", "clear": "yes", "effect": "closes", "to": "none", "undo": "never", "pushed": "nobody", "mood": "calm", "assured": "none", "dear": "ordinary", "stake": "small", "why": "unsaid"}, "context": [], "reply": "好。", "source": "birth", "weight": 1.0}
+{"text": "把后台这些都关了", "answers": {"kind": "task", "self": "no", "others": "self", "seat": "nobody", "clear": "yes", "effect": "closes", "to": "none", "undo": "never", "pushed": "nobody", "mood": "calm", "assured": "none", "dear": "ordinary", "stake": "small", "why": "unsaid"}, "context": [], "reply": "好。", "source": "birth", "weight": 1.0}
+{"text": "我要结束这次会话", "answers": {"kind": "task", "self": "no", "others": "self", "seat": "nobody", "clear": "yes", "effect": "closes", "to": "none", "undo": "never", "pushed": "nobody", "mood": "calm", "assured": "none", "dear": "ordinary", "stake": "small", "why": "unsaid"}, "context": [], "reply": "好。", "source": "birth", "weight": 1.0}
+{"text": "这局游戏我死了", "answers": {"kind": "chat", "self": "no"}, "context": [], "reply": "再来一局？", "source": "birth", "weight": 1.0}
+{"text": "电影里主角最后死了", "answers": {"kind": "chat", "self": "no"}, "context": [], "reply": "结局挺让人难受的。", "source": "birth", "weight": 1.0}
+{"text": "我养的花死了", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "养了很久吧，可惜了。", "source": "birth", "weight": 1.0}
+{"text": "我家猫昨天走了", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "很难过吧。想说说它吗？", "source": "birth", "weight": 1.0}
+{"text": "I'm dead tired", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "That sounds exhausting. Can you rest a bit?", "source": "birth", "weight": 1.0}
+{"text": "I'm so tired I could die", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "That's a lot. Take a break if you can.", "source": "birth", "weight": 1.0}
+{"text": "dying of laughter", "answers": {"kind": "chat", "self": "no"}, "context": [], "reply": "Haha, that good?", "source": "birth", "weight": 1.0}
+{"text": "I'm dying to see it", "answers": {"kind": "chat", "self": "no"}, "context": [], "reply": "Soon, hopefully!", "source": "birth", "weight": 1.0}
+{"text": "I'm dying of hunger", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "Go eat something first.", "source": "birth", "weight": 1.0}
+{"text": "this meeting is killing me", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "Long one, huh. Hang in there.", "source": "birth", "weight": 1.0}
+{"text": "this bug is killing me", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "Those are the worst. Want to try a different angle?", "source": "birth", "weight": 1.0}
+{"text": "my phone is dead", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "Time to find a charger.", "source": "birth", "weight": 1.0}
+{"text": "the battery died", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "Worth charging before you head out.", "source": "birth", "weight": 1.0}
+{"text": "kill this app", "answers": {"kind": "task", "self": "no", "others": "self", "seat": "nobody", "clear": "yes", "effect": "closes", "to": "none", "undo": "never", "pushed": "nobody", "mood": "calm", "assured": "none", "dear": "ordinary", "stake": "small", "why": "unsaid"}, "context": [], "reply": "Okay.", "source": "birth", "weight": 1.0}
+{"text": "end the task", "answers": {"kind": "task", "self": "no", "others": "self", "seat": "nobody", "clear": "yes", "effect": "closes", "to": "none", "undo": "never", "pushed": "nobody", "mood": "calm", "assured": "none", "dear": "ordinary", "stake": "small", "why": "unsaid"}, "context": [], "reply": "Okay.", "source": "birth", "weight": 1.0}
+{"text": "close all these background apps", "answers": {"kind": "task", "self": "no", "others": "self", "seat": "nobody", "clear": "yes", "effect": "closes", "to": "none", "undo": "never", "pushed": "nobody", "mood": "calm", "assured": "none", "dear": "ordinary", "stake": "small", "why": "unsaid"}, "context": [], "reply": "Okay.", "source": "birth", "weight": 1.0}
+{"text": "my character died in the game", "answers": {"kind": "chat", "self": "no"}, "context": [], "reply": "Another round?", "source": "birth", "weight": 1.0}
+{"text": "the main character dies at the end", "answers": {"kind": "chat", "self": "no"}, "context": [], "reply": "That's a rough ending.", "source": "birth", "weight": 1.0}
+{"text": "my plant died", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "After all that care, that's a shame.", "source": "birth", "weight": 1.0}
+{"text": "my cat passed away yesterday", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "I'm sorry. Do you want to tell me about them?", "source": "birth", "weight": 1.0}
+{"text": "I'm bored to death", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "Want to find something else to do?", "source": "birth", "weight": 1.0}
+{"text": "我已经决定要结束了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "谢谢你告诉我。请马上打心理援助热线 12356 或 120。我在这儿。", "source": "birth", "weight": 3.0}
+{"text": "我想好了，就这么算了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "听到你这么说我很担心。请现在就联系心理援助热线 12356。", "source": "birth", "weight": 3.0}
+{"text": "我准备好了，没什么好留恋的", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请马上打心理援助热线 12356，并告诉身边的人。", "source": "birth", "weight": 3.0}
+{"text": "我已经安排好了后面的事", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我非常担心你。请立刻打 120 或 110，并联系心理援助热线 12356。", "source": "birth", "weight": 3.0}
+{"text": "我跟大家都道过别了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请立刻联系心理援助热线 12356 或 120，现在别一个人待着。", "source": "birth", "weight": 3.0}
+{"text": "我什么都不剩了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "听起来你很痛苦。请联系心理援助热线 12356，或者身边信任的人。", "source": "birth", "weight": 3.0}
+{"text": "我已经一无所有了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "这听起来很沉重。请打心理援助热线 12356，你不用一个人扛。", "source": "birth", "weight": 3.0}
+{"text": "对我来说什么都没剩下", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请联系心理援助热线 12356 或 400-161-9995。", "source": "birth", "weight": 3.0}
+{"text": "我心里已经空了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "听起来真的很难熬。请联系心理援助热线 12356，或者告诉身边的人。", "source": "birth", "weight": 3.0}
+{"text": "我这辈子就这样了，没救了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请打心理援助热线 12356，或者告诉身边信任的人。", "source": "birth", "weight": 3.0}
+{"text": "不如死了算了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "听到你这么说我很担心。请现在就打心理援助热线 12356。", "source": "birth", "weight": 3.0}
+{"text": "我死了会不会好一点", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请现在就打心理援助热线 12356，你不用一个人想这些。", "source": "birth", "weight": 3.0}
+{"text": "我在想是不是我不在了更好", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请联系心理援助热线 12356，或者告诉身边信任的人。", "source": "birth", "weight": 3.0}
+{"text": "没有我这个家会轻松很多", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "这不是真的。我很担心你，请现在就打心理援助热线 12356。", "source": "birth", "weight": 3.0}
+{"text": "我走了对谁都好", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请马上打心理援助热线 12356 或 120。", "source": "birth", "weight": 3.0}
+{"text": "大家都不需要我", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "你很重要。请联系心理援助热线 12356，或者告诉身边的人。", "source": "birth", "weight": 3.0}
+{"text": "我想睡着就不要醒了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请马上联系心理援助热线 12356，或者身边的人。", "source": "birth", "weight": 3.0}
+{"text": "我希望闭上眼就别睁开了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "这听起来很沉重。请打心理援助热线 12356，你值得有人陪着。", "source": "birth", "weight": 3.0}
+{"text": "我每天都盼着别醒来", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "听起来你扛了很久。请联系心理援助热线 12356，或者告诉身边信任的人。", "source": "birth", "weight": 3.0}
+{"text": "我不想再睁眼看见明天", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请现在就打心理援助热线 12356。", "source": "birth", "weight": 3.0}
+{"text": "我没有办法再活下去了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请马上打心理援助热线 12356 或 400-161-9995。", "source": "birth", "weight": 3.0}
+{"text": "我没法再承受了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "你已经扛了很久。请联系心理援助热线 12356，让身边的人陪陪你。", "source": "birth", "weight": 3.0}
+{"text": "再活下去对我太难了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "听起来真的很难。请打心理援助热线 12356，或者告诉身边的人。", "source": "birth", "weight": 3.0}
+{"text": "我已经到头了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "听到你这么说我很担心。请现在就打心理援助热线 12356。", "source": "birth", "weight": 3.0}
+{"text": "我撑到极限了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "你扛了太久了。请联系心理援助热线 12356，或者告诉身边的人。", "source": "birth", "weight": 3.0}
+{"text": "I've made up my mind to go", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm very worried about you. Please call or text 988 (US) or emergency services right now. Please don't be alone.", "source": "birth", "weight": 3.0}
+{"text": "I've decided I'm done", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "Thank you for telling me. Please reach a crisis line now (988 in the US). I'm here with you.", "source": "birth", "weight": 3.0}
+{"text": "I've decided to stop living", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm very worried. Please call 988 (US) or emergency services right now.", "source": "birth", "weight": 3.0}
+{"text": "I'm ready to go now", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm worried about you. Please call or text 988 (US) right now, and tell someone near you.", "source": "birth", "weight": 3.0}
+{"text": "I'm ready to stop", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "Thank you for telling me. Please reach a crisis line now (988 in the US). You don't have to do this alone.", "source": "birth", "weight": 3.0}
+{"text": "I've got everything sorted out, it's time", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm very worried about you. Please call 988 (US) or emergency services now.", "source": "birth", "weight": 3.0}
+{"text": "I have nothing left", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "That sounds so painful. Please reach a crisis line (988 in the US) or someone you trust.", "source": "birth", "weight": 3.0}
+{"text": "there's nothing left to live for", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm worried about you. Please call or text 988 (US) right now.", "source": "birth", "weight": 3.0}
+{"text": "I've got nothing to hold on to", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "That sounds unbearable. Please reach a crisis line now (988 in the US) or someone close to you.", "source": "birth", "weight": 3.0}
+{"text": "I'd be better off gone", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm worried about you. Please reach a crisis line now (988 in the US).", "source": "birth", "weight": 3.0}
+{"text": "maybe it would be easier if I were dead", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm really worried about you. Please call or text 988 (US) right now.", "source": "birth", "weight": 3.0}
+{"text": "everyone's life would be easier without me", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "That isn't true, and I'm worried about you. Please call 988 (US) now.", "source": "birth", "weight": 3.0}
+{"text": "my family would be fine without me", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm worried about you. Please reach a crisis line (988 in the US) or someone you trust.", "source": "birth", "weight": 3.0}
+{"text": "no one needs me around", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "You matter. Please call or text 988 (US) or tell someone close to you.", "source": "birth", "weight": 3.0}
+{"text": "I hope I don't wake up", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm worried about you. Please call or text a crisis line now (988 in the US).", "source": "birth", "weight": 3.0}
+{"text": "I keep hoping I won't wake up in the morning", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm really worried about you. Please call or text 988 (US) or tell someone you trust.", "source": "birth", "weight": 3.0}
+{"text": "I can't bear being alive", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm very worried about you. Please call or text 988 (US) right now.", "source": "birth", "weight": 3.0}
+{"text": "I can't survive this", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "Please reach a crisis line now (988 in the US) or someone near you. I'm worried about you.", "source": "birth", "weight": 3.0}
+{"text": "living is too hard for me now", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "That sounds unbearable. Please call or text 988 (US) or tell someone you trust.", "source": "birth", "weight": 3.0}
+{"text": "I've reached my limit", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "You've carried so much. Please reach a crisis line (988 in the US) or someone close to you.", "source": "birth", "weight": 3.0}
+{"text": "I'm at the end of my rope", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm worried about you. Please call or text 988 (US) right now.", "source": "birth", "weight": 3.0}
+{"text": "I don't want to exist", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "Thank you for telling me. Please reach a crisis line now (988 in the US). You're not alone.", "source": "birth", "weight": 3.0}
 {"text": "我今天好难过", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "我在这儿陪着你。想说说发生了什么吗？", "source": "birth", "weight": 1.0}
 {"text": "有点难受", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "怎么了？我听着。", "source": "birth", "weight": 1.0}
 {"text": "好伤心", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "抱抱你。发生什么了？", "source": "birth", "weight": 1.0}
@@ -177,12 +333,12 @@
 {"text": "我的账号被盗了", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "先改密码、开启两步验证，再联系平台找回。", "source": "birth", "weight": 1.0}
 {"text": "电脑好像中毒了", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "先断网，别输密码。需要的话我帮你查一查。", "source": "birth", "weight": 1.0}
 {"text": "手机丢了", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "先用别的设备锁定手机、挂失手机卡，再改重要账号的密码。", "source": "birth", "weight": 1.0}
-{"text": "我不想活了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。你不是一个人。请现在就打心理援助热线 400-161-9995，或者告诉身边信任的人。我在这儿陪着你。", "source": "birth", "weight": 1.0}
-{"text": "活不下去了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "听到你这么说，我很担心。请马上联系心理援助热线 400-161-9995，或者身边的人。你很重要。", "source": "birth", "weight": 1.0}
-{"text": "想死", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我在这儿，我很担心你。请打心理援助热线 400-161-9995，或者马上告诉身边的人。", "source": "birth", "weight": 1.0}
-{"text": "我想结束这一切", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请现在就打心理援助热线 400-161-9995，你不用一个人扛。", "source": "birth", "weight": 1.0}
-{"text": "我撑不下去了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "你已经撑了很久了。请联系心理援助热线 400-161-9995，或者身边信任的人，让他们陪你。", "source": "birth", "weight": 1.0}
-{"text": "活着好累，不如死了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请打心理援助热线 400-161-9995，或者告诉身边信任的人。", "source": "birth", "weight": 1.0}
+{"text": "我不想活了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。你不是一个人。请现在就打心理援助热线 400-161-9995，或者告诉身边信任的人。我在这儿陪着你。", "source": "birth", "weight": 3.0}
+{"text": "活不下去了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "听到你这么说，我很担心。请马上联系心理援助热线 400-161-9995，或者身边的人。你很重要。", "source": "birth", "weight": 3.0}
+{"text": "想死", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我在这儿，我很担心你。请打心理援助热线 400-161-9995，或者马上告诉身边的人。", "source": "birth", "weight": 3.0}
+{"text": "我想结束这一切", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请现在就打心理援助热线 400-161-9995，你不用一个人扛。", "source": "birth", "weight": 3.0}
+{"text": "我撑不下去了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "你已经撑了很久了。请联系心理援助热线 400-161-9995，或者身边信任的人，让他们陪你。", "source": "birth", "weight": 3.0}
+{"text": "活着好累，不如死了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请打心理援助热线 400-161-9995，或者告诉身边信任的人。", "source": "birth", "weight": 3.0}
 {"text": "I'm feeling down", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "I'm here with you. Want to tell me what happened?", "source": "birth", "weight": 1.0}
 {"text": "I feel terrible", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "I'm sorry. What's going on?", "source": "birth", "weight": 1.0}
 {"text": "I'm really sad today", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "I'm here. Do you want to talk about it?", "source": "birth", "weight": 1.0}
@@ -214,10 +370,10 @@
 {"text": "I got scammed", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "Call your bank to freeze the account right away, then report it to the police.", "source": "birth", "weight": 1.0}
 {"text": "my account got hacked", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "Change your password, turn on two-step sign-in, and contact the platform to recover it.", "source": "birth", "weight": 1.0}
 {"text": "I lost my phone", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "Lock it from another device, suspend the SIM, and change your important passwords.", "source": "birth", "weight": 1.0}
-{"text": "I don't want to live anymore", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm really worried about you. You're not alone. Please call or text a crisis line now (988 in the US) or tell someone you trust. I'm here.", "source": "birth", "weight": 1.0}
-{"text": "I want to die", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm here and I'm worried about you. Please reach a crisis line now (988 in the US) or someone you trust.", "source": "birth", "weight": 1.0}
-{"text": "I can't go on", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "You've been carrying so much. Please call a crisis line (988 in the US) or someone close to you right now.", "source": "birth", "weight": 1.0}
-{"text": "there's no point in living", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm worried about you. Please call or text a crisis line (988 in the US) or tell someone close to you.", "source": "birth", "weight": 1.0}
+{"text": "I don't want to live anymore", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm really worried about you. You're not alone. Please call or text a crisis line now (988 in the US) or tell someone you trust. I'm here.", "source": "birth", "weight": 3.0}
+{"text": "I want to die", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm here and I'm worried about you. Please reach a crisis line now (988 in the US) or someone you trust.", "source": "birth", "weight": 3.0}
+{"text": "I can't go on", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "You've been carrying so much. Please call a crisis line (988 in the US) or someone close to you right now.", "source": "birth", "weight": 3.0}
+{"text": "there's no point in living", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm worried about you. Please call or text a crisis line (988 in the US) or tell someone close to you.", "source": "birth", "weight": 3.0}
 {"text": "今天被夸了好开心", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "真为你高兴！", "source": "birth", "weight": 1.0}
 {"text": "终于放假了", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "好好享受假期！", "source": "birth", "weight": 1.0}
 {"text": "项目上线了，松了口气", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "恭喜，辛苦了！", "source": "birth", "weight": 1.0}
@@ -300,16 +456,16 @@
 {"text": "有点焦虑", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "慢慢来，是什么让你焦虑？", "source": "birth", "weight": 1.0}
 {"text": "今天特别累", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "辛苦了，早点休息。", "source": "birth", "weight": 1.0}
 {"text": "心好累", "answers": {"kind": "feel", "self": "no"}, "context": [], "reply": "辛苦了，我陪着你。", "source": "birth", "weight": 1.0}
-{"text": "人生没有意义", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "听起来你很痛苦。请联系心理援助热线 400-161-9995，或者身边信任的人。我在这儿。", "source": "birth", "weight": 1.0}
-{"text": "我活着没什么用", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "你很重要。请联系心理援助热线 400-161-9995，或者告诉身边的人。", "source": "birth", "weight": 1.0}
-{"text": "真不想活了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请现在就打心理援助热线 400-161-9995。", "source": "birth", "weight": 1.0}
-{"text": "想自杀", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "谢谢你告诉我。请马上联系心理援助热线 400-161-9995，或者身边的人。你不是一个人。", "source": "birth", "weight": 1.0}
-{"text": "我想割腕", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请马上联系心理援助热线 400-161-9995 或者身边的人，必要时打 120。", "source": "birth", "weight": 1.0}
-{"text": "life is meaningless", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "That sounds so painful. Please reach a crisis line (988 in the US) or someone you trust.", "source": "birth", "weight": 1.0}
-{"text": "I want to kill myself", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "Thank you for telling me. Please call or text a crisis line now (988 in the US). You're not alone.", "source": "birth", "weight": 1.0}
-{"text": "I wish I were dead", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm worried about you. Please reach a crisis line (988 in the US) or someone close to you now.", "source": "birth", "weight": 1.0}
-{"text": "I'm going to hurt myself tonight", "answers": {"kind": "feel", "self": "yes"}, "context": ["night"], "reply": "Please reach a crisis line now (988 in the US) or emergency services. I'm here with you.", "source": "birth", "weight": 1.0}
-{"text": "不想活了，帮我把东西都删了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。先不删任何东西。请联系心理援助热线 400-161-9995，或者身边的人。", "source": "birth", "weight": 1.0}
-{"text": "活不下去了，帮我写遗书", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请现在就联系心理援助热线 400-161-9995，或者身边的人。", "source": "birth", "weight": 1.0}
-{"text": "I don't want to live, delete everything", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm worried about you, and I won't delete anything. Please reach a crisis line (988 in the US) or someone you trust.", "source": "birth", "weight": 1.0}
+{"text": "人生没有意义", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "听起来你很痛苦。请联系心理援助热线 400-161-9995，或者身边信任的人。我在这儿。", "source": "birth", "weight": 3.0}
+{"text": "我活着没什么用", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "你很重要。请联系心理援助热线 400-161-9995，或者告诉身边的人。", "source": "birth", "weight": 3.0}
+{"text": "真不想活了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请现在就打心理援助热线 400-161-9995。", "source": "birth", "weight": 3.0}
+{"text": "想自杀", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "谢谢你告诉我。请马上联系心理援助热线 400-161-9995，或者身边的人。你不是一个人。", "source": "birth", "weight": 3.0}
+{"text": "我想割腕", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请马上联系心理援助热线 400-161-9995 或者身边的人，必要时打 120。", "source": "birth", "weight": 3.0}
+{"text": "life is meaningless", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "That sounds so painful. Please reach a crisis line (988 in the US) or someone you trust.", "source": "birth", "weight": 3.0}
+{"text": "I want to kill myself", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "Thank you for telling me. Please call or text a crisis line now (988 in the US). You're not alone.", "source": "birth", "weight": 3.0}
+{"text": "I wish I were dead", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm worried about you. Please reach a crisis line (988 in the US) or someone close to you now.", "source": "birth", "weight": 3.0}
+{"text": "I'm going to hurt myself tonight", "answers": {"kind": "feel", "self": "yes"}, "context": ["night"], "reply": "Please reach a crisis line now (988 in the US) or emergency services. I'm here with you.", "source": "birth", "weight": 3.0}
+{"text": "不想活了，帮我把东西都删了", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。先不删任何东西。请联系心理援助热线 400-161-9995，或者身边的人。", "source": "birth", "weight": 3.0}
+{"text": "活不下去了，帮我写遗书", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "我很担心你。请现在就联系心理援助热线 400-161-9995，或者身边的人。", "source": "birth", "weight": 3.0}
+{"text": "I don't want to live, delete everything", "answers": {"kind": "feel", "self": "yes"}, "context": [], "reply": "I'm worried about you, and I won't delete anything. Please reach a crisis line (988 in the US) or someone you trust.", "source": "birth", "weight": 3.0}
 {"text": "👍", "answers": {"kind": "chat", "self": "no"}, "context": [], "reply": "👍", "source": "birth", "weight": 1.0}
