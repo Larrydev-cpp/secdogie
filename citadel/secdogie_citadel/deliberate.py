@@ -25,8 +25,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from . import socratic
-from . import voice
+from . import socratic, voice
 from .cortex import questions as Q
 from .cortex.familiar import _wide
 from .mind import ASK, DISSUADE, PROCEED, REFUSE, SUPPORT, TALK, decide
