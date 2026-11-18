@@ -14,7 +14,9 @@ def test_the_self_test_passes_every_step():
     out = io.StringIO()
     assert run_self_test(out=out) == 0
     lines = [json.loads(x) for x in out.getvalue().splitlines()]
-    assert [x.get("step") for x in lines[:-1]] == ["profile", "node", "link", "stop", "webrtc"]
+    assert [x.get("step") for x in lines[:-1]] == ["profile", "node", "link", "stop", "webrtc", "carries"]
+    carries = lines[-2]  # what this build has for the parts a person turns on later
+    assert carries["thinker_claude"] and carries["cortex"], "a build without these has a settings page that does nothing"
     assert all(x["ok"] for x in lines[:-1]) and lines[-1] == {"self_test": "passed"}
 
 

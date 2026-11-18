@@ -37,6 +37,8 @@ hidden = (
     collect_submodules("secdogie_studio")
     + collect_submodules("secdogie_node")
     + collect_submodules("secdogie_citadel")  # the cortex is loaded on first use
+    # The external model on Claude: thinker_claude imports the SDK inside the call, so say it is needed
+    + collect_submodules("anthropic")
     + collect_submodules("secdogie_transport")
     # PyNaCl (keys, sealing) loads its C bindings through cffi, which static analysis does not see
     + collect_submodules("nacl")

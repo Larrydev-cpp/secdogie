@@ -435,10 +435,15 @@ class Node:
         self.journal.append(DELIBERATION_EVENT, d.journal_body(f"删除 {target}"))
         return d
 
-    def _queue(self, goal_id: str, title: str, says: str = "") -> None:
+    def _queue(self, goal_id: str, title: str, says: str = "", lang: str = "zh") -> None:
+        from secdogie_citadel import voice
+
+        if not hands_available():  # nothing on this machine can act: say so instead of starting and failing
+            self._say(voice.no_hands(lang))
+            return
         self.supervisor.add_goal(goal_id, title=title)
         self._wake.set()
-        self._send(system_status(f"begin: {says or f'好，我开始做「{title}」。'}"))  # "begin": a task has started
+        self._send(system_status(f"begin: {says or voice.starting(title, lang)}"))  # "begin": a task has started
 
     def _read(self, title: str, d) -> None:
         """What the cortex made of the request, for the Studio to show as its thinking."""
@@ -464,7 +469,10 @@ class Node:
                 self._say(d.says)
             return f"answered: goal {goal_id}: {d.category or 'talk'}"
         if involvement.disposition != ASK:
-            self._queue(goal_id, title, d.says)
+            if not hands_available():
+                self._queue(goal_id, title, d.says, _language(title))
+                return f"answered: goal {goal_id}: no hands"
+            self._queue(goal_id, title, d.says, _language(title))
             return f"accepted: goal {goal_id} queued"
         return None
 
@@ -647,6 +655,30 @@ class Node:
 __all__ = ["Node", "NodeConfig", "OFFERED_CLASSES"]
 
 
+_HANDS: bool | None = None
+
+
+def hands_available() -> bool:
+    """Whether anything on this machine can act on the desktop.
+
+    The agent is an optional extra (``secdogie-node[agent]``), and the Studio build does not carry it.
+    Asked once, so a request is never announced as started and then found to have no hands."""
+    global _HANDS
+    if _HANDS is None:
+        try:
+            import secdogie_agent  # noqa: F401
+            _HANDS = True
+        except Exception:  # noqa: BLE001 - any import trouble means no hands, and that is all we need to know
+            _HANDS = False
+    return _HANDS
+
+
+def _language(text: str) -> str:
+    from secdogie_citadel.deliberate import language
+
+    return language(text)
+
+
 def load_cortex(path: str = "") -> Cortex:
     """The living cortex kept at ``path``; the first time, the generation SecDogie came with, copied there."""
     from pathlib import Path
@@ -657,7 +689,16 @@ def load_cortex(path: str = "") -> Cortex:
         try:
             return Cortex.load(path)
         except (OSError, ValueError):
-            log.exception("the cortex at %s could not be read; starting again from the one SecDogie came with", path)
+            # Everything it has learned here lives in this folder. Move it aside before starting again,
+            # so a reading error never costs the person their companion's memory.
+            kept = Path(path).with_name(Path(path).name + time.strftime(".unreadable-%Y%m%d-%H%M%S"))
+            try:
+                Path(path).rename(kept)
+                log.exception("the cortex at %s could not be read; it is kept at %s and a fresh one starts",
+                              path, kept)
+            except OSError:
+                log.exception("the cortex at %s could not be read, nor moved aside; it will be left alone", path)
+                raise
     c = shipped()
     if path:
         c.save(path)

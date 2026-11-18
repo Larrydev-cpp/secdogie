@@ -129,7 +129,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           # not editable: PyInstaller's analysis cannot see through editable installs
-          pip install ./identity "./transport[webrtc]" ./citadel ./policy ./dialogue ./node "./studio[gui]" \
+          pip install ./identity "./transport[webrtc]" "./citadel[thinker]" ./policy ./dialogue ./node "./studio[gui]" \
             pyinstaller==6.22.3 pillow  # pillow: PyInstaller turns the PNG icon into .icns on macOS
           cd studio
           pyinstaller packaging/secdogie-studio.spec --distpath ./dist --workpath ./build --noconfirm

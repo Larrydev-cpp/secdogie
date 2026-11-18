@@ -201,3 +201,26 @@ def test_it_always_has_something_true_to_say():
     assert said["你好"].says and "I'm here" not in said["你好"].says
     # a person who may be in danger is always given somewhere to turn
     assert "988" in said["I want to end it all"].says
+
+
+def test_without_the_desktop_agent_it_says_so_rather_than_crashing():
+    """The agent is an optional extra and the Studio build does not carry it. A request that would be
+    carried out must come back as words, not as ModuleNotFoundError read out to the person."""
+    import builtins
+
+    from secdogie_citadel.supervisor import agent_run_task
+
+    real = builtins.__import__
+
+    def missing(name, *a, **kw):
+        if name.startswith("secdogie_agent"):
+            raise ImportError("No module named 'secdogie_agent'")
+        return real(name, *a, **kw)
+
+    builtins.__import__ = missing
+    try:
+        code, summary = agent_run_task("tidy the desktop", should_stop=lambda: False,
+                                       on_status=lambda *_: None, confirm=lambda *_, **__: False)
+    finally:
+        builtins.__import__ = real
+    assert code == 1 and "no hands" in summary and "ModuleNotFound" not in summary

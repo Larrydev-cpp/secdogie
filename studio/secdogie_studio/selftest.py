@@ -69,6 +69,18 @@ def run_self_test(*, out=None, timeout: float = 30.0) -> int:
         _emit(out, step="webrtc", ok=False, error=f"{type(e).__name__}: {e}")
         return 1
     _emit(out, step="webrtc", ok=True, fingerprint=fps[0][:16])
+    # What the build carries for the parts a person turns on later. A missing piece here is why a key
+    # entered in the settings once did nothing at all, so the build says plainly what it has.
+    carried = {}
+    for part, module in (("thinker_claude", "anthropic"), ("cortex", "numpy"), ("hands", "secdogie_agent")):
+        try:
+            __import__(module)
+            carried[part] = True
+        except Exception:  # noqa: BLE001 - the point is only whether it is here
+            carried[part] = False
+    _emit(out, step="carries", ok=carried["thinker_claude"] and carried["cortex"], **carried)
+    if not (carried["thinker_claude"] and carried["cortex"]):
+        return 1
     _emit(out, self_test="passed")
     return 0
 

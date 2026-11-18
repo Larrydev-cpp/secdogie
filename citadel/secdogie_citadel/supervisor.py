@@ -534,7 +534,10 @@ def agent_run_task(
     check-before-redoing note in front of the task."""
     import argparse
 
-    from secdogie_agent import cli_common
+    try:
+        from secdogie_agent import cli_common
+    except ImportError:  # the agent is an optional extra; this build does not carry it
+        return 1, "this installation has no hands: the desktop agent is not installed here"
     from secdogie_agent.loop import AgentConfig, run
 
     args = argparse.Namespace(
