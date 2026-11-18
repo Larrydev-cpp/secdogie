@@ -131,7 +131,8 @@ Item {
             width: parent.width
             // as tall as the step on show, so each step sits in the middle of the night
             height: (meet.shown === 0 ? hello : meet.shown === 1 ? intro : meet.shown === 2 ? naming
-                     : meet.shown === 3 ? secret : meet.phase === "making" ? making : done).implicitHeight
+                     : meet.shown === 3 ? secret : meet.shown === 5 ? model
+                     : meet.phase === "making" ? making : done).implicitHeight
             Behavior on height { NumberAnimation { duration: Theme.enter; easing.type: Easing.OutCubic } }
 
             Step {                               // hello: who it is, and what it promises
@@ -287,8 +288,11 @@ Item {
                 id: model
                 index: 5
                 Title { text: Theme.t("接上你的 AI 模型", "Connect your AI model") }
-                Lead { text: Theme.t("我自己的脑子是从零长起来的，还小。接上你的模型，我就能跟着它的回答学，越来越少用到它。不接也行，我会多问少做。",
-                                     "My own mind started from nothing and is still small. Connect your model and I'll learn from how it answers, and need it less over time. You can skip this: I'll just ask more and do less.") }
+                Lead { text: Theme.t("我的脑子是从零长起来的，还小。接上你的模型，我就能跟着它的回答学，越来越少用到它。\n"
+                                     + "不接也行，那我会多问少做。",
+                                     "My mind started from nothing and is still small. Connect your model and I'll "
+                                     + "learn from how it answers, needing it less over time.\n"
+                                     + "You can skip this; I'll just ask more and do less.") }
                 Column {
                     width: parent.width
                     spacing: 12
