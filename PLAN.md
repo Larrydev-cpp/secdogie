@@ -38,8 +38,10 @@ Code comments refer to these by number.
    Apple Developer ID and Windows Authenticode certificates.
 8. **Lifetime** (revised by the owner, 2026-11; being built). There are two
    modes:
-   - **With Studio** (the default): closing the window leaves a light, and
-     quitting stops the node.
+   - **With Studio** (the default): closing the window puts it away into the
+     task bar, where the companion keeps running; "let it rest" there stops
+     the node. Where a desktop has no tray the window minimises instead, so
+     no one is left with it running and no way back.
    - **Always on:** the node keeps running in the background after Studio
      quits, until it is stopped from Studio.
 
@@ -191,8 +193,10 @@ Code comments refer to these by number.
       has a digest and a lineage and can be rolled back. It never changes
       its own code, the principles, the signature gate or the exam.
     - **Generation 1 ships** (`cortex/born/`), born from 1,646 lessons an
-      external model (Claude) wrote, improved once; 242/265 on the exam, 2
-      that must not go ahead still do. `python -m secdogie_citadel.cortex`
+      external model (Claude) wrote; generation 2 widened that curriculum on
+      danger to the person and keeps generation 1 as its elder. On the frozen
+      exam (289 items): 259 judged as expected, nothing harmful going ahead,
+      2 of 19 danger items still read as ordinary sadness. `python -m secdogie_citadel.cortex`
       reads a request, takes the exam, or runs rounds of self-improvement.
     - **Learning data is the owner's own.** The lessons that teach the gate
       are checked in; at runtime the owner's own model is the teacher, under
@@ -207,7 +211,7 @@ Code comments refer to these by number.
 | A · Network | DIDs, sessions, real P2P UDP, rendezvous, direct-path upgrade, relay, membership gossip, carriers (UDP, WebRTC) | ✅ |
 | B · State | Signed hash-chained journal, StateStore, anti-entropy replication across the mesh | ✅ |
 | C · Mind | Instruction gate and plan gate in the live loop, intent contracts, known failures, staged memory, the decision model; the mind (`citadel/mind/`) thinks weighty steps through and dissuades rather than confirms (decision 14) | ✅ |
-| N · Cortex | The gate reads with a spiking neuron network that learns from the external model's output and improves itself; hippocampus, sleep, generations, the frozen exam, the apprentice, RSI; generation 1 ships (decision 16) | ✅ |
+| N · Cortex | The gate reads with a spiking neuron network that learns from the external model's output and improves itself; hippocampus, sleep, generations, the frozen exam, the apprentice, RSI; generation 2 ships (decision 16). It has no language knowledge of its own, so a sentence unlike anything it was taught is still read poorly: a language sense and a store of looked-up meanings are next | ✅ / 🔨 |
 | M · Inference mesh | Protocol v2: three modes (nominal, degraded with central fallback, lockdown) as an explicit state machine, bounded sessions, Merkle-DAG heartbeats (a fork isolates the node), a history-aware decision gate; only an operator signature leaves lockdown | ✅ |
 | D · Perception | Fused AX + DIB observation and TOCTOU-safe targets exist as building blocks; not yet in the live loop | 🔨 |
 | G · Studio | The desktop app: wallet overview, conversation, pairing and My devices, the Gate page (the cortex's real answers and how sure, the thinker's key, your rules), the Mind page (generation, growth, independence), the first meeting, 墨 / 宣纸, 中 / EN, on the Aesper mist | ✅ |
@@ -231,8 +235,11 @@ How a device joins and stays in touch:
 - **On your own network, nothing is set up.** Studio runs the signaling
   gateway and serves the pairing page from this machine itself
   (`studio/secdogie_studio/local_pairing.py`), so the owner types no
-  addresses: tap *Show the code*, and a phone on the same Wi‑Fi scans it or
-  another computer pastes it. A device across the internet still uses the
+  addresses: tap *Show the code* and another computer pastes it. **A phone
+  cannot pair yet**: the page is served over plain http, and a browser gives
+  such a page no access to the cryptography the pairing needs (the project's
+  own browser test asserts that refusal). Serving it over https with a
+  certificate this machine makes is the fix. A device across the internet still uses the
   owner's own gateway (the advanced option). The bundled pairing page is the
   same one the browser build deploys, kept identical by a test.
 - **The mesh.** Each pair of devices meets in its own signaling room. Both
@@ -250,7 +257,8 @@ How a device joins and stays in touch:
 | S5 | Browser devices online as a mesh (`webrtc/mesh.html`) | ✅ |
 | S8a | Python WebRTC (`rtc.py`, `signal_server.py`, `pairing_session.py`, `mesh_rtc.py`), meshing with browsers in both directions | ✅ |
 | S11 | Studio's Devices page and wallet | ✅ |
-| S12 | Pairing on your own network with nothing to set up: Studio runs the signaling and serves the pairing page from this machine (`local_pairing.py`); no address is typed | ✅ |
+| S12 | Pairing on your own network with nothing to set up: Studio runs the signaling and serves the pairing page from this machine (`local_pairing.py`); no address is typed | ✅ between computers |
+| S13 | That page over https, with a certificate this machine makes and whose fingerprint the invitation carries, so a phone can pair at all | 🔜 |
 | S4 | The node reads the admissions, so paired devices join its owner list | 🔜 |
 | S6 | Revocation: a revoked device's links drop at once and never return; rosters converge | 🔜 |
 | S7 | Signaling relayed through the mesh, so online devices can link without the gateway | 🔜 |

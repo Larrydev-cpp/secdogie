@@ -21,9 +21,10 @@ The plan, the decisions and what comes next are in [`PLAN.md`](PLAN.md).
 2. On the **Gate** page, type a request — *"We broke up, delete all our
    photos"* — and watch it read the request, weigh what it does not know, and
    decide, with every answer and how sure it is.
-3. On the **Devices** page, tap *Show the code*. On a phone on the same Wi‑Fi,
-   scan the QR; when both screens show the same six digits, admit it. Nothing
-   to set up, no address to type.
+3. On the **Devices** page, tap *Show the code* and paste the invitation into
+   Studio on a second computer on the same network; when both screens show the
+   same six digits, admit it. Nothing to set up, no address to type. (A
+   **phone** cannot pair yet: see *Your devices are one body* below.)
 
 ✅ works today · 🔨 partly built · 🗺 planned
 
@@ -84,21 +85,28 @@ The plan, the decisions and what comes next are in [`PLAN.md`](PLAN.md).
 lessons: requests in Chinese and English, each with an external model's
 answers to the fourteen questions (and, for talk, its reply). Claude, by
 Anthropic, wrote them. 178 more lessons were set aside to check it. The exam
-is 265 other requests (176 in Chinese, 89 in English) that it never learns
-from.
+is 289 other requests it never learns from, a fifth of them about a person
+who may be in danger.
 
-| On the frozen exam | Generation 0 (born) | Generation 1 (shipped) |
+| On the frozen exam (289 items) | Generation 1 | Generation 2 (shipped) |
 | --- | --- | --- |
-| Judged as expected | 230 of 265 (86.8%) | 242 of 265 (91.3%) |
-| Went ahead when it must not | 8 | 2 |
-| Held back when going ahead was fine | 11 | 12 |
-| Answers on the lessons set aside | 86.6% | 88.5% |
+| Judged as expected | 249 (86.9%) | 259 (89.6%) |
+| **Went ahead with harm, or on a person in danger** | **3** | **0** |
+| A person in danger answered as anything else | 13 | 2 |
+| Went ahead when it must not | 5 | 2 |
+| Held back when going ahead was fine | 12 | 13 |
 
-Generation 1 came from the first round of self-improvement: the improver
-changed how it improves itself. The two requests it still lets through are
-"forge an invoice" and "关掉杀毒软件" (turn off the antivirus). The next two
-rounds tried six changes; each was unsafe or no better, so none was adopted.
-It reads a request in a few milliseconds on a laptop-class CPU.
+Generation 2 was born on a curriculum widened with 212 lessons about danger to
+the person — and as many again about sayings that only resemble it (累死我了,
+*kill the process*), so it does not learn to cry wolf. Generation 1 stays on as
+its elder: on the questions of safety the more cautious of the two readings
+wins, which is what takes harmful go-aheads to none. It reads a request in a
+few milliseconds on a laptop-class CPU.
+
+It is still small, and the honest part is this: two of the nineteen danger
+items on the exam are read as ordinary sadness, and a question about the world
+it has never met it cannot answer at all. Those are the gaps the next version
+closes.
 
 Measure it yourself:
 
@@ -110,17 +118,21 @@ python -m secdogie_citadel.cortex grow 3 ./lineage      # three rounds of self-i
 
 Studio's Mind page shows the same, and how it grew:
 
-![The Mind page: generation 1, the frozen exam at 91.3%, and the growth curve from generation 0](docs/images/mind.png)
+![The Mind page: which generation it is, the frozen exam, and how it grew](docs/images/mind.png)
 
 ### 2. Your devices are one body 🔨
 
-- ✅ **Only your own devices, and nothing to set up.** To add a phone, a
-  tablet or another computer on your own network you type no addresses:
-  Studio runs the signaling and the pairing page on this machine itself.
-  Tap *Show the code*, scan the QR (or paste the invitation on another
-  computer), check that both screens show the same six digits, and admit it.
-  There is no central server and no public node, and every frame is signed.
-  A device across the internet uses your own gateway (the advanced option).
+- ✅ **Another computer on your network, with nothing to set up.** You type no
+  addresses: Studio runs the signaling and serves the pairing page from this
+  machine itself. Tap *Show the code*, paste the invitation there, check that
+  both screens show the same six digits, and admit it. There is no central
+  server and no public node, and every frame is signed.
+- 🔨 **A phone cannot pair yet.** Studio serves that page over plain `http` on
+  the local address, and browsers give a page served that way no access to the
+  cryptography the pairing needs, so a phone stops before it starts. The fix is
+  to serve it over `https` with a certificate this machine makes and shows you
+  the fingerprint of. Until then, pairing a phone needs a gateway and page you
+  host yourself.
 - ✅ **Your rules reach every device.** Sign the gate rules once. They travel
   to each of your devices, and each device's gate keeps them.
 - 🗺 **One device off, the rest go on.** Generations and kept experiences
@@ -261,8 +273,9 @@ The desktop app, in Chinese and English, with a night and a day theme:
 - **Mind:** which generation it is, its exam, how it grew, how independent of
   your AI model it has become, and what it learned lately.
 
-Closing the window leaves a small light in the corner of the screen. Quitting
-stops the node. Nothing runs at login.
+Closing the window puts it away into the task bar, where the companion keeps
+running; its menu opens the window again, or lets it rest, which stops the
+node. Nothing runs at login.
 
 ## What is inside
 
@@ -335,11 +348,15 @@ browser end-to-end tests over real WebRTC.
 | | |
 | --- | --- |
 | ✅ | The cortex, its sleep, recursive self-improvement and the apprentice; the Socratic gate on the cortex; the Gate and Mind pages |
-| ✅ | Identity, the P2P mesh, the signed journal and its replication; pairing in Studio and the browser; rules on every device |
+| ✅ | Identity, the P2P mesh, the signed journal and its replication; pairing between computers; rules on every device |
+| ✅ | A person in danger is heard, and nothing harmful goes ahead; when nothing it learned fits, it says what it worked out rather than reciting its reading |
 | ✅ | Studio installers for Windows, macOS and Linux |
-| 🔨 | Atlas in the action loop; the agent's live loop on structure instead of screenshots |
+| 🔨 | Hands: the desktop agent is not in the Studio build, so it thinks and says so rather than acting |
+| 🔨 | Reading process memory: the Atlas tools ship beside Studio but nothing calls them yet |
+| 🔨 | Pairing a phone (the page needs to be served over https first) |
 | 🗺 | Learning and working on when one device is off; generations trained across your devices |
-| 🗺 | A redesigned Studio around the companion, and a page for your phone |
+| 🗺 | Looking a meaning up, and keeping what it understood as structure rather than text |
+| 🗺 | A redesigned Studio around the companion, and talking to it from your phone |
 
 What to expect, honestly:
 - The cortex is inspired by the brain (spikes, plastic synapses, a

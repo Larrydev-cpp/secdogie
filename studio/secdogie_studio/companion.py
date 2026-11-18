@@ -674,12 +674,20 @@ def mind_view(folder=None, lang: str = "zh") -> dict:
         if "round" not in point or "note" in point:
             continue
         n, agreed = point.get("lessons", 0), point.get("agreed")
-        if point["round"] == 0:
+        if point.get("op") == "reborn":
+            point["note"] = pick(lang, f"在更宽的课程上重新学了一遍（{n} 课），危险的说法补了很多",
+                                 f"learned again on a wider curriculum ({n} lessons), much of it about danger")
+        elif point["round"] == 0:
             point["note"] = pick(lang, f"出生：学了 {n} 课", f"born from {n} lessons")
         elif agreed is not None:
             point["note"] = pick(lang, f"看 AI 模型做了一批新事，原本就读对 {round(agreed * 100)}%；学完、复盘后是第 {point.get('generation', 0)} 代",
                                  f"watched your AI model on new requests, already read {round(agreed * 100)}% the same; "
                                  f"learned them, reviewed itself: generation {point.get('generation', 0)}")
+    sizes = [p.get("exam") for p in curve if p.get("exam")]
+    for point, size in zip(curve, sizes, strict=False):
+        if size and size != sizes[0]:
+            point["note"] = (point.get("note", "") +
+                             pick(lang, f"（考卷加到 {size} 题）", f" (on a bigger exam: {size} items)"))
     led = c.ledger.view()
     kept = [{"text": x.text, "source": x.source} for x in c.memory.lessons if x.source in ("teacher", "person")][-8:]
     return {"number": rec["number"], "digest": rec["digest"][:12], "neurons": rec["neurons"], "synapses": rec["synapses"],
