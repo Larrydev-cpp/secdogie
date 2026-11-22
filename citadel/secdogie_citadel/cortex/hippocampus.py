@@ -52,11 +52,19 @@ class Hippocampus:
         self.keys = keys.astype(np.float16).astype(np.float32) if len(self.lessons) else None
 
     def recall(self, patterns: np.ndarray, *, sharpness: float, trust: float, top: int = 8) -> list[Recall]:
-        """For each pattern, what the most alike kept experiences say."""
+        """For each pattern, what the most alike kept experiences say.
+
+        A disputed lesson (an observed answer less cautious than the cortex's own, kept only for sleep)
+        never speaks here: it is recorded, not learned from, until sleep's safety gate takes it in. The
+        lessons a recall rests on are still named by their place in ``lessons``.
+        """
         if self.keys is None or not len(self.lessons) or self.keys.shape[1] != patterns.shape[1]:
             return [Recall(0.0, 0.0, np.zeros(Q.OUTPUTS), np.zeros(Q.OUTPUTS)) for _ in range(len(patterns))]
-        sims = patterns @ self.keys.T
-        target, mask, _ = targets(self.lessons)
+        usable = [i for i, x in enumerate(self.lessons) if not x.meta.get("disputed")]
+        if not usable:
+            return [Recall(0.0, 0.0, np.zeros(Q.OUTPUTS), np.zeros(Q.OUTPUTS)) for _ in range(len(patterns))]
+        sims = patterns @ self.keys[usable].T
+        target, mask, _ = targets([self.lessons[i] for i in usable])
         out = []
         for row in sims:
             idx = np.argsort(-row)[:top]
@@ -66,7 +74,7 @@ class Hippocampus:
             m = (w[:, None] * mask[idx]).sum(axis=0)
             best = float(row[idx[0]])
             weight = float(np.clip((best - trust) / max(1e-6, 1.0 - trust), 0.0, 1.0))
-            out.append(Recall(best, weight, shares, m, tuple(int(i) for i in idx)))
+            out.append(Recall(best, weight, shares, m, tuple(int(usable[i]) for i in idx)))
         return out
 
 

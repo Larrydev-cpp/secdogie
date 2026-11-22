@@ -140,7 +140,7 @@ class Deliberation:
 
 
 UsageReader = Callable[[str], object]
-Teacher = Callable[[str, dict], "tuple[dict, str] | None"]  # (title, the cortex's answers) -> (answers, reply)
+Teacher = Callable[[str], "tuple[dict, str] | None"]  # (sentence) -> (answers, reply)
 
 
 _CORTEX = None

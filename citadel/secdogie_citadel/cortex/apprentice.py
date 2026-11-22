@@ -12,8 +12,9 @@ The cortex:
 4. answers with whichever reading is the more cautious on the questions of safety, and with the external
    model's reading elsewhere.
 
-The ledger counts how often it decided alone and how often its own reading agreed with the external
-model's: the independence the Studio shows.
+The ledger counts how often it decided alone, how often its own reading agreed with the external
+model's, and how many outputs it watched (learned, kept-only and dropped alike): the independence the
+Studio shows, and the shadow record of what was observed.
 """
 from __future__ import annotations
 
@@ -21,7 +22,7 @@ import hashlib
 from dataclasses import dataclass, field
 
 from . import questions as Q
-from .curriculum import Lesson, defaults
+from .observe import KEEP_ONLY, LEARN, keep_only, observe
 
 SAFETY = ("self", "others", "seat")
 CAUTION = {"self": ("no", "yes"), "others": ("self", "fine", "unsure", "words", "harm"), "seat": ("nobody", "no", "unsure", "yes")}
@@ -33,7 +34,9 @@ class Ledger:
     alone: int = 0  # decided without the external model
     consulted: int = 0
     agreed: int = 0  # consultations where its own reading agreed on every question that matters
+    observed: int = 0  # outputs watched, learned, kept-only and dropped alike (the shadow record's count)
     learned: list = field(default_factory=list)  # the last few lessons it took (text, the answers that changed)
+    observations: list = field(default_factory=list)  # the last few observations, as recorded by observe()
 
     @property
     def independence(self) -> float:
@@ -41,8 +44,9 @@ class Ledger:
         return self.alone / total if total else 0.0
 
     def view(self) -> dict:
-        return {"alone": self.alone, "consulted": self.consulted, "agreed": self.agreed,
-                "independence": round(self.independence, 3), "learned": self.learned[-20:]}
+        return {"alone": self.alone, "consulted": self.consulted, "agreed": self.agreed, "observed": self.observed,
+                "independence": round(self.independence, 3), "learned": self.learned[-20:],
+                "observations": self.observations[-20:]}
 
 
 @dataclass(frozen=True)
@@ -75,7 +79,8 @@ def _cautious(qid: str, mine: tuple, theirs: str) -> str:
 
 def consult(cortex, teacher, text: str, context: tuple[str, ...], u) -> Taught | None:
     """Watch the external model handle ``text`` and learn from it, if the cortex needs to. None when it decided
-    alone (or the external model gave nothing usable)."""
+    alone (or the external model gave nothing usable). The lesson itself is built by ``observe`` (the single
+    intake); this keeps only the trigger, the cautious vote, and the learning it allows."""
     ledger = cortex.ledger
     if not needs(u, cortex.genome, text):
         ledger.alone += 1
@@ -85,25 +90,27 @@ def consult(cortex, teacher, text: str, context: tuple[str, ...], u) -> Taught |
         ledger.alone += 1
         return None
     theirs, reply = got
-    kind = theirs.get("kind", "unclear")
-    full = defaults(kind, {k: v for k, v in theirs.items() if k in Q.BY_ID and Q.applies(Q.BY_ID[k], kind)})
-    changed = tuple(q for q, a in full.items() if u.answer(q) != a)
-    surprise = min(2.0, 0.2 + len(changed) / max(1, len(full)) * 2)
+    obs = observe(cortex, text, theirs, reply, context, u)
     ledger.consulted += 1
-    ledger.agreed += not any(q in changed for q in ("kind", "self", "others", "effect"))
-    cortex.learn(Lesson(text, full, tuple(context), reply, "teacher", 1.0), surprise=surprise)
-    ledger.learned.append([text, list(changed)])
+    ledger.agreed += not any(q in obs.changed for q in ("kind", "self", "others", "effect"))
+    if obs.disposition == LEARN:
+        cortex.learn(obs.lesson, surprise=obs.surprise)
+        ledger.learned.append([text, list(obs.changed)])
+    elif obs.disposition == KEEP_ONLY:
+        keep_only(cortex, obs.lesson)  # disputed: kept for sleep, never learned awake
+    # DROP (the text is one of the exam's, or the output was not in the format): the decision below still
+    # uses the observed answers; only the lesson is dropped, so the exam is never taught.
     answers = {}
     for q in Q.QUESTIONS:
-        if q.id not in full:
+        if q.id not in obs.answers:
             continue
-        a = _cautious(q.id, u.answers.get(q.id), full[q.id]) if q.id in SAFETY else full[q.id]
+        a = _cautious(q.id, u.answers.get(q.id), obs.answers[q.id]) if q.id in SAFETY else obs.answers[q.id]
         p = [0.0] * len(q.answers)
         p[q.index(a)] = TEACHER_SURE
         rest = (1 - TEACHER_SURE) / max(1, len(p) - 1)
         p = [x if x else rest for x in p]
         answers[q.id] = (a, TEACHER_SURE, tuple(p))
-    return Taught(answers, reply, theirs, changed, surprise)
+    return Taught(answers, reply, theirs, obs.changed, obs.surprise)
 
 
 __all__ = ["Ledger", "Taught", "consult", "needs"]

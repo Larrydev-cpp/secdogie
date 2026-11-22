@@ -48,6 +48,7 @@ class Stand:
         self.genome = G.default()
         self.ledger = Ledger()
         self.learned = []
+        self.kept = []  # lessons kept without learning (the disputed path)
 
     def understand(self, texts, contexts=None, recall=True):
         return [Understanding(t, self.table[t], self.novelty, ("zorb",) if self.novelty else (), 0.0, (), "test", self.reply,
@@ -55,6 +56,9 @@ class Stand:
 
     def learn(self, lesson, surprise=1.0):
         self.learned.append((lesson, surprise))
+
+    def keep(self, lesson):
+        self.kept.append(lesson)
 
 
 def gate(text, cortex, **kw):
@@ -124,6 +128,8 @@ def test_on_safety_the_more_cautious_reading_decides():
     c = Stand({"x": answers(kind=("task", 0.6), others=("harm", 0.9), seat=("yes", 0.9), effect=("other", 0.6))})
     d = gate("x", c, teacher=teacher)
     assert d.verdict == REFUSE and d.teacher["answers"]["others"] == "self"
+    assert c.learned == [] and len(c.kept) == 1  # the teacher's less cautious reading is kept, never learned awake
+    assert c.kept[0].meta == {"disputed": True}
 
 
 def test_a_held_request_keeps_its_cooling_off():

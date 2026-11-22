@@ -163,6 +163,15 @@ class Cortex:
 
     # ---- learning -----------------------------------------------------------------------------------------------
 
+    def keep(self, lesson: C.Lesson) -> None:
+        """Keep a lesson in the hippocampus without moving the synapses (the disputed path).
+
+        It never speaks through recall (``hippocampus.recall`` skips disputed lessons) and reaches the
+        synapses only through sleep, where ``rsi.consolidate``'s safety gate decides. The pattern is the one
+        the cortex reads now, the same key ``learn`` keeps.
+        """
+        self.memory.keep(lesson, self.patterns([lesson.text], [lesson.context])[0])
+
     def learn(self, lesson: C.Lesson, *, surprise: float = 1.0) -> None:
         """A lesson while awake: kept at once, made familiar, and a small change to the synapses."""
         self.familiar.learn([lesson.text])
@@ -175,7 +184,7 @@ class Cortex:
         self.opt.lr = self.genome["lr"] * 0.3  # awake, the synapses move only a little; sleep does the rest
         self.opt.step(self.net, learned.grads)
         self.settle()
-        self.memory.keep(lesson, self.patterns([lesson.text], [lesson.context])[0])  # as it reads now, after learning
+        self.keep(lesson)  # as it reads now, after learning
 
     def sleep(self, old: Sequence[C.Lesson], rng: np.random.Generator, *, epochs: int | None = None) -> S.Slept:
         """Replay the kept experiences with a share of older lessons, then prune, renew and re-key."""
@@ -238,7 +247,7 @@ class Cortex:
         with (folder / "memory.jsonl").open("w", encoding="utf-8") as f:
             for x in self.memory.lessons:
                 f.write(json.dumps({"text": x.text, "answers": x.answers, "context": list(x.context), "reply": x.reply,
-                                    "source": x.source, "weight": x.weight}, ensure_ascii=False) + "\n")
+                                    "source": x.source, "weight": x.weight, "meta": x.meta}, ensure_ascii=False) + "\n")
         (folder / "familiar.bin").write_bytes(self.familiar.pack())
         (folder / "ledger.json").write_text(json.dumps(vars(self.ledger), ensure_ascii=False), encoding="utf-8")
         keys = folder / "keys.npy"
@@ -269,7 +278,7 @@ class Cortex:
                 if line.strip():
                     d = json.loads(line)
                     lessons.append(C.Lesson(d["text"], d["answers"], tuple(d.get("context", ())), d.get("reply", ""),
-                                            d.get("source", ""), float(d.get("weight", 1.0))))
+                                            d.get("source", ""), float(d.get("weight", 1.0)), d.get("meta", {})))
         if lessons:
             c.memory.lessons = lessons
             kf = folder / "keys.npy"
