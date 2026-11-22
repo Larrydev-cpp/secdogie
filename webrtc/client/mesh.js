@@ -29,6 +29,93 @@ export const LinkState = Object.freeze({
   REFUSED: 'refused', // its hello did not check out; see `reason`
 });
 
+export const LinkTier = Object.freeze({
+  LAN: 'lan',
+  WEBRTC: 'webrtc',
+  RELAY: 'relay',
+});
+
+export const StarRole = Object.freeze({
+  HUB: 'hub',
+  SPOKE: 'spoke',
+});
+
+/**
+ * Outbound monotonic seq_id buffer for mobile background disconnect/reconnect.
+ */
+export class SequencedFrameQueue {
+  constructor(maxBuffer = 512) {
+    this.maxBuffer = Math.max(1, maxBuffer);
+    this._nextSeq = 0;
+    this._lastAck = 0;
+    this._pending = [];
+  }
+
+  get lastSeq() { return this._nextSeq; }
+  get lastAckSeq() { return this._lastAck; }
+  get pendingCount() { return this._pending.length; }
+
+  enqueue(payload) {
+    this._nextSeq += 1;
+    const frame = { ...payload, seq_id: this._nextSeq };
+    this._pending.push(frame);
+    while (this._pending.length > this.maxBuffer) this._pending.shift();
+    return frame;
+  }
+
+  ack(lastAckSeq) {
+    const seq = Number(lastAckSeq) | 0;
+    if (seq <= this._lastAck) return 0;
+    this._lastAck = this._nextSeq ? Math.min(seq, this._nextSeq) : seq;
+    let trimmed = 0;
+    while (this._pending.length > 0 && this._pending[0].seq_id <= seq) {
+      this._pending.shift();
+      trimmed += 1;
+    }
+    return trimmed;
+  }
+
+  replayAfter(lastAckSeq) {
+    const seq = Math.max(0, Number(lastAckSeq) | 0);
+    if (seq > this._lastAck) this.ack(seq);
+    return this._pending.filter((f) => f.seq_id > seq).map((f) => ({ ...f }));
+  }
+
+  resumeMessage(lastReceivedSeq) {
+    return { m: 'resume', last_ack_seq: Math.max(0, Number(lastReceivedSeq) | 0) };
+  }
+}
+
+/**
+ * Inbound seq_id deduplicator so replayed control/approval frames never run twice.
+ */
+export class IdempotentReceiver {
+  constructor(maxSeen = 2048) {
+    this.maxSeen = Math.max(16, maxSeen);
+    this._lastDelivered = 0;
+    this._seen = new Set();
+    this._order = [];
+  }
+
+  get lastDeliveredSeq() { return this._lastDelivered; }
+
+  accept(seqId) {
+    const seq = Number(seqId) | 0;
+    if (seq <= 0) return { isNew: false, ackSeq: this._lastDelivered };
+    if (this._seen.has(seq) || seq <= this._lastDelivered) {
+      return { isNew: false, ackSeq: Math.max(this._lastDelivered, seq) };
+    }
+    this._seen.add(seq);
+    this._order.push(seq);
+    while (this._order.length > this.maxSeen) {
+      const old = this._order.shift();
+      this._seen.delete(old);
+    }
+    if (seq > this._lastDelivered) this._lastDelivered = seq;
+    return { isNew: true, ackSeq: this._lastDelivered };
+  }
+}
+
 const PING_EVERY_MS = 4000;
 const RESEND_MS = 700; // a hello not yet acknowledged goes out again this often...
 const RESEND_MAX = 40; // ...this many times at most
@@ -46,8 +133,11 @@ const fromUtf8 = new TextDecoder();
  * name        what this device is called
  */
 export async function createMesh({
-  me, mesh, owners, admission = null, admissions = [], name = '', signalingUrl, iceServers, log = () => {},
+  me, mesh, owners, admission = null, admissions = [], name = '', signalingUrl, iceServers,
+  role = StarRole.SPOKE, hubDid = null, defaultTier = LinkTier.WEBRTC, log = () => {},
 }) {
+  const starRole = role === StarRole.HUB ? StarRole.HUB : StarRole.SPOKE;
+  const pinnedHub = hubDid || (starRole === StarRole.HUB ? me.did : (owners?.[0] ?? null));
   const roster = new Roster(mesh, owners);
   for (const a of [admission, ...admissions]) if (a) await roster.admit(a);
   const links = new Map(); // did -> link entry
@@ -58,6 +148,7 @@ export async function createMesh({
   const listed = (did) => did !== me.did && (roster.admission(did) || !roster.owners.has(did) || seenOnline.has(did));
   const changeListeners = new Set();
   const noteListeners = new Set();
+  const controlListeners = new Set();
   const nextCtr = newCounter();
   let online = false;
   let pinger = null;
@@ -78,13 +169,18 @@ export async function createMesh({
     return {
       online,
       mesh,
-      me: { did: me.did, name: cleanName(name), owner: roster.owners.has(me.did) },
+      role: starRole,
+      hubDid: pinnedHub,
+      me: { did: me.did, name: cleanName(name), owner: roster.owners.has(me.did), role: starRole },
       devices: roster.devices().filter(listed).map((did) => {
         const l = links.get(did);
         return {
           did,
           name: l?.name || roster.name(did),
           owner: roster.owners.has(did),
+          role: l?.role || (did === pinnedHub ? StarRole.HUB : StarRole.SPOKE),
+          tier: l?.tier || defaultTier,
+          unacked: l ? l.outbound.pendingCount : 0,
           state: online && l ? l.state : LinkState.OFFLINE,
           rtt: l?.state === LinkState.ONLINE ? l.rtt : null,
           reason: l?.reason ?? null,
@@ -101,6 +197,8 @@ export async function createMesh({
       did, peer: createPeerLink(), room: await linkRoom(mesh, me.did, did), state: LinkState.OFFLINE,
       connection: null, fps: null, authed: false, theirHelloSig: null, myHello: null, peerHasMine: false,
       resendTimer: null, name: roster.name(did), rtt: null, reason: null, window: new ReplayWindow(),
+      role: did === pinnedHub ? StarRole.HUB : StarRole.SPOKE, tier: defaultTier,
+      outbound: new SequencedFrameQueue(), inbound: new IdempotentReceiver(),
       attempts: 0, retryTimer: null, chain: Promise.resolve(), unsubscribe: [],
     };
     if (!online || links.has(did)) return;
@@ -283,10 +381,30 @@ export async function createMesh({
     await sayHello(entry); // ours goes out before any frame, or the other end would drop the frames
     if (checked.value.roster !== (await roster.digest())) await sendTo(entry, { m: 'roster', roster: roster.wire() });
     await sendTo(entry, { m: 'ping', t: performance.now() });
+    await sendTo(entry, entry.outbound.resumeMessage(entry.inbound.lastDeliveredSeq));
   }
 
   async function onMeshMessage(entry, msg) {
-    switch (msg?.m) {
+    const kind = msg?.m;
+    if ((kind === 'note' || kind === 'control') && Number.isInteger(msg.seq_id)) {
+      const { isNew, ackSeq } = entry.inbound.accept(msg.seq_id);
+      await sendTo(entry, { m: 'ack', seq_id: ackSeq });
+      if (!isNew) return;
+    }
+    switch (kind) {
+      case 'resume':
+        if (Number.isInteger(msg.last_ack_seq)) {
+          for (const pending of entry.outbound.replayAfter(msg.last_ack_seq)) {
+            await sendTo(entry, pending);
+          }
+          changed();
+        }
+        break;
+      case 'ack':
+        if (Number.isInteger(msg.seq_id) && entry.outbound.ack(msg.seq_id) > 0) {
+          changed();
+        }
+        break;
       case 'roster': {
         const added = await roster.merge(msg.roster);
         if (added > 0) {
@@ -301,6 +419,12 @@ export async function createMesh({
       case 'note':
         if (typeof msg.text === 'string' && msg.text.trim()) {
           emit(noteListeners, { from: entry.did, name: entry.name, text: msg.text.slice(0, MAX_NOTE), at: Date.now() });
+        }
+        break;
+      case 'control':
+        if (msg.body && typeof msg.body === 'object') {
+          if (starRole === StarRole.SPOKE && pinnedHub && entry.did !== pinnedHub) break;
+          emit(controlListeners, { from: entry.did, body: msg.body, seq_id: msg.seq_id ?? null });
         }
         break;
       case 'ping':
@@ -368,8 +492,20 @@ export async function createMesh({
       const line = String(text ?? '').trim().slice(0, MAX_NOTE);
       if (!line) return 0;
       let n = 0;
-      for (const entry of links.values()) if (await sendTo(entry, { m: 'note', text: line })) n += 1;
+      for (const entry of links.values()) {
+        const framed = entry.outbound.enqueue({ m: 'note', text: line });
+        if (await sendTo(entry, framed)) n += 1;
+      }
       return n;
+    },
+    /** Send a sequenced control/approval frame to a specific peer (resumed on reconnect). */
+    async sendControl(did, body) {
+      const entry = links.get(did);
+      if (!entry) return 0;
+      const framed = entry.outbound.enqueue({ m: 'control', body: { ...body } });
+      await sendTo(entry, framed);
+      changed();
+      return framed.seq_id;
     },
     snapshot,
     onChange(cb) {
@@ -379,6 +515,10 @@ export async function createMesh({
     onNote(cb) {
       noteListeners.add(cb);
       return () => noteListeners.delete(cb);
+    },
+    onControl(cb) {
+      controlListeners.add(cb);
+      return () => controlListeners.delete(cb);
     },
   });
 }

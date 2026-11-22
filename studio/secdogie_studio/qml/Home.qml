@@ -63,12 +63,24 @@ Window {
         default: return Theme.faint
         }
     }
+    function tierWords(d) {
+        const tier = (d && d.tier) || "webrtc"
+        if (tier === "lan") return t("LAN 直连", "LAN direct")
+        if (tier === "relay") return t("E2EE 加密中继", "E2EE relay")
+        return "WebRTC P2P"
+    }
+    function roleWords(d) {
+        const role = (d && d.role) || (d && d.owner ? "hub" : "spoke")
+        return role === "hub" ? t("主控 Hub", "Hub") : t("轻量节点", "Spoke")
+    }
     function stateWords(d) {
+        const unacked = (d && d.unacked) ? d.unacked : 0
+        const q = unacked > 0 ? t(" · 待续传 " + unacked + " 条", " · " + unacked + " queued") : ""
         switch (d.state) {
-        case "online": return t("在线 · 直连", "Online · direct") + (d.rtt !== null && d.rtt !== undefined ? " · " + d.rtt + t(" 毫秒", " ms") : "")
-        case "connecting": return t("连接中…", "Connecting…")
+        case "online": return t("在线 · ", "Online · ") + tierWords(d) + (d.rtt !== null && d.rtt !== undefined ? " · " + d.rtt + t(" 毫秒", " ms") : "") + q
+        case "connecting": return t("连接中… · ", "Connecting… · ") + tierWords(d) + q
         case "refused": return t("被拒绝", "Refused")
-        default: return t("不在线", "Offline")
+        default: return t("不在线", "Offline") + q
         }
     }
     readonly property string shichenNames: "子丑寅卯辰巳午未申酉戌亥"
@@ -84,11 +96,13 @@ Window {
         return h > 0 ? h + " 小时 " + m + " 分钟" : m + " 分钟"
     }
     function stateShort(d) {
+        const unacked = (d && d.unacked) ? d.unacked : 0
+        const q = unacked > 0 ? t(" · 待续传 " + unacked, " · " + unacked + " queued") : ""
         switch (d.state) {
-        case "online": return t("在线 · 直连", "Online · direct")
-        case "connecting": return t("连接中…", "Connecting…")
+        case "online": return t("在线 · ", "Online · ") + tierWords(d) + q
+        case "connecting": return t("连接中…", "Connecting…") + q
         case "refused": return t("被拒绝", "Refused")
-        default: return t("不在线", "Offline")
+        default: return t("不在线", "Offline") + q
         }
     }
     readonly property int onlineCount: (dev.devices || []).filter(d => d.state === "online").length
@@ -98,7 +112,7 @@ Window {
                  title: d.name || t("未命名的设备", "Unnamed device"),
                  figure: d.state === "online" && d.rtt !== null && d.rtt !== undefined ? d.rtt + " ms" : "",
                  note: stateShort(d), live: d.state === "online", number: tail(d.did),
-                 label: d.owner ? t("主人", "Owner") : t("成员", "Member") }
+                 label: roleWords(d) }
     }
     readonly property var walletCards: {
         const cards = [{ what: "node", kind: "dots", title: "secdogie", figure: hm(node.uptime || 0),
@@ -388,7 +402,7 @@ Window {
                 anchors.verticalCenter: parent.verticalCenter
                 onChosen: (dark, x, y) => {
                     home.nextTheme = dark ? "dark" : "light"
-                    flood.play(dark ? "#100F17" : "#F5F1EF", x, y)  // the mist's ground in the world it goes to
+                    flood.play(dark ? "#0F1A24" : "#EAF3FA", x, y)  // alpine night vs. sunlit snow & garden mist
                 }
             }
             Rectangle {                                              // you
@@ -583,11 +597,17 @@ Window {
                                 Text { topPadding: 6; text: home.stateWords(home.pickedDevice); color: home.stateColor(home.pickedDevice.state)
                                        font.pixelSize: Theme.body; textFormat: Text.PlainText }
                                 Item { width: 1; height: 14 }
-                                KV { k: home.t("身份", "Standing")
-                                     v: home.pickedDevice.owner ? home.t("主人：能接纳新设备", "Owner: can admit devices")
-                                                                : home.t("成员：由主人接纳", "Member: admitted by the owner") }
-                                KV { k: home.t("路径", "Path")
-                                     v: home.pickedDevice.state === "online" ? home.t("WebRTC 直连，逐条签名", "Direct over WebRTC, every message signed") : "—" }
+                                KV { k: home.t("星型身份", "Star role")
+                                     v: home.pickedDevice.owner ? home.t("主控 Hub：唯一演化权，可接纳节点", "Hub: sole evolution authority, admits spokes")
+                                                                : home.t("轻量节点 Spoke：受控于主控 Hub", "Spoke: controlled by the pinned Hub") }
+                                KV { k: home.t("加密通道", "Link tier")
+                                     v: (home.pickedDevice.state === "online"
+                                         ? home.tierWords(home.pickedDevice) + home.t(" · 逐帧 Ed25519 签名", " · Ed25519 signed")
+                                         : home.t("待重连 · 自动降级 LAN → WebRTC → E2EE 中继", "Standby · auto-fallback LAN → WebRTC → E2EE relay"))
+                                        + ((home.pickedDevice.unacked || 0) > 0
+                                           ? home.t(" · seq_id 待续传 " + home.pickedDevice.unacked + " 帧",
+                                                    " · " + home.pickedDevice.unacked + " seq_id frames queued")
+                                           : "") }
                                 KV { k: home.t("门的规则", "Gate rules")
                                      v: ({ "in-force": home.t("生效中", "in force"), "waiting": home.t("等它上线", "waiting for it"),
                                            "refused": home.t("没有接受", "not accepted"), "silent": home.t("这台设备不运行门", "runs no gate"),
@@ -880,11 +900,118 @@ Window {
                            color: Theme.faint; font.pixelSize: Theme.meta }
                 }
                 Rectangle {
+                    id: desktopAgentBar
+                    objectName: "desktopAgentBar"
+                    width: parent.width
+                    height: agentBarCol.implicitHeight + 22
+                    radius: 18
+                    color: Theme.panel
+                    border.color: P.desktopAgent ? Theme.tinted(Theme.good, Theme.dark ? 0.55 : 0.40) : Theme.hairline
+                    property bool guideOpen: false
+                    Column {
+                        id: agentBarCol
+                        x: 16; y: 11
+                        width: parent.width - 32
+                        spacing: 8
+                        Row {
+                            width: parent.width
+                            spacing: 10
+                            Button {
+                                id: desktopAgentToggle
+                                objectName: "desktopAgentToggle"
+                                height: 30
+                                leftPadding: 12; rightPadding: 12
+                                focusPolicy: Qt.TabFocus
+                                onClicked: P.setDesktopAgent(!P.desktopAgent)
+                                background: Rectangle {
+                                    radius: 15
+                                    color: P.desktopAgent ? Theme.tinted(Theme.good, Theme.dark ? 0.24 : 0.14)
+                                                          : Theme.tinted(Theme.primary, Theme.dark ? 0.12 : 0.06)
+                                    border.color: desktopAgentToggle.visualFocus ? Theme.focus
+                                                  : (P.desktopAgent ? Theme.good : Theme.hairline)
+                                    border.width: desktopAgentToggle.visualFocus ? 2 : 1
+                                }
+                                contentItem: Row {
+                                    spacing: 7
+                                    Dot { anchors.verticalCenter: parent.verticalCenter
+                                          color: P.desktopAgent ? Theme.good : Theme.faint }
+                                    Text { anchors.verticalCenter: parent.verticalCenter
+                                           text: home.t("桌面代理", "Desktop Agent")
+                                                 + (P.desktopAgent ? home.t(" · 已开启", " · On") : home.t(" · 已关闭", " · Off"))
+                                           color: P.desktopAgent ? Theme.good : Theme.soft
+                                           font.pixelSize: 13; font.weight: Font.Medium }
+                                }
+                            }
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: home.t("仅无障碍树与只读内存视图", "Accessibility & read-only view")
+                                color: Theme.faint
+                                font.pixelSize: Theme.meta
+                                textFormat: Text.PlainText
+                            }
+                            Link {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: desktopAgentBar.guideOpen ? home.t("收起权限说明", "Hide privilege guide")
+                                                                : home.t("权限说明", "Privilege guide")
+                                onClicked: desktopAgentBar.guideOpen = !desktopAgentBar.guideOpen
+                            }
+                        }
+                        Text {
+                            visible: P.desktopAgent || ((P.desktopContext || {}).statusLine || "").length > 0
+                            width: parent.width
+                            wrapMode: Text.Wrap
+                            textFormat: Text.PlainText
+                            text: ((P.desktopContext || {}).statusLine || "")
+                                  || home.t("已开启只读桌面代理 · 等待前台窗口上下文。",
+                                            "Read-only desktop agent active · awaiting foreground window context.")
+                            color: ((P.desktopContext || {}).allowed === false) ? Theme.sign : Theme.soft
+                            font.pixelSize: Theme.meta
+                            lineHeight: 1.45
+                        }
+                        Flow {
+                            visible: P.desktopAgent && ((P.desktopContext || {}).tags || []).length > 0
+                            width: parent.width
+                            spacing: 6
+                            Repeater {
+                                model: ((P.desktopContext || {}).tags || []).slice(0, 4)
+                                Rectangle {
+                                    required property string modelData
+                                    height: 22; width: tagLabel.implicitWidth + 14; radius: 11
+                                    color: Theme.tinted(Theme.primary, Theme.dark ? 0.22 : 0.10)
+                                    Text { id: tagLabel; anchors.centerIn: parent; text: modelData
+                                           color: Theme.soft; font.pixelSize: 11; textFormat: Text.PlainText }
+                                }
+                            }
+                        }
+                        Column {
+                            visible: desktopAgentBar.guideOpen
+                            width: parent.width
+                            spacing: 4
+                            topPadding: 4
+                            Text {
+                                width: parent.width; wrapMode: Text.Wrap; textFormat: Text.PlainText
+                                text: ((P.desktopPrivilegeGuide || {}).title || "")
+                                color: Theme.text; font.pixelSize: Theme.meta; font.weight: Font.Medium
+                            }
+                            Text {
+                                width: parent.width; wrapMode: Text.Wrap; textFormat: Text.PlainText
+                                text: ((P.desktopPrivilegeGuide || {}).summary || "")
+                                color: Theme.soft; font.pixelSize: Theme.meta; lineHeight: 1.45
+                            }
+                            Text {
+                                width: parent.width; wrapMode: Text.Wrap; textFormat: Text.PlainText
+                                text: ((P.desktopPrivilegeGuide || {}).refusedBoundary || "")
+                                color: Theme.sign; font.pixelSize: Theme.meta; lineHeight: 1.45
+                            }
+                        }
+                    }
+                }
+                Rectangle {
                     width: parent.width
                     height: 56
                     radius: 28
                     color: Theme.panel
-                    border.color: say.focused ? Theme.primary : (Theme.dark ? Theme.hairline : "transparent")
+                    border.color: say.focused ? Theme.primary : Theme.hairline
                     Behavior on border.color { ColorAnimation { duration: Theme.touch } }
                     Field {
                         id: say
@@ -1164,10 +1291,10 @@ Window {
                                 width: parent.width
                                 spacing: 18
                                 Words { width: parent.width
-                                        text: !home.dev.ready ? home.t("这台电脑还不在网格里：先写一封请帖，或用请帖加入。",
-                                                                      "This computer is not in a mesh yet: write an invitation, or join with one.")
-                                                             : home.t("上线后，这台电脑和你其他在线的设备经 WebRTC 直连；每条消息都由发送的设备签名。关掉 Studio 就下线。",
-                                                                      "Online, this computer links directly to your other online devices over WebRTC; every message is signed by the device that sent it. Close Studio and it goes offline.") }
+                                        text: !home.dev.ready ? home.t("这台电脑还不在星型网格里：先写一封请帖，或用请帖加入。",
+                                                                      "This computer is not in a star mesh yet: write an invitation, or join with one.")
+                                                             : home.t("本机主控星型架构（Hub-and-Spoke）：自动按 LAN 直连 → WebRTC P2P → 自托管 E2EE 中继降级，支持 seq_id 断线续传与逐帧 Ed25519 签名。",
+                                                                      "Hub-and-Spoke star topology: auto-fallbacks across LAN → WebRTC P2P → self-hosted E2EE relay with seq_id resumption and per-frame Ed25519 signatures.") }
                                 Act { text: home.dev.online ? home.t("下线", "Go offline") : home.t("上线", "Go online")
                                       primary: !home.dev.online
                                       enabled: !!home.dev.ready && (home.dev.online || (home.dev.signal || sigUrl.text).length > 0)

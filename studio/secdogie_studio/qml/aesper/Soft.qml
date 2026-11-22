@@ -8,13 +8,14 @@ import QtQuick
 import ".."
 
 QtObject {
-    // ---- the mist (宣纸 by day: peach, lilac, warm grey; 墨 by night: plum, indigo, rose) ----
-    readonly property color mistGround: Theme.dark ? "#100F17" : "#F5F1EF"
-    readonly property var mist: Theme.dark ? ["#4B2A4E", "#272B5C", "#5C3346", "#1E2B4A", "#3A2350"]
-                                           : ["#F5C6B3", "#CBC0E4", "#F3D5CB", "#D9CFEA", "#F8D9C9"]
-    readonly property color sheet: Theme.dark ? "#17161E" : "#FFFFFF"
-    readonly property color ink: Theme.dark ? "#F2EEE8" : "#141414"         // the display line, the underline
-    readonly property color caption: Theme.dark ? "#A39FAE" : "#7A7680"      // 4.6:1 or more on the sheet
+    // ---- the alpine mist (Day: clear sky blue, alpine snow white, garden moss green; Night: glacial dusk & pine) ----
+    readonly property color mistGround: Theme.dark ? "#0F1A24" : "#EAF3FA"
+    readonly property var mist: Theme.dark ? ["#1D3C5C", "#193A32", "#284B6E", "#24473A", "#162C42"]
+                                           : ["#89C2EB", "#DCEEFB", "#88BD97", "#B8DCF2", "#A9D3B4"]
+    readonly property color sheet: Theme.dark ? Qt.rgba(0.086, 0.141, 0.184, 0.90)
+                                              : Qt.rgba(0.984, 0.996, 1.000, 0.88)
+    readonly property color ink: Theme.dark ? "#EDF5FA" : "#152630"          // crisp alpine slate ink
+    readonly property color caption: Theme.dark ? "#9BB6C8" : "#446273"      // >= 5.2:1 on frosted sheet
 
     // ---- the spacing scale: an 8-point rhythm with two half steps ----
     readonly property int s1: 4
@@ -27,15 +28,15 @@ QtObject {
     readonly property int s8: 64
     readonly property int s9: 96
 
-    // ---- type: a serif display line (Latin), the platform's serif for Chinese ----
-    readonly property string display: Theme.lang === "en" ? "Newsreader Display" : Theme.serif
-    readonly property int hero: 60
-    readonly property int headline: 40
+    // ---- type: modern geometric sans-serif (Instagram-inspired editorial display) ----
+    readonly property string display: Theme.sans
+    readonly property int hero: 56
+    readonly property int headline: 38
 
-    // ---- springs: Q弹. A press gives way and springs back; things arrive with a small overshoot ----
-    readonly property real spring: 4.2          // stiffness
-    readonly property real damping: 0.24        // < 1: it bounces a little before it settles
-    readonly property real overshoot: Theme.still ? 0 : 1.7
-    readonly property int arrive: Theme.still ? 120 : 620
-    readonly property int stagger: Theme.still ? 0 : 70
+    // ---- springs: subtle, crisp alpine elasticity ----
+    readonly property real spring: 4.2
+    readonly property real damping: 0.28
+    readonly property real overshoot: Theme.still ? 0 : 1.4
+    readonly property int arrive: Theme.still ? 120 : 520
+    readonly property int stagger: Theme.still ? 0 : 60
 }

@@ -17,8 +17,10 @@ import "."
 Item {
     id: meet
     property int step: 0                         // 0 hello, 1 what it is, 2 a name, 3 the passphrase
+    property bool configureAdvisor: false        // step 5 after keys: optional external LLM API key
+    property string advisorProvider: "anthropic" // "anthropic" | "openai"
     readonly property string phase: P.onboarding || ""
-    readonly property int shown: phase === "making" || phase === "ready" ? 4 : step
+    readonly property int shown: phase === "making" ? 4 : (phase === "ready" ? (configureAdvisor ? 5 : 4) : step)
     readonly property int strength: score(pass1.text)
     readonly property bool longEnough: pass1.text.length >= 8
     readonly property bool same: pass2.text.length > 0 && pass1.text === pass2.text
@@ -68,10 +70,11 @@ Item {
         wrapMode: Text.Wrap
         textFormat: Text.PlainText
         color: Theme.text
-        font.family: Theme.serif
+        font.family: Theme.sans
         font.pixelSize: Theme.display
         font.weight: Font.DemiBold
-        lineHeight: 1.2
+        font.letterSpacing: -0.6
+        lineHeight: 1.18
     }
     component Lead: Text {
         width: parent.width
@@ -79,9 +82,9 @@ Item {
         wrapMode: Text.Wrap
         textFormat: Text.PlainText
         color: Theme.soft
-        font.family: Theme.serif
+        font.family: Theme.sans
         font.pixelSize: Theme.voice
-        lineHeight: 1.75
+        lineHeight: 1.65
     }
     component Check: Row {
         id: check
@@ -131,7 +134,8 @@ Item {
             width: parent.width
             // as tall as the step on show, so each step sits in the middle of the night
             height: (meet.shown === 0 ? hello : meet.shown === 1 ? intro : meet.shown === 2 ? naming
-                     : meet.shown === 3 ? secret : meet.phase === "making" ? making : done).implicitHeight
+                     : meet.shown === 3 ? secret : meet.shown === 5 ? advisor
+                     : (meet.phase === "making" ? making : done)).implicitHeight
             Behavior on height { NumberAnimation { duration: Theme.enter; easing.type: Easing.OutCubic } }
 
             Step {                               // hello: who it is, and what it promises
@@ -270,7 +274,7 @@ Item {
             Step {                               // and ready
                 id: done
                 index: 4
-                visible: opacity > 0.01 && meet.phase === "ready"
+                visible: opacity > 0.01 && meet.phase === "ready" && !meet.configureAdvisor
                 Title { text: P.you ? Theme.t("好了，", "Done, ") + P.you + Theme.t("。", ".") : Theme.t("好了。", "Done.") }
                 Lead { text: Theme.t("三把钥匙都在这台电脑上了，点一下就能复制。", "All three keys are on this computer; click one to copy it.") }
                 Column {
@@ -280,26 +284,102 @@ Item {
                     Fact { width: parent.width; labelWidth: 120; label: Theme.t("你的签名钥匙", "Your signing key"); value: (P.keys || {}).operator || "" }
                 }
                 Item { width: 1; height: 2 }
-                Pill { anchors.horizontalCenter: parent.horizontalCenter; width: 260; primary: true; text: Theme.t("开始吧", "Let's begin")
+                Pill { anchors.horizontalCenter: parent.horizontalCenter; width: 280; primary: true
+                       text: Theme.t("配置外部 AI 顾问（可选）", "Connect AI Advisor (Optional)")
+                       onClicked: meet.configureAdvisor = true }
+                Link { anchors.horizontalCenter: parent.horizontalCenter
+                       text: Theme.t("先跳过，仅用本地脉冲大脑开始", "Skip for now — start with local SNN only")
                        onClicked: P.finishOnboarding() }
+            }
+
+            Step {                               // optional external LLM API Key setup (Phase 5)
+                id: advisor
+                objectName: "onboardingAdvisor"
+                index: 5
+                visible: opacity > 0.01 && meet.phase === "ready" && meet.configureAdvisor
+                Title { text: Theme.t("连接可选 AI 顾问", "Optional AI Advisor") }
+                Lead { text: Theme.t("仅在本地 SNN 拿不准时旁观学习。钥匙只保存在本机，不上传给第三方；随时可跳过或断开。",
+                                     "Watched only when the local SNN is unsure. Your key stays on this device; skip or disconnect anytime.") }
+                Row {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing: 10
+                    Repeater {
+                        model: [["anthropic", "Anthropic / Claude"], ["openai", "OpenAI 兼容 / Compatible"]]
+                        Pill {
+                            required property var modelData
+                            width: 196
+                            primary: meet.advisorProvider === modelData[0]
+                            text: modelData[1]
+                            onClicked: meet.advisorProvider = modelData[0]
+                        }
+                    }
+                }
+                Field { id: advisorKey; objectName: "advisorKey"; width: parent.width
+                        label: Theme.t("API Key", "API Key")
+                        hint: meet.advisorProvider === "anthropic" ? "sk-ant-..." : "sk-..."
+                        secret: true; revealable: true; size: 15 }
+                Field { id: advisorBase; width: parent.width
+                        label: Theme.t("Base URL（可选，留空用官方地址）", "Base URL (optional)")
+                        hint: meet.advisorProvider === "anthropic" ? "https://api.anthropic.com" : "https://api.openai.com/v1"
+                        size: 14 }
+                Field { id: advisorModel; width: parent.width
+                        label: Theme.t("模型名称（可选）", "Model name (optional)")
+                        hint: meet.advisorProvider === "anthropic" ? "claude-sonnet-4-20250514" : "gpt-4o-mini"
+                        size: 14 }
+                Text {
+                    width: parent.width
+                    visible: ((P.thinker || {}).note || "").length > 0
+                    text: (P.thinker || {}).note || ""
+                    color: (P.thinker || {}).on ? Theme.good : Theme.warm
+                    font.pixelSize: Theme.meta
+                    wrapMode: Text.Wrap
+                    textFormat: Text.PlainText
+                }
+                Row {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing: 12
+                    Pill {
+                        width: 176
+                        primary: false
+                        enabled: advisorKey.text.trim().length > 0 && !P.working
+                        text: P.working ? Theme.t("测通中…", "Testing…") : Theme.t("一键测通", "Test connection")
+                        onClicked: P.saveAndTestThinker(meet.advisorProvider, advisorModel.text, advisorBase.text, advisorKey.text)
+                    }
+                    Pill {
+                        width: 176
+                        primary: true
+                        text: Theme.t("保存并开始", "Save & begin")
+                        onClicked: {
+                            if (advisorKey.text.trim().length > 0)
+                                P.setThinker(meet.advisorProvider, advisorModel.text, advisorBase.text, advisorKey.text)
+                            P.finishOnboarding()
+                        }
+                    }
+                }
+                Row {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing: 28
+                    Link { text: Theme.t("返回钥匙", "Back to keys"); onClicked: meet.configureAdvisor = false }
+                    Link { text: Theme.t("先跳过", "Skip"); onClicked: P.finishOnboarding() }
+                }
             }
         }
 
-        Row {                                    // where you are in four steps; the current one drawn long
+        Row {                                    // where you are in six steps; the current one drawn long
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: 6
             opacity: meet.voice
             Accessible.role: Accessible.ProgressBar
-            Accessible.name: Theme.t("第 " + (meet.shown + 1) + " 步，共 5 步", "Step " + (meet.shown + 1) + " of 5")
+            Accessible.name: Theme.t("第 " + (meet.shown + 1) + " 步，共 6 步", "Step " + (meet.shown + 1) + " of 6")
             Repeater {
-                model: 5
+                model: 6
                 Rectangle {
                     required property int index
                     width: index === meet.shown ? 20 : 6
                     height: 6
                     radius: 3
-                    color: index === meet.shown ? Theme.lamp
-                           : (index < meet.shown ? Theme.tinted(Theme.lamp, 0.45) : Theme.tinted(Theme.text, 0.16))
+                    color: index === meet.shown ? Theme.primary
+                           : (index < meet.shown ? Theme.tinted(Theme.primary, 0.45) : Theme.tinted(Theme.text, 0.16))
                     Behavior on width { NumberAnimation { duration: Theme.enter; easing.type: Easing.OutExpo } }
                 }
             }

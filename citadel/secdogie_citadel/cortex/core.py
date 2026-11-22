@@ -111,13 +111,19 @@ class Cortex:
     def copy(self) -> Cortex:
         mem = Hippocampus(list(self.memory.lessons), None if self.memory.keys is None else self.memory.keys.copy(),
                           self.memory.capacity)
-        return Cortex(self.reading, dict(self.genome), self.net.copy(), Familiarity(self.familiar.cells.copy()), mem, self.number,
+        return Cortex(self.reading, dict(self.genome), self.net.copy(), self.familiar.copy(), mem, self.number,
                       self.parent, list(self.lineage), dict(self.scores), self.born, ledger=self.ledger, elders=list(self.elders))
 
     def descend(self) -> Cortex:
-        """A child: a copy of this cortex, with this one (and its elders) voting on the questions of safety."""
+        """A child: a copy of this cortex, with this one (and its elders) voting on the questions of safety.
+
+        Gen 2+ automatically mounts meaning-level Sememe-VSA familiarity without touching ``senses.py``
+        or breaking Gen 1 Bloom compatibility.
+        """
         child = self.copy()
         child.elders = ([self.frozen()] + self.elders)[:ELDERS]
+        if self.number + 1 >= 2 and child.familiar.mode != "sememe":
+            child.familiar.mount_sememe(x.text for x in child.memory.lessons if not x.disputed)
         return child
 
     def frozen(self) -> Cortex:
@@ -163,32 +169,40 @@ class Cortex:
 
     # ---- learning -----------------------------------------------------------------------------------------------
 
-    def learn(self, lesson: C.Lesson, *, surprise: float = 1.0) -> None:
+    def learn(self, lesson: C.Lesson, *, surprise: float = 1.0, trust_clip: float | None = None,
+              step_scale: float = 1.0, user_corrected: bool = False, counterexample: bool = False) -> None:
         """A lesson while awake: kept at once, made familiar, and a small change to the synapses."""
         self.familiar.learn([lesson.text])
+        if lesson.source == "person" or user_corrected:
+            self.memory.corroborate(lesson.text, lesson.answers, source="person")
         X = block([lesson.text], [lesson.context], self.reading)
         target, mask, _ = C.targets([lesson])
         tr = run(self.net, X)
+        mod_val = lesson.weight * S.acc_surprise_weight(surprise, user_corrected=user_corrected, counterexample=counterexample)
         learned = eprop(self.net, tr, target, mask, tick_weights(X.shape[0], self.reading.settle, self.genome["reading_weight"]),
-                        modulator=np.array([lesson.weight * surprise], np.float32))
+                        modulator=np.array([mod_val], np.float32))
         self.opt = self.opt or Adam(lr=self.genome["lr"])
-        self.opt.lr = self.genome["lr"] * 0.3  # awake, the synapses move only a little; sleep does the rest
-        self.opt.step(self.net, learned.grads)
+        self.opt.lr = self.genome["lr"] * 0.3 * max(0.05, min(1.0, step_scale))  # awake, synapses move only a little
+        self.opt.step(self.net, learned.grads, clip=trust_clip if trust_clip is not None else 1.0)
         self.settle()
         self.memory.keep(lesson, self.patterns([lesson.text], [lesson.context])[0])  # as it reads now, after learning
 
-    def sleep(self, old: Sequence[C.Lesson], rng: np.random.Generator, *, epochs: int | None = None) -> S.Slept:
-        """Replay the kept experiences with a share of older lessons, then prune, renew and re-key."""
+    def sleep(self, old: Sequence[C.Lesson], rng: np.random.Generator, *, epochs: int | None = None,
+              novel_probes: Sequence[str] = ()) -> S.Slept:
+        """Replay the kept experiences with a share of older lessons, run SRC calibration, decay disputed memories,
+        then prune, renew and re-key."""
         g = self.genome
-        kept = list(self.memory.lessons)
+        self.memory.decay_disputed()
+        kept = [x for x in self.memory.lessons if not x.disputed]
         n_old = int(round(len(kept) * g["replay_old"] / max(1e-6, 1 - g["replay_old"]))) if kept else len(old)
         pick = [old[i] for i in rng.choice(len(old), size=min(len(old), max(n_old, 1)), replace=False)] if old else []
         self.opt = self.opt or Adam(lr=g["lr"])
-        slept = S.consolidate(self.net, self.reading, g, kept + pick, epochs=epochs or int(g["epochs"]), rng=rng, opt=self.opt)
+        slept = S.consolidate(self.net, self.reading, g, kept + pick, epochs=epochs or int(g["epochs"]), rng=rng,
+                              opt=self.opt, novel_probes=novel_probes)
         S.prune(self.net, g["prune_below"])
         self.settle()
-        if kept:
-            self.memory.rekey(self.patterns([x.text for x in kept], [x.context for x in kept]))
+        if self.memory.lessons:
+            self.memory.rekey(self.patterns([x.text for x in self.memory.lessons], [x.context for x in self.memory.lessons]))
         return slept
 
     # ---- generations on disk ------------------------------------------------------------------------------------
@@ -237,9 +251,19 @@ class Cortex:
         folder = Path(folder)
         with (folder / "memory.jsonl").open("w", encoding="utf-8") as f:
             for x in self.memory.lessons:
-                f.write(json.dumps({"text": x.text, "answers": x.answers, "context": list(x.context), "reply": x.reply,
-                                    "source": x.source, "weight": x.weight}, ensure_ascii=False) + "\n")
+                rec = {"text": x.text, "answers": x.answers, "context": list(x.context), "reply": x.reply,
+                       "source": x.source, "weight": x.weight}
+                if x.disputed:
+                    rec["disputed"] = True
+                    rec["priority_trace"] = round(x.priority_trace, 4)
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
         (folder / "familiar.bin").write_bytes(self.familiar.pack())
+        sem_path = folder / "familiar_sememe.bin"
+        sem_bytes = self.familiar.pack_sememe()
+        if sem_bytes is not None:
+            sem_path.write_bytes(sem_bytes)
+        elif sem_path.exists():
+            sem_path.unlink()
         (folder / "ledger.json").write_text(json.dumps(vars(self.ledger), ensure_ascii=False), encoding="utf-8")
         keys = folder / "keys.npy"
         if self.memory.keys is not None and len(self.memory):
@@ -259,8 +283,12 @@ class Cortex:
         net = Net(z["w_in"].astype(np.float32), z["w_rec"].astype(np.float32), mask, z["w_out"].astype(np.float32),
                   z["b_out"].astype(np.float32), z["beta"].astype(np.float32), dyn)
         fam = folder / "familiar.bin"
-        c = cls(Reading.of(rec["reading"]), g, net, Familiarity.unpack(fam.read_bytes()) if fam.exists() else Familiarity.new(), Hippocampus(),
-                int(rec.get("number", 0)), rec.get("parent", ""), list(rec.get("lineage", [])), dict(rec.get("scores", {})),
+        sem = folder / "familiar_sememe.bin"
+        sem_bytes = sem.read_bytes() if sem.exists() else None
+        gen_num = int(rec.get("number", 0))
+        familiarity = Familiarity.unpack(fam.read_bytes(), sememe_data=sem_bytes) if fam.exists() else Familiarity.new()
+        c = cls(Reading.of(rec["reading"]), g, net, familiarity, Hippocampus(),
+                gen_num, rec.get("parent", ""), list(rec.get("lineage", [])), dict(rec.get("scores", {})),
                 float(rec.get("born", 0.0)))
         mem = folder / "memory.jsonl"
         lessons = []
@@ -269,7 +297,11 @@ class Cortex:
                 if line.strip():
                     d = json.loads(line)
                     lessons.append(C.Lesson(d["text"], d["answers"], tuple(d.get("context", ())), d.get("reply", ""),
-                                            d.get("source", ""), float(d.get("weight", 1.0))))
+                                            d.get("source", ""), float(d.get("weight", 1.0)),
+                                            disputed=bool(d.get("disputed", False)),
+                                            priority_trace=float(d.get("priority_trace", 0.0))))
+        if gen_num >= 2 and c.familiar.mode != "sememe":
+            c.familiar.mount_sememe(x.text for x in lessons if not x.disputed)
         if lessons:
             c.memory.lessons = lessons
             kf = folder / "keys.npy"

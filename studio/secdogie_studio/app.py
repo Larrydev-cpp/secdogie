@@ -39,11 +39,12 @@ from .words import load as load_lang
 from .words import save as save_lang
 
 QML_DIR = Path(__file__).resolve().parent / "qml"
-# Google Sans (OFL 1.1, Latin; qml/fonts/OFL-GoogleSans.txt) first, the platform's CJK sans behind it
-FONT_FAMILIES = ["Google Sans", "PingFang SC", "Microsoft YaHei UI", "Noto Sans CJK SC", "Source Han Sans SC",
-                 "WenQuanYi Zen Hei", "Segoe UI", "Helvetica Neue", "sans-serif"]
+# Modern geometric sans (Instagram-style clarity): Google Sans / Inter / SF Pro + platform CJK sans
+FONT_FAMILIES = ["Google Sans", "Inter", "SF Pro Display", "PingFang SC", "Microsoft YaHei UI",
+                 "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Zen Hei", "Segoe UI",
+                 "Helvetica Neue", "sans-serif"]
 POLL_EVERY = 3.0  # seconds between asking the node how it is, while the home window is open
-THEMES = ("dark", "light")  # 墨 (ink) and 宣纸 (rice paper)
+THEMES = ("light", "dark")  # 雪山花园 (sunlit snow-mountain & garden) and 松雾暮色 (alpine twilight)
 BUCKET, BUCKETS = 300, 24  # presence in 5-minute columns, over the last two hours
 
 
@@ -175,15 +176,64 @@ class Presence:
         self._onboarded = False
         self._name = ""  # the name given at the first meeting, until the profile holds it
         root = getattr(getattr(controller, "profile", None), "root", None)
+        ui_cfg = get_ui(root) if root is not None else {}
         self.lang = lang if lang in LANGS else (load_lang(root) if root is not None else load_lang(Path(".")))
-        theme = get_ui(root).get("theme") if root is not None else None
-        self.theme = theme if theme in THEMES else "dark"
+        theme = ui_cfg.get("theme")
+        self.theme = theme if theme in THEMES else "light"
+        # Phase 5: desktop floating orb is OFF by default; closing the home window minimizes to the system tray.
+        self.floating_orb = bool(ui_cfg.get("floatingOrb", False))
+        # Phase 4: compliant read-only desktop agent switch (strictly off until the user turns it on).
+        self.desktop_agent = bool(ui_cfg.get("desktopAgent", False))
+        self._desktop_context: dict = self._empty_desktop_context()
         self.devices = None  # pairing and "My devices" (devices.py), once there is a profile
         self._present: tuple[str, set[int]] = ("", set())  # today's date, and the 时辰 you were here in
         self._here_today = 0.0  # seconds at this computer today
         self._buckets: dict[int, float] = {}  # 5-minute bucket -> seconds at this computer in it
         self._quarters: dict[int, float] = {}  # today's quarter-hour (0..95) -> seconds at this computer in it
         self._last_tick: float | None = None
+
+    def _empty_desktop_context(self) -> dict:
+        en = self.lang == "en"
+        return {
+            "pid": 0,
+            "image": "",
+            "windowTitle": "",
+            "axSummary": [],
+            "memorySnippets": [],
+            "fusedCount": 0,
+            "readOnly": True,
+            "allowed": True,
+            "refusedCode": "",
+            "refusedReason": "",
+            "statusLine": (
+                "Read-only Atlas perception is idle." if en else "桌面代理未开启（仅采用无障碍树与只读进程视图）。"
+            ),
+            "capturedAt": 0.0,
+        }
+
+    def _desktop_privilege_guide(self) -> dict:
+        try:
+            from secdogie_agent.atlas_bridge import privilege_guidance
+
+            return privilege_guidance(lang=self.lang)
+        except Exception:  # noqa: BLE001 - standalone Studio without agent package installed
+            en = self.lang == "en"
+            return {
+                "platform": "desktop",
+                "mode": "read-only",
+                "title": "Read-Only Desktop Perception" if en else "合规只读桌面感知",
+                "summary": (
+                    "Uses accessibility tree and read-only user-mode memory views only; protected processes stay refused."
+                    if en else
+                    "仅使用无障碍树与用户态只读进程视图，硬编码拒绝 PPL、TrustedInstaller 与任何内存写入。"
+                ),
+                "steps": [],
+                "refusedBoundary": (
+                    "Hard-coded refusal: PPL / lsass / csrss / TrustedInstaller / memory writes."
+                    if en else
+                    "硬编码红线：绝不绕过 PPL、绝不读取受保护系统进程、绝不写入进程内存。"
+                ),
+            }
 
     # -- the tick ----------------------------------------------------------------------
 
@@ -264,6 +314,11 @@ class Presence:
             "thinker": self._thinker_view(),
             "mind": self._mind_view(),
             "theme": self.theme,
+            "floatingOrb": self.floating_orb,
+            "trayMode": not self.floating_orb,
+            "desktopAgent": self.desktop_agent,
+            "desktopContext": dict(self._desktop_context),
+            "desktopPrivilegeGuide": self._desktop_privilege_guide(),
             "devices": self.devices.snapshot() if self.devices is not None else {},
             "present": sorted(self._present[1]),
             "shichen": shichen_of(now),
@@ -640,6 +695,49 @@ class Presence:
 
         self._work(pick(self.lang, "正在问你的 AI 模型", "Asking your AI model"), ask)
 
+    def save_and_test_thinker(self, provider: str, model: str, base: str, key: str) -> None:
+        """Onboarding one-click save + connectivity test for optional external LLM advisor."""
+        self.set_thinker(provider, model, base, key)
+        self.test_thinker()
+
+    def set_floating_orb(self, enabled: bool) -> None:
+        """Opt in or out of the desktop floating orb (default False -> system tray mode)."""
+        self.floating_orb = bool(enabled)
+        root = getattr(getattr(self.controller, "profile", None), "root", None)
+        if root is not None:
+            set_ui(root, floatingOrb=self.floating_orb)
+
+    def set_desktop_agent(self, enabled: bool) -> None:
+        """Toggle compliant read-only Atlas desktop agent perception on Studio Talk."""
+        self.desktop_agent = bool(enabled)
+        root = getattr(getattr(self.controller, "profile", None), "root", None)
+        if root is not None:
+            set_ui(root, desktopAgent=self.desktop_agent)
+        if not self.desktop_agent:
+            self._desktop_context = self._empty_desktop_context()
+        else:
+            en = self.lang == "en"
+            self._desktop_context = {
+                **self._empty_desktop_context(),
+                "statusLine": (
+                    "Read-only Atlas perception armed · awaiting foreground app context (PPL/kernel refused)."
+                    if en else
+                    "已开启只读桌面代理 · 等待前台应用上下文（仅无障碍树与只读视图，严禁绕过 PPL/内核）。"
+                ),
+                "capturedAt": self.clock(),
+            }
+
+    def update_desktop_context(self, context: dict | None) -> None:
+        """Record a read-only AtlasContext echo dict for transparent display in Talk."""
+        if not isinstance(context, dict):
+            self._desktop_context = self._empty_desktop_context()
+            return
+        self._desktop_context = {
+            **self._empty_desktop_context(),
+            **context,
+            "readOnly": True,
+        }
+
     def push_rules(self, text: str, passphrase: str) -> None:
         self.rules_text = text
         companion = self.companion
@@ -781,7 +879,9 @@ def bridge_class():
     names = ("lang", "onboarding", "you", "greeting", "keys", "homeOpen", "homeCard", "homeCardKey", "waiting", "conversation", "node", "mood",
              "card", "cardKey",
              "whisper", "whisperTone", "held", "feedback", "working", "innerOpen", "statusRows", "logText",
-             "rulesText", "rulesNote", "inForce", "theme", "devices", "present", "shichen", "clock", "hereToday", "hereBars",
+             "rulesText", "rulesNote", "inForce", "theme", "floatingOrb", "trayMode",
+             "desktopAgent", "desktopContext", "desktopPrivilegeGuide",
+             "devices", "present", "shichen", "clock", "hereToday", "hereBars",
              "dayQuarters", "quarterNow", "trial", "thinker", "mind")
     changed = Signal()
 
@@ -820,7 +920,10 @@ def bridge_class():
         "thinkThrough": ((str, str, str), Presence.think_through),
         "setThinker": ((str, str, str, str), Presence.set_thinker), "clearThinker": ((), Presence.clear_thinker),
         "testThinker": ((), Presence.test_thinker),
-        "setTheme": ((str,), Presence.set_theme), "writeInvite": ((str, str, str), Presence.write_invite),
+        "saveAndTestThinker": ((str, str, str, str), Presence.save_and_test_thinker),
+        "setTheme": ((str,), Presence.set_theme), "setFloatingOrb": ((bool,), Presence.set_floating_orb),
+        "setDesktopAgent": ((bool,), Presence.set_desktop_agent),
+        "writeInvite": ((str, str, str), Presence.write_invite),
         "decidePairing": ((bool,), Presence.decide_pairing), "withdrawInvite": ((), Presence.withdraw_invite),
         "readInvite": ((str,), Presence.read_invite), "agreeInvite": ((), Presence.agree_invite),
         "resetJoin": ((), Presence.reset_join), "goOnline": ((str,), Presence.go_online),
@@ -845,20 +948,63 @@ def load_fonts(app) -> None:
     app.setFont(font)
 
 
+def setup_tray(app, bridge):
+    """Create the system tray icon (Phase 5 default when the home window closes).
+
+    Strictly passive: clicking Open shows the home window via ``bridge.openHome()``
+    without stealing OS keyboard focus. Returns the tray object or ``None`` if
+    QtWidgets / system tray is unavailable.
+    """
+    try:
+        from PySide6.QtGui import QIcon
+        from PySide6.QtWidgets import QMenu, QSystemTrayIcon
+    except ImportError:
+        return None
+    if not QSystemTrayIcon.isSystemTrayAvailable():
+        return None
+    icon_path = Path(__file__).resolve().parents[1] / "packaging" / "icons" / "secdogie-studio-256.png"
+    icon = QIcon(str(icon_path)) if icon_path.exists() else app.windowIcon()
+    tray = QSystemTrayIcon(icon, app)
+    tray.setToolTip("SecDogie Studio")
+    menu = QMenu()
+    open_act = menu.addAction("打开 SecDogie / Open Studio")
+    open_act.triggered.connect(bridge.openHome)
+    menu.addSeparator()
+    quit_act = menu.addAction("退出 / Quit")
+    quit_act.triggered.connect(bridge.rest)
+    tray.setContextMenu(menu)
+    tray.activated.connect(
+        lambda reason: bridge.openHome() if reason in (
+            QSystemTrayIcon.ActivationReason.Trigger,
+            QSystemTrayIcon.ActivationReason.DoubleClick,
+        ) else None
+    )
+    tray.show()
+    return tray
+
+
 def run_gui(root: Path, *, kdf: str = "moderate") -> int:
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
     from PySide6.QtCore import QTimer, QUrl
-    from PySide6.QtGui import QGuiApplication
+    from PySide6.QtGui import QIcon
     from PySide6.QtQml import QQmlApplicationEngine
+    try:
+        from PySide6.QtWidgets import QApplication as _AppCls
+    except ImportError:
+        from PySide6.QtGui import QGuiApplication as _AppCls
 
     Bridge = bridge_class()
 
-    app = QGuiApplication.instance() or QGuiApplication([])
+    app = _AppCls.instance() or _AppCls([])
     app.setApplicationName("secdogie")
-    app.setQuitOnLastWindowClosed(False)  # closing the home window leaves the light; "让我休息" quits
+    icon_path = Path(__file__).resolve().parents[1] / "packaging" / "icons" / "secdogie-studio-256.png"
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
+    app.setQuitOnLastWindowClosed(False)  # closing the home window minimizes to system tray; Quit exits cleanly
     load_fonts(app)
     presence = Presence(StudioController(root, kdf=kdf))
     bridge = Bridge(presence, reduce_motion(app))
+    tray = setup_tray(app, bridge)
     engine = QQmlApplicationEngine()
     engine.rootContext().setContextProperty("P", bridge)
     for name in ("Presence.qml", "Home.qml"):
@@ -872,8 +1018,10 @@ def run_gui(root: Path, *, kdf: str = "moderate") -> int:
     app.aboutToQuit.connect(presence.shutdown)
     code = app.exec()
     timer.stop()
+    if tray is not None:
+        tray.hide()
     del engine  # the engine goes before the bridge it reads, so nothing reads a dead object
     return code
 
 
-__all__ = ["Presence", "QML_DIR", "WELCOME", "bridge_class", "card_dict", "load_fonts", "run_gui"]
+__all__ = ["Presence", "QML_DIR", "WELCOME", "bridge_class", "card_dict", "load_fonts", "run_gui", "setup_tray"]

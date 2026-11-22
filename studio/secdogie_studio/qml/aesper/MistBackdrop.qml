@@ -51,27 +51,64 @@ Item {
             ctx.reset()
             const W = width, H = height, R = Math.max(W, H)
             if (W <= 0 || H <= 0) return
-            ctx.fillStyle = Soft.mistGround
+            // Oil-painting alpine sky -> cold snow glow -> sunlit garden moss wash
+            const sky = ctx.createLinearGradient(0, 0, W * 0.2, H)
+            if (Theme.dark) {
+                sky.addColorStop(0.0, "#0F2235")
+                sky.addColorStop(0.45, "#152B3D")
+                sky.addColorStop(0.75, "#152C2B")
+                sky.addColorStop(1.0, "#10241E")
+            } else {
+                sky.addColorStop(0.0, "#CBE6F8")
+                sky.addColorStop(0.44, "#EEF6FC")
+                sky.addColorStop(0.74, "#E2F1E7")
+                sky.addColorStop(1.0, "#C7E2CD")
+            }
+            ctx.fillStyle = sky
             ctx.fillRect(0, 0, W, H)
+
             const rand = rng(backdrop.seed * 2654435761)
             const colors = Soft.mist.map(c => Qt.color(c))
-            // clouds gather along the edges, most at the top and the left, and thin toward the middle
-            const anchors = [[0.15, 0.05], [0.45, 0.0], [0.8, 0.08], [1.0, 0.35], [0.0, 0.45], [0.05, 0.85],
-                             [0.35, 1.0], [0.75, 0.98], [1.0, 0.8], [0.6, 0.15]]
+            // Soft oil-painted cloud & foliage puffs framing the alpine horizon
+            const anchors = [[0.12, 0.08], [0.38, 0.04], [0.78, 0.10], [0.95, 0.34], [0.04, 0.42],
+                             [0.10, 0.88], [0.42, 0.96], [0.76, 0.92], [0.96, 0.78], [0.58, 0.16]]
             for (let i = 0; i < anchors.length; i++) {
                 const c = colors[i % colors.length]
-                const cx = anchors[i][0] * W + (rand() - 0.5) * W * 0.12
-                const cy = anchors[i][1] * H + (rand() - 0.5) * H * 0.12
+                const cx = anchors[i][0] * W + (rand() - 0.5) * W * 0.10
+                const cy = anchors[i][1] * H + (rand() - 0.5) * H * 0.10
                 const lumps = 4 + Math.floor(rand() * 3)
                 for (let j = 0; j < lumps; j++) {
                     const r = R * (0.12 + rand() * 0.16)
-                    puff(ctx, cx + (rand() - 0.5) * R * 0.22, cy + (rand() - 0.5) * R * 0.18, r, c,
-                         Theme.dark ? 0.55 : 0.62)
+                    puff(ctx, cx + (rand() - 0.5) * R * 0.20, cy + (rand() - 0.5) * R * 0.16, r, c,
+                         Theme.dark ? 0.44 : 0.48)
                 }
             }
-            // a pale veil over the middle, where the sheet sits
-            const v = ctx.createRadialGradient(W * 0.5, H * 0.52, 0, W * 0.5, H * 0.52, R * 0.48)
-            v.addColorStop(0, rgba(Qt.color(Soft.mistGround), 0.55))
+            // Distant snow-capped mountain ridge silhouette (upper-right alpine horizon)
+            ctx.beginPath()
+            ctx.moveTo(0, H * 0.66)
+            ctx.lineTo(W * 0.24, H * 0.48)
+            ctx.lineTo(W * 0.46, H * 0.56)
+            ctx.lineTo(W * 0.72, H * 0.34)
+            ctx.lineTo(W, H * 0.52)
+            ctx.lineTo(W, H)
+            ctx.lineTo(0, H)
+            ctx.closePath()
+            const peak = ctx.createLinearGradient(0, H * 0.34, 0, H * 0.78)
+            if (Theme.dark) {
+                peak.addColorStop(0.0, "rgba(186,219,242,0.16)")
+                peak.addColorStop(0.5, "rgba(44,82,108,0.18)")
+                peak.addColorStop(1.0, "rgba(28,68,50,0.22)")
+            } else {
+                peak.addColorStop(0.0, "rgba(255,255,255,0.68)")
+                peak.addColorStop(0.45, "rgba(182,216,238,0.34)")
+                peak.addColorStop(1.0, "rgba(96,158,116,0.24)")
+            }
+            ctx.fillStyle = peak
+            ctx.fill()
+
+            // A calm frosty veil over the middle so foreground cards remain effortless to read
+            const v = ctx.createRadialGradient(W * 0.5, H * 0.50, 0, W * 0.5, H * 0.50, R * 0.52)
+            v.addColorStop(0, rgba(Qt.color(Soft.mistGround), Theme.dark ? 0.42 : 0.46))
             v.addColorStop(1, rgba(Qt.color(Soft.mistGround), 0))
             ctx.fillStyle = v
             ctx.fillRect(0, 0, W, H)

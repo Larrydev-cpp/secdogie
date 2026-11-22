@@ -165,60 +165,58 @@ Canvas {
         outline(ctx, W, H, edge)
         ctx.clip()
 
-        // the room: dark blue, violet low down, teal in the corner
+        // Alpine sky -> snow-capped mountain -> sunlit moss garden
         const bg = ctx.createLinearGradient(0, 0, 0, H)
-        bg.addColorStop(0, "#2D4886")
-        bg.addColorStop(0.45, "#4A3B7A")
-        bg.addColorStop(0.75, "#2C2F60")
-        bg.addColorStop(1, "#1D2447")
+        bg.addColorStop(0, "#4B97D1")
+        bg.addColorStop(0.38, "#8BC6EC")
+        bg.addColorStop(0.66, "#5C9A73")
+        bg.addColorStop(1, "#2A583D")
         ctx.fillStyle = bg
         ctx.fillRect(0, 0, W, H)
-        blob(ctx, W * 0.08, H * 0.82, W * 0.55, "#2E8C86", 0.55)
+        blob(ctx, W * 0.18, H * 0.14, W * 0.48, "#EAF6FF", 0.65)
+        blob(ctx, W * 0.16, H * 0.84, W * 0.56, "#3C7D55", 0.62)
 
-        // light through a high window: a warm glow, a rose haze, a shaft, a faint rainbow
-        blob(ctx, W * 0.18, H * 0.02, W * 0.55, "#FFD9BC", 0.75)
-        blob(ctx, W * 0.42, H * 0.28, W * 0.5, "#F5A8CB", 0.5)
-        ctx.save()
-        ctx.translate(W * 0.3, -H * 0.05)
-        ctx.rotate(0.38)
-        const shaft = ctx.createLinearGradient(-W * 0.12, 0, W * 0.12, 0)
-        shaft.addColorStop(0, "rgba(255,240,232,0)")
-        shaft.addColorStop(0.5, "rgba(255,240,232,0.42)")
-        shaft.addColorStop(1, "rgba(255,240,232,0)")
-        ctx.fillStyle = shaft
-        ctx.fillRect(-W * 0.12, 0, W * 0.24, H * 1.3)
-        const bow = ctx.createLinearGradient(-W * 0.32, 0, -W * 0.2, 0)
-        for (const [s, c] of [[0, "rgba(255,90,90,0)"], [0.2, "rgba(255,120,90,0.2)"], [0.4, "rgba(255,220,90,0.2)"],
-                              [0.6, "rgba(90,220,140,0.2)"], [0.8, "rgba(90,150,255,0.2)"], [1, "rgba(160,90,255,0)"]])
-            bow.addColorStop(s, c)
-        ctx.fillStyle = bow
-        ctx.fillRect(-W * 0.32, H * 0.15, W * 0.12, H * 0.8)
-        ctx.restore()
+        // Snow mountain peak in crisp cold white and glacier shadow blue
+        ctx.beginPath()
+        ctx.moveTo(0, H * 0.60)
+        ctx.lineTo(W * 0.36, H * 0.24)
+        ctx.lineTo(W * 0.68, H * 0.46)
+        ctx.lineTo(W * 0.92, H * 0.28)
+        ctx.lineTo(W, H * 0.40)
+        ctx.lineTo(W, H * 0.68)
+        ctx.lineTo(0, H * 0.68)
+        ctx.closePath()
+        const snow = ctx.createLinearGradient(0, H * 0.22, W * 0.4, H * 0.66)
+        snow.addColorStop(0, "#FCFEFF")
+        snow.addColorStop(0.55, "#DCECF8")
+        snow.addColorStop(1, "#7DAAD0")
+        ctx.fillStyle = snow
+        ctx.fill()
 
-        // washes of paint
-        const wash = ["#8FB7E8", "#F3B6D3", "#5E4CA0", "#2F6F86", "#F7D2C0", "#3B3473"]
+        // Oil-painting brushwork washes
+        const wash = ["#73B5E3", "#EFF7FD", "#518E67", "#2F6647", "#D9ECF9", "#74AD81"]
         for (let i = 0; i < 110; i++)
             stroke(ctx, rand() * W, rand() * H, 14 + rand() * 30, Math.PI * (0.15 + rand() * 0.7), 10 + rand() * 16,
-                   wash[Math.floor(rand() * wash.length)], 0.02 + rand() * 0.035)
+                   wash[Math.floor(rand() * wash.length)], 0.04 + rand() * 0.05)
 
-        // flecks in the light
-        for (let i = 0; i < 150; i++) {
-            const x = W * (0.15 + rand() * 0.7), y = H * (0.05 + rand() * 0.6)
-            ctx.fillStyle = rgba(rand() < 0.7 ? "#FFFFFF" : "#FFD1E6", 0.3 + rand() * 0.5)
-            ctx.fillRect(x, y, 1 + rand() * 1.8, 1 + rand() * 2.4)
+        // Sunlit alpine snow-light flecks
+        for (let i = 0; i < 120; i++) {
+            const x = W * (0.12 + rand() * 0.76), y = H * (0.04 + rand() * 0.55)
+            ctx.fillStyle = rgba(rand() < 0.75 ? "#FFFFFF" : "#D6EEFC", 0.35 + rand() * 0.45)
+            ctx.fillRect(x, y, 1 + rand() * 1.8, 1 + rand() * 2.2)
         }
 
-        // the floor, and what it reflects
-        const floor = ctx.createLinearGradient(0, H * 0.8, 0, H)
-        floor.addColorStop(0, "rgba(231,185,230,0.0)")
-        floor.addColorStop(0.15, "rgba(231,185,230,0.55)")
-        floor.addColorStop(1, "rgba(120,96,196,0.45)")
+        // Lush moss-green garden foreground
+        const floor = ctx.createLinearGradient(0, H * 0.64, 0, H)
+        floor.addColorStop(0, "rgba(74,132,92,0.0)")
+        floor.addColorStop(0.25, "rgba(56,112,75,0.75)")
+        floor.addColorStop(1, "rgba(31,72,49,0.92)")
         ctx.fillStyle = floor
-        ctx.fillRect(0, H * 0.8, W, H * 0.2)
-        const refl = ["#F26AA6", "#A9D8F2", "#9ED3C2", "#FDEBD8", "#7E6BD0"]
+        ctx.fillRect(0, H * 0.64, W, H * 0.36)
+        const refl = ["#8ED09E", "#5CA371", "#F5D99B", "#D6EEFC", "#37734D"]
         for (let i = 0; i < 46; i++)
-            stroke(ctx, W * (0.45 + rand() * 0.5), H * (0.84 + rand() * 0.06), 10 + rand() * 22, Math.PI / 2 + (rand() - 0.5) * 0.15,
-                   3 + rand() * 4, refl[Math.floor(rand() * refl.length)], 0.1 + rand() * 0.14)
+            stroke(ctx, W * (0.35 + rand() * 0.6), H * (0.76 + rand() * 0.16), 10 + rand() * 22, Math.PI / 2 + (rand() - 0.5) * 0.35,
+                   3 + rand() * 4, refl[Math.floor(rand() * refl.length)], 0.14 + rand() * 0.18)
 
         // the vase: celadon, with a highlight
         const vx = W * 0.7, vy = H * 0.74, vw = W * 0.16, vh = H * 0.15

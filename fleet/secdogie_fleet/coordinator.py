@@ -65,6 +65,7 @@ class Node:
     label: str = ""
     screen: tuple[int, int] | None = None
     capabilities: tuple[str, ...] = ()
+    role: str = "spoke"
     task_id: str | None = None  # the assignment it currently holds
     last_seen: float = 0.0
 
@@ -89,11 +90,17 @@ class Coordinator:
         max_concurrent: int | None = None,
         max_attempts: int = 2,
         clock: Callable[[], float] | None = None,
+        role: str = "hub",
+        hub_did: str = "",
     ):
+        if role not in ("hub", "spoke"):
+            raise ValueError(f"invalid coordinator role {role!r}; expected 'hub' or 'spoke'")
         self._send = send
         self.max_concurrent = max_concurrent
         self.max_attempts = max_attempts
         self._clock = clock or time.monotonic
+        self.role = role
+        self.hub_did = hub_did
         self.nodes: dict[str, Node] = {}
         self.tasks: dict[str, Task] = {}
         # task ids waiting to run, highest priority first (stable for ties)
@@ -245,8 +252,11 @@ class Coordinator:
         """Hand queued tasks to idle nodes, up to the concurrency cap. Returns
         how many were dispatched. Call after submitting or on any node event.
 
-        `_order` is already priority-sorted (high first).
+        In V1.2 star topology only the single active Hub dispatches tasks; a
+        Spoke coordinator holds tasks without dispatching directly.
         """
+        if self.role != "hub":
+            return 0
         dispatched = 0
         for tid in list(self._order):
             t = self.tasks[tid]

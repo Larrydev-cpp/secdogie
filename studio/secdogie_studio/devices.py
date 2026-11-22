@@ -68,6 +68,7 @@ class Devices:
         self._join_invite: dict | None = None
         self.on_rules = lambda chain: None  # a chain came in from another device: offer it to this node
         self._state = self._read()
+        self._tiers: dict[str, str] = {}  # did -> active link tier ("lan" | "webrtc" | "relay")
 
     # ---- what is kept --------------------------------------------------------------------
 
@@ -292,18 +293,35 @@ class Devices:
     # ---- online ---------------------------------------------------------------------------
 
     def go_online(self, signal: str) -> None:
+        from secdogie_transport.hybrid_tunnel import TIER_LAN, TIER_WEBRTC
         from secdogie_transport.mesh_rtc import MeshNode
+        from secdogie_transport.star import ROLE_HUB, ROLE_SPOKE
 
         if self._mesh is not None or not self._state.get("self") or not signal.startswith(("ws://", "wss://")):
             return
         self.set_settings(signal, self.settings()["page"])
         node = Identity.load(self.profile.node_key)
+        topo_role = ROLE_HUB if self._state.get("role", "owner") == "owner" else ROLE_SPOKE
+        is_lan_sig = signal.startswith(("ws://127.", "ws://192.168.", "ws://10.", "ws://172.", "ws://localhost"))
         mesh = MeshNode(node, mesh=self._state["mesh"], owners=self._state["owners"], admission=self._state["self"],
                         admissions=self._state["devices"], name=self.device_name(), signal_url=signal,
+                        role=topo_role, default_tier=TIER_LAN if is_lan_sig else TIER_WEBRTC,
                         on_note=self._note, on_policy=self._incoming)
         mesh.set_chain(self.chain())
         self._mesh = mesh
         self._run(mesh.start())
+
+    def set_peer_tier(self, did: str, tier: str) -> None:
+        """Record the active HybridTunnel tier ('lan' | 'webrtc' | 'relay') for a device."""
+        from secdogie_transport.hybrid_tunnel import TIER_ORDER
+
+        if tier not in TIER_ORDER:
+            return
+        with self._lock:
+            self._tiers[did] = tier
+        mesh = self._mesh
+        if mesh is not None and did in mesh.links:
+            mesh.links[did].tier = tier
 
     def go_offline(self) -> None:
         mesh, self._mesh = self._mesh, None
@@ -382,13 +400,28 @@ class Devices:
     # ---- what the window reads ------------------------------------------------------------
 
     def snapshot(self) -> dict:
+        from secdogie_transport.hybrid_tunnel import TIER_WEBRTC, tier_label
         from secdogie_transport.meshlink import Roster
+        from secdogie_transport.star import ROLE_HUB, ROLE_SPOKE
 
+        lang = self.lang()
         with self._lock:
             pair, join, notes = dict(self._pair), dict(self._join), list(self._notes)
+            tiers = dict(self._tiers)
         mesh = self._mesh
+        topo_role = ROLE_HUB if self._state.get("role", "owner") == "owner" else ROLE_SPOKE
         if mesh is not None:
             view = mesh.snapshot()
+            devices = []
+            for d in view["devices"]:
+                t = tiers.get(d["did"], d.get("tier") or TIER_WEBRTC)
+                devices.append({
+                    **d,
+                    "role": d.get("role") or (ROLE_HUB if d.get("owner") else ROLE_SPOKE),
+                    "tier": t,
+                    "tierLabel": tier_label(t, lang),
+                    "unacked": int(d.get("unacked", 0)),
+                })
         else:
             roster = Roster(self._state["mesh"], self._state["owners"])
             for a in [self._state.get("self"), *self._state["devices"]]:
@@ -396,14 +429,24 @@ class Devices:
                     roster.admit(a)
             me = self._state["self"]["device"] if self._state.get("self") else ""
             held = len(self._state.get("policy") or [])
-            view = {"online": False, "devices": [
-                {"did": d, "name": roster.name(d), "owner": d in roster.owners, "state": "offline", "rtt": None,
-                 "reason": None, "rules": {"version": 0, "state": "waiting" if held else "none"}}
-                for d in roster.devices() if d != me and roster.admission(d)]}
+            view = {"online": False}
+            devices = []
+            for d in roster.devices():
+                if d == me or not roster.admission(d):
+                    continue
+                t = tiers.get(d, TIER_WEBRTC)
+                devices.append({
+                    "did": d, "name": roster.name(d), "owner": d in roster.owners,
+                    "role": ROLE_HUB if d in roster.owners else ROLE_SPOKE,
+                    "tier": t, "tierLabel": tier_label(t, lang), "unacked": 0,
+                    "state": "offline", "rtt": None, "reason": None,
+                    "rules": {"version": 0, "state": "waiting" if held else "none"},
+                })
         left = max(0, int(pair.get("expires", 0) - self.clock())) if pair.get("phase") in ("waiting", "compare") else 0
         return {
-            "role": self._state.get("role", "owner"), "mesh": self._state["mesh"],
-            "ready": bool(self._state.get("self")), "online": view["online"], "devices": view["devices"],
+            "role": self._state.get("role", "owner"), "topologyRole": topo_role,
+            "mesh": self._state["mesh"],
+            "ready": bool(self._state.get("self")), "online": view["online"], "devices": devices,
             "pair": {**{k: v for k, v in pair.items() if k != "token"}, "left": left,
                      "code_text": pair.get("token", "")},
             "join": join, "notes": notes, "rulesVersion": len(self._state.get("policy") or []), **self.settings(),

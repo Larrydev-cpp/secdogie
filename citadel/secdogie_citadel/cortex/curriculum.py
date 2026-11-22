@@ -47,6 +47,8 @@ class Lesson:
     source: str = ""  # where it came from: "birth", "teacher", "person", "outcome", "web"
     weight: float = 1.0  # how much it counts (the neuromodulator)
     meta: dict = field(default_factory=dict, compare=False)
+    disputed: bool = False
+    priority_trace: float = 0.0
 
     @property
     def kind(self) -> str:

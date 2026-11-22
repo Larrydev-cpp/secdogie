@@ -151,6 +151,19 @@ class AgentConfig:
     approve_action: Callable[[str, bool], bool] | None = None
     ask_operator: Callable[[str], bool] | None = None
     notify_operator: Callable[[str, str], None] | None = None
+    # Optional compliant read-only AtlasBridge (Phase 4): feeds foreground AX/memory
+    # context without requiring screenshots or privileged bypasses.
+    atlas_bridge: object | None = None
+
+
+def capture_atlas_context(config: AgentConfig, self_tok, target_tok, **kwargs):
+    """Capture read-only Atlas context when ``config.atlas_bridge`` is mounted."""
+    bridge = getattr(config, "atlas_bridge", None)
+    if bridge is None:
+        return None
+    ctx = bridge.inspect_foreground(self_tok, target_tok, **kwargs)
+    _emit(config, "atlas_context", context=ctx.to_echo_dict())
+    return ctx
 
 
 def _recall(config: AgentConfig, memory, logger) -> str:

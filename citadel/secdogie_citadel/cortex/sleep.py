@@ -47,18 +47,77 @@ class Slept:
     rate: float
     seconds: float
     lessons: int
+    src_loss: float = 0.0
+
+
+def acc_surprise_weight(base_surprise: float, *, user_corrected: bool = False, counterexample: bool = False) -> float:
+    """ACC (anterior cingulate cortex) surprise weighting for awake observations.
+
+    Boosts learning weight smoothly when the user casually corrects the companion or passive
+    observation encounters a counterexample, bounded safely to ``[0.5, 2.5]``.
+    """
+    w = max(0.5, float(base_surprise))
+    if user_corrected:
+        w *= 1.6
+    if counterexample:
+        w *= 1.4
+    return min(2.5, w)
+
+
+def _uniform_targets(batch_size: int) -> tuple[np.ndarray, np.ndarray]:
+    """Uniform distribution targets across every Socratic head to raise entropy on OOD probes."""
+    target = np.zeros((batch_size, Q.OUTPUTS), np.float32)
+    mask = np.ones((batch_size, Q.OUTPUTS), np.float32)
+    for off, size in zip(Q.OFFSETS, Q.SIZES, strict=True):
+        target[:, off:off + size] = 1.0 / float(size)
+    return target, mask
+
+
+def src_calibration_step(
+    net: Net,
+    r: Reading,
+    genome: dict,
+    novel_probes: Sequence[str],
+    opt: Adam,
+    *,
+    strength: float = 0.15,
+) -> float:
+    """Sleep Replay Calibration (SRC): raise output entropy on high-novelty/OOD probes.
+
+    Prevents unfamiliar inputs from triggering falsely high confidence after consolidation.
+    """
+    probes = [p.strip() for p in novel_probes if p and p.strip()]
+    if not probes or strength <= 0:
+        return 0.0
+    X = block(probes, [()] * len(probes), r)
+    target, mask = _uniform_targets(len(probes))
+    tr = run(net, X)
+    mod = np.full(len(probes), float(strength), np.float32)
+    learned = eprop(
+        net,
+        tr,
+        target,
+        mask,
+        tick_weights(X.shape[0], r.settle, genome["reading_weight"]),
+        modulator=mod,
+        rate_target=genome["rate_target"],
+        rate_reg=genome["rate_reg"],
+    )
+    opt.step(net, learned.grads, clip=0.5)
+    return learned.loss
 
 
 def consolidate(net: Net, r: Reading, genome: dict, lessons: Sequence[Lesson], *, epochs: int, rng: np.random.Generator,
-                opt: Adam | None = None) -> Slept:
-    """Replay ``lessons`` for ``epochs`` rounds, learning from each."""
+                opt: Adam | None = None, novel_probes: Sequence[str] = (), src_strength: float = 0.15) -> Slept:
+    """Replay ``lessons`` for ``epochs`` rounds, learning from each, plus optional SRC calibration."""
     import time
 
     began = time.monotonic()
     opt = opt or Adam(lr=genome["lr"])
     opt.lr = genome["lr"]
     hw = _head_weights(genome["safety_weight"])
-    losses, rates = [], []
+    losses, rates, src_losses = [], [], []
+    probes = [p for p in novel_probes if p and p.strip()]
     for _ in range(epochs):
         for group in batches(lessons, r, int(genome["batch"]), rng):
             X = block([x.text for x in group], [x.context for x in group], r)
@@ -71,8 +130,13 @@ def consolidate(net: Net, r: Reading, genome: dict, lessons: Sequence[Lesson], *
             opt.step(net, learned.grads)
             losses.append(learned.loss)
             rates.append(learned.rate)
+        if probes:
+            take = min(len(probes), max(4, int(genome["batch"]) // 4))
+            idx = rng.choice(len(probes), size=take, replace=False)
+            src_losses.append(src_calibration_step(net, r, genome, [probes[int(i)] for i in idx], opt, strength=src_strength))
     return Slept(float(np.mean(losses)) if losses else 0.0, float(np.mean(rates)) if rates else 0.0,
-                 time.monotonic() - began, len(lessons) * epochs)
+                 time.monotonic() - began, len(lessons) * epochs,
+                 float(np.mean(src_losses)) if src_losses else 0.0)
 
 
 def read(net: Net, r: Reading, texts: Sequence[str], contexts: Sequence[Sequence[str]], *, size: int = 64, noisy: int = 0,
@@ -164,4 +228,4 @@ def renew(net: Net, share: float, rates: np.ndarray, rng: np.random.Generator, *
     return k
 
 
-__all__ = ["SAFETY", "Slept", "accuracy", "batches", "consolidate", "grow", "prune", "read", "renew"]
+__all__ = ["SAFETY", "Slept", "acc_surprise_weight", "accuracy", "batches", "consolidate", "grow", "prune", "read", "renew", "src_calibration_step"]

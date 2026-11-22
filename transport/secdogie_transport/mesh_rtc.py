@@ -50,9 +50,11 @@ from collections.abc import Callable
 from secdogie_identity import Allowlist
 
 from . import mux
+from .hybrid_tunnel import TIER_WEBRTC
 from .meshlink import MESH_CHANNEL, Roster, create_hello, link_room, verify_hello
 from .rtc import RtcError, RtcPeer
 from .sealed import ReplayWindow
+from .star import ROLE_HUB, ROLE_SPOKE, IdempotentReceiver, SequencedFrameQueue
 from .udp import _decode_frame, _encode_frame
 
 log = logging.getLogger("secdogie.transport.mesh_rtc")
@@ -69,27 +71,36 @@ IN_FORCE, WAITING, REFUSED_RULES, SILENT, NO_RULES = "in-force", "waiting", "ref
 
 
 class _Link:
-    def __init__(self, did: str):
+    def __init__(self, did: str, *, role: str = ROLE_SPOKE, tier: str = TIER_WEBRTC):
         self.did = did
         self.state = OFFLINE
         self.reason: str | None = None
         self.name = ""
+        self.role = role
+        self.tier = tier
         self.rtt: int | None = None
         self.peer: RtcPeer | None = None
         self.authed = False
         self.task: asyncio.Task | None = None
         self.window = ReplayWindow()
+        self.outbound = SequencedFrameQueue()
+        self.inbound = IdempotentReceiver()
         self.their_v = 0  # how far its chain of gate rules goes, as it last said
         self.policy_state: dict | None = None  # what its node holds, as it last reported
 
 
 class MeshNode:
     def __init__(self, me, *, mesh: str, owners, admission: dict | None = None, admissions=(), name: str = "",
-                 signal_url: str, ice_servers=(), on_change: Callable[[], None] = lambda: None,
+                 signal_url: str, ice_servers=(), role: str = ROLE_HUB, hub_did: str | None = None,
+                 default_tier: str = TIER_WEBRTC, on_change: Callable[[], None] = lambda: None,
                  on_note: Callable[[dict], None] = lambda n: None,
+                 on_control: Callable[[dict, str], None] = lambda c, frm: None,
                  on_policy: Callable[[dict, str], bool] = lambda b, frm: False, clock=time.time):
         self.me = me
         self.mesh = mesh
+        self.role = role if role in (ROLE_HUB, ROLE_SPOKE) else ROLE_HUB
+        self.hub_did = hub_did or (me.did if self.role == ROLE_HUB else (next(iter(owners), "") if owners else ""))
+        self.default_tier = default_tier
         self.roster = Roster(mesh, owners)
         self.admission = admission
         for a in (admission, *admissions):
@@ -100,6 +111,7 @@ class MeshNode:
         self.ice_servers = tuple(ice_servers)
         self.on_change = on_change
         self.on_note = on_note
+        self.on_control = on_control
         self.on_policy = on_policy  # (bundle, from) -> it is valid and joins the chain: the caller's check
         self.chain: list[dict] = []  # the whole-mesh gate rules, first version first
         self.clock = clock
@@ -144,12 +156,17 @@ class MeshNode:
         for did in filter(listed, self.roster.devices()):
             link = self.links.get(did)
             state = link.state if (self.online and link) else OFFLINE
+            peer_role = link.role if link else (ROLE_HUB if did == self.hub_did else ROLE_SPOKE)
             devices.append({"did": did, "name": (link.name if link and link.name else self.roster.name(did)),
-                            "owner": did in self.roster.owners, "state": state,
+                            "owner": did in self.roster.owners, "role": peer_role,
+                            "tier": link.tier if link else self.default_tier,
+                            "unacked": link.outbound.pending_count if link else 0,
+                            "state": state,
                             "rtt": link.rtt if link and state == ONLINE else None,
                             "reason": link.reason if link else None, "rules": self.rules_of(link, state)})
-        return {"online": self.online, "mesh": self.mesh, "me": {"did": self.me.did, "name": self.name,
-                                                                 "owner": self.me.did in self.roster.owners},
+        return {"online": self.online, "mesh": self.mesh, "role": self.role, "hub_did": self.hub_did,
+                "me": {"did": self.me.did, "name": self.name, "role": self.role,
+                       "owner": self.me.did in self.roster.owners},
                 "devices": devices}
 
     async def say(self, text: str) -> int:
@@ -158,9 +175,20 @@ class MeshNode:
             return 0
         n = 0
         for link in list(self.links.values()):
-            if await self._send_frame(link, {"m": "note", "text": line}):
+            framed = link.outbound.enqueue({"m": "note", "text": line})
+            if await self._send_frame(link, framed.wire()):
                 n += 1
         return n
+
+    async def send_control(self, peer_did: str, action: dict) -> int:
+        """Queue and send a sequenced control/approval frame to ``peer_did``."""
+        link = self.links.get(peer_did)
+        if link is None:
+            return 0
+        framed = link.outbound.enqueue({"m": "control", "body": dict(action)})
+        await self._send_frame(link, framed.wire())
+        self._changed()
+        return framed.seq_id
 
     def set_chain(self, bundles) -> None:
         """The chain of gate rules this device holds (already checked by the caller)."""
@@ -216,7 +244,8 @@ class MeshNode:
     def _ensure(self, did: str) -> None:
         if not self.online or did == self.me.did or did in self.links:
             return
-        link = _Link(did)
+        peer_role = ROLE_HUB if did == self.hub_did else ROLE_SPOKE
+        link = _Link(did, role=peer_role, tier=self.default_tier)
         link.name = self.roster.name(did)
         self.links[did] = link
         link.task = asyncio.create_task(self._run(link))
@@ -334,9 +363,25 @@ class MeshNode:
             await self._send_frame(link, {"m": "roster", "roster": self.roster.wire()})
         await self._send_frame(link, {"m": "ping", "t": time.monotonic() * 1000})
         await self._send_frame(link, self._have())
+        await self._send_frame(link, link.outbound.resume_message(link.inbound.last_delivered_seq))
 
     async def _on_message(self, link: _Link, msg) -> None:
         kind = msg.get("m") if isinstance(msg, dict) else None
+        seq_id = msg.get("seq_id") if isinstance(msg, dict) else None
+        if kind in ("note", "control") and isinstance(seq_id, int):
+            is_new, ack_seq = link.inbound.accept(seq_id)
+            await self._send_frame(link, {"m": "ack", "seq_id": ack_seq})
+            if not is_new:
+                return
+        if kind == "resume" and isinstance(msg.get("last_ack_seq"), int):
+            for pending in link.outbound.replay_after(msg["last_ack_seq"]):
+                await self._send_frame(link, pending.wire())
+            self._changed()
+            return
+        if kind == "ack" and isinstance(msg.get("seq_id"), int):
+            if link.outbound.ack(msg["seq_id"]) > 0:
+                self._changed()
+            return
         if kind == "roster":
             added = self.roster.merge(msg.get("roster"))
             if added:
@@ -350,6 +395,11 @@ class MeshNode:
             with contextlib.suppress(Exception):
                 self.on_note({"from": link.did, "name": link.name, "text": msg["text"][:MAX_NOTE],
                               "at": time.time()})
+        elif kind == "control" and isinstance(msg.get("body"), dict):
+            if self.role == ROLE_SPOKE and self.hub_did and link.did != self.hub_did:
+                return  # spoke only accepts control frames from its pinned Hub
+            with contextlib.suppress(Exception):
+                self.on_control(dict(msg["body"]), link.did)
         elif kind == "policy-have" and isinstance(msg.get("v"), int):
             link.their_v = max(0, msg["v"])
             await self._offer_chain(link, link.their_v)

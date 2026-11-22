@@ -19,17 +19,18 @@ from typing import Any
 
 from . import viewmodel
 
-BG = "#0a0b0d"
-SURFACE = "#121418"
-SURFACE_2 = "#191c21"
-FG = "#ecece8"
-MUTED = "#8b8d92"
-ACCENT = "#c5cbd4"
-ACCENT_FG = "#0a0b0d"
-DENY = "#c48982"
-OK = "#8fa38c"
-WARN = "#c4b49a"
-BORDER = "#2a2d33"
+# V1.2 Oil-Painting Snow Mountain & Garden palette (sunlit snow-white canvas, alpine sky blue, moss green)
+BG = "#EAF3FA"
+SURFACE = "#F7FBFE"
+SURFACE_2 = "#DCEAF5"
+FG = "#152630"
+MUTED = "#4B6878"
+ACCENT = "#1F66A3"
+ACCENT_FG = "#FFFFFF"
+DENY = "#A63726"
+OK = "#2B6644"
+WARN = "#8F5712"
+BORDER = "#BDD6E8"
 
 # Per-message-kind text colour in the transcript.
 _KIND_FG = {

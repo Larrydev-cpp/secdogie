@@ -226,11 +226,13 @@ def test_studio_opens_on_the_home_window_and_closing_it_leaves_the_light(qt):
     comp.m = [Moment("probe:1", "ask", "开始之前，我想先弄清楚一点", ("我换个说法", "先不做了"), free_text=True,
                      arrived=clock[0])]
     assert _pump(qt, bridge, lambda: presence.tick()["homeCardKey"] == "probe:1")
-    bridge.closeHome()                                   # the window's close button
+    bridge.closeHome()                                   # default tray mode: closing home minimizes to system tray
+    assert _pump(qt, bridge, lambda: not light.isVisible() and not home.isVisible())
+    bridge.setFloatingOrb(True)                          # opt-in floating orb shows when home is closed
     assert _pump(qt, bridge, lambda: light.isVisible() and not home.isVisible())
     bridge.openHome()                                    # a click on the light
     assert _pump(qt, bridge, lambda: home.isVisible() and not light.isVisible())
-    home.close()                                         # closing it never quits: it leaves the light
+    home.close()                                         # closing it never quits: returns to opted-in orb
     assert _pump(qt, bridge, lambda: light.isVisible() and not home.isVisible())
     assert _qml_problems(messages) == []
     del engine
@@ -243,8 +245,8 @@ def test_a_cold_start_opens_the_home_window_on_the_first_meeting(qt):
     engine, bridge, (light, home) = _windows(qt, presence)
     assert _pump(qt, bridge, lambda: home.isVisible() and home.property("first"))
     assert presence.tick()["homeCard"]["kind"] == "welcome"
-    bridge.closeHome()                                   # closed before the keys exist: the light says hello
-    assert _pump(qt, bridge, lambda: light.isVisible() and light.property("shape") == "open")
+    bridge.closeHome()                                   # default tray mode hides home without showing orb
+    assert _pump(qt, bridge, lambda: not home.isVisible() and not light.isVisible())
     assert _qml_problems(messages) == []
     del engine
 
@@ -271,15 +273,15 @@ def test_the_ink_switch_changes_the_world_and_back(qt):
     engine, bridge, (light, home) = _windows(qt, presence, still=True)
     assert _pump(qt, bridge, lambda: home.isVisible())
     switch = home.findChild(QObject, "themeSwitch")
-    assert presence.tick()["theme"] == "dark"
+    assert presence.tick()["theme"] == "light"
     flood = home.findChild(QObject, "inkFlood")
     QMetaObject.invokeMethod(switch, "click")
-    assert _pump(qt, bridge, lambda: presence.tick()["theme"] == "light")
+    assert _pump(qt, bridge, lambda: presence.tick()["theme"] == "dark")
     QMetaObject.invokeMethod(switch, "click")            # while the ink still lifts: ignored
     assert _pump(qt, bridge, lambda: not flood.property("running"))
-    assert presence.tick()["theme"] == "light"
+    assert presence.tick()["theme"] == "dark"
     QMetaObject.invokeMethod(switch, "click")
-    assert _pump(qt, bridge, lambda: presence.tick()["theme"] == "dark")
+    assert _pump(qt, bridge, lambda: presence.tick()["theme"] == "light")
     for page in range(5):                                # every page draws in both worlds
         home.setProperty("page", page)
         _pump(qt, bridge, lambda: True, timeout=0.2)

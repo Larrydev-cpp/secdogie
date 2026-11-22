@@ -20,8 +20,8 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 
+from . import observe as O
 from . import questions as Q
-from .curriculum import Lesson, defaults
 
 SAFETY = ("self", "others", "seat")
 CAUTION = {"self": ("no", "yes"), "others": ("self", "fine", "unsure", "words", "harm"), "seat": ("nobody", "no", "unsure", "yes")}
@@ -52,9 +52,12 @@ class Taught:
     teacher: dict  # what the external model answered
     changed: tuple[str, ...]  # the questions where the cortex had answered otherwise
     surprise: float
+    disputed: bool = False
+    reply_grounded: bool = True
 
     def view(self) -> dict:
-        return {"answers": self.teacher, "changed": list(self.changed), "surprise": round(self.surprise, 3), "reply": self.reply}
+        return {"answers": self.teacher, "changed": list(self.changed), "surprise": round(self.surprise, 3),
+                "reply": self.reply, "disputed": self.disputed, "reply_grounded": self.reply_grounded}
 
 
 def needs(u, genome: dict, text: str) -> bool:
@@ -73,9 +76,21 @@ def _cautious(qid: str, mine: tuple, theirs: str) -> str:
     return max((m, theirs), key=order.index)
 
 
+def _learn_compat(cortex, lesson, *, surprise: float, trust_clip: float | None, step_scale: float) -> None:
+    import inspect
+
+    sig = inspect.signature(cortex.learn)
+    kwargs: dict = {"surprise": surprise}
+    if "trust_clip" in sig.parameters:
+        kwargs["trust_clip"] = trust_clip
+    if "step_scale" in sig.parameters:
+        kwargs["step_scale"] = step_scale
+    cortex.learn(lesson, **kwargs)
+
+
 def consult(cortex, teacher, text: str, context: tuple[str, ...], u) -> Taught | None:
     """Watch the external model handle ``text`` and learn from it, if the cortex needs to. None when it decided
-    alone (or the external model gave nothing usable)."""
+    alone (or the external model gave nothing usable / was dropped by observational guards)."""
     ledger = cortex.ledger
     if not needs(u, cortex.genome, text):
         ledger.alone += 1
@@ -85,13 +100,21 @@ def consult(cortex, teacher, text: str, context: tuple[str, ...], u) -> Taught |
         ledger.alone += 1
         return None
     theirs, reply = got
-    kind = theirs.get("kind", "unclear")
-    full = defaults(kind, {k: v for k, v in theirs.items() if k in Q.BY_ID and Q.applies(Q.BY_ID[k], kind)})
-    changed = tuple(q for q, a in full.items() if u.answer(q) != a)
-    surprise = min(2.0, 0.2 + len(changed) / max(1, len(full)) * 2)
+    obs = O.observe_thinker(cortex, text, context, u, theirs, reply)
+    if obs.action == O.DROP or not obs.answers or obs.lesson is None:
+        return None
+    full = obs.answers
+    changed = obs.changed
+    surprise = obs.surprise
     ledger.consulted += 1
     ledger.agreed += not any(q in changed for q in ("kind", "self", "others", "effect"))
-    cortex.learn(Lesson(text, full, tuple(context), reply, "teacher", 1.0), surprise=surprise)
+    if obs.action == O.DISPUTED and hasattr(cortex, "memory") and hasattr(cortex, "patterns"):
+        # Hold disputed observations in hippocampus with decaying priority_trace rather than aggressively shifting synapses.
+        if hasattr(cortex, "familiar"):
+            cortex.familiar.learn([obs.lesson.text])
+        cortex.memory.keep(obs.lesson, cortex.patterns([obs.lesson.text], [obs.lesson.context])[0])
+    else:
+        _learn_compat(cortex, obs.lesson, surprise=surprise, trust_clip=obs.trust_clip, step_scale=obs.step_scale)
     ledger.learned.append([text, list(changed)])
     answers = {}
     for q in Q.QUESTIONS:
@@ -103,7 +126,7 @@ def consult(cortex, teacher, text: str, context: tuple[str, ...], u) -> Taught |
         rest = (1 - TEACHER_SURE) / max(1, len(p) - 1)
         p = [x if x else rest for x in p]
         answers[q.id] = (a, TEACHER_SURE, tuple(p))
-    return Taught(answers, reply, theirs, changed, surprise)
+    return Taught(answers, obs.safe_reply, theirs, changed, surprise, obs.disputed, obs.reply_grounded)
 
 
 __all__ = ["Ledger", "Taught", "consult", "needs"]

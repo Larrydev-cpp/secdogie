@@ -15,6 +15,16 @@ from .carrier import AsyncCarrierHost, Carrier, CarrierSet, MemoryCarrier, Memor
 from .dht import RoutingTable, find_node, find_peer, node_id, xor_distance
 from .endpoint import Endpoint, EndpointSet
 from .failover import FailoverTransport
+from .hybrid_tunnel import (
+    TIER_LAN,
+    TIER_ORDER,
+    TIER_RELAY,
+    TIER_WEBRTC,
+    HybridTunnel,
+    PeerLinkStatus,
+    SendOutcome,
+    tier_label,
+)
 from .membership import MembershipView, PeerRecord, gossip_round
 from .mux import ChannelMux
 from .peer import PeerIdentity
@@ -23,6 +33,16 @@ from .rendezvous import RendezvousClient, RendezvousLink, RendezvousServer, Rend
 from .revocation_gossip import REVOCATION_GOSSIP, RevocationGossip
 from .sealed import ReplayWindow, load_transport_key
 from .session import Session
+from .star import (
+    ROLE_HUB,
+    ROLE_SPOKE,
+    IdempotentReceiver,
+    SequencedFrame,
+    SequencedFrameQueue,
+    SpokeRecord,
+    StarAuthorityError,
+    StarTopology,
+)
 from .transport import HubTransport, Transport
 from .udp import DirectTransport, DirectUDPTransport, UDPChannel
 from .upgrade import DirectUpgrader, UpgradeState
@@ -66,4 +86,20 @@ __all__ = [
     "find_peer",
     "node_id",
     "xor_distance",
+    "ROLE_HUB",
+    "ROLE_SPOKE",
+    "StarTopology",
+    "StarAuthorityError",
+    "SpokeRecord",
+    "SequencedFrame",
+    "SequencedFrameQueue",
+    "IdempotentReceiver",
+    "HybridTunnel",
+    "PeerLinkStatus",
+    "SendOutcome",
+    "TIER_LAN",
+    "TIER_WEBRTC",
+    "TIER_RELAY",
+    "TIER_ORDER",
+    "tier_label",
 ]

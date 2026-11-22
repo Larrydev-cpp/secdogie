@@ -62,24 +62,54 @@ def _cells(unit: str) -> tuple[int, ...]:
 
 @dataclass
 class Familiarity:
-    cells: np.ndarray  # (CELLS,) bool: potentiated
+    cells: np.ndarray  # (CELLS,) bool: potentiated (Gen 1 Bloom filter)
+    sememe: object | None = None  # optional sememe_vsa.MeaningStore (Gen 2+ meaning sensor)
+    mode: str = "bloom"  # "bloom" (Gen 1 legacy) | "sememe" (Gen 2+ meaning-level VSA)
 
     @classmethod
-    def new(cls) -> Familiarity:
-        return cls(np.zeros(CELLS, bool))
+    def new(cls, *, mode: str = "bloom") -> Familiarity:
+        store = None
+        if mode == "sememe":
+            from .sememe_vsa import MeaningStore
+
+            store = MeaningStore()
+        return cls(np.zeros(CELLS, bool), store, mode)
+
+    @classmethod
+    def with_sememe(cls, texts: Iterable[str] = ()) -> Familiarity:
+        fam = cls.new(mode="sememe")
+        if texts:
+            fam.learn(texts)
+        return fam
+
+    def copy(self) -> Familiarity:
+        store_copy = self.sememe.copy() if self.sememe is not None else None
+        return Familiarity(self.cells.copy(), store_copy, self.mode)
+
+    def mount_sememe(self, texts: Iterable[str] = ()) -> None:
+        """Upgrade this familiarity sensor to meaning-level Sememe-VSA (used when descending to Gen 2+)."""
+        if self.sememe is None:
+            from .sememe_vsa import MeaningStore
+
+            self.sememe = MeaningStore()
+        self.mode = "sememe"
+        if texts:
+            self.sememe.add(texts)
 
     def learn(self, texts: Iterable[str]) -> int:
+        seq = list(texts)
         before = int(self.cells.sum())
-        for t in texts:
+        for t in seq:
             for u in units(t):
                 self.cells[list(_cells(u))] = True
+        if self.sememe is not None:
+            self.sememe.add(seq)
         return int(self.cells.sum()) - before
 
     def known(self, unit: str) -> bool:
         return bool(self.cells[list(_cells(unit))].all())
 
-    def novelty(self, text: str) -> tuple[float, tuple[str, ...]]:
-        """(share of the reading units never met, the stretches of the text they are in, without repeats)."""
+    def _bloom_novelty(self, text: str) -> tuple[float, tuple[str, ...]]:
         us = units(text)
         if not us:
             return 0.0, ()
@@ -95,12 +125,34 @@ class Familiarity:
                 spans.append(u)
         return len(new) / len(us), tuple(spans)
 
+    def novelty(self, text: str) -> tuple[float, tuple[str, ...]]:
+        """(unfamiliarity 0..1, unfamiliar stretches without repeats).
+
+        Uses meaning-level Sememe-VSA when mounted in ``sememe`` mode (Gen 2+), and the legacy
+        character-unit Bloom filter in ``bloom`` mode (Gen 1).
+        """
+        if self.mode == "sememe" and self.sememe is not None:
+            nov, spans = self.sememe.novelty(text)
+            if not spans and nov >= 0.25:
+                _, bloom_spans = self._bloom_novelty(text)
+                spans = bloom_spans
+            return nov, spans
+        return self._bloom_novelty(text)
+
     def pack(self) -> bytes:
         return np.packbits(self.cells).tobytes()
 
+    def pack_sememe(self) -> bytes | None:
+        return self.sememe.pack() if self.sememe is not None else None
+
     @classmethod
-    def unpack(cls, data: bytes) -> Familiarity:
-        return cls(np.unpackbits(np.frombuffer(data, np.uint8))[:CELLS].astype(bool))
+    def unpack(cls, data: bytes, *, sememe_data: bytes | None = None) -> Familiarity:
+        cells = np.unpackbits(np.frombuffer(data, np.uint8))[:CELLS].astype(bool)
+        if sememe_data:
+            from .sememe_vsa import MeaningStore
+
+            return cls(cells, MeaningStore.unpack(sememe_data), "sememe")
+        return cls(cells, None, "bloom")
 
 
 __all__ = ["CELLS", "Familiarity", "units"]

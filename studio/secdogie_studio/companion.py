@@ -25,10 +25,10 @@ itself.
 """
 from __future__ import annotations
 
+import json
 import re
 import time
 
-import yaml
 from secdogie_citadel.decision import DecisionModel
 from secdogie_citadel.rules import GateRules
 from secdogie_dialogue.app import AppController
@@ -466,10 +466,21 @@ class Companion:
 
 def parse_rules(text: str, lang: str = "zh") -> dict:
     """YAML (or JSON) to a gate-rules body; raises ValueError in plain words."""
+    if not text.strip():
+        return {}
     try:
-        body = yaml.safe_load(text) if text.strip() else {}
-    except yaml.YAMLError as e:
-        raise ValueError(pick(lang, f"看不懂这段 YAML：{e}", f"This YAML does not read: {e}")) from None
+        import yaml
+    except ModuleNotFoundError:
+        try:
+            body = json.loads(text)
+        except ValueError as e:
+            raise ValueError(pick(lang, f"看不懂这段规则（缺少 PyYAML，仅支持 JSON）：{e}",
+                                  f"Could not parse rules (PyYAML unavailable, JSON only): {e}")) from None
+    else:
+        try:
+            body = yaml.safe_load(text)
+        except yaml.YAMLError as e:
+            raise ValueError(pick(lang, f"看不懂这段 YAML：{e}", f"This YAML does not read: {e}")) from None
     if body is None:
         body = {}
     if not isinstance(body, dict):

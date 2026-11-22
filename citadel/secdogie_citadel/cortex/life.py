@@ -47,7 +47,8 @@ def birth(*, seed: int = 0, epochs: int | None = None, genome: dict | None = Non
 
 
 def grow(c: Cortex, rounds: int, folder: str | Path, *, seed: int = 1, say: Callable[[str], None] = print,
-         improver: Improver | None = None) -> tuple[Cortex, Improver, list[dict]]:
+         improver: Improver | None = None, adversarial: list[E.Item] | tuple[E.Item, ...] = (),
+         is_hub: bool = True) -> tuple[Cortex, Improver, list[dict]]:
     folder = Path(folder)
     lessons, held = C.split(C.load())
     items = E.load()
@@ -59,7 +60,7 @@ def grow(c: Cortex, rounds: int, folder: str | Path, *, seed: int = 1, say: Call
     base = None
     for k in range(rounds):
         t = time.monotonic()
-        r = improve(c, lessons, held, items, imp, rng, archive=archive, base=base)
+        r = improve(c, lessons, held, items, imp, rng, archive=archive, base=base, adversarial=adversarial, is_hub=is_hub)
         tried = ", ".join(f"{x.op} {x.gain:+.3f} ({x.outcome})" for x in r.tried)
         if r.child is not None:
             c = r.child

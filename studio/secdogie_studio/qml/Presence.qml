@@ -21,7 +21,7 @@ Window {
     flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
     color: "transparent"
     title: "secdogie"
-    visible: !P.homeOpen
+    visible: !!P.floatingOrb && !P.homeOpen
 
     // ---- size: the light alone, a whisper, or a sheet above it -----------------------------------
     // The window is only as big as what it shows, so the rest of the desktop stays the person's.
