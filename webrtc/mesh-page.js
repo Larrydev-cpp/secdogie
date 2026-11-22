@@ -7,6 +7,7 @@
 
 import { existingIdentity, listDevices, listMemberships, rosterOf } from './client/keystore.js';
 import { LinkState, createMesh } from './client/mesh.js';
+import { parseIceServers } from './client/web_peer.js';
 
 const WORDS = {
   zh: {
@@ -211,6 +212,7 @@ async function choose(key) {
     page.mesh = await createMesh({
       me: c.me, mesh: c.mesh, owners: c.owners, admission: c.admission, admissions: c.admissions, name: c.name,
       signalingUrl: $('signal').value.trim(),
+      iceServers: parseIceServers(new URLSearchParams(location.search).get('ice') || store.get('secdogie.ice')),
       log: new URLSearchParams(location.search).has('debug') ? (line) => console.debug(`[mesh] ${line}`) : undefined,
     });
     page.mesh.onChange(() => paint());
@@ -264,7 +266,12 @@ for (const b of document.querySelectorAll('.lang button')) {
   });
 }
 
-window.addEventListener('pagehide', () => page.mesh?.goOffline());
+window.addEventListener('pagehide', (event) => {
+  if (!event.persisted) page.mesh?.goOffline();
+});
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted) page.mesh?.reconnect?.();
+});
 
 (async function start() {
   if (!globalThis.isSecureContext || !globalThis.crypto?.subtle) {

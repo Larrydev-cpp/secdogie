@@ -156,7 +156,7 @@ def _bipolar_vec(tag: str):
     raw = bytearray()
     counter = 0
     while len(raw) < PACKED_BYTES:
-        h = hashlib.blake2b(f"{tag}:{counter}".encode("utf-8"), digest_size=64, person=b"sd-vsa-1").digest()
+        h = hashlib.blake2b(f"{tag}:{counter}".encode(), digest_size=64, person=b"sd-vsa-1").digest()
         raw.extend(h)
         counter += 1
     packed = bytes(raw[:PACKED_BYTES])

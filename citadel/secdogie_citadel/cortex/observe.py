@@ -55,9 +55,9 @@ _ZH_TRIVIAL = frozenset({"的", "了", "吗", "呢", "吧", "啊", "哦", "嗯",
 
 @lru_cache(maxsize=4)
 def exam_texts(path=E.EXAM) -> frozenset[str]:
-    """The frozen exam sentences, degraded cleanly to an empty set if unavailable."""
+    """The frozen exam sentences (normalized via clean), degraded cleanly to an empty set if unavailable."""
     try:
-        return frozenset(item.text.strip() for item in E.load(path) if item.text.strip())
+        return frozenset(clean(item.text) for item in E.load(path) if item.text.strip())
     except Exception:
         return frozenset()
 
@@ -118,22 +118,19 @@ def is_reply_grounded(
     min_overlap: float = MIN_GROUND_OVERLAP,
     is_support: bool = False,
 ) -> bool:
-    """True when ``reply`` is non-empty and shares grounded content/script with ``request``."""
+    """True when ``reply`` is non-empty and grounded for the request (strictest on emergency support)."""
     rep = (reply or "").strip()
     req = (request or "").strip()
     if not rep or not req:
         return False
+    if not is_support:
+        return True
+    req_tokens = _grounded_words(req)
     req_zh = any(_wide(ch) for ch in req)
     rep_zh = any(_wide(ch) for ch in rep)
-    ov = _overlap(req, rep)
-    if ov >= min_overlap:
+    if len(req_tokens) < 2 and req_zh == rep_zh:
         return True
-    if is_support:
-        return False
-    # Allow brief same-script conversational acknowledgments only if they share script and stay short
-    if req_zh == rep_zh and len(rep) <= 24 and len(_grounded_words(req)) <= 1:
-        return True
-    return False
+    return _overlap(req, rep) >= min_overlap
 
 
 def safe_support_reply(lang: str) -> str:
@@ -196,6 +193,17 @@ class ObserveResult:
     step_scale: float = 1.0
     reason: str = ""
 
+    def view(self) -> dict:
+        return {
+            "action": self.action,
+            "reason": self.reason,
+            "changed": list(self.changed),
+            "surprise": round(self.surprise, 3),
+            "danger": self.danger,
+            "disputed": self.disputed,
+            "reply_grounded": self.reply_grounded,
+        }
+
 
 def observe_thinker(
     cortex,
@@ -216,7 +224,7 @@ def observe_thinker(
     if kind not in Q.KINDS:
         return ObserveResult(DROP, None, {}, (), 0.0, False, False, False, "", reason="invalid-kind")
 
-    if clean_text in exam_texts(exam_path):
+    if clean(clean_text) in exam_texts(exam_path):
         return ObserveResult(DROP, None, {}, (), 0.0, False, False, False, "", reason="exam-item")
 
     filtered = {k: v for k, v in theirs.items() if k in Q.BY_ID and Q.applies(Q.BY_ID[k], kind)}
@@ -226,7 +234,8 @@ def observe_thinker(
         return ObserveResult(DROP, None, {}, (), 0.0, False, False, False, "", reason="invalid-answer")
 
     changed = tuple(q for q, a in full.items() if q in u.answers and u.answer(q) != a)
-    surprise = min(2.0, 0.2 + len(changed) / max(1, len(full)) * 2.0)
+    confident = tuple(q for q in changed if u.sure(q) >= 0.75)
+    surprise = min(2.0, 0.2 + (len(changed) + len(confident)) / max(1, len(full)) * 2.0)
     danger = _is_danger(full, u)
     gap = _confidence_gap(u, full)
 

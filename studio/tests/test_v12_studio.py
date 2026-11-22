@@ -48,6 +48,8 @@ class _FakeProfile:
         self.cortex = root / "cortex"
         self._op = Identity.generate()
         self._node = Identity.generate()
+        self.node_key = root / "node.key"
+        self._node.save(self.node_key)
 
     def operator_did(self) -> str:
         return self._op.did
@@ -91,6 +93,57 @@ def test_phase3_devices_snapshot_exposes_star_role_and_3tier_link_status(tmp_pat
 
     devices.set_peer_tier(peer.did, TIER_RELAY)
     assert devices.snapshot()["devices"][0]["tierLabel"] == "E2EE 加密中继"
+
+
+def test_phase3_go_online_blank_signal_starts_local_lan_signaling(tmp_path):
+    profile = _FakeProfile(tmp_path)
+    peer = Identity.generate()
+    devices = Devices(profile, lang=lambda: "zh")
+    adm_self = create_admission(profile._op, "home", profile._node.did, invite_id="c" * 32, name="Hub PC")
+    adm_peer = create_admission(profile._op, "home", peer.did, invite_id="d" * 32, name="Phone")
+    devices._state["self"] = adm_self
+    devices._keep_device(adm_peer)
+
+    stopped = []
+
+    class _FakeLocal:
+        running = True
+        signal_url = "ws://192.168.1.42:54321/ws"
+        page_url = "http://192.168.1.42:54322/pair.html"
+
+        def stop(self):
+            self.running = False
+            stopped.append(True)
+
+    fake_local = _FakeLocal()
+    scheduled = []
+
+    def _fake_here():
+        devices._local = fake_local
+        return fake_local
+
+    def _fake_run(coro):
+        scheduled.append(coro.__qualname__)
+        coro.close()
+        return None
+
+    devices._here = _fake_here
+    devices._run = _fake_run
+
+    devices.go_online("")
+    assert devices._mesh is not None
+    assert devices._local is fake_local and fake_local.running
+    assert devices._mesh.signal_url == fake_local.signal_url
+    assert devices._mesh.default_tier == TIER_LAN
+    assert scheduled == ["MeshNode.start"]
+    # Auto-started LAN signaling is ephemeral and does not overwrite persisted custom gateway settings
+    assert devices.settings()["signal"] == ""
+
+    devices.go_offline()
+    assert devices._mesh is None
+    assert devices._local is None
+    assert stopped == [True]
+    assert scheduled == ["MeshNode.start", "MeshNode.stop"]
 
 
 def test_phase4_desktop_agent_toggle_context_echo_and_privilege_guide(tmp_path):

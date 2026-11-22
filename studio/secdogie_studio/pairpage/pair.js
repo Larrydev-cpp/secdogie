@@ -23,7 +23,8 @@ import {
   saveRoster,
 } from './client/keystore.js';
 import {
-  PeerState, closePeerConnection, currentDescriptions, onMessage, onStateChange, sendData, startPeerConnection,
+  PeerState, closePeerConnection, currentDescriptions, onMessage, onStateChange, parseIceServers, sendData,
+  startPeerConnection,
 } from './client/web_peer.js';
 
 // ---- words ---------------------------------------------------------------------------
@@ -553,6 +554,11 @@ function defaultSignal() {
   return fromUrl || store.get('secdogie.signal') || 'ws://localhost:8787/ws';
 }
 
+function customIceServers() {
+  const fromUrl = new URLSearchParams(location.search).get('ice');
+  return parseIceServers(fromUrl || store.get('secdogie.ice'));
+}
+
 $('invite-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   const mesh = $('mesh').value.trim();
@@ -569,7 +575,7 @@ $('invite-form').addEventListener('submit', async (event) => {
   closePeerConnection();
   Object.assign(ctx, fresh());
   const room = `pair-${randomHex32()}`;
-  const joined = startPeerConnection({ signalingUrl: signal, room, log: debugLog });
+  const joined = startPeerConnection({ signalingUrl: signal, room, iceServers: customIceServers(), log: debugLog });
   joined.catch(() => {}); // awaited below; this only keeps an early failure from going unhandled
   $('write').disabled = true;
   try {
@@ -681,25 +687,40 @@ $('forget').addEventListener('click', async () => {
 $('agree-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   if (ctx.phase !== 'card') return;
-  const checked = await verifyInvite(ctx.invite); // it may have expired while the page sat open
-  if (!checked.ok) {
-    ctx.inviteError = checked.reason;
+  // Check expiry synchronously BEFORE any await so mobile Safari/Chrome keep userActivation.isActive
+  // when startPeerConnection() runs inside this tap gesture.
+  if (!ctx.invite || now() >= ctx.invite.expires_at) {
+    ctx.inviteError = 'the invite has expired';
     return setPhase('invalid');
   }
   ctx.name = cleanName($('device-name').value);
   store.set('secdogie.device-name', ctx.name);
-  const joined = startPeerConnection({ signalingUrl: ctx.invite.signal, room: ctx.invite.room, log: debugLog });
+  const joined = startPeerConnection({
+    signalingUrl: ctx.invite.signal, room: ctx.invite.room, iceServers: customIceServers(), log: debugLog,
+  });
   joined.catch(() => {});
   setPhase('joining');
   $('agree').disabled = true;
   setStatus('st.connecting');
   try {
+    const checked = await verifyInvite(ctx.invite);
+    if (!checked.ok) {
+      closePeerConnection();
+      ctx.inviteError = checked.reason;
+      return setPhase('invalid');
+    }
     const { identity, remembered } = await loadOrCreateIdentity('device');
     ctx.me = identity;
     ctx.remembered = remembered;
     await joined;
   } catch (err) {
     finish('ended', 'st.failed', { detail: err.message }, 'warn');
+  }
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && !ctx.finished && ctx.myBind && !ctx.peerHasMine) {
+    sendBind();
   }
 });
 

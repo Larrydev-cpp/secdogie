@@ -37,7 +37,13 @@ from .pairing import normalize_fingerprint
 log = logging.getLogger("secdogie.transport.rtc")
 
 DATA_CHANNEL_LABEL = "secdogie-data"
-DEFAULT_ICE_SERVERS = ("stun:stun.l.google.com:19302",)
+DEFAULT_ICE_SERVERS = (
+    "stun:stun.cloudflare.com:3478",
+    "stun:stun.miwifi.com:3478",
+    "stun:stun.qq.com:3478",
+    "stun:stun.l.google.com:19302",
+    "stun:stun1.l.google.com:19302",
+)
 PING_INTERVAL = 20.0
 _FP_LINE = re.compile(r"^a=fingerprint:(sha-256 [0-9A-Fa-f:]+)\s*$", re.MULTILINE)
 _ROOM = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -247,7 +253,19 @@ class RtcPeer:
     def _new_pc(self):
         from aiortc import RTCConfiguration, RTCIceServer, RTCPeerConnection
 
-        cfg = RTCConfiguration(iceServers=[RTCIceServer(urls=u) for u in self.ice_servers])
+        servers = []
+        for entry in self.ice_servers:
+            if isinstance(entry, dict):
+                servers.append(
+                    RTCIceServer(
+                        urls=entry["urls"],
+                        username=entry.get("username"),
+                        credential=entry.get("credential"),
+                    )
+                )
+            else:
+                servers.append(RTCIceServer(urls=entry))
+        cfg = RTCConfiguration(iceServers=servers)
         pc = RTCPeerConnection(configuration=cfg)
         self._pc = pc
 

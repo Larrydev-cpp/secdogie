@@ -69,6 +69,7 @@ class Devices:
         self.on_rules = lambda chain: None  # a chain came in from another device: offer it to this node
         self._state = self._read()
         self._tiers: dict[str, str] = {}  # did -> active link tier ("lan" | "webrtc" | "relay")
+        self._online_here = False  # True when go_online() started local LAN signaling itself
 
     # ---- what is kept --------------------------------------------------------------------
 
@@ -292,23 +293,35 @@ class Devices:
 
     # ---- online ---------------------------------------------------------------------------
 
-    def go_online(self, signal: str) -> None:
+    def go_online(self, signal: str = "") -> None:
         from secdogie_transport.hybrid_tunnel import TIER_LAN, TIER_WEBRTC
         from secdogie_transport.mesh_rtc import MeshNode
         from secdogie_transport.star import ROLE_HUB, ROLE_SPOKE
 
-        if self._mesh is not None or not self._state.get("self") or not signal.startswith(("ws://", "wss://")):
+        if self._mesh is not None or not self._state.get("self"):
             return
-        self.set_settings(signal, self.settings()["page"])
+        sig = (signal or "").strip()
+        here = not sig
+        if here:
+            try:
+                local = self._here()
+                sig = local.signal_url
+            except OSError:
+                return
+        elif not sig.startswith(("ws://", "wss://")):
+            return
+        else:
+            self.set_settings(sig, self.settings()["page"])
         node = Identity.load(self.profile.node_key)
         topo_role = ROLE_HUB if self._state.get("role", "owner") == "owner" else ROLE_SPOKE
-        is_lan_sig = signal.startswith(("ws://127.", "ws://192.168.", "ws://10.", "ws://172.", "ws://localhost"))
+        is_lan_sig = here or sig.startswith(("ws://127.", "ws://192.168.", "ws://10.", "ws://172.", "ws://localhost"))
         mesh = MeshNode(node, mesh=self._state["mesh"], owners=self._state["owners"], admission=self._state["self"],
-                        admissions=self._state["devices"], name=self.device_name(), signal_url=signal,
+                        admissions=self._state["devices"], name=self.device_name(), signal_url=sig,
                         role=topo_role, default_tier=TIER_LAN if is_lan_sig else TIER_WEBRTC,
                         on_note=self._note, on_policy=self._incoming)
         mesh.set_chain(self.chain())
         self._mesh = mesh
+        self._online_here = here
         self._run(mesh.start())
 
     def set_peer_tier(self, did: str, tier: str) -> None:
@@ -325,8 +338,11 @@ class Devices:
 
     def go_offline(self) -> None:
         mesh, self._mesh = self._mesh, None
+        online_here, self._online_here = self._online_here, False
         if mesh is not None:
             self._run(mesh.stop())
+        if online_here and self._pair.get("phase") not in ("waiting", "compare", "admitting"):
+            self._stop_here()
 
     def say(self, text: str) -> None:
         mesh = self._mesh

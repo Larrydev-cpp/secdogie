@@ -110,13 +110,14 @@
 
 <script type="module">
   import {
-    PeerState, startPeerConnection, closePeerConnection, sendData, onMessage, onStateChange,
+    PeerState, startPeerConnection, closePeerConnection, sendData, onMessage, onStateChange, parseIceServers,
   } from './client/web_peer.js';
 
   const $ = (id) => document.getElementById(id);
   const params = new URLSearchParams(location.search);
   $('signal').value = params.get('signal') ?? 'ws://localhost:8787/ws';
   if (params.has('room')) $('room').value = params.get('room');
+  const iceServers = parseIceServers(params.get('ice'));
 
   function log(kind, text) {
     const item = document.createElement('li');
@@ -152,6 +153,7 @@
       const { peerId, room } = await startPeerConnection({
         signalingUrl: $('signal').value.trim(),
         room: $('room').value.trim(),
+        iceServers,
         log: (line) => log('sys', line),
       });
       log('sys', `本节点 ${peerId} 已加入房间 ${room}`);

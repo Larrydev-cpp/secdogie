@@ -34,16 +34,47 @@ export const PeerState = Object.freeze({
   FAILED: 'failed', // gave up; startPeerConnection() may be called again
 });
 
-const DEFAULT_ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
+export const DEFAULT_ICE_SERVERS = Object.freeze([
+  { urls: 'stun:stun.cloudflare.com:3478' },
+  { urls: 'stun:stun.miwifi.com:3478' },
+  { urls: 'stun:stun.qq.com:3478' },
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+]);
 const DATA_CHANNEL_LABEL = 'secdogie-data';
 const ROOM_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const PING_INTERVAL_MS = 20_000; // well under the gateway's 60 s idle timeout
 const NEGOTIATION_TIMEOUT_MS = 30_000; // link created -> data channel open
-const DISCONNECT_GRACE_MS = 8_000; // ICE 'disconnected' this long => link lost
+const DISCONNECT_GRACE_MS = 10_000; // mobile Wi-Fi <-> 4G/5G handoff grace before link lost
 const MAX_RENEGOTIATIONS = 3; // offerer retries after a lost link...
 const RENEGOTIATION_BACKOFF_MS = 1_000; // ...waiting 1 s, 2 s, 4 s
 const BUFFER_HIGH_WATER = 1024 * 1024; // sendData() waits above this...
 const BUFFER_LOW_WATER = 256 * 1024; // ...until the send buffer drains below this
+
+/**
+ * Normalizes optional custom ICE/TURN server configuration (JSON array, comma-separated
+ * stun:/turn: URLs, or RTCIceServer array) and falls back to DEFAULT_ICE_SERVERS.
+ */
+export function parseIceServers(input) {
+  if (!input) return DEFAULT_ICE_SERVERS.map((s) => ({ ...s }));
+  if (Array.isArray(input)) {
+    const out = input.filter((s) => s && (typeof s === 'string' || typeof s.urls === 'string' || Array.isArray(s.urls)))
+      .map((s) => (typeof s === 'string' ? { urls: s } : s));
+    return out.length ? out : DEFAULT_ICE_SERVERS.map((s) => ({ ...s }));
+  }
+  const text = String(input).trim();
+  if (!text) return DEFAULT_ICE_SERVERS.map((s) => ({ ...s }));
+  if (text.startsWith('[')) {
+    try {
+      return parseIceServers(JSON.parse(text));
+    } catch {
+      return DEFAULT_ICE_SERVERS.map((s) => ({ ...s }));
+    }
+  }
+  const urls = text.split(',').map((u) => u.trim()).filter((u) => /^(stuns?|turns?):/i.test(u));
+  if (!urls.length) return DEFAULT_ICE_SERVERS.map((s) => ({ ...s }));
+  return [...urls.map((u) => ({ urls: u })), ...DEFAULT_ICE_SERVERS.map((s) => ({ ...s }))];
+}
 
 /** One peer: its running session (or null), its state and its listeners. */
 function newPeer() {
@@ -87,7 +118,7 @@ async function startOn(peer, {
     peer,
     url: signalingEndpoint(signalingUrl, room),
     room,
-    iceServers,
+    iceServers: parseIceServers(iceServers),
     log,
     ws: null,
     peerId: null,
@@ -198,6 +229,10 @@ function signalingEndpoint(signalingUrl, room) {
   if (!signalingUrl) throw new TypeError('signalingUrl is required, e.g. "wss://<worker>.workers.dev/ws"');
   const url = new URL(signalingUrl, globalThis.location?.href);
   if (url.protocol !== 'ws:' && url.protocol !== 'wss:') throw new TypeError('signalingUrl must be a ws: or wss: URL');
+  const isLoopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
+  if (globalThis.location?.protocol === 'https:' && url.protocol === 'ws:' && !isLoopback) {
+    throw new Error('HTTPS pages require a wss:// signaling address (mobile browsers block insecure ws://)');
+  }
   if (!ROOM_PATTERN.test(room)) throw new TypeError('room must be 1-64 characters of [A-Za-z0-9_-]');
   url.searchParams.set('room', room);
   return url;
@@ -306,7 +341,9 @@ function createLink(s, remoteId, role) {
     remoteId,
     channel: null,
     descriptionSent: false,
+    remoteDescriptionSet: false,
     outbox: [], // local ICE candidates gathered before our offer/answer went out
+    pendingCandidates: [], // remote ICE candidates received before setRemoteDescription finished (iOS/WebKit)
     negotiationTimer: null,
     graceTimer: null,
   };
@@ -314,12 +351,29 @@ function createLink(s, remoteId, role) {
 
   pc.onicecandidate = ({ candidate }) => {
     if (!candidate || !isCurrent(s, link)) return; // null marks the end of gathering
-    const msg = { type: 'ice-candidate', to: remoteId, payload: candidate.toJSON() };
+    const payload = typeof candidate.toJSON === 'function' ? candidate.toJSON() : {
+      candidate: candidate.candidate,
+      sdpMid: candidate.sdpMid ?? null,
+      sdpMLineIndex: candidate.sdpMLineIndex ?? null,
+      usernameFragment: candidate.usernameFragment ?? null,
+    };
+    const msg = { type: 'ice-candidate', to: remoteId, payload };
     if (link.descriptionSent) signal(s, msg);
     else link.outbox.push(msg);
   };
   pc.oniceconnectionstatechange = () => {
     if (isCurrent(s, link)) onIceStateChange(s, link);
+  };
+  pc.onconnectionstatechange = () => {
+    if (!isCurrent(s, link)) return;
+    const cs = pc.connectionState;
+    if (cs === 'failed') linkLost(s, link, 'peer connection failed');
+    else if (cs === 'connected' && link.graceTimer) {
+      clearTimeout(link.graceTimer);
+      link.graceTimer = null;
+      const open = link.channel?.readyState === 'open';
+      setState(s.peer, open ? PeerState.CONNECTED : PeerState.NEGOTIATING, 'connection recovered');
+    }
   };
   pc.ondatachannel = ({ channel }) => {
     if (!isCurrent(s, link) || link.channel) {
@@ -352,14 +406,16 @@ async function startOffer(s) {
 
 async function handleOffer(s, from, description) {
   // An offer means the other side (re)started: whatever link we hold is stale.
-  // createLink() and setRemoteDescription() run before the first await, so ICE
-  // candidates that arrive right behind the offer queue up on the connection's
-  // operations chain after it.
+  // Queue any remote ICE candidates arriving before setRemoteDescription finishes
+  // (iOS Safari/WebKit rejects addIceCandidate while remoteDescription is null).
   s.remotePeerId = from;
   const link = createLink(s, from, 'answerer');
   const { pc } = link;
   try {
     await pc.setRemoteDescription(description);
+    if (!isCurrent(s, link)) return;
+    link.remoteDescriptionSet = true;
+    await flushRemoteCandidates(s, link);
     if (!isCurrent(s, link)) return;
     const answer = await pc.createAnswer();
     if (!isCurrent(s, link)) return;
@@ -379,17 +435,40 @@ async function handleAnswer(s, from, description) {
   }
   try {
     await link.pc.setRemoteDescription(description);
+    if (!isCurrent(s, link)) return;
+    link.remoteDescriptionSet = true;
+    await flushRemoteCandidates(s, link);
   } catch (err) {
     linkLost(s, link, `could not apply the answer: ${err.message}`);
+  }
+}
+
+async function addCandidateSafe(s, link, candidate) {
+  if (!isCurrent(s, link)) return;
+  // Mobile Safari rejects empty-string candidates with null mid/index; pass null for end-of-candidates.
+  const normalized = !candidate || candidate.candidate === '' ? null : candidate;
+  try {
+    await link.pc.addIceCandidate(normalized);
+  } catch (err) {
+    if (isCurrent(s, link)) s.log(`ignored an ICE candidate: ${err.message}`);
+  }
+}
+
+async function flushRemoteCandidates(s, link) {
+  while (link.pendingCandidates.length > 0 && isCurrent(s, link)) {
+    const cand = link.pendingCandidates.shift();
+    await addCandidateSafe(s, link, cand);
   }
 }
 
 function handleRemoteCandidate(s, from, candidate) {
   const link = s.link;
   if (link?.remoteId !== from) return; // belongs to a link we already dropped
-  link.pc.addIceCandidate(candidate).catch((err) => {
-    if (isCurrent(s, link)) s.log(`ignored an ICE candidate: ${err.message}`);
-  });
+  if (!link.remoteDescriptionSet && !link.pc.remoteDescription) {
+    link.pendingCandidates.push(candidate);
+    return;
+  }
+  addCandidateSafe(s, link, candidate);
 }
 
 function sendDescription(s, link) {
@@ -420,7 +499,7 @@ function onIceStateChange(s, link) {
         linkLost(s, link, 'ICE disconnected after the peer left the room');
         break;
       }
-      // Otherwise often transient (Wi-Fi hiccup, NAT rebinding): give ICE a
+      // Otherwise often transient (Wi-Fi <-> 4G/5G handoff, NAT rebinding): give ICE a
       // grace period to recover on its own before declaring the link lost.
       if (!link.graceTimer) {
         setState(s.peer, PeerState.DISCONNECTED, 'ICE connectivity lost; waiting for it to recover');

@@ -30,10 +30,24 @@ const ROOM = /^[A-Za-z0-9_-]{1,64}$/;
 const HEX32 = /^[0-9a-f]{32}$/;
 const FP = /^[0-9a-f]{64}$/;
 const SIGNAL = /^wss?:\/\/[A-Za-z0-9.\-[\]:]+(\/[A-Za-z0-9._~/-]*)?$/;
-const subtle = globalThis.crypto.subtle;
+const subtle = globalThis.crypto?.subtle;
 const utf8 = new TextEncoder();
 
 // ---- canonical JSON: json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False) ----
+
+function isWellFormedString(s) {
+  if (typeof s.isWellFormed === 'function') return s.isWellFormed();
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const next = s.charCodeAt(++i);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return false;
+    } else if (c >= 0xdc00 && c <= 0xdfff) {
+      return false;
+    }
+  }
+  return true;
+}
 
 function byCodePoint(a, b) {
   const x = Array.from(a);
@@ -49,7 +63,7 @@ function byCodePoint(a, b) {
 export function canonical(value) {
   if (value === null || typeof value === 'boolean') return JSON.stringify(value);
   if (typeof value === 'string') {
-    if (!value.isWellFormed()) throw new TypeError('a string with a lone surrogate has no canonical form');
+    if (!isWellFormedString(value)) throw new TypeError('a string with a lone surrogate has no canonical form');
     return JSON.stringify(value);
   }
   if (typeof value === 'number') {

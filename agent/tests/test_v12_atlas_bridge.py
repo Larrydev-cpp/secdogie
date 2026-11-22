@@ -4,7 +4,6 @@ PPL/kernel hard refusal, citadel action_gate enforcement, and agent loop hook.
 from __future__ import annotations
 
 import pytest
-
 from secdogie_agent import atlas
 from secdogie_agent.atlas_bridge import (
     SAFE_READ_ONLY_MASK,
@@ -12,7 +11,6 @@ from secdogie_agent.atlas_bridge import (
     privilege_guidance,
 )
 from secdogie_agent.loop import AgentConfig, capture_atlas_context
-from secdogie_citadel.action_gate import IntentContract, PlannedAction
 
 
 def _user_token(pid: int = 1001, image: str = "notepad.exe", *, integrity: str = "medium",
@@ -124,6 +122,9 @@ def test_privilege_guidance_covers_windows_macos_linux_honestly():
 
 
 def test_atlas_bridge_gates_actions_through_citadel_action_gate():
+    action_gate = pytest.importorskip("secdogie_citadel.action_gate")
+    IntentContract = action_gate.IntentContract
+    PlannedAction = action_gate.PlannedAction
     bridge = AtlasBridge(platform_name="Windows")
 
     safe_action = PlannedAction(

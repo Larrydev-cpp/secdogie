@@ -140,7 +140,7 @@ class Deliberation:
 
 
 UsageReader = Callable[[str], object]
-Teacher = Callable[[str, dict], "tuple[dict, str] | None"]  # (title, the cortex's answers) -> (answers, reply)
+Teacher = Callable[[str], "tuple[dict, str] | None"]  # (title) -> (answers, reply)
 
 
 _CORTEX = None
@@ -199,15 +199,11 @@ def deliberate(title: str, review: socratic.Review | None = None, *, cortex=None
         says, source = taught.reply, "teacher"
     elif u.reply and verdict in (TALK, SUPPORT):
         says, source = u.reply, "lesson"
-    if says:
+    if says and (verdict == SUPPORT or d.because == "danger"):
         from .cortex.observe import is_reply_grounded, safe_support_reply
 
-        emergency = verdict == SUPPORT or d.because == "danger"
-        if not is_reply_grounded(text, says, is_support=emergency):
-            if emergency:
-                says, source = safe_support_reply(lang), "safe-fallback"
-            else:
-                says, source = "", ""
+        if not is_reply_grounded(text, says, is_support=True):
+            says, source = safe_support_reply(lang), "safe-fallback"
     question = None
     if verdict == CLARIFY:
         qid = next((q for q in d.unsure if q in Q.BY_ID), "kind")

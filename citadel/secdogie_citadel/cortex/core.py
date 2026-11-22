@@ -169,6 +169,10 @@ class Cortex:
 
     # ---- learning -----------------------------------------------------------------------------------------------
 
+    def keep(self, lesson: C.Lesson) -> None:
+        """Keep a lesson in the hippocampus without modifying synapses or familiarity."""
+        self.memory.keep(lesson, self.patterns([lesson.text], [lesson.context])[0])
+
     def learn(self, lesson: C.Lesson, *, surprise: float = 1.0, trust_clip: float | None = None,
               step_scale: float = 1.0, user_corrected: bool = False, counterexample: bool = False) -> None:
         """A lesson while awake: kept at once, made familiar, and a small change to the synapses."""
@@ -185,7 +189,7 @@ class Cortex:
         self.opt.lr = self.genome["lr"] * 0.3 * max(0.05, min(1.0, step_scale))  # awake, synapses move only a little
         self.opt.step(self.net, learned.grads, clip=trust_clip if trust_clip is not None else 1.0)
         self.settle()
-        self.memory.keep(lesson, self.patterns([lesson.text], [lesson.context])[0])  # as it reads now, after learning
+        self.keep(lesson)  # as it reads now, after learning
 
     def sleep(self, old: Sequence[C.Lesson], rng: np.random.Generator, *, epochs: int | None = None,
               novel_probes: Sequence[str] = ()) -> S.Slept:

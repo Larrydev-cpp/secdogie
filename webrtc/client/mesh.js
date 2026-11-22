@@ -452,7 +452,32 @@ export async function createMesh({
     }
   }
 
+  function reconnect() {
+    if (!online) return;
+    for (const entry of links.values()) {
+      clearTimeout(entry.retryTimer);
+      entry.attempts = 0;
+      if (entry.peer.state === PeerState.IDLE || entry.peer.state === PeerState.FAILED) {
+        start(entry);
+      } else if (entry.authed) {
+        sendTo(entry, { m: 'ping', t: performance.now() });
+        sendTo(entry, entry.outbound.resumeMessage(entry.inbound.lastDeliveredSeq));
+      }
+    }
+  }
+
+  let onVisible = null;
+  let onNetOnline = null;
+
   function dropAll() {
+    if (onVisible && globalThis.document?.removeEventListener) {
+      globalThis.document.removeEventListener('visibilitychange', onVisible);
+      onVisible = null;
+    }
+    if (onNetOnline && globalThis.window?.removeEventListener) {
+      globalThis.window.removeEventListener('online', onNetOnline);
+      onNetOnline = null;
+    }
     for (const entry of links.values()) {
       clearTimeout(entry.retryTimer);
       clearInterval(entry.resendTimer);
@@ -475,10 +500,22 @@ export async function createMesh({
       online = true;
       changed();
       for (const did of roster.devices()) await ensureLink(did);
+      if (globalThis.document?.addEventListener) {
+        onVisible = () => {
+          if (globalThis.document.visibilityState === 'visible') reconnect();
+        };
+        globalThis.document.addEventListener('visibilitychange', onVisible);
+      }
+      if (globalThis.window?.addEventListener) {
+        onNetOnline = () => reconnect();
+        globalThis.window.addEventListener('online', onNetOnline);
+      }
       pinger = setInterval(() => {
         for (const entry of links.values()) if (entry.authed) sendTo(entry, { m: 'ping', t: performance.now() });
       }, PING_EVERY_MS);
     },
+    /** Re-establish dropped links immediately (e.g. mobile unlock or Wi-Fi <-> 5G handoff). */
+    reconnect,
     /** Go offline: every link closes now. */
     goOffline() {
       if (!online) return;

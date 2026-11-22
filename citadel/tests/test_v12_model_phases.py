@@ -14,19 +14,19 @@ Covers:
 """
 from __future__ import annotations
 
+import json
 import time
+import typing
 from pathlib import Path
 
 import numpy as np
 import pytest
-
-from secdogie_citadel.cortex import apprentice
+from secdogie_citadel.cortex import apprentice, rsi
 from secdogie_citadel.cortex import curriculum as C
 from secdogie_citadel.cortex import exam as E
 from secdogie_citadel.cortex import genome as G
 from secdogie_citadel.cortex import observe as O
 from secdogie_citadel.cortex import questions as Q
-from secdogie_citadel.cortex import rsi
 from secdogie_citadel.cortex import sememe_vsa as V
 from secdogie_citadel.cortex import sleep as S
 from secdogie_citadel.cortex.core import Cortex, Understanding
@@ -35,7 +35,7 @@ from secdogie_citadel.cortex.hippocampus import Hippocampus
 from secdogie_citadel.cortex.improver import Improver
 from secdogie_citadel.cortex.plasticity import Adam
 from secdogie_citadel.cortex.senses import Reading
-from secdogie_citadel.deliberate import SUPPORT, deliberate
+from secdogie_citadel.deliberate import SUPPORT, Teacher, deliberate
 
 TINY = Reading(n_read=256, n_context=16, k=(3, 3, 2), settle=6)
 DAY = time.mktime((2026, 3, 12, 14, 10, 0, 0, 0, -1))
@@ -183,6 +183,121 @@ def test_phase0_emergency_branch_intercepts_ungrounded_reply():
     assert d.says != bad_reply
     assert d.source == "safe-fallback"
     assert "热线" in d.says or "陪" in d.says
+
+
+def test_phase0_teacher_signature_and_zero_extra_thinker_calls():
+    args = typing.get_args(Teacher)
+    assert args and args[0] == [str]
+
+    c = _tiny(11)
+    calls: list[str] = []
+
+    def teacher(text: str):
+        calls.append(text)
+        return {"kind": "task", "effect": "makes"}, "好的，已记下。"
+
+    # When cortex is sure and spot_check is 0, teacher is NEVER called (0 calls).
+    c.genome["spot_check"] = 0.0
+    u_sure = Understanding("整理今天的笔记", _answers(kind=("task", 0.96), effect=("makes", 0.96)), novelty=0.0)
+    assert apprentice.consult(c, teacher, "整理今天的笔记", (), u_sure) is None
+    assert calls == []
+    assert c.ledger.alone == 1 and c.ledger.observed == 0
+
+    # When cortex is unsure, teacher is called strictly ONCE (never queried a second time).
+    u_unsure = Understanding("帮我把会议纪要归档", _answers(kind=("task", 0.4), effect=("makes", 0.4)), novelty=0.8)
+    taught = apprentice.consult(c, teacher, "帮我把会议纪要归档", (), u_unsure)
+    assert taught is not None
+    assert calls == ["帮我把会议纪要归档"]
+    assert c.ledger.consulted == 1 and c.ledger.observed == 1
+
+
+def test_phase0_reply_never_enters_familiar_and_cleaned_exam_guard():
+    c = _tiny(12)
+    c.genome["spot_check"] = 1.0
+    rare_reply_token = "xylophonequasar77"
+
+    # LEARN path: request enters familiar, teacher reply MUST NOT enter familiar
+    u_learn = Understanding("整理项目清单", _answers(kind=("task", 0.4), effect=("makes", 0.4)), novelty=0.8)
+    taught = apprentice.consult(
+        c,
+        lambda _t: ({"kind": "task", "effect": "makes"}, f"Sure, {rare_reply_token} ready."),
+        "整理项目清单",
+        (),
+        u_learn,
+    )
+    assert taught is not None
+    nov_reply, _ = c.familiar.novelty(rare_reply_token)
+    assert nov_reply == pytest.approx(1.0)
+
+    # DISPUTED path: reply still MUST NOT enter familiar
+    rare_disputed_token = "zephyrmandelbrot88"
+    u_disp = Understanding("清理临时缓存", _answers(kind=("task", 0.95), effect=("makes", 0.95)), novelty=0.0)
+    taught_disp = apprentice.consult(
+        c,
+        lambda _t: ({"kind": "chat"}, f"Just chatting {rare_disputed_token}"),
+        "清理临时缓存",
+        (),
+        u_disp,
+    )
+    assert taught_disp is not None and taught_disp.disputed is True
+    nov_disp_reply, _ = c.familiar.novelty(rare_disputed_token)
+    assert nov_disp_reply == pytest.approx(1.0)
+
+    # Cleaned exam guard blocks whitespace / case / full-width (NFKC) variants of frozen exam sentences
+    raw_exam = next((item.text for item in E.load() if any(ch.isalpha() for ch in item.text)), E.load()[0].text)
+    variant = f"  {'   '.join(raw_exam.upper().split())}  "
+    u_exam = Understanding(variant, _answers(kind=("task", 0.4), effect=("makes", 0.4)), novelty=0.8)
+    obs = O.observe_thinker(c, variant, (), u_exam, {"kind": "task", "effect": "makes"}, "ok")
+    assert obs.action == O.DROP and obs.reason == "exam-item"
+
+
+def test_phase0_acc_confident_contradiction_boosts_surprise():
+    c = _tiny(13)
+    theirs = {"kind": "task", "effect": "removes"}
+    u_uncertain = Understanding("处理旧日志", _answers(kind=("task", 0.5), effect=("makes", 0.5)), novelty=0.2)
+    u_confident = Understanding("处理旧日志", _answers(kind=("task", 0.95), effect=("makes", 0.95)), novelty=0.2)
+
+    obs_low = O.observe_thinker(c, "处理旧日志", (), u_uncertain, theirs, "处理旧日志。")
+    obs_high = O.observe_thinker(c, "处理旧日志", (), u_confident, theirs, "处理旧日志。")
+    assert obs_low.changed == obs_high.changed
+    assert obs_high.surprise > obs_low.surprise
+    assert obs_high.surprise <= 2.0
+
+
+def test_phase0_ledger_shadow_record_and_cortex_keep_preserves_digest(tmp_path: Path):
+    c = _tiny(14)
+    digest_before = c.digest()
+
+    # Cortex.keep() remembers a disputed lesson without changing synapses/digest
+    disputed_lesson = C.Lesson("测试争议条目", C.defaults("chat", {}), (), "", "teacher", 1.0, disputed=True, priority_trace=1.0)
+    c.keep(disputed_lesson)
+    assert len(c.memory) == 1
+    assert c.digest() == digest_before
+
+    # Shadow record captures DROP, DISPUTED, and LEARN while capping observations at 20
+    u_drop = Understanding("测试空输出", _answers(kind=("task", 0.4)), novelty=0.8)
+    assert apprentice.consult(c, lambda _t: ({}, ""), "测试空输出", (), u_drop) is None
+    assert c.ledger.consulted == 0 and c.ledger.observed == 1
+    assert c.ledger.observations[-1]["action"] == O.DROP
+
+    for i in range(25):
+        txt = f"普通日程任务_{i}"
+        u_i = Understanding(txt, _answers(kind=("task", 0.4), effect=("makes", 0.4)), novelty=0.8)
+        apprentice.consult(c, lambda _t: ({"kind": "task", "effect": "makes"}, "ok"), txt, (), u_i)
+    view = c.ledger.view()
+    assert view["observed"] == 26
+    assert len(view["observations"]) == 20
+
+    # Backward compatibility: old ledger.json without observed/observations loads cleanly
+    old_ledger = apprentice.Ledger(**{"alone": 3, "consulted": 2, "agreed": 1, "learned": []})
+    assert old_ledger.observed == 0 and old_ledger.observations == []
+    folder = c.save(tmp_path / "old_ledger_compat")
+    (folder / "ledger.json").write_text(
+        json.dumps({"alone": 4, "consulted": 1, "agreed": 1, "learned": []}),
+        encoding="utf-8",
+    )
+    loaded = Cortex.load(folder)
+    assert loaded.ledger.alone == 4 and loaded.ledger.observed == 0 and loaded.ledger.observations == []
 
 
 # ======================================================================================

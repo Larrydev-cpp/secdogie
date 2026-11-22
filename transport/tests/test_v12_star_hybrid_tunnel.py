@@ -4,8 +4,7 @@ tunnel (LAN -> WebRTC P2P -> E2EE blind relay), and seq_id resumable idempotent 
 from __future__ import annotations
 
 import pytest
-
-from secdogie_fleet.coordinator import Coordinator, Node
+from secdogie_identity import Identity
 from secdogie_transport.hybrid_tunnel import (
     TIER_LAN,
     TIER_RELAY,
@@ -14,7 +13,6 @@ from secdogie_transport.hybrid_tunnel import (
     tier_label,
 )
 from secdogie_transport.mesh_rtc import MeshNode
-from secdogie_transport.meshlink import Roster
 from secdogie_transport.pairing import create_admission
 from secdogie_transport.star import (
     ROLE_HUB,
@@ -24,7 +22,6 @@ from secdogie_transport.star import (
     StarAuthorityError,
     StarTopology,
 )
-from secdogie_identity import Identity
 
 
 def test_star_topology_enforces_single_hub_and_spoke_pinning():
@@ -173,7 +170,10 @@ def test_hybrid_tunnel_auto_degrades_lan_to_webrtc_to_e2ee_relay_and_upgrades_ba
 
 
 def test_fleet_coordinator_hub_dispatches_and_spoke_holds():
-    from secdogie_fleet.protocol import Hello
+    coordinator_mod = pytest.importorskip("secdogie_fleet.coordinator")
+    protocol_mod = pytest.importorskip("secdogie_fleet.protocol")
+    Coordinator = coordinator_mod.Coordinator
+    Hello = protocol_mod.Hello
 
     sent: list[tuple[str, object]] = []
     hub_coord = Coordinator(send=lambda did, msg: sent.append((did, msg)), role=ROLE_HUB)

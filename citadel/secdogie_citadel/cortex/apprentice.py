@@ -34,15 +34,30 @@ class Ledger:
     consulted: int = 0
     agreed: int = 0  # consultations where its own reading agreed on every question that matters
     learned: list = field(default_factory=list)  # the last few lessons it took (text, the answers that changed)
+    observed: int = 0  # shadow record: every external output inspected (learn, disputed, or drop)
+    observations: list = field(default_factory=list)  # last 20 shadow observation records
 
     @property
     def independence(self) -> float:
         total = self.alone + self.consulted
         return self.alone / total if total else 0.0
 
+    def record_observation(self, text: str, obs: O.ObserveResult) -> None:
+        self.observed += 1
+        self.observations.append({"text": text, **obs.view()})
+        if len(self.observations) > 20:
+            del self.observations[:-20]
+
     def view(self) -> dict:
-        return {"alone": self.alone, "consulted": self.consulted, "agreed": self.agreed,
-                "independence": round(self.independence, 3), "learned": self.learned[-20:]}
+        return {
+            "alone": self.alone,
+            "consulted": self.consulted,
+            "agreed": self.agreed,
+            "independence": round(self.independence, 3),
+            "learned": self.learned[-20:],
+            "observed": self.observed,
+            "observations": self.observations[-20:],
+        }
 
 
 @dataclass(frozen=True)
@@ -101,6 +116,7 @@ def consult(cortex, teacher, text: str, context: tuple[str, ...], u) -> Taught |
         return None
     theirs, reply = got
     obs = O.observe_thinker(cortex, text, context, u, theirs, reply)
+    ledger.record_observation(text, obs)
     if obs.action == O.DROP or not obs.answers or obs.lesson is None:
         return None
     full = obs.answers
@@ -108,11 +124,14 @@ def consult(cortex, teacher, text: str, context: tuple[str, ...], u) -> Taught |
     surprise = obs.surprise
     ledger.consulted += 1
     ledger.agreed += not any(q in changed for q in ("kind", "self", "others", "effect"))
-    if obs.action == O.DISPUTED and hasattr(cortex, "memory") and hasattr(cortex, "patterns"):
-        # Hold disputed observations in hippocampus with decaying priority_trace rather than aggressively shifting synapses.
+    if obs.action == O.DISPUTED and (hasattr(cortex, "keep") or (hasattr(cortex, "memory") and hasattr(cortex, "patterns"))):
+        # Hold disputed observations in hippocampus with decaying priority_trace rather than shifting synapses.
         if hasattr(cortex, "familiar"):
             cortex.familiar.learn([obs.lesson.text])
-        cortex.memory.keep(obs.lesson, cortex.patterns([obs.lesson.text], [obs.lesson.context])[0])
+        if hasattr(cortex, "keep"):
+            cortex.keep(obs.lesson)
+        else:
+            cortex.memory.keep(obs.lesson, cortex.patterns([obs.lesson.text], [obs.lesson.context])[0])
     else:
         _learn_compat(cortex, obs.lesson, surprise=surprise, trust_clip=obs.trust_clip, step_scale=obs.step_scale)
     ledger.learned.append([text, list(changed)])
