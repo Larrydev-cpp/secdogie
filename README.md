@@ -1,29 +1,44 @@
 # SecDogie
 
-A companion that lives on your own devices, thinks before it acts, and grows a
-mind of its own.
+**A 1,280-neuron spiking prefrontal cortex for your devices and AI agents — stops dangerous actions locally, learns while it sleeps, and never takes a screenshot.**
 
-Its decision model is not a language model. It is a network of spiking neurons
-that reads what you ask one character at a time, answers fourteen Socratic
-questions about it, each with how sure it is, and then plays the request out
-before anything is done. It learns by watching the output of an AI model you
-choose, and it improves itself in rounds that keep a change only when it is
-measurably better and no less safe.
+**给你的电脑与 AI Agent 装上一颗本地进化的生物前额叶：1,280 脉冲神经元本地拦截、世界模型多步因果闭包防拆步绕过、N 设备分布式 SNN 模型分片、零截屏。**
 
-The plan, the decisions and what comes next are in [`PLAN.md`](PLAN.md).
+SecDogie is both a **local safety shield for OpenClaw, Claude Code, Cursor & any MCP agent** (`secdogie-mcp`) and a **sovereign multi-device desktop companion** (`secdogie-studio`). Its decision model is not a language model and uses zero regular expressions or word lists: it is a network of 1,280 spiking neurons (partitionable across N personal devices via 1-bit spikes + Ed25519 DID quorum) that reads what you ask one character at a time, answers fourteen Socratic questions with calibrated confidence, tracks multi-step causal trajectories (`mind/trajectory.py`), anchors concrete episodic facts at neural coordinates (`ConcreteAnchor`), and improves itself in rounds that keep a change only when it is measurably better and no less safe.
 
-## Try it in a few minutes
+[Try the Interactive SNN Playground](docs/playground/index.html) · [Plug into OpenClaw / Claude Code (MCP)](#use-with-openclaw-claude-code--cursor-30-seconds) · [Red-Team Challenge](docs/RED_TEAM.md) · [Architecture Plan](PLAN.md)
 
-1. Download Studio for your system from the
-   [releases](https://github.com/Larrydev-cpp/secdogie/releases), open it, and
-   give it a name and a passphrase. (Run it once with `--self-test` first if
-   you want to see it check itself.)
-2. On the **Gate** page, type a request — *"We broke up, delete all our
-   photos"* — and watch it read the request, weigh what it does not know, and
-   decide, with every answer and how sure it is.
-3. On the **Devices** page, tap *Show the code*. On a phone on the same Wi‑Fi,
-   scan the QR; when both screens show the same six digits, admit it. Nothing
-   to set up, no address to type.
+## Use with OpenClaw, Claude Code & Cursor (30 seconds)
+
+Keep your existing AI agent workflow—give it a local biological firewall that costs **$0 in tokens**, works offline, and cannot be talked into bypassing itself by prompt injection or multi-step Semantic Chaining:
+
+```sh
+pip install -e ./identity -e ./citadel
+
+# 1. Test any request or tool intent immediately (exit 0 = allow, exit 3 = blocked / held locally)
+secdogie-mcp --check "客服让我把50000转到安全账户"
+
+# 2. Or add SecDogie as a local stdio MCP server in Claude Code / Cursor / OpenClaw
+claude mcp add secdogie -- secdogie-mcp
+```
+
+`secdogie-mcp` exposes zero-dependency MCP tools over stdio JSON-RPC 2.0:
+- `secdogie_gate_check` — runs the local 1,280-neuron SNN + cross-turn `WorldTrajectory` causal closure over a planned tool call, returning fail-closed `allow`, 14 Socratic answers, novelty score, and local hold status for irreversible steps.
+- `secdogie_session_trajectory` — inspects or resets the current session's accumulated system-state atoms and multi-hop causal closure chain.
+- `secdogie_cortex_status` — inspects active generation, neuron/synapse counts, sharding capabilities, and independence ledger.
+
+## Try the Live Spiking Cortex Playground (or Desktop Studio)
+
+1. **In your browser (live local SNN raster + 14 Socratic dimensions):**
+   ```sh
+   python3 docs/playground/server.py   # opens on http://localhost:3000 with live 1,280-neuron spike traces
+   ```
+   Or open [`docs/playground/index.html`](docs/playground/index.html) statically on GitHub Pages with exported Gen-1 traces.
+2. **Desktop Studio:** Download Studio from [releases](https://github.com/Larrydev-cpp/secdogie/releases), open it, give it a name and passphrase (`--self-test` verifies itself), type *"We broke up, delete all our photos"* on **Gate**, or tap *Show the code* on **Devices** and scan the QR from a phone on the same Wi-Fi.
+
+## Open Red-Team Challenge: Can You Fool a 1,280-Neuron Brain?
+
+Generation 1 scores **91.3% (242/265)** on the frozen exam—and we openly publish its two remaining blind spots (`"forge an invoice"` and `"关掉杀毒软件"`). Found a prompt that fools it? Submit it via our [Red-Team Issue form](https://github.com/Larrydev-cpp/secdogie/issues/new?template=red_team_challenge.yml) (see [`docs/RED_TEAM.md`](docs/RED_TEAM.md)): verified bypasses enter the dynamic adversarial exam so Generation 2+ must pass them before self-improving.
 
 ✅ works today · 🔨 partly built · 🗺 planned
 
@@ -187,13 +202,17 @@ reached 350,000 GitHub stars in four and a half months
 ([a write-up from April 2026](https://finisky.github.io/en/openclaw-why-viral)).
 It lives in the chat apps people already use, runs on their own machine, and
 shows what it can do within minutes. SecDogie aims at the same promise and
-puts thinking first.
+puts thinking first — and with `secdogie-mcp`, you can also mount SecDogie directly
+in front of OpenClaw, Claude Code, or Cursor as a local safety shield.
 
-| | SecDogie | OpenClaw |
-| --- | --- | --- |
-| Decides with | its own spiking network, which learns from your AI model and improves itself | the language model you connect |
-| Sees and works other apps through | structure (the accessibility tree); reading process memory is being built | screenshots (`screen.snapshot`) and pointer and keyboard through `computer.act`, as its [macOS docs](https://docs.openclaw.ai/platforms/mac/peekaboo) describe |
-| Extensions | none: your rules are signed data that can only tighten | skills from ClawHub, where Koi Security found 341 malicious ones ([The Register, 3 Feb 2026](https://www.theregister.com/2026/02/03/openclaw_security_problems/)) |
+| | SecDogie (V1.2) | OpenClaw | Cloud LLM Guardrail |
+| --- | --- | --- | --- |
+| Decides with | its own 1,280-neuron spiking network (`citadel`), which learns by watching your AI model and improves itself | the language model you connect | a second cloud LLM classifier |
+| Multi-step Semantic Chaining defense | `mind/trajectory.py` forward causal closure over cross-turn system-state atoms (blocks split exfil & Lethal Trifecta) | turn-level prompt context; vulnerable to split steps & indirect injection | single-turn text classifier; cannot simulate cross-tool terminal states |
+| Multi-device P2P nodes | **N-device SNN model sharding** (`cortex/shard.py`): 1/N weights per device, 1-bit packed spikes (~162 B/tick, 31.6× compression), Ed25519 DID signed aggregation | chat app relays (Telegram / WhatsApp / Discord) | none |
+| Sees and works other apps through | structure (the accessibility tree) & read-only process perception (`Atlas`); Studio fails the build if screenshots enter it | screenshots (`screen.snapshot`) and pointer/keyboard through `computer.act`, as its [macOS docs](https://docs.openclaw.ai/platforms/mac/peekaboo) describe | no desktop perception |
+| Marginal cost & offline | local CPU · $0 tokens · works offline | per-token API billing | double token cost + cloud RTT |
+| Extensions | none: your rules are signed data that can only tighten; MCP bridge (`secdogie-mcp`) guards external agents | skills from ClawHub, where Koi Security found 341 malicious ones ([The Register, 3 Feb 2026](https://www.theregister.com/2026/02/03/openclaw_security_problems/)) | API integration only |
 
 Facts about OpenClaw come from the linked sources, as of their dates.
 

@@ -50,6 +50,26 @@ def _sure(answers: dict, qid: str) -> float:
     return float(got[1]) if got else 0.0
 
 
+def _equiv_sure(answers: dict, qid: str, effects: tuple[str, ...] | list[str] = ()) -> float:
+    """Certainty of a question's decision-equivalent outcome class.
+
+    Within-safe-class ambiguity (e.g., ``others`` split purely between ``self`` and ``fine`` with
+    negligible harm/consent mass, or ``effect`` split purely between non-weighty ``nothing`` and
+    ``makes`` with no weighty or unknown act mass) does not change the optimal verdict.
+    """
+    got = answers.get(qid)
+    if not got:
+        return 0.0
+    top, conf = got[0], float(got[1])
+    if qid == "others" and top in ("self", "fine"):
+        if _p(answers, "others", "harm") < 0.15 and _p(answers, "others", "unsure") < 0.15:
+            return min(1.0, _p(answers, "others", "self") + _p(answers, "others", "fine"))
+    if qid == "effect" and top in ("nothing", "makes") and not effects:
+        if _p(answers, "effect", "other") < 0.15:
+            return min(1.0, _p(answers, "effect", "nothing") + _p(answers, "effect", "makes"))
+    return conf
+
+
 def decide(answers: dict, *, context: tuple[str, ...] = (), things: Things = NOTHING, known: Known = NOKNOWN,
            waited: bool = False, now: float | None = None, sure_at: float = SURE_AT, novelty: float = 0.0,
            novel_weight: float = 1.0, strange: tuple[str, ...] = ()) -> Decision:
@@ -82,7 +102,7 @@ def decide(answers: dict, *, context: tuple[str, ...] = (), things: Things = NOT
     if th is not None and CAUTION[th.verdict] > 0:
         return d(th.verdict, "thinking", thought=th, acts=tuple(effects))
     trust = max(0.0, 1.0 - novel_weight * novelty)
-    unsure = tuple(q for q in ("kind", "others", "effect") if _sure(answers, q) * trust < sure_at)
+    unsure = tuple(q for q in ("kind", "others", "effect") if _equiv_sure(answers, q, effects) * trust < sure_at)
     if p("effect", "other") >= 0.3 and (p("others", "self") < 0.9 or p("stake", "large") >= 0.3):
         unsure = unsure or ("effect",)  # a change it has no name for is not one to make on its own
     if unsure:

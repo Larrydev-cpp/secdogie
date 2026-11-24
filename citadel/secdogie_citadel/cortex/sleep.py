@@ -48,6 +48,7 @@ class Slept:
     seconds: float
     lessons: int
     src_loss: float = 0.0
+    dream_skills: tuple = ()
 
 
 def acc_surprise_weight(base_surprise: float, *, user_corrected: bool = False, counterexample: bool = False) -> float:

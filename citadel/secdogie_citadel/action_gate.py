@@ -41,6 +41,7 @@ from dataclasses import dataclass, field
 from secdogie_identity.capability import allows as capability_allows
 
 from .authz import action_hash, verify_authorization
+from .mind.trajectory import WorldTrajectory, infer_effects
 
 # --- Verdicts ---------------------------------------------------------------
 
@@ -66,6 +67,7 @@ INTENT_UNPROVEN = "intent-unproven"
 INTENT_CONTRADICTION = "intent-contradiction"
 PRECONDITION_FAILED = "precondition-failed"
 KNOWN_FAILURE = "known-failure"
+COMPOSITIONAL_CHAIN = "compositional-chain"
 
 # Kinds that only observe -- they never mutate, so they need no verification and
 # a run of them with nothing else between is the busy-poll signal.
@@ -136,6 +138,7 @@ class PlannedAction:
     expected_observation: str = ""
     estimated_cost: float = 1.0
     intent: IntentContract = IntentContract()
+    effects: tuple[str, ...] = ()
 
     @property
     def mutating(self) -> bool:
@@ -187,6 +190,8 @@ class GateContext:
     require_intent: bool = False
     active_goal_ids: frozenset[str] = field(default_factory=frozenset)
     known_failures: frozenset[str] = field(default_factory=frozenset)
+    # World-model trajectory accumulator for multi-step compositional / Semantic Chaining checks.
+    trajectory: WorldTrajectory | None = None
 
 
 @dataclass(frozen=True)
@@ -410,6 +415,31 @@ def _check_known_failure(a: PlannedAction, ctx: GateContext) -> Finding | None:
     )
 
 
+def _check_compositional_chain(a: PlannedAction, ctx: GateContext) -> Finding | None:
+    """World-model trajectory simulation: evaluate the terminal state produced by
+    combining prior session effects with this step's effects (defeats Semantic Chaining)."""
+    if ctx.trajectory is None:
+        return None
+    proposed = infer_effects(
+        effects=a.effects,
+        tool_name=a.target_name,
+        action_kind=a.kind,
+        irreversible=a.intent.irreversible,
+    )
+    if not proposed:
+        return None
+    assessment = ctx.trajectory.simulate(proposed, tool=a.target_name or a.kind, label=a.text or a.kind)
+    if not assessment.blocked:
+        return None
+    chains = ", ".join(f"{t.rule.id} ({' + '.join(t.rule.needs)} -> {t.rule.gives})" for t in assessment.triggered)
+    return Finding(
+        COMPOSITIONAL_CHAIN,
+        f"world-model trajectory violation [{assessment.verdict}]: {chains}",
+        REJECT,
+        risk=assessment.risk,
+    )
+
+
 _CHECKS = (
     _check_stale_target,
     _check_target_present,
@@ -417,6 +447,7 @@ _CHECKS = (
     _check_repeated,
     _check_polling,
     _check_destructive_chain,
+    _check_compositional_chain,
     _check_missing_verification,
     _check_excessive_cost,
     _check_capability,
@@ -520,6 +551,7 @@ __all__ = [
     "INTENT_CONTRADICTION",
     "PRECONDITION_FAILED",
     "KNOWN_FAILURE",
+    "COMPOSITIONAL_CHAIN",
     "IntentContract",
     "PlannedAction",
     "GateContext",

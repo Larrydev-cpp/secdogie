@@ -129,10 +129,21 @@ class Familiarity:
         """(unfamiliarity 0..1, unfamiliar stretches without repeats).
 
         Uses meaning-level Sememe-VSA when mounted in ``sememe`` mode (Gen 2+), and the legacy
-        character-unit Bloom filter in ``bloom`` mode (Gen 1).
+        character-unit Bloom filter in ``bloom`` mode (Gen 1). When a sentence has low sememe
+        coverage (< 2 distinct concepts and not a greeting) and lexical Bloom cells are populated,
+        defers to ``min(sememe_nov, bloom_nov)`` so everyday out-of-ontology nouns do not cause
+        false over-caution while compositional dangers (>= 2 concepts) always use pure Sememe-VSA.
         """
         if self.mode == "sememe" and self.sememe is not None:
             nov, spans = self.sememe.novelty(text)
+            if nov >= 0.25 and bool(self.cells.any()):
+                from .sememe_vsa import sememe_profile
+
+                _, n_sem, _, _, is_greet = sememe_profile(text)
+                if n_sem < 2 and not is_greet:
+                    b_nov, b_spans = self._bloom_novelty(text)
+                    if b_nov < nov:
+                        return b_nov, b_spans
             if not spans and nov >= 0.25:
                 _, bloom_spans = self._bloom_novelty(text)
                 spans = bloom_spans

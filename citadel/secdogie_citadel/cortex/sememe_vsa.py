@@ -79,36 +79,48 @@ _FILLER_EN = frozenset({"a", "an", "the", "to", "me", "my", "i", "you", "for", "
 _CONCEPTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # --- Actions (ACT) ---
     (ROLE_ACT, "DISABLE", ("关掉", "关闭", "停用", "禁用", "卸掉", "卸载", "撤掉", "绕过", "disable", "turn off", "shut down", "shut off", "deactivate", "bypass", "uninstall", "kill")),
-    (ROLE_ACT, "FORGE", ("伪造", "造假", "假造", "仿造", "篡改", "做假", "forge", "fake", "falsify", "counterfeit", "fabricate", "tamper")),
-    (ROLE_ACT, "DELETE", ("删除", "删掉", "清空", "抹掉", "销毁", "擦除", "清除", "格式化", "delete", "remove", "erase", "wipe", "purge", "format", "destroy", "rm")),
-    (ROLE_ACT, "REMIND", ("提醒", "备忘", "记一下", "别忘", "闹钟", "remind", "reminder", "alarm", "note", "memo")),
+    (ROLE_ACT, "FORGE", ("伪造", "造假", "假造", "仿造", "篡改", "做假", "开假", "假发票", "假证明", "假合同", "forge", "fake", "falsify", "counterfeit", "fabricate", "tamper")),
+    (ROLE_ACT, "DELETE", ("删除", "删掉", "删", "清空", "清掉", "清理", "抹掉", "销毁", "擦除", "清除", "delete", "remove", "erase", "wipe", "purge", "destroy", "clear", "rm")),
+    (ROLE_ACT, "FORMAT", ("格式化", "排版", "美化代码", "format", "prettier", "lint")),
+    (ROLE_ACT, "MAKE", ("制作", "制造", "搭建", "开发", "生成", "做个", "做一个", "build", "make", "develop", "generate", "design")),
+    (ROLE_ACT, "DEFEND", ("防范", "防御", "防止", "防骗", "防诈骗", "保护", "识别", "避免被骗", "防", "protect", "defend", "prevent", "guard against", "avoid")),
+    (ROLE_ACT, "REMIND", ("提醒", "备忘", "记一下", "别忘", "闹钟", "remind", "reminder", "alarm", "memo")),
     (ROLE_ACT, "BUY", ("买", "购买", "采购", "下单", "订购", "补货", "buy", "purchase", "order", "shop")),
-    (ROLE_ACT, "TRANSFER", ("转账", "转钱", "打款", "汇款", "付款", "支付", "结账", "transfer", "wire", "pay", "payment", "remit")),
-    (ROLE_ACT, "SEND", ("发送", "发给", "寄出", "群发", "转发", "推送", "发", "send", "forward", "broadcast", "post")),
-    (ROLE_ACT, "STEAL", ("窃取", "盗取", "偷看", "抓取", "破解", "入侵", "攻击", "注入", "steal", "hack", "crack", "exploit", "inject", "phish", "sniff", "scrape")),
+    (ROLE_ACT, "TRANSFER", ("转账", "转钱", "转给", "打款", "汇款", "付款", "支付", "结账", "交房租", "transfer", "wire", "pay", "payment", "remit")),
+    (ROLE_ACT, "SEND", ("发送", "发给", "寄出", "群发", "转发", "推送", "发朋友圈", "发辞职信", "发", "send", "forward", "broadcast", "post")),
+    (ROLE_ACT, "STEAL", ("窃取", "盗取", "偷看", "抓取", "破解", "入侵", "攻击", "注入", "钓鱼", "定位", "木马", "勒索软件", "人肉", "监控", "steal", "hack", "crack", "exploit", "inject", "phish", "phishing", "sniff", "scrape", "track", "locate", "spyware", "ddos", "ransomware", "malware", "trojan")),
     (ROLE_ACT, "INSTALL", ("安装", "部署", "配置", "开启", "启用", "打开", "运行", "执行", "install", "setup", "enable", "open", "run", "execute", "launch", "start")),
-    (ROLE_ACT, "READ", ("读取", "查看", "检查", "搜索", "查找", "总结", "整理", "分析", "read", "view", "check", "inspect", "search", "find", "summarize", "analyze", "list")),
+    (ROLE_ACT, "PLAY", ("播放", "放一首", "听歌", "放点", "play", "listen")),
+    (ROLE_ACT, "READ", ("读取", "查看", "检查", "搜索", "查找", "总结", "整理", "分析", "扫描", "杀一下毒", "查一下", "read", "view", "check", "inspect", "search", "find", "summarize", "analyze", "list", "scan")),
     (ROLE_ACT, "WRITE", ("写", "起草", "编辑", "修改", "更新", "保存", "创建", "新建", "write", "draft", "edit", "modify", "update", "save", "create")),
     (ROLE_ACT, "SHARE", ("分享", "公开", "发布", "上传", "泄露", "导出", "同步", "share", "publish", "upload", "leak", "export", "sync")),
-    (ROLE_ACT, "HARM", ("伤害", "自残", "自杀", "轻生", "报复", "威胁", "勒索", "欺骗", "诈骗", "harm", "hurt", "suicide", "revenge", "threaten", "blackmail", "scam", "fraud", "deceive")),
-    (ROLE_ACT, "BACKUP", ("备份", "归档", "恢复", "回滚", "还原", "拷贝", "复制", "backup", "archive", "restore", "rollback", "copy", "clone")),
+    (ROLE_ACT, "HARM", ("伤害", "自残", "自杀", "轻生", "割腕", "我想死", "不如死了", "报复", "威胁", "勒索", "欺骗", "诈骗", "打他", "打人", "杀", "谋杀", "不想活", "活不下去", "撑不下去", "结束这一切", "harm", "hurt", "hurt myself", "suicide", "revenge", "threaten", "blackmail", "scam", "fraud", "deceive", "murder", "want to die", "kill myself", "end my life")),
+    (ROLE_ACT, "BACKUP", ("备份", "归档", "恢复", "回滚", "还原", "拷贝", "复制", "拷出来", "拷走", "backup", "archive", "restore", "rollback", "copy", "clone")),
     # --- Objects (OBJ) ---
-    (ROLE_OBJ, "ANTIVIRUS", ("杀毒软件", "杀毒", "防病毒", "防火墙", "安全软件", "卫士", "defender", "antivirus", "firewall", "malware", "security", "edr", "av")),
-    (ROLE_OBJ, "INVOICE", ("发票", "收据", "账单", "报销单", "报销", "凭证", "票据", "合同", "证明", "公章", "invoice", "receipt", "bill", "voucher", "contract", "certificate", "seal")),
+    (ROLE_OBJ, "ANTIVIRUS", ("杀毒软件", "杀毒", "防病毒", "防火墙", "安全软件", "卫士", "病毒", "defender", "antivirus", "firewall", "security", "edr", "av", "virus")),
+    (ROLE_OBJ, "INVOICE", ("发票", "收据", "账单", "报销单", "报销", "凭证", "票据", "合同", "证明", "公章", "签名", "invoice", "receipt", "bill", "voucher", "contract", "certificate", "seal", "signature")),
     (ROLE_OBJ, "MILK", ("牛奶", "鲜奶", "酸奶", "面包", "鸡蛋", "水果", "菜", "杂货", "milk", "bread", "eggs", "groceries", "coffee", "water", "food")),
-    (ROLE_OBJ, "FILE", ("文件", "文档", "资料", "照片", "图片", "视频", "目录", "文件夹", "磁盘", "硬盘", "数据库", "file", "files", "document", "doc", "photo", "photos", "folder", "directory", "disk", "drive", "database")),
-    (ROLE_OBJ, "CREDENTIAL", ("密码", "口令", "私钥", "密钥", "令牌", "验证码", "银行卡", "身份证", "账号", "账户", "password", "passcode", "secret", "key", "token", "otp", "credential", "account", "wallet")),
-    (ROLE_OBJ, "MONEY", ("钱", "资金", "余额", "存款", "现金", "美金", "人民币", "比特币", "资产", "money", "cash", "funds", "balance", "bank", "crypto", "dollar", "salary")),
-    (ROLE_OBJ, "SYSTEM", ("系统", "注册表", "内核", "权限", "管理员", "进程", "内存", "驱动", "电脑", "手机", "system", "registry", "kernel", "admin", "root", "sudo", "process", "memory", "driver", "device")),
-    (ROLE_OBJ, "PERSON", ("别人", "他人", "同事", "老板", "客户", "朋友", "家人", "室友", "对方", "everyone", "someone", "colleague", "boss", "client", "friend", "family", "stranger", "others")),
-    (ROLE_OBJ, "MESSAGE", ("邮件", "短信", "微信", "消息", "通知", "评论", "帖子", "私信", "email", "sms", "message", "chat", "notification", "comment", "reply")),
-    (ROLE_OBJ, "CALENDAR", ("会议", "日程", "明天", "今晚", "周末", "时间", "天气", "路线", "meeting", "calendar", "tomorrow", "tonight", "weekend", "weather", "route")),
-    (ROLE_OBJ, "SELF", ("自己", "活着", "人生", "不想活", "痛苦", "绝望", "myself", "life", "worthless", "hopeless", "end it")),
+    (ROLE_OBJ, "CODE", ("代码", "脚本", "程序", "源码", "网页", "网站", "页面", "函数", "code", "script", "program", "webpage", "website", "html", "json", "css")),
+    (ROLE_OBJ, "DISK", ("磁盘", "硬盘", "u盘", "移动硬盘", "分区", "回收站", "盘", "disk", "drive", "usb", "usb stick", "flash drive", "hard drive", "partition", "trash", "recycle bin")),
+    (ROLE_OBJ, "CACHE", ("缓存", "临时文件", "安装包", "弹窗", "提示框", "窗口", "广告", "popup", "pop-up", "window", "cache", "temp", "banner", "dialog")),
+    (ROLE_OBJ, "MEDIA", ("音乐", "歌曲", "歌", "电影", "播客", "music", "song", "songs", "movie", "podcast", "playlist")),
+    (ROLE_OBJ, "WEAPON", ("炸弹", "枪", "武器", "毒药", "雷管", "bomb", "gun", "weapon", "explosive", "poison")),
+    (ROLE_OBJ, "FILE", ("文件", "文档", "资料", "照片", "图片", "视频", "目录", "文件夹", "数据库", "网盘", "报告", "周报", "表格", "客户资料", "file", "files", "document", "doc", "photo", "photos", "folder", "directory", "database", "report", "spreadsheet", "pdf", "customer list")),
+    (ROLE_OBJ, "CREDENTIAL", ("密码", "口令", "私钥", "密钥", "令牌", "验证码", "银行卡", "身份证", "账号", "账户", "安全账户", "password", "passcode", "secret", "key", "token", "otp", "credential", "account", "wallet")),
+    (ROLE_OBJ, "MONEY", ("钱", "资金", "余额", "存款", "现金", "美金", "人民币", "比特币", "资产", "房租", "money", "cash", "funds", "balance", "bank", "crypto", "dollar", "salary", "rent")),
+    (ROLE_OBJ, "SYSTEM", ("系统", "注册表", "内核", "权限", "管理员", "进程", "内存", "驱动", "电脑", "手机", "system", "registry", "kernel", "admin", "root", "sudo", "process", "memory", "driver", "device", "laptop", "phone")),
+    (ROLE_OBJ, "PERSON", ("别人", "他人", "同事", "老板", "客户", "客服", "房东", "孩子", "朋友", "家人", "室友", "对方", "老师", "前任", "竞争对手", "everyone", "someone", "colleague", "boss", "client", "friend", "family", "stranger", "others", "teacher", "kid", "child", "competitor", "rival")),
+    (ROLE_OBJ, "MESSAGE", ("邮件", "短信", "微信", "消息", "通知", "评论", "帖子", "私信", "朋友圈", "辞职信", "感谢信", "email", "sms", "message", "chat", "notification", "comment", "reply", "note", "letter")),
+    (ROLE_OBJ, "CALENDAR", ("会议", "开会", "日程", "明天", "今晚", "周末", "时间", "几点", "天气", "路线", "meeting", "calendar", "tomorrow", "tonight", "weekend", "weather", "route", "time")),
+    (ROLE_OBJ, "SELF", ("自己", "活着", "人生", "自残", "自杀", "轻生", "割腕", "我想死", "不如死了", "不想活", "活不下去", "撑不下去", "结束这一切", "痛苦", "绝望", "myself", "life", "worthless", "hopeless", "suicide", "hurt myself", "want to die", "end it", "kill myself", "end my life")),
     # --- Modifiers & Context (MOD / CTX) ---
     (ROLE_MOD, "ALL", ("所有", "全部", "整个", "全盘", "彻底", "永久", "完全", "all", "every", "entire", "whole", "permanently", "completely")),
-    (ROLE_MOD, "SECRET", ("偷偷", "悄悄", "背着", "匿名", "伪装", "隐蔽", "绕开", "secretly", "silently", "quietly", "anonymously", "covert", "hidden")),
+    (ROLE_MOD, "SECRET", ("偷偷", "悄悄", "背着", "匿名", "伪装", "隐蔽", "绕开", "外泄", "机密", "secretly", "silently", "quietly", "anonymously", "covert", "hidden", "confidential")),
     (ROLE_MOD, "URGENT", ("立刻", "马上", "赶紧", "紧急", "现在", "immediately", "now", "urgent", "asap", "quickly")),
-    (ROLE_MOD, "SAFE", ("只读", "安全", "本地", "测试", "演练", "草稿", "readonly", "read-only", "safe", "local", "test", "draft", "preview")),
+    (ROLE_MOD, "SAFE", ("只读", "安全", "本地", "测试", "演练", "草稿", "新买的", "刚买的", "刚买", "新的", "空的", "考虑很久", "已经备份", "备份过了", "都备份过了", "备份好了", "有备份", "readonly", "read-only", "safe", "local", "test", "draft", "preview", "backed up", "just bought", "brand new", "empty")),
+    (ROLE_MOD, "WORRY", ("联系不上", "失联", "走丢", "找不到", "着急", "担心", "发烧", "not answering", "missing", "lost", "worried")),
+    (ROLE_MOD, "QUERY", ("吗", "是不是", "什么", "什么是", "怎么", "如何", "为什么", "几点", "真的吗", "安全吗", "可以吗", "该不该", "要不要", "what", "how", "why", "when", "where", "should", "does", "is this", "is it")),
+    (ROLE_CTX, "GREETING", ("你好", "您好", "嗨", "哈喽", "早安", "晚安", "再见", "拜拜", "谢谢", "hi", "hello", "hey", "bye", "goodbye", "thanks", "thank you")),
     (ROLE_CTX, "NIGHT", ("深夜", "半夜", "凌晨", "夜里", "midnight", "late night", "3am")),
     (ROLE_CTX, "WORK", ("公司", "办公", "生产环境", "线上", "服务器", "company", "office", "production", "prod", "server")),
 )
@@ -119,22 +131,27 @@ _IMPLIED_SEMEMES: dict[tuple[str, str], tuple[str, str]] = {
 }
 
 
-def _build_tables() -> tuple[dict[str, tuple[str, str]], dict[str, tuple[str, str]], int]:
-    zh_map: dict[str, tuple[str, str]] = {}
-    en_map: dict[str, tuple[str, str]] = {}
+def _build_tables() -> tuple[dict[str, tuple[tuple[str, str], ...]], dict[str, tuple[tuple[str, str], ...]], int]:
+    zh_acc: dict[str, list[tuple[str, str]]] = {}
+    en_acc: dict[str, list[tuple[str, str]]] = {}
     max_zh = max(len(x) for x in _FILLER_ZH)
     for role, sememe_id, terms in _CONCEPTS:
+        pair = (role, sememe_id)
         for term in terms:
             t = term.strip().lower()
             if not t:
                 continue
-            if any(_wide(ch) for ch in t):
-                zh_map[t] = (role, sememe_id)
-                if len(t) > max_zh:
-                    max_zh = len(t)
-            else:
-                en_map[t] = (role, sememe_id)
-    return zh_map, en_map, max_zh
+            target = zh_acc if any(_wide(ch) for ch in t) else en_acc
+            if any(_wide(ch) for ch in t) and len(t) > max_zh:
+                max_zh = len(t)
+            bucket = target.setdefault(t, [])
+            if pair not in bucket:
+                bucket.append(pair)
+    return (
+        {k: tuple(v) for k, v in zh_acc.items()},
+        {k: tuple(v) for k, v in en_acc.items()},
+        max_zh,
+    )
 
 
 _ZH_SEMEMES, _EN_SEMEMES, _MAX_ZH_LEN = _build_tables()
@@ -206,11 +223,12 @@ def extract_sememes(text: str) -> tuple[list[tuple[str, str]], list[str], bool]:
     residuals: list[str] = []
     negated = False
 
-    def _emit(pair: tuple[str, str]) -> None:
-        matched.append(pair)
-        imp = _IMPLIED_SEMEMES.get(pair)
-        if imp is not None:
-            matched.append(imp)
+    def _emit(pairs: tuple[tuple[str, str], ...]) -> None:
+        for pair in pairs:
+            matched.append(pair)
+            imp = _IMPLIED_SEMEMES.get(pair)
+            if imp is not None:
+                matched.append(imp)
 
     # Segment into alternating CJK runs and non-CJK runs
     i = 0
@@ -293,7 +311,13 @@ def extract_sememes(text: str) -> tuple[list[tuple[str, str]], list[str], bool]:
                     negated = True
                     pos += 2
                     continue
-                # Try 2-word phrase FMM first
+                # Try 3-word then 2-word phrase FMM first
+                if pos + 2 < wlen:
+                    tri = f"{w0} {words[pos + 1]} {words[pos + 2]}"
+                    if tri in _EN_SEMEMES:
+                        _emit(_EN_SEMEMES[tri])
+                        pos += 3
+                        continue
                 if pos + 1 < wlen:
                     bi = f"{w0} {words[pos + 1]}"
                     if bi in _EN_SEMEMES:
@@ -421,6 +445,92 @@ def encode_packed(text: str) -> bytes:
     return quantize_pack(encode_float(text))
 
 
+_PASSIVE_ZH = ("被", "遭到", "有人", "把我", "对我", "威胁我", "骗我", "偷我", "盗我")
+_PASSIVE_EN = frozenset({"got", "was", "were", "been", "someone", "somebody"})
+
+
+def is_passive_voice(text: str, matched: list[tuple[str, str]] | None = None) -> bool:
+    """Detect passive or victim-report voice ('my account got hacked', 'someone threatened me', '我被骗了')
+    so victim reports never collide with active imperative requests ('crack her password', 'murder my boss')."""
+    s = clean(text)
+    if any(m in s for m in _PASSIVE_ZH):
+        return True
+    words = [w.strip(".,!?;:\"'()-") for w in s.split()]
+    wset = set(words)
+    if wset & _PASSIVE_EN:
+        return True
+    # Syntactic order check: if a sentence contains both OBJ and ACT (e.g. 'my account ... hacked' or
+    # 'someone threatened me') with OBJ strictly before ACT and an object-pronoun 'me' or past '-ed' verb,
+    # it is a report rather than an imperative command.
+    if matched is None:
+        matched, _, _ = extract_sememes(text)
+    first_act = next((i for i, (r, _) in enumerate(matched) if r == ROLE_ACT), -1)
+    first_obj = next((i for i, (r, _) in enumerate(matched) if r == ROLE_OBJ), -1)
+    if first_obj >= 0 and first_act > first_obj and ("me" in wset or any(w.endswith("ed") and len(w) > 4 for w in words)):
+        return True
+    return False
+
+
+_CLAUSE_SEPS = (",", "，", ";", "；")
+
+
+def split_clauses(text: str) -> list[str]:
+    """Split a compound sentence into clause spans with zero regex."""
+    out: list[str] = []
+    buf: list[str] = []
+    for ch in text:
+        if ch in _CLAUSE_SEPS:
+            seg = "".join(buf).strip()
+            if seg:
+                out.append(seg)
+            buf = []
+        else:
+            buf.append(ch)
+    seg = "".join(buf).strip()
+    if seg:
+        out.append(seg)
+    return out or [text]
+
+
+def clause_polarity(text: str) -> tuple[bool, bool, bool, int]:
+    """Clause-local negation analysis: ``(any_neg, all_neg, has_affirm_act, clause_count)``.
+
+    Distinguishes pure negation ('不要删掉我的文件' -> ``all_neg=True, has_affirm_act=False``)
+    from mixed compound tasks ('照片先别删，帮我整理一下' -> ``any_neg=True, all_neg=False, has_affirm_act=True``).
+    """
+    clauses = split_clauses(text)
+    if len(clauses) <= 1:
+        matched, _, neg = extract_sememes(text)
+        has_act = any(r == ROLE_ACT for r, _ in matched)
+        return neg, neg, (has_act and not neg), 1
+    any_neg = False
+    neg_clauses = 0
+    nonempty = 0
+    has_affirm_act = False
+    for cl in clauses:
+        m, res, neg = extract_sememes(cl)
+        if not m and not res and not neg:
+            continue
+        nonempty += 1
+        if neg:
+            any_neg = True
+            neg_clauses += 1
+        elif any(r == ROLE_ACT for r, _ in m):
+            has_affirm_act = True
+    all_neg = nonempty > 0 and neg_clauses == nonempty
+    return any_neg, all_neg, has_affirm_act, len(clauses)
+
+
+def sememe_profile(text: str) -> tuple[bytes, int, bool, bool, bool]:
+    """Return ``(packed_128b, unique_sememe_count, all_negated, is_query, is_greeting)``."""
+    matched, _, _ = extract_sememes(text)
+    _, all_neg, _, _ = clause_polarity(text)
+    uniq = set(matched)
+    is_query = (ROLE_MOD, "QUERY") in uniq or "?" in text or "？" in text
+    is_greeting = (ROLE_CTX, "GREETING") in uniq
+    return encode_packed(text), len(uniq), all_neg, is_query, is_greeting
+
+
 def hamming_similarity_bytes(a: bytes, b: bytes) -> float:
     """Bipolar-calibrated Hamming similarity in [0.0, 1.0] between two 128-byte keys."""
     if len(a) != PACKED_BYTES or len(b) != PACKED_BYTES:
@@ -543,9 +653,13 @@ __all__ = [
     "PACKED_BYTES",
     "RESIDUAL_WEIGHT",
     "calibrate_novelty",
+    "clause_polarity",
     "encode_float",
     "encode_packed",
     "extract_sememes",
     "hamming_similarity_bytes",
+    "is_passive_voice",
     "quantize_pack",
+    "sememe_profile",
+    "split_clauses",
 ]

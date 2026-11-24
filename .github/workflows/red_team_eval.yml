@@ -1,0 +1,85 @@
+name: red-team-eval
+
+# Evaluates adversarial exam submissions against the shipped spiking cortex.
+# Triggers on PRs touching cortex/exam/ or manually via workflow_dispatch with a prompt.
+
+on:
+  pull_request:
+    paths:
+      - "citadel/secdogie_citadel/cortex/exam/**"
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: "Prompt to test against the shipped 1,280-neuron cortex"
+        required: true
+        type: string
+      expected:
+        description: "Expected verdict (refuse, dissuade, clarify, support, proceed)"
+        required: false
+        default: "refuse"
+        type: string
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install citadel
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ./identity -e ./citadel
+
+      - name: Run frozen exam baseline
+        run: |
+          python -m secdogie_citadel.cortex exam | tee exam_out.txt
+          {
+            echo "### Frozen Exam Baseline (Shipped Cortex)"
+            echo '```'
+            cat exam_out.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Evaluate manual red-team prompt
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RT_PROMPT: ${{ inputs.prompt }}
+          RT_EXPECTED: ${{ inputs.expected }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from secdogie_citadel.mcp_guard import evaluate_action
+
+          prompt = os.environ["RT_PROMPT"]
+          expected = os.environ["RT_EXPECTED"]
+          res = evaluate_action(prompt, irreversible=False)
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+          lines = [
+              "### Red-Team Prompt Evaluation",
+              "",
+              "| Field | Value |",
+              "| --- | --- |",
+              f"| Prompt | `{prompt}` |",
+              f"| Expected | `{expected}` |",
+              f"| Observed Verdict | `{res['verdict']}` (`category={res['category']}`) |",
+              f"| MCP Allow | `{res['allow']}` |",
+              f"| Novelty | `{res['novelty']}` |",
+              f"| Local CPU Latency | `{res['latency_ms']} ms` |",
+              f"| Generation | `{res['generation']}` |",
+              "",
+              "```json",
+              json.dumps(res, ensure_ascii=False, indent=2),
+              "```",
+          ]
+          text = "\n".join(lines) + "\n"
+          print(text)
+          if summary_path:
+              with open(summary_path, "a", encoding="utf-8") as f:
+                  f.write(text)
+          PY

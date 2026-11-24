@@ -17,6 +17,7 @@ thinker = ["anthropic>=2.6"]
 
 [project.scripts]
 secdogie-citadel = "secdogie_citadel.cli:main"
+secdogie-mcp = "secdogie_citadel.mcp_guard:main"
 
 [tool.setuptools.packages.find]
 include = ["secdogie_citadel*"]

@@ -37,6 +37,7 @@ from .hippocampus import Hippocampus, Recall, blend
 from .neurons import Dynamics, Net, answers, run, shares
 from .plasticity import Adam, eprop, tick_weights
 from .senses import Reading, block
+from .vsa_cortex import AssociativeVSACortex, fuse_bimodal, hemisphere_jsd
 
 FORMAT = 1
 ELDERS = 2  # how many earlier generations vote on the questions of safety
@@ -87,6 +88,7 @@ class Cortex:
     opt: Adam | None = field(default=None, repr=False)
     ledger: Ledger = field(default_factory=Ledger)
     elders: list = field(default_factory=list, repr=False)  # the generations before it, newest first (at most ELDERS)
+    vsa_bridge: AssociativeVSACortex | None = field(default=None, repr=False)  # optional bimodal VSA semantic stream
 
     # ---- making one ---------------------------------------------------------------------------------------------
 
@@ -109,10 +111,26 @@ class Cortex:
         self.net.w_rec *= self.net.mask
 
     def copy(self) -> Cortex:
-        mem = Hippocampus(list(self.memory.lessons), None if self.memory.keys is None else self.memory.keys.copy(),
-                          self.memory.capacity)
+        mem = Hippocampus(
+            lessons=list(self.memory.lessons),
+            keys=None if self.memory.keys is None else self.memory.keys.copy(),
+            anchors=list(self.memory.anchors),
+            capacity=self.memory.capacity,
+        )
         return Cortex(self.reading, dict(self.genome), self.net.copy(), self.familiar.copy(), mem, self.number,
-                      self.parent, list(self.lineage), dict(self.scores), self.born, ledger=self.ledger, elders=list(self.elders))
+                      self.parent, list(self.lineage), dict(self.scores), self.born, ledger=self.ledger,
+                      elders=list(self.elders),
+                      vsa_bridge=None if self.vsa_bridge is None else self.vsa_bridge.copy())
+
+    def mount_vsa_bridge(self, lessons: Sequence[C.Lesson] | None = None, *, epochs: int = 24,
+                         alpha: float = 0.65, seed: int = 0) -> AssociativeVSACortex:
+        """Mount and train the compositional Associative VSA Cortex on non-exam lessons."""
+        bridge = AssociativeVSACortex.new(seed=seed, alpha=alpha)
+        src = list(lessons) if lessons is not None else [x for x in self.memory.lessons if not x.disputed]
+        if src:
+            bridge.fit(src, epochs=epochs, seed=seed)
+        self.vsa_bridge = bridge
+        return bridge
 
     def descend(self) -> Cortex:
         """A child: a copy of this cortex, with this one (and its elders) voting on the questions of safety.
@@ -149,7 +167,16 @@ class Cortex:
                 k = sl.start + _Q.BY_ID[qid].index(cautious)
                 more = ep[:, k] > p[:, k]
                 p[more, sl] = ep[more, sl]
-        recs: list[Recall] = (self.memory.recall(pats, sharpness=self.genome["recall_sharpness"], trust=self.genome["recall_trust"])
+        jsd_arr: np.ndarray | None = None
+        min_peak_arr: np.ndarray | None = None
+        if self.vsa_bridge is not None:
+            p_snn = p.copy()
+            p_vsa = self.vsa_bridge.predict_probs(texts, contexts)
+            p = fuse_bimodal(p_snn, p_vsa, alpha=self.vsa_bridge.alpha)
+            jsd_arr, min_peak_arr = hemisphere_jsd(p_snn, p_vsa)
+        dual_texts = texts if (self.familiar.mode == "sememe" or self.vsa_bridge is not None) else None
+        recs: list[Recall] = (self.memory.recall(pats, sharpness=self.genome["recall_sharpness"],
+                                                 trust=self.genome["recall_trust"], texts=dual_texts)
                               if recall and len(self.memory) else [])
         if recs:
             p = blend(p, recs)
@@ -157,6 +184,17 @@ class Cortex:
         digest = self.digest()[:12]
         for b, (text, a) in enumerate(zip(texts, answers(p=p), strict=True)):
             nov, strange = self.familiar.novelty(text)
+            if (
+                jsd_arr is not None
+                and min_peak_arr is not None
+                and nov < 0.65
+                and float(jsd_arr[b]) < 0.04
+                and float(min_peak_arr[b]) >= 0.88
+                and bool(self.familiar.cells.any())
+            ):
+                bloom_nov, bloom_spans = self.familiar._bloom_novelty(text)
+                if bloom_nov <= 0.20 and bloom_nov < nov:
+                    nov, strange = bloom_nov, bloom_spans
             r = recs[b] if recs else None
             src = tuple(self.memory.lessons[i].text for i in r.lessons[:3]) if r is not None and r.weight > 0 else ()
             top = self.memory.lessons[r.lessons[0]] if r is not None and r.weight >= 0.5 and r.lessons else None
@@ -189,12 +227,45 @@ class Cortex:
         self.opt.lr = self.genome["lr"] * 0.3 * max(0.05, min(1.0, step_scale))  # awake, synapses move only a little
         self.opt.step(self.net, learned.grads, clip=trust_clip if trust_clip is not None else 1.0)
         self.settle()
+        if self.vsa_bridge is not None:
+            self.vsa_bridge.update_one(lesson)
         self.keep(lesson)  # as it reads now, after learning
 
+    def dream(
+        self,
+        *,
+        initial_state: Sequence[str] = (),
+        goal_atoms: Sequence[str] = (),
+        goal_text: str = "",
+        target_domains: Sequence = (),
+        bricks: Sequence = (),
+        gate_context=None,
+        top_k: int = 5,
+        require_goal_reached: bool = False,
+    ):
+        """Awake impasse / REM creative recombination using Hippocampus + DMN + SN + ECN."""
+        from ..mind.dream import dream_cycle
+
+        return dream_cycle(
+            bricks=bricks,
+            memory=self.memory,
+            familiar=self.familiar,
+            initial_state=initial_state,
+            goal_atoms=goal_atoms,
+            goal_text=goal_text,
+            target_domains=target_domains,
+            cortex=self,
+            gate_context=gate_context,
+            top_k=top_k,
+            require_goal_reached=require_goal_reached,
+        )
+
     def sleep(self, old: Sequence[C.Lesson], rng: np.random.Generator, *, epochs: int | None = None,
-              novel_probes: Sequence[str] = ()) -> S.Slept:
+              novel_probes: Sequence[str] = (), dream_goal_atoms: Sequence[str] = (),
+              dream_goal_text: str = "", dream_targets: Sequence = (),
+              dream_initial_state: Sequence[str] = ()) -> S.Slept:
         """Replay the kept experiences with a share of older lessons, run SRC calibration, decay disputed memories,
-        then prune, renew and re-key."""
+        then prune, renew, re-key, and optionally run REM creative recombination."""
         g = self.genome
         self.memory.decay_disputed()
         kept = [x for x in self.memory.lessons if not x.disputed]
@@ -205,8 +276,18 @@ class Cortex:
                               opt=self.opt, novel_probes=novel_probes)
         S.prune(self.net, g["prune_below"])
         self.settle()
+        if self.vsa_bridge is not None and (kept or pick):
+            self.vsa_bridge.fit(kept + pick, epochs=min(28, max(8, epochs or int(g["epochs"]))))
         if self.memory.lessons:
             self.memory.rekey(self.patterns([x.text for x in self.memory.lessons], [x.context for x in self.memory.lessons]))
+        if dream_goal_atoms or dream_goal_text or dream_targets:
+            rep = self.dream(
+                initial_state=dream_initial_state,
+                goal_atoms=dream_goal_atoms,
+                goal_text=dream_goal_text,
+                target_domains=dream_targets,
+            )
+            slept.dream_skills = rep.verified_skills
         return slept
 
     # ---- generations on disk ------------------------------------------------------------------------------------
@@ -274,6 +355,11 @@ class Cortex:
             np.save(keys, self.memory.keys.astype(np.float16))
         elif keys.exists():
             keys.unlink()
+        vsa_path = folder / "vsa_bridge.npz"
+        if self.vsa_bridge is not None:
+            vsa_path.write_bytes(self.vsa_bridge.save_bytes())
+        elif vsa_path.exists():
+            vsa_path.unlink()
 
     @classmethod
     def load(cls, folder: str | Path, *, elders: bool = True) -> Cortex:
@@ -318,6 +404,9 @@ class Cortex:
         led = folder / "ledger.json"
         if led.exists():
             c.ledger = Ledger(**json.loads(led.read_text(encoding="utf-8")))
+        vsa_path = folder / "vsa_bridge.npz"
+        if vsa_path.exists():
+            c.vsa_bridge = AssociativeVSACortex.load_bytes(vsa_path.read_bytes())
         if rec.get("digest") and rec["digest"] != c.digest():
             raise ValueError("this generation's synapses do not match its record")
         return c

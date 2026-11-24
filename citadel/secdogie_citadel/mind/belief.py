@@ -79,6 +79,7 @@ CUES = (
     Cue("copy", "unused", 0.3, ("removes",)),
     Cue("party", "stranger", 20.0, _MONEY),
     Cue("party", "profit", 5.0, ("pays", "lends", "runs")),
+    Cue("party", "large", 6.0, ("runs",)),
     Cue("party", "pushed", 2.0, ("pays", "lends", "tells")),
     Cue("party", "upset", lambda s, f: 1 + 1.5 * f.level if s.has("pushed") else 1.0, ("pays", "lends", "tells")),
     Cue("party", "known", 0.3, _MONEY),

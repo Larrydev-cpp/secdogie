@@ -131,6 +131,7 @@ ACTS = {a.id: a for a in (
     Act("watches", "watched", (), (), (
         Goal("know", "learned", ("unsaid", "other", "suspect"), "知道对方在做什么", "know what they are doing"),
         Goal("safe", "located", ("safety",), "确认对方安全", "know they are safe"),
+        Goal("fix", "fixed", ("fix",), "修好自己的东西", "fix your own device"),
     ), ("ask_them", "share", "ask_around"), "查看", "look into", 0.5),
     Act("registers", "made_many", (), (), (
         Goal("plain", "made_many", ("unsaid", "other", "owed", "gift", "fix"), "要这么多账号", "have these accounts"),
@@ -185,9 +186,10 @@ RULES = (
     Rule("unsaid2", ("told", "sorry", "softened"), "regret", 0.5),
     Rule("owned", ("running", "hostile"), "computer_taken", zh="它能动这台电脑上的一切", en="it can touch everything on this computer"),
     Rule("works", ("running", "honest"), "works", zh="装好了，能用", en="it installs and works"),
-    Rule("wronged", ("watched",), "they_wronged", 0.8, lacks=("goal:safe",), zh="不经同意看别人的私事", en="looking without their say-so"),
+    Rule("wronged", ("watched",), "they_wronged", 0.8, lacks=("goal:safe", "own_fix"), zh="不经同意看别人的私事", en="looking without their say-so"),
     Rule("wronged3", ("watched", "goal:safe"), "they_wronged", 0.2),
     Rule("unlawful", ("they_wronged",), "rule_broken"),
+    Rule("fixed_own", ("watched", "goal:fix", "own_fix"), "fixed", zh="只动自己的设备", en="recovering your own device"),
     Rule("learned", ("watched",), "learned", 0.7), Rule("learned2", ("asked_them",), "learned", 0.65, zh="直接问，也不伤信任",
                                                        en="asking tells more and keeps the trust"),
     Rule("learned3", ("shared",), "learned", 0.35),
@@ -277,7 +279,7 @@ class Scene:
         return f.level if f is not None else 0.0
 
     def atoms(self) -> dict[str, float]:
-        return {f.id: 1.0 for f in self.facts if f.id in ("credential", "public", "account", "whole")
+        return {f.id: 1.0 for f in self.facts if f.id in ("credential", "public", "account", "whole", "own_fix")
                 } | ({"hurtful": 1.0} if self.level("hurtful") >= 0.5 else {})
 
 
@@ -313,8 +315,14 @@ def scene(answers: dict, *, act: str = "", context: tuple[str, ...] = (), things
     for fid, level in soft.items():
         if level >= 0.05:
             facts.append(Fact(fid, round(level, 3)))
+    own_fix = (
+        p("others", "self") >= 0.90
+        and p("seat", "nobody") >= 0.90
+        and p("why", "fix") >= 0.60
+        and p("others", "harm") < 0.05
+    )
     for fid, on in (("late", "night" in context), ("waited", waited), ("in_use", things.used), ("unused", things.unused),
-                    ("undone", known.undone > 0)):
+                    ("undone", known.undone > 0), ("own_fix", own_fix)):
         if on:
             facts.append(Fact(fid))
     upset = min(1.0, soft["upset"] + (0.15 if "night" in context and soft["upset"] > 0.2 else 0.0))

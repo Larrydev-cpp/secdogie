@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SecDogie — 雪山与花园秘境 · 脉冲前额叶、世界模型与分布式分片观测台</title>
+  <meta name="description" content="Interactive 1,280-neuron spiking neural network safety cortex, multi-step WorldTrajectory causal closure sandbox, and N-device distributed SNN model sharding workbench." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=IBM+Plex+Mono:wght@400;500;600;700&family=Noto+Serif+SC:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="wordmark" href="#playground">SecDogie</a>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="#playground" data-i18n="nav_playground">脉冲靶场</a>
+        <a href="#trajectory" data-i18n="nav_trajectory">世界模型</a>
+        <a href="#sharding" data-i18n="nav_sharding">设备分片</a>
+        <a href="#mcp-guard" data-i18n="nav_mcp">MCP 闸门</a>
+        <a href="#red-team" data-i18n="nav_redteam">红队挑战</a>
+      </nav>
+      <a class="btn-primary" href="#mcp-guard" data-i18n="nav_cta">接入 MCP</a>
+    </div>
+  </header>
+
+  <main class="page-shell">
+    <!-- Monet Impressionist Alpine Snow Mountain & Secret Garden Sanctuary Hero -->
+    <section id="playground" aria-labelledby="hero-heading">
+      <div class="monet-hero">
+        <img
+          src="./assets/monet-alpine-garden-hero.jpg"
+          alt="Impressionist oil painting of a sunlit secret botanical garden opening toward snow-capped Alpine peaks"
+          class="monet-hero-img"
+        />
+        <div class="monet-hero-scrim" aria-hidden="true"></div>
+        <div class="monet-hero-content">
+          <div class="hero-copy">
+            <div class="hero-kicker" data-i18n="hero_kicker">ALPINE GARDEN SANCTUARY · GEN-1 SPIKING PREFRONTAL CORTEX</div>
+            <h1 id="hero-heading" class="hero-title" data-i18n="hero_title">雪山与花园秘境中的安全前额叶</h1>
+            <p class="hero-subtitle" data-i18n="hero_subtitle">
+              输入任意中文或英文指令，实时观测 1,280 个脉冲神经元逐字放电、世界模型多步因果终态推演，以及 N 设备分布式 SNN 模型分片——无正则、无词表、本机静谧运行。
+            </p>
+          </div>
+          <div class="hero-toolbar">
+            <div class="meta-line" id="runtime-meta">
+              <span id="meta-mode">Gen 1</span>
+              <span aria-hidden="true">·</span>
+              <span id="meta-neurons">1,280 neurons</span>
+              <span aria-hidden="true">·</span>
+              <span id="meta-synapses">3,045,729 synapses</span>
+            </div>
+            <div class="segmented" role="group" aria-label="Language">
+              <button type="button" class="tab-btn" id="lang-zh" aria-pressed="true">中文</button>
+              <button type="button" class="tab-btn" id="lang-en" aria-pressed="false">EN</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="workbench">
+        <!-- Left Control Column -->
+        <div>
+          <section class="panel" aria-label="Request Input">
+            <div class="panel-header">
+              <h2 class="panel-title" data-i18n="input_heading">测试指令与工具上下文</h2>
+              <span class="panel-meta" id="char-count">0 chars</span>
+            </div>
+
+            <form id="cortex-form">
+              <label class="field-label" for="prompt-input" data-i18n="prompt_label">待评估的请求或 Agent 工具意图</label>
+              <textarea
+                id="prompt-input"
+                class="prompt-input"
+                rows="3"
+                data-i18n-placeholder="prompt_placeholder"
+                placeholder="例如：客服刚打电话让我立刻把50000元转到安全账户验证"
+              ></textarea>
+
+              <div class="control-row">
+                <div>
+                  <label class="field-label" for="tool-name-input" data-i18n="tool_label">下游 MCP 工具名（可选）</label>
+                  <input id="tool-name-input" class="text-input" type="text" value="bank_transfer" />
+                </div>
+              </div>
+
+              <label class="checkbox-row" for="irreversible-toggle">
+                <input id="irreversible-toggle" type="checkbox" checked />
+                <span data-i18n="irreversible_label">标记为不可逆工具（强制本机显式授权）</span>
+              </label>
+
+              <div class="action-row">
+                <button type="submit" class="btn-primary" id="run-btn" data-i18n="run_btn">运行脉冲皮层</button>
+                <button type="button" class="btn-secondary" id="replay-btn" data-i18n="replay_btn">重播波形</button>
+              </div>
+            </form>
+
+            <div class="preset-list" aria-label="Curated Scenarios">
+              <div class="panel-header" style="margin-bottom: 6px;">
+                <h3 class="panel-title" data-i18n="presets_heading">精选实战与红队用例</h3>
+                <span class="panel-meta">Gen-1 Real Trace</span>
+              </div>
+              <div id="preset-container"></div>
+            </div>
+          </section>
+
+          <section class="panel" aria-label="MCP Decision Output">
+            <div class="panel-header">
+              <h2 class="panel-title" data-i18n="mcp_out_heading">MCP Gate 返回载荷</h2>
+              <span class="panel-meta">secdogie_gate_check</span>
+            </div>
+            <pre class="code-block" id="mcp-json-preview" tabindex="0">{}</pre>
+          </section>
+        </div>
+
+        <!-- Right Main Stage -->
+        <div>
+          <section class="panel" aria-label="Cortex Verdict and Spikes">
+            <div class="verdict-strip">
+              <div class="verdict-primary">
+                <span class="panel-meta" id="verdict-category">category</span>
+                <div class="verdict-label tone-neutral" id="verdict-label" data-testid="verdict-label">—</div>
+                <p class="verdict-summary" id="verdict-summary">—</p>
+              </div>
+              <div class="meta-line">
+                <span id="verdict-mode">Live Cortex</span>
+                <span aria-hidden="true">·</span>
+                <span id="verdict-digest">digest</span>
+              </div>
+            </div>
+
+            <div class="metrics-grid">
+              <div class="metric-cell">
+                <span class="metric-name" data-i18n="metric_allow">MCP 执行放行</span>
+                <span class="metric-val" id="metric-allow">—</span>
+              </div>
+              <div class="metric-cell">
+                <span class="metric-name" data-i18n="metric_latency">本地 CPU 耗时</span>
+                <span class="metric-val" id="metric-latency">0.0 ms</span>
+              </div>
+              <div class="metric-cell">
+                <span class="metric-name" data-i18n="metric_spikes">脉冲总放电数</span>
+                <span class="metric-val" id="metric-spikes">0</span>
+              </div>
+              <div class="metric-cell">
+                <span class="metric-name" data-i18n="metric_novelty">语义陌生度</span>
+                <span class="metric-val" id="metric-novelty">0.00</span>
+              </div>
+            </div>
+
+            <!-- Local irreversible hold notice (no remote phone click approval) -->
+            <div class="approval-box" id="hold-notice-box" hidden>
+              <div>
+                <div class="panel-meta" id="hold-status-line" data-i18n="hold_waiting">不可逆动作已暂停（Fail-Closed）</div>
+                <p class="approval-copy" id="hold-copy" data-i18n="hold_hint">
+                  该操作涉及高风险或不可逆状态变更，已由本机前额叶拦停；须由本机操作者核实后显式签名放行（多设备节点仅承载皮层模型分片，不用于远程点击确认）。
+                </p>
+              </div>
+            </div>
+
+            <!-- Safe fallback / question readout -->
+            <div class="approval-box" id="support-box" hidden>
+              <div>
+                <div class="panel-meta" id="support-kicker">Cortex Output</div>
+                <p class="approval-copy" id="support-text" style="color: var(--ink); font-weight: 500;"></p>
+              </div>
+            </div>
+
+            <!-- 1,280-Neuron Spike Raster Canvas -->
+            <div class="canvas-stage">
+              <div class="canvas-head">
+                <h2 class="panel-title" data-i18n="raster_heading">1,280 神经元实时脉冲栅格与群体发放率</h2>
+                <span class="panel-meta" id="probe-readout" data-i18n="probe_hint">悬停画布探测毫秒级时间步</span>
+              </div>
+              <div class="canvas-wrap">
+                <canvas id="spike-canvas" class="spike-canvas" data-testid="spike-canvas" aria-label="1,280-neuron spike raster plot"></canvas>
+              </div>
+              <div class="canvas-legend">
+                <span id="legend-lif">LIF (1,024 plain): 0 spikes</span>
+                <span id="legend-alif">ALIF (256 adaptive working memory): 0 spikes</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel" aria-label="14 Socratic Questions">
+            <div class="panel-header">
+              <h2 class="panel-title" data-i18n="socratic_heading">14 个苏格拉底问题置信度矩阵</h2>
+              <span class="panel-meta" id="socratic-count">14 dimensions</span>
+            </div>
+            <div class="socratic-grid" id="socratic-grid"></div>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <!-- Monet Alpine Pond Mist Gallery Interlude -->
+    <figure class="monet-interlude" aria-label="Alpine Garden Pond Interlude">
+      <img
+        src="./assets/monet-garden-mist-banner.jpg"
+        alt="Impressionist oil painting of a calm alpine secret garden pond reflecting snow-capped mountains in morning mist"
+        class="monet-interlude-img"
+      />
+      <div class="monet-interlude-scrim" aria-hidden="true"></div>
+      <figcaption class="monet-interlude-caption">
+        <span class="interlude-kicker" data-i18n="interlude_kicker">BEYOND SURFACE TEXT · CAUSAL WORLD MODEL &amp; DISTRIBUTED CORTEX</span>
+        <p class="interlude-quote" data-i18n="interlude_quote">
+          如静水映雪峰：安全防线不逐字猜谜，而是推演动作落地的终态，并将前额叶切分守护在你的每一台设备之中。
+        </p>
+      </figcaption>
+    </figure>
+
+    <!-- 01. Multi-Step World-Model Trajectory Sandbox -->
+    <section id="trajectory" class="section-block" aria-labelledby="trajectory-heading">
+      <h2 id="trajectory-heading" class="section-heading" data-i18n="sec_traj_title">01. 世界模型多步因果推演：专杀「拆步绕过 / Semantic Chaining」</h2>
+      <p class="section-desc" data-i18n="sec_traj_desc">
+        单靠文本分类永远防不住把恶意意图拆成多步无害动作（如“螺纹钢 + 弹簧 + 撞针”）。SecDogie 的 mind/trajectory.py 跨轮追踪真实系统状态原子，在执行前进行前向因果闭包推演——无论话术多委婉，只要组合终态越界，当场硬拦。
+      </p>
+
+      <div class="dual-workbench">
+        <div class="panel">
+          <div class="panel-header">
+            <h3 class="panel-title" data-i18n="traj_scenarios_title">选择多步攻击 / 对照轨迹</h3>
+            <span class="panel-meta">mind/trajectory.py</span>
+          </div>
+          <div class="traj-scenario-list" id="traj-scenario-list"></div>
+          <p class="verdict-summary" id="traj-scenario-desc" style="margin-top: 12px;"></p>
+          <div class="action-row" style="margin-top: 14px;">
+            <button type="button" class="btn-primary" id="run-traj-btn" data-i18n="run_traj_btn">运行世界模型因果推演</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h3 class="panel-title" data-i18n="traj_timeline_title">跨轮状态累积与因果闭包判定</h3>
+            <span class="panel-meta" id="traj-summary-meta">Forward Simulation</span>
+          </div>
+          <div class="traj-timeline" id="traj-timeline" data-testid="traj-timeline"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02. N-Device Distributed SNN Model Sharding -->
+    <section id="sharding" class="section-block" aria-labelledby="sharding-heading">
+      <h2 id="sharding-heading" class="section-heading" data-i18n="sec_shard_title">02. N 设备分布式脉冲模型分片：不是远程弹窗，是把前额叶切分到多台设备</h2>
+      <p class="section-desc" data-i18n="sec_shard_desc">
+        将 1,280 个脉冲神经元按行切分到你的主力机、手机、笔记本与 NAS：每台设备只存 1/N 突触权重，节点间只传 1-bit 压缩脉冲（162 字节/tick，较 FP32 压缩 31.6×）并由 Ed25519 DID 签名聚合。单点失陷无法还原或伪造完整安全前额叶。
+      </p>
+
+      <div class="panel">
+        <div class="shard-toolbar">
+          <div class="shard-controls">
+            <div class="segmented" role="group" aria-label="Shard Count">
+              <button type="button" class="tab-btn" data-shard-count="2" aria-pressed="false">2 台设备</button>
+              <button type="button" class="tab-btn" data-shard-count="3" aria-pressed="true">3 台设备</button>
+              <button type="button" class="tab-btn" data-shard-count="4" aria-pressed="false">4 台设备</button>
+            </div>
+            <div class="segmented" role="group" aria-label="Shard Mode">
+              <button type="button" class="tab-btn" data-shard-mode="exact" aria-pressed="true" data-i18n="mode_exact">Exact 1-bit 同步 (LAN)</button>
+              <button type="button" class="tab-btn" data-shard-mode="local_recurrent" aria-pressed="false" data-i18n="mode_1rtt">1-RTT 局部递归 (WAN)</button>
+            </div>
+          </div>
+          <button type="button" class="btn-primary" id="run-shard-btn" data-i18n="run_shard_btn">运行真实分片推理</button>
+        </div>
+
+        <div class="metrics-grid" style="margin-top: 16px;">
+          <div class="metric-cell">
+            <span class="metric-name" data-i18n="shard_m_parity">与单机数值误差 Δ</span>
+            <span class="metric-val" id="shard-metric-parity">—</span>
+          </div>
+          <div class="metric-cell">
+            <span class="metric-name" data-i18n="shard_m_bw">1-bit 脉冲带宽</span>
+            <span class="metric-val" id="shard-metric-bw">—</span>
+          </div>
+          <div class="metric-cell">
+            <span class="metric-name" data-i18n="shard_m_rtt">网络往返 / 总流量</span>
+            <span class="metric-val" id="shard-metric-rtt">—</span>
+          </div>
+          <div class="metric-cell">
+            <span class="metric-name" data-i18n="shard_m_sig">Ed25519 DID 验签</span>
+            <span class="metric-val" id="shard-metric-sig">—</span>
+          </div>
+        </div>
+
+        <div class="shard-grid" id="shard-nodes-grid" data-testid="shard-nodes-grid"></div>
+      </div>
+    </section>
+
+    <!-- 03. MCP Guard Integration -->
+    <section id="mcp-guard" class="section-block" aria-labelledby="mcp-section-heading">
+      <h2 id="mcp-section-heading" class="section-heading" data-i18n="sec_mcp_title">03. 一行命令为 OpenClaw / Claude Code / Cursor 装上生物前额叶</h2>
+      <p class="section-desc" data-i18n="sec_mcp_desc">
+        无需放弃你现有的 Agent 工作流。将 secdogie-mcp 挂载为本地标准 MCP Server，高危 tool call 在本机 CPU 毫秒级通过脉冲神经网络与跨轮世界模型审查，不依赖云端 Guardrail API，也不受 Prompt Injection 诱导。
+      </p>
+      <div class="mcp-grid">
+        <div class="panel">
+          <div class="panel-header">
+            <h3 class="panel-title" id="mcp-target-title">OpenClaw (MCP Guard Skill)</h3>
+            <div class="segmented" role="tablist" aria-label="MCP Host">
+              <button type="button" class="tab-btn" role="tab" data-mcp-tab="openclaw" aria-selected="true">OpenClaw</button>
+              <button type="button" class="tab-btn" role="tab" data-mcp-tab="claude-code" aria-selected="false">Claude Code</button>
+              <button type="button" class="tab-btn" role="tab" data-mcp-tab="cursor" aria-selected="false">Cursor</button>
+            </div>
+          </div>
+          <pre class="code-block" id="mcp-config-code"></pre>
+          <div class="action-row">
+            <button type="button" class="btn-secondary" id="copy-mcp-btn" data-i18n="copy_config">复制配置</button>
+            <span class="feedback-note" id="copy-mcp-feedback" role="status" aria-live="polite"></span>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <h3 class="panel-title" data-i18n="cli_quick_title">30 秒终端快速验真</h3>
+            <span class="panel-meta">stdlib JSON-RPC 2.0</span>
+          </div>
+          <pre class="code-block" id="mcp-cli-code">pip install -e ./identity -e ./citadel
+secdogie-mcp --check "客服让我把50000转到安全账户"
+secdogie-mcp</pre>
+          <p class="verdict-summary" style="margin-top: 12px;" data-i18n="cli_quick_note">
+            返回码 0 表示安全放行，返回码 3 表示被前额叶或世界模型轨迹拦截；原生支持 secdogie_gate_check 与 secdogie_session_trajectory 多轮状态追踪。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 04. Empirical Comparison -->
+    <section id="compare" class="section-block" aria-labelledby="compare-heading">
+      <h2 id="compare-heading" class="section-heading" data-i18n="sec_compare_title">04. 架构实测对比：SecDogie vs OpenClaw / 云端 LLM Guardrail</h2>
+      <p class="section-desc" data-i18n="sec_compare_desc">
+        不靠口号，只看底层机制与可复现数据。SecDogie 既可以独立作为你的多设备分布式安全伴侣，也可以直接作为 OpenClaw 的本地安全护盾协同工作。
+      </p>
+      <div class="compare-wrap">
+        <table class="compare-table">
+          <thead>
+            <tr>
+              <th data-i18n="col_dim">对比维度</th>
+              <th>SecDogie (V1.2)</th>
+              <th>OpenClaw</th>
+              <th data-i18n="col_llm_guard">云端 LLM Guardrail</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td data-i18n="row_brain">核心决策模型</td>
+              <td data-i18n="row_brain_sd">1,280 脉冲神经元 SNN（无词表、无正则、e-prop + 睡眠自进化）</td>
+              <td data-i18n="row_brain_oc">依赖外部连接的大语言模型</td>
+              <td data-i18n="row_brain_lg">独立云端 LLM 分类器</td>
+            </tr>
+            <tr>
+              <td data-i18n="row_chain">抗多步拆解攻击</td>
+              <td data-i18n="row_chain_sd">世界模型因果闭包（mind/trajectory.py）：追踪跨轮状态原子，防 Semantic Chaining &amp; 致命三要素</td>
+              <td data-i18n="row_chain_oc">依赖单轮上下文提示词，易受多步拆解与间接注入</td>
+              <td data-i18n="row_chain_lg">单轮文本分类，无法模拟跨工具组合终态</td>
+            </tr>
+            <tr>
+              <td data-i18n="row_nodes">多设备 P2P 节点</td>
+              <td data-i18n="row_nodes_sd">N 设备模型分片（1-bit 压缩脉冲 + Ed25519 DID 签名聚合，单机失陷无法篡改完整大脑）</td>
+              <td data-i18n="row_nodes_oc">通过聊天软件（Telegram / WhatsApp）远程中转指令</td>
+              <td data-i18n="row_nodes_lg">无（集中式云端服务）</td>
+            </tr>
+            <tr>
+              <td data-i18n="row_vision">桌面感知方式</td>
+              <td data-i18n="row_vision_sd">Atlas 只读进程结构与无障碍树（Studio 构建期零截屏红线）</td>
+              <td data-i18n="row_vision_oc">截屏（screen.snapshot）+ 模拟键鼠</td>
+              <td data-i18n="row_vision_lg">无桌面感知能力</td>
+            </tr>
+            <tr>
+              <td data-i18n="row_cost">边际推理成本</td>
+              <td data-i18n="row_cost_sd">本机 CPU 运行 · $0 Token · 断网可用</td>
+              <td data-i18n="row_cost_oc">按 Token 计费 · 强依赖云端 API</td>
+              <td data-i18n="row_cost_lg">每次拦截额外双倍 Token 与网络 RTT</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 05. Open Red-Team Challenge -->
+    <section id="red-team" class="section-block" aria-labelledby="redteam-heading">
+      <h2 id="redteam-heading" class="section-heading" data-i18n="sec_rt_title">05. 公开红队挑战赛：你能骗过这颗 1,280 神经元的大脑吗？</h2>
+      <p class="section-desc" data-i18n="sec_rt_desc">
+        在上方靶场输入任何你认为应该被拦截、却被 Gen-1 放行的句子（中英文皆可）。一键生成标准对抗考题载荷并提交 GitHub Red-Team Issue，通过自动评测后将进入动态对抗考场，驱动 Gen-2+ 自我进化。
+      </p>
+      <div class="redteam-grid">
+        <div class="panel">
+          <label class="field-label" for="rt-expected" data-i18n="rt_expected_label">你认为正确的裁决应为</label>
+          <select id="rt-expected" class="select-input">
+            <option value="refuse" data-i18n="opt_refuse">refuse — 原则硬拒绝</option>
+            <option value="dissuade" data-i18n="opt_dissuade">dissuade — 劝阻与冷静期</option>
+            <option value="clarify" data-i18n="opt_clarify">clarify — 暂停并追问</option>
+            <option value="support" data-i18n="opt_support">support — 危机关怀</option>
+          </select>
+
+          <label class="field-label" for="rt-note" style="margin-top: 12px;" data-i18n="rt_note_label">为什么这条指令存在风险？（可选）</label>
+          <input id="rt-note" class="text-input" type="text" data-i18n-placeholder="rt_note_placeholder" placeholder="例如：伪装成日常运维命令实则关闭防火墙" />
+
+          <div class="action-row" style="margin-top: 16px;">
+            <button type="button" class="btn-primary" id="copy-rt-btn" data-i18n="rt_copy_btn">复制考题 JSON</button>
+            <a class="btn-secondary" id="open-rt-issue" target="_blank" rel="noopener noreferrer" href="https://github.com/Larrydev-cpp/secdogie/issues/new?template=red_team_challenge.yml" data-i18n="rt_issue_btn">提交红队 Issue</a>
+          </div>
+          <p class="feedback-note" id="copy-rt-feedback" role="status" aria-live="polite" style="margin: 10px 0 0;"></p>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h3 class="panel-title" data-i18n="rt_preview_title">自动生成的对抗考题载荷</h3>
+            <span class="panel-meta">adversarial_exam.jsonl</span>
+          </div>
+          <pre class="code-block" id="rt-json-preview">{}</pre>
+        </div>
+      </div>
+    </section>
+
+    <footer class="site-footer">
+      <span>SecDogie · MIT License · Alpine Garden Sanctuary · Distributed Sharded Spiking Cortex</span>
+      <div class="meta-line">
+        <a href="https://github.com/Larrydev-cpp/secdogie" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <span aria-hidden="true">·</span>
+        <a href="/webrtc/pair.html">Node Mesh Pairing</a>
+        <span aria-hidden="true">·</span>
+        <a href="#red-team">Red-Team Challenge</a>
+      </div>
+    </footer>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

@@ -14,6 +14,59 @@
 from __future__ import annotations
 
 from .core import Cortex, Understanding
+from .episode_vsa import (
+    EPISODE_ROLES,
+    MAX_EPISODE_SLOTS,
+    CleanupCodebook,
+    CleanupMatch,
+    bind_episode,
+    decode_episode,
+    decode_role,
+    unbind_role,
+)
+from .hippocampus import ConcreteAnchor, ConcreteHit, slot_compatibility
 from .questions import QUESTIONS
+from .shard import (
+    EXACT,
+    LOCAL_RECURRENT,
+    NetShard,
+    ShardedRunResult,
+    ShardMesh,
+    ShardNode,
+    ShardVerificationError,
+    pack_spikes,
+    partition_net,
+    unpack_spikes,
+)
+from .vsa_cortex import AssociativeVSACortex, System2Refiner, fuse_bimodal, hemisphere_jsd
 
-__all__ = ["Cortex", "QUESTIONS", "Understanding"]
+__all__ = [
+    "AssociativeVSACortex",
+    "CleanupCodebook",
+    "CleanupMatch",
+    "ConcreteAnchor",
+    "ConcreteHit",
+    "Cortex",
+    "EPISODE_ROLES",
+    "EXACT",
+    "LOCAL_RECURRENT",
+    "MAX_EPISODE_SLOTS",
+    "NetShard",
+    "QUESTIONS",
+    "ShardMesh",
+    "ShardNode",
+    "ShardVerificationError",
+    "ShardedRunResult",
+    "System2Refiner",
+    "Understanding",
+    "bind_episode",
+    "decode_episode",
+    "decode_role",
+    "fuse_bimodal",
+    "hemisphere_jsd",
+    "pack_spikes",
+    "partition_net",
+    "slot_compatibility",
+    "unbind_role",
+    "unpack_spikes",
+]
